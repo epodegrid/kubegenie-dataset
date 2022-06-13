@@ -1,0 +1,775 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-postgresql
+  labels:
+    app: postgresql
+    chart: postgresql-7.7.2
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  postgresql-password: dWFleWpienV5cQ==
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-redis
+  labels:
+    app: redis
+    chart: redis-10.2.0
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  redis-password: YThpdXcyM2l1aXp5
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-redis
+  labels:
+    app: redis
+    chart: redis-10.2.0
+    heritage: Helm
+    release: release-name
+data:
+  redis.conf: |-
+    # User-supplied configuration:
+    # Enable AOF https://redis.io/topics/persistence#append-only-file
+    appendonly yes
+    # Disable RDB persistence, AOF persistence already enabled.
+    save ""
+  master.conf: |-
+    dir /data
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+  replica.conf: |-
+    dir /data
+    slave-read-only yes
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-redis-health
+  labels:
+    app: redis
+    chart: redis-10.2.0
+    heritage: Helm
+    release: release-name
+data:
+  ping_readiness_local.sh: |-
+    response=$(
+      timeout -s 9 $1 \
+      redis-cli \
+        -a $REDIS_PASSWORD --no-auth-warning \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_local.sh: |-
+    response=$(
+      timeout -s 9 $1 \
+      redis-cli \
+        -a $REDIS_PASSWORD --no-auth-warning \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$response" != "PONG" ] && [ "$response" != "LOADING Redis is loading the dataset in memory" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_master.sh: |-
+    response=$(
+      timeout -s 9 $1 \
+      redis-cli \
+        -a $REDIS_MASTER_PASSWORD --no-auth-warning \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_master.sh: |-
+    response=$(
+      timeout -s 9 $1 \
+      redis-cli \
+        -a $REDIS_MASTER_PASSWORD --no-auth-warning \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$response" != "PONG" ] && [ "$response" != "LOADING Redis is loading the dataset in memory" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_readiness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_readiness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+  ping_liveness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_liveness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_liveness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-postgresql-headless
+  labels:
+    app: postgresql
+    chart: postgresql-7.7.2
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: postgresql
+  selector:
+    app: postgresql
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-postgresql
+  labels:
+    app: postgresql
+    chart: postgresql-7.7.2
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: postgresql
+  selector:
+    app: postgresql
+    release: release-name
+    role: master
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-redis-headless
+  labels:
+    app: redis
+    chart: redis-10.2.0
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+  selector:
+    app: redis
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-redis-master
+  labels:
+    app: redis
+    chart: redis-10.2.0
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+  selector:
+    app: redis
+    release: release-name
+    role: master
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: judge0
+  namespace: KEwUS1e2J
+  labels:
+    app: judge0-service
+    kubernetes.io/name: judge0
+    dns: ""
+    chart: judge0-1.0.12
+    release: release-name
+  annotations: null
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  selector:
+    app: judge0
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: default-judge0-api
+  namespace: KEwUS1e2J
+  labels:
+    app: judge0
+    chart: judge0-1.0.12
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: judge0
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: judge0
+        chart: judge0-1.0.12
+        release: release-name
+    spec:
+      restartPolicy: Always
+      initContainers:
+        - name: init-wait-for-dependencies
+          image: docker.io/saikatharryc/wait_for_dep:latest
+          command:
+            - /docker-entrypoint.sh
+          args:
+            - wait_for
+            - redis:REDIS_HOST
+            - postgressql:POSTGRES_HOST
+          env:
+            - name: REDIS_HOST
+              value: release-name-redis-master
+            - name: POSTGRES_HOST
+              value: release-name-postgresql
+      containers:
+        - name: judge0-api
+          image: docker.io/judge0/api:1.5.0
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http-port
+              containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /system_info
+              port: http-port
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 3
+          env:
+            - name: RAILS_ENV
+              value: null
+            - name: RAILS_MAX_THREADS
+              value: "10"
+            - name: SECRET_KEY_BASE
+              value: null
+            - name: ALLOW_ORIGIN
+              value: null
+            - name: AUTHN_HEADER
+              value: null
+            - name: AUTHN_TOKEN
+              value: null
+            - name: AUTHZ_HEADER
+              value: null
+            - name: AUTHZ_TOKEN
+              value: null
+            - name: INTERVAL
+              value: null
+            - name: COUNT
+              value: "1"
+            - name: REDIS_HOST
+              value: release-name-redis-master
+            - name: REDIS_PASSWORD
+              value: a8iuw23iuizy
+            - name: REDIS_PORT
+              value: "6379"
+            - name: POSTGRES_HOST
+              value: release-name-postgresql
+            - name: POSTGRES_DB
+              value: judge
+            - name: POSTGRES_USER
+              value: judgemaster
+            - name: POSTGRES_PASSWORD
+              value: uaeyjbzuyq
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: ENABLE_WAIT_RESULT
+              value: null
+            - name: CPU_TIME_LIMIT
+              value: null
+            - name: MAX_CPU_TIME_LIMIT
+              value: null
+            - name: CPU_EXTRA_TIME
+              value: null
+            - name: MAX_CPU_EXTRA_TIME
+              value: null
+            - name: WALL_TIME_LIMIT
+              value: null
+            - name: MAX_WALL_TIME_LIMIT
+              value: null
+            - name: MEMORY_LIMIT
+              value: null
+            - name: MAX_MEMORY_LIMIT
+              value: null
+            - name: MAX_STACK_LIMIT
+              value: null
+            - name: MAX_PROCESSES_AND_OR_THREADS
+              value: null
+            - name: MAX_MAX_PROCESSES_AND_OR_THREADS
+              value: null
+            - name: ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT
+              value: null
+            - name: ALLOW_ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT
+              value: null
+            - name: ENABLE_PER_PROCESS_AND_THREAD_MEMORY_LIMIT
+              value: null
+            - name: ALLOW_ENABLE_PER_PROCESS_AND_THREAD_MEMORY_LIMIT
+              value: null
+            - name: MAX_FILE_SIZE
+              value: null
+            - name: MAX_MAX_FILE_SIZE
+              value: null
+            - name: NUMBER_OF_RUNS
+              value: null
+            - name: MAX_NUMBER_OF_RUNS
+              value: null
+            - name: MAX_QUEUE_SIZE
+              value: null
+            - name: DISALLOW_IP
+              value: null
+            - name: ALLOW_IP
+              value: null
+            - name: DISALLOW_ORIGIN
+              value: null
+            - name: MAINTENANCE_MESSAGE
+              value: null
+            - name: MAINTENANCE_MODE
+              value: "false"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: default-judge0-worker
+  namespace: KEwUS1e2J
+  labels:
+    app: judge0
+    chart: judge0-1.0.12
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: judge0
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: judge0
+        chart: judge0-1.0.12
+        release: release-name
+    spec:
+      restartPolicy: Always
+      initContainers:
+        - name: init-wait-for-dependencies
+          image: docker.io/saikatharryc/wait_for_dep:latest
+          command:
+            - /docker-entrypoint.sh
+          args:
+            - wait_for
+            - redis:REDIS_HOST
+            - postgressql:POSTGRES_HOST
+          env:
+            - name: REDIS_HOST
+              value: release-name-redis-master
+            - name: POSTGRES_HOST
+              value: release-name-postgresql
+      containers:
+        - name: judge0-worker
+          image: docker.io/judge0/api:1.5.0
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          imagePullPolicy: IfNotPresent
+          args:
+            - bash
+            - -c
+            - while true; do rails resque:work; done
+          env:
+            - name: RAILS_ENV
+              value: null
+            - name: RAILS_MAX_THREADS
+              value: "10"
+            - name: SECRET_KEY_BASE
+              value: null
+            - name: ALLOW_ORIGIN
+              value: null
+            - name: AUTHN_HEADER
+              value: null
+            - name: AUTHN_TOKEN
+              value: null
+            - name: AUTHZ_HEADER
+              value: null
+            - name: AUTHZ_TOKEN
+              value: null
+            - name: INTERVAL
+              value: null
+            - name: COUNT
+              value: "1"
+            - name: REDIS_HOST
+              value: release-name-redis-master
+            - name: REDIS_PASSWORD
+              value: a8iuw23iuizy
+            - name: REDIS_PORT
+              value: "6379"
+            - name: POSTGRES_HOST
+              value: release-name-postgresql
+            - name: POSTGRES_DB
+              value: judge
+            - name: POSTGRES_USER
+              value: judgemaster
+            - name: POSTGRES_PASSWORD
+              value: uaeyjbzuyq
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: ENABLE_WAIT_RESULT
+              value: null
+            - name: CPU_TIME_LIMIT
+              value: null
+            - name: MAX_CPU_TIME_LIMIT
+              value: null
+            - name: CPU_EXTRA_TIME
+              value: null
+            - name: MAX_CPU_EXTRA_TIME
+              value: null
+            - name: WALL_TIME_LIMIT
+              value: null
+            - name: MAX_WALL_TIME_LIMIT
+              value: null
+            - name: MEMORY_LIMIT
+              value: null
+            - name: MAX_MEMORY_LIMIT
+              value: null
+            - name: MAX_STACK_LIMIT
+              value: null
+            - name: MAX_PROCESSES_AND_OR_THREADS
+              value: null
+            - name: MAX_MAX_PROCESSES_AND_OR_THREADS
+              value: null
+            - name: ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT
+              value: null
+            - name: ALLOW_ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT
+              value: null
+            - name: ENABLE_PER_PROCESS_AND_THREAD_MEMORY_LIMIT
+              value: null
+            - name: ALLOW_ENABLE_PER_PROCESS_AND_THREAD_MEMORY_LIMIT
+              value: null
+            - name: MAX_FILE_SIZE
+              value: null
+            - name: MAX_MAX_FILE_SIZE
+              value: null
+            - name: NUMBER_OF_RUNS
+              value: null
+            - name: MAX_NUMBER_OF_RUNS
+              value: null
+            - name: MAX_QUEUE_SIZE
+              value: null
+            - name: DISALLOW_IP
+              value: null
+            - name: ALLOW_IP
+              value: null
+            - name: DISALLOW_ORIGIN
+              value: null
+            - name: MAINTENANCE_MESSAGE
+              value: null
+            - name: MAINTENANCE_MODE
+              value: "false"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-postgresql
+  labels:
+    app: postgresql
+    chart: postgresql-7.7.2
+    release: release-name
+    heritage: Helm
+spec:
+  serviceName: release-name-postgresql-headless
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: postgresql
+      release: release-name
+      role: master
+  template:
+    metadata:
+      name: release-name-postgresql
+      labels:
+        app: postgresql
+        chart: postgresql-7.7.2
+        release: release-name
+        heritage: Helm
+        role: master
+    spec:
+      securityContext:
+        fsGroup: 1001
+      initContainers:
+        - name: init-chmod-data
+          image: docker.io/bitnami/minideb:stretch
+          imagePullPolicy: Always
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+          command:
+            - /bin/sh
+            - -c
+            - |
+              mkdir -p /bitnami/postgresql/data
+              chmod 700 /bitnami/postgresql/data
+              find /bitnami/postgresql -mindepth 0 -maxdepth 1 -not -name ".snapshot" -not -name "lost+found" | \
+                xargs chown -R 1001:1001
+              chmod -R 777 /dev/shm
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/postgresql
+              subPath: null
+            - name: dshm
+              mountPath: /dev/shm
+      containers:
+        - name: release-name-postgresql
+          image: docker.io/bitnami/postgresql:9.6
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            seccompProfile:
+              type: RuntimeDefault
+          securityContext:
+            runAsUser: 10189
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: POSTGRESQL_PORT_NUMBER
+              value: "5432"
+            - name: POSTGRESQL_VOLUME_DIR
+              value: /bitnami/postgresql
+            - name: PGDATA
+              value: /bitnami/postgresql/data
+            - name: POSTGRES_USER
+              value: judgemaster
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql
+                  key: postgresql-password
+            - name: POSTGRES_DB
+              value: judge
+            - name: POSTGRESQL_ENABLE_LDAP
+              value: "no"
+          ports:
+            - name: postgresql
+              containerPort: 5432
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - exec pg_isready -U "judgemaster" -d "judge" -h 127.0.0.1 -p 5432
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - -e
+                - |
+                  pg_isready -U "judgemaster" -d "judge" -h 127.0.0.1 -p 5432
+                  [ -f /opt/bitnami/postgresql/tmp/.initialized ]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+        - name: data
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-redis-master
+  labels:
+    app: redis
+    chart: redis-10.2.0
+    release: release-name
+    heritage: Helm
+spec:
+  selector:
+    matchLabels:
+      app: redis
+      release: release-name
+      role: master
+  serviceName: release-name-redis-headless
+  template:
+    metadata:
+      labels:
+        app: redis
+        chart: redis-10.2.0
+        release: release-name
+        role: master
+      annotations:
+        checksum/health: b1fa16c184b700f19f1d3f2673a0cade657fe2f737be922912aedc92ef89442c
+        checksum/configmap: fbe87e426cf467d9e9e86db0bc116d79247682ca8dd3ffc9f235f23172ce6d9d
+        checksum/secret: cdcbe38a413f9c80027634bba125efa38c4190870a2fd39f3cede33a88cf4ac9
+    spec:
+      securityContext:
+        fsGroup: 1001
+      serviceAccountName: default
+      containers:
+        - name: release-name-redis
+          image: docker.io/bitnami/redis:5.0.7-debian-9-r0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 10131
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          command:
+            - /bin/bash
+            - -c
+            - |
+              if [[ -n $REDIS_PASSWORD_FILE ]]; then
+                password_aux=`cat ${REDIS_PASSWORD_FILE}`
+                export REDIS_PASSWORD=$password_aux
+              fi
+              if [[ ! -f /opt/bitnami/redis/etc/master.conf ]];then
+                cp /opt/bitnami/redis/mounted-etc/master.conf /opt/bitnami/redis/etc/master.conf
+              fi
+              if [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then
+                cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf
+              fi
+              ARGS=("--port" "${REDIS_PORT}")
+              ARGS+=("--requirepass" "${REDIS_PASSWORD}")
+              ARGS+=("--masterauth" "${REDIS_PASSWORD}")
+              ARGS+=("--include" "/opt/bitnami/redis/etc/redis.conf")
+              ARGS+=("--include" "/opt/bitnami/redis/etc/master.conf")
+              /run.sh ${ARGS[@]}
+          env:
+            - name: REDIS_REPLICATION_MODE
+              value: master
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+            - name: REDIS_PORT
+              value: "6379"
+          ports:
+            - name: redis
+              containerPort: 6379
+          livenessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_liveness_local.sh 5
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_readiness_local.sh 5
+          resources: null
+          volumeMounts:
+            - name: health
+              mountPath: /health
+            - name: redis-data
+              mountPath: /data
+              subPath: null
+            - name: config
+              mountPath: /opt/bitnami/redis/mounted-etc
+            - name: redis-tmp-conf
+              mountPath: /opt/bitnami/redis/etc/
+      volumes:
+        - name: health
+          configMap:
+            name: release-name-redis-health
+            defaultMode: 493
+        - name: config
+          configMap:
+            name: release-name-redis
+        - name: redis-data
+          emptyDir: {}
+        - name: redis-tmp-conf
+          emptyDir: {}
+  updateStrategy:
+    type: RollingUpdate

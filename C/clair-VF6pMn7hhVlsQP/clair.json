@@ -1,0 +1,133 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-clair",
+      "labels": {
+        "chart": "clair-0.1.5"
+      }
+    },
+    "data": {
+      "config.yaml": "clair:\n  database:\n    # Database driver\n    type: pgsql\n    options:\n      # PostgreSQL Connection string\n      # https://www.postgresql.org/docs/current/static/libpq-connect.html#LIBPQ-CONNSTRING\n      # This should be done using secrets or Vault, but for now this will also work\n      source: \"postgres://postgres:clair@release-name-postgresql:5432/postgres?sslmode=disable\"\n      \n\n      # Number of elements kept in the cache\n      # Values unlikely to change (e.g. namespaces) are cached in order to save prevent needless roundtrips to the database.\n      cachesize: 16384\n\n      # 32-bit URL-safe base64 key used to encrypt pagination tokens\n      # If one is not provided, it will be generated.\n      # Multiple clair instances in the same cluster need the same value.\n      paginationkey: \"XxoPtCUzrUv4JV5dS+yQ+MdW7yLEJnRMwigVY/bpgtQ=\"\n  api:\n    # v3 grpc/RESTful API server address\n    addr: \"0.0.0.0:6060\"\n\n    # Health server address\n    # This is an unencrypted endpoint useful for load balancers to check to healthiness of the clair server.\n    healthaddr: \"0.0.0.0:6061\"\n\n    # Deadline before an API request will respond with a 503\n    timeout: 900s\n\n    # Optional PKI configuration\n    # If you want to easily generate client certificates and CAs, try the following projects:\n    # https://github.com/coreos/etcd-ca\n    # https://github.com/cloudflare/cfssl\n    servername:\n    cafile:\n    keyfile:\n    certfile:\n\n  worker:\n    namespace_detectors:\n    - os-release\n    - lsb-release\n    - apt-sources\n    - alpine-release\n    - redhat-release\n\n    feature_listers:\n    - apk\n    - dpkg\n    - rpm\n\n  updater:\n    # Frequency the database will be updated with vulnerabilities from the default data sources\n    # The value 0 disables the updater entirely.\n    interval: \"2h\"\n    enabledupdaters:\n    - debian\n    - ubuntu\n    - rhel\n    - oracle\n    - alpine\n\n  notifier:\n    # Number of attempts before the notification is marked as failed to be sent\n    attempts: 3\n\n    # Duration before a failed notification is retried\n    renotifyinterval: 2h\n\n    http:\n      # Optional endpoint that will receive notifications via POST requests\n      endpoint: \"https://example.com/notify/me\"\n\n      # Optional PKI configuration\n      # If you want to easily generate client certificates and CAs, try the following projects:\n      # https://github.com/cloudflare/cfssl\n      # https://github.com/coreos/etcd-ca\n      servername:\n      cafile:\n      keyfile:\n      certfile:\n\n      # Optional HTTP Proxy: must be a valid URL (including the scheme).\n      proxy:\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-clair",
+      "labels": {
+        "chart": "clair-0.1.5"
+      }
+    },
+    "spec": {
+      "type": "LoadBalancer",
+      "ports": [
+        {
+          "name": "clair-api",
+          "port": 6060,
+          "targetPort": 6060,
+          "protocol": "TCP"
+        },
+        {
+          "name": "clair-health",
+          "port": 6061,
+          "targetPort": 6061,
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app": "release-name-clair"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-clair",
+      "labels": {
+        "hertiage": "Helm",
+        "release": "release-name",
+        "chart": "clair-0.1.5",
+        "component": "release-name"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "release-name-clair"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "release-name-clair"
+          }
+        },
+        "spec": {
+          "volumes": [
+            {
+              "name": "clair-config",
+              "configMap": {
+                "name": "release-name-clair"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "clair",
+              "image": "quay.io/coreos/clair:v2.0.9",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "-log-level=info"
+              ],
+              "ports": [
+                {
+                  "name": "clair-api",
+                  "containerPort": 6060,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "clair-health",
+                  "containerPort": 6061,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": 6061
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": 6061
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "clair-config",
+                  "mountPath": "/etc/clair"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "200m",
+                  "memory": "1500Mi"
+                },
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "500Mi"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,263 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-postgresql
+  labels:
+    app: postgresql
+    chart: postgresql-8.6.4
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  postgresql-password: eHdpa2k=
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-xwiki
+  labels:
+    app: release-name-xwiki
+    chart: xwiki-0.2.0
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  DB_PASSWORD: eHdpa2k=
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-xwiki
+  labels:
+    app: release-name-xwiki
+    chart: xwiki-0.2.0
+    release: release-name
+    heritage: Helm
+data:
+  DB_USER: xwiki
+  DB_HOST: release-name-postgresql
+  DB_DATABASE: xwiki
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-postgresql-headless
+  labels:
+    app: postgresql
+    chart: postgresql-8.6.4
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    app: postgresql
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-postgresql
+  labels:
+    app: postgresql
+    chart: postgresql-8.6.4
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    app: postgresql
+    release: release-name
+    role: master
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-xwiki
+  labels:
+    chart: xwiki-0.2.0
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  sessionAffinity: ClientIP
+  selector:
+    app: release-name-xwiki
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-xwiki
+  labels:
+    app: xwiki-12.9.0-lts-postgres-tomcat
+    version: 12.9.0
+    chart: xwiki-0.2.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: release-name-xwiki
+  template:
+    metadata:
+      labels:
+        app: release-name-xwiki
+    spec:
+      containers:
+        - name: xwiki
+          image: xwiki:lts-postgres-tomcat
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-xwiki
+                  key: DB_PASSWORD
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-xwiki
+                  key: DB_HOST
+            - name: DB_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-xwiki
+                  key: DB_USER
+            - name: DB_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-xwiki
+                  key: DB_DATABASE
+          resources:
+            limits:
+              cpu: 350m
+              memory: 1000Mi
+            requests:
+              cpu: 150m
+              memory: 250Mi
+          volumeMounts:
+            - name: xwiki-data
+              mountPath: /opt/solr/server/solr
+      volumes:
+        - name: xwiki-data
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-postgresql
+  labels:
+    app: postgresql
+    chart: postgresql-8.6.4
+    release: release-name
+    heritage: Helm
+spec:
+  serviceName: release-name-postgresql-headless
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: postgresql
+      release: release-name
+      role: master
+  template:
+    metadata:
+      name: release-name-postgresql
+      labels:
+        app: postgresql
+        chart: postgresql-8.6.4
+        release: release-name
+        heritage: Helm
+        role: master
+    spec:
+      securityContext:
+        fsGroup: 1001
+      initContainers: null
+      containers:
+        - name: release-name-postgresql
+          image: docker.io/bitnami/postgresql:11.3.0-debian-9-r38
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            seccompProfile:
+              type: RuntimeDefault
+          securityContext:
+            runAsUser: 10922
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: POSTGRESQL_PORT_NUMBER
+              value: "5432"
+            - name: POSTGRESQL_VOLUME_DIR
+              value: /bitnami/postgresql
+            - name: PGDATA
+              value: /bitnami/postgresql/data
+            - name: POSTGRES_USER
+              value: xwiki
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql
+                  key: postgresql-password
+            - name: POSTGRES_DB
+              value: xwiki
+            - name: POSTGRESQL_ENABLE_LDAP
+              value: "no"
+          ports:
+            - name: tcp-postgresql
+              containerPort: 5432
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - exec pg_isready -U "xwiki" -d "xwiki" -h 127.0.0.1 -p 5432
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - -e
+                - |
+                  exec pg_isready -U "xwiki" -d "xwiki" -h 127.0.0.1 -p 5432
+                  [ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+        - name: data
+          emptyDir: {}

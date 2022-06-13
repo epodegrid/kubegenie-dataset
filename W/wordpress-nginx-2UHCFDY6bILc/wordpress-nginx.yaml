@@ -1,0 +1,627 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-mariadb
+  namespace: 2UHCFDY6bILc
+  labels:
+    app.kubernetes.io/name: mariadb
+    helm.sh/chart: mariadb-10.5.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-mariadb
+  namespace: 2UHCFDY6bILc
+  labels:
+    app.kubernetes.io/name: mariadb
+    helm.sh/chart: mariadb-10.5.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+  mariadb-root-password: MjBCZlc3cFpZTw==
+  mariadb-password: c2M3VWVjclVqYQ==
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-wordpress-nginx
+  namespace: 2UHCFDY6bILc
+  labels:
+    app.kubernetes.io/name: wordpress-nginx
+    helm.sh/chart: wordpress-nginx-3.0.15
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+  wordpress-password: MXc1Q2MzRU13Wg==
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-mariadb
+  namespace: 2UHCFDY6bILc
+  labels:
+    app.kubernetes.io/name: mariadb
+    helm.sh/chart: mariadb-10.5.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+data:
+  my.cnf: |-
+    [mysqld]
+    skip-name-resolve
+    explicit_defaults_for_timestamp
+    basedir=/opt/bitnami/mariadb
+    plugin_dir=/opt/bitnami/mariadb/plugin
+    port=3306
+    socket=/opt/bitnami/mariadb/tmp/mysql.sock
+    tmpdir=/opt/bitnami/mariadb/tmp
+    max_allowed_packet=16M
+    bind-address=::
+    pid-file=/opt/bitnami/mariadb/tmp/mysqld.pid
+    log-error=/opt/bitnami/mariadb/logs/mysqld.log
+    character-set-server=UTF8
+    collation-server=utf8_general_ci
+    slow_query_log=0
+    slow_query_log_file=/opt/bitnami/mariadb/logs/mysqld.log
+    long_query_time=10.0
+
+    [client]
+    port=3306
+    socket=/opt/bitnami/mariadb/tmp/mysql.sock
+    default-character-set=UTF8
+    plugin_dir=/opt/bitnami/mariadb/plugin
+
+    [manager]
+    port=3306
+    socket=/opt/bitnami/mariadb/tmp/mysql.sock
+    pid-file=/opt/bitnami/mariadb/tmp/mysqld.pid
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-wordpress-nginx-postinit
+  namespace: 2UHCFDY6bILc
+  labels:
+    app.kubernetes.io/name: wordpress-nginx
+    helm.sh/chart: wordpress-nginx-3.0.15
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  00-configure-w3-total-cache.sh: |-
+    #!/bin/bash
+
+    # Add permissions to edit wp-config.php
+    chmod +w /bitnami/wordpress/wp-config.php
+
+    # Activate W3 Total Cache pairs
+    wp plugin activate w3-total-cache
+    wp total-cache fix_environment
+
+    # Choose 'Memcached' as database and object cache method
+    wp total-cache option set dbcache.engine memcached --type=string
+    wp total-cache option set objectcache.engine memcached --type=string
+    wp total-cache flush all
+    wp total-cache option set dbcache.memcached.servers release-name-memcached.default.svc.cluster.local:11211 --type=string
+    wp total-cache option set dbcache.enabled true --type=boolean
+    wp total-cache option set objectcache.memcached.servers release-name-memcached.default.svc.cluster.local:11211 --type=string
+    wp total-cache option set objectcache.enabled true --type=boolean
+    wp total-cache flush all
+
+    # Revoke permissions to edit wp-config.php
+    chmod a-w bitnami/wordpress/wp-config.php
+  enable-plugins.sh: |
+    #!/bin/bash
+    chmod +w /bitnami/wordpress/wp-config.php
+    wp plugin delete all-in-one-seo-pack
+    wp plugin delete amazon-polly
+    wp plugin delete google-analytics-for-wordpress
+    wp plugin delete wp-mail-smtp
+    wp plugin delete amp
+    wp theme delete twentytwenty
+    wp theme delete twentytwentyone
+    wp plugin auto-updates enable --all
+    wp plugin activate --all
+    wp plugin update --all
+    chmod -w bitnami/wordpress/wp-config.php
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-wordpress-nginx
+  namespace: default
+  labels:
+    app.kubernetes.io/name: wordpress-nginx
+    helm.sh/chart: wordpress-nginx-3.0.15
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-mariadb
+  namespace: 2UHCFDY6bILc
+  labels:
+    app.kubernetes.io/name: mariadb
+    helm.sh/chart: mariadb-10.5.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+  annotations: null
+spec:
+  type: ClusterIP
+  sessionAffinity: None
+  ports:
+    - name: mysql
+      port: 3306
+      protocol: TCP
+      targetPort: mysql
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: mariadb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: primary
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-memcached
+  namespace: 2UHCFDY6bILc
+  labels:
+    app.kubernetes.io/name: memcached
+    helm.sh/chart: memcached-6.1.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  type: ClusterIP
+  sessionAffinity: None
+  ports:
+    - name: memcache
+      port: 11211
+      targetPort: memcache
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: memcached
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-wordpress-nginx
+  namespace: 2UHCFDY6bILc
+  labels:
+    app.kubernetes.io/name: wordpress-nginx
+    helm.sh/chart: wordpress-nginx-3.0.15
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: LoadBalancer
+  sessionAffinity: None
+  externalTrafficPolicy: Cluster
+  ports:
+    - name: http
+      port: 8080
+      protocol: TCP
+      targetPort: http
+    - name: https
+      port: 8443
+      protocol: TCP
+      targetPort: https
+  selector:
+    app.kubernetes.io/name: wordpress-nginx
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-memcached
+  namespace: 2UHCFDY6bILc
+  labels:
+    app.kubernetes.io/name: memcached
+    helm.sh/chart: memcached-6.1.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: memcached
+      app.kubernetes.io/instance: release-name
+  replicas: 1
+  strategy:
+    rollingUpdate: {}
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: memcached
+        helm.sh/chart: memcached-6.1.1
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+      annotations: null
+    spec:
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: memcached
+                    app.kubernetes.io/instance: release-name
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+      serviceAccountName: default
+      containers:
+        - name: memcached
+          image: docker.io/bitnami/memcached:1.6.15-debian-10-r50
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 11910
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+          ports:
+            - name: memcache
+              containerPort: 11211
+          livenessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+            tcpSocket:
+              port: memcache
+          readinessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 3
+            tcpSocket:
+              port: memcache
+          resources:
+            limits: {}
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-wordpress-nginx
+  namespace: 2UHCFDY6bILc
+  labels:
+    app.kubernetes.io/name: wordpress-nginx
+    helm.sh/chart: wordpress-nginx-3.0.15
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: wordpress-nginx
+      app.kubernetes.io/instance: release-name
+  strategy:
+    type: Recreate
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: wordpress-nginx
+        helm.sh/chart: wordpress-nginx-3.0.15
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      hostAliases:
+        - hostnames:
+            - status.localhost
+          ip: 127.0.0.1
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: wordpress-nginx
+                    app.kubernetes.io/instance: release-name
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+      serviceAccountName: default
+      containers:
+        - name: wordpress
+          image: quay.io/shesselink81/wordpress-nginx:v6.0.0.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10092
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: ALLOW_EMPTY_PASSWORD
+              value: "yes"
+            - name: MARIADB_HOST
+              value: release-name-mariadb
+            - name: MARIADB_PORT_NUMBER
+              value: "3306"
+            - name: WORDPRESS_DATABASE_NAME
+              value: bitnami_wordpress
+            - name: WORDPRESS_DATABASE_USER
+              value: bn_wordpress
+            - name: WORDPRESS_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-mariadb
+                  key: mariadb-password
+            - name: WORDPRESS_USERNAME
+              value: user
+            - name: WORDPRESS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-wordpress-nginx
+                  key: wordpress-password
+            - name: WORDPRESS_EMAIL
+              value: user@example.com
+            - name: WORDPRESS_FIRST_NAME
+              value: FirstName
+            - name: WORDPRESS_LAST_NAME
+              value: LastName
+            - name: WORDPRESS_HTACCESS_OVERRIDE_NONE
+              value: "no"
+            - name: WORDPRESS_ENABLE_HTACCESS_PERSISTENCE
+              value: "no"
+            - name: WORDPRESS_BLOG_NAME
+              value: User's Blog!
+            - name: WORDPRESS_SKIP_BOOTSTRAP
+              value: "no"
+            - name: WORDPRESS_TABLE_PREFIX
+              value: wp_
+            - name: WORDPRESS_SCHEME
+              value: https
+            - name: WORDPRESS_EXTRA_WP_CONFIG_CONTENT
+              value: |-
+                define( 'FORCE_SSL_ADMIN', false );
+                $_SERVER['HTTPS'] = 'on';
+            - name: WORDPRESS_AUTO_UPDATE_LEVEL
+              value: minor
+            - name: WORDPRESS_PLUGINS
+              value: none
+            - name: APACHE_HTTP_PORT_NUMBER
+              value: "8080"
+            - name: APACHE_HTTPS_PORT_NUMBER
+              value: "8443"
+          envFrom: null
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: https
+              containerPort: 8443
+          livenessProbe:
+            failureThreshold: 6
+            httpGet:
+              httpHeaders: []
+              path: /wp-admin/install.php
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 6
+            httpGet:
+              httpHeaders: []
+              path: /wp-login.php
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 250m
+              memory: 128Mi
+          volumeMounts:
+            - mountPath: /bitnami/wordpress
+              name: wordpress-data
+              subPath: wordpress
+            - mountPath: /docker-entrypoint-init.d
+              name: custom-postinit
+      volumes:
+        - name: custom-postinit
+          configMap:
+            name: release-name-wordpress-nginx-postinit
+            defaultMode: 493
+        - name: wordpress-data
+          persistentVolumeClaim:
+            claimName: release-name-wordpress-nginx
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-mariadb
+  namespace: 2UHCFDY6bILc
+  labels:
+    app.kubernetes.io/name: mariadb
+    helm.sh/chart: mariadb-10.5.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+spec:
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mariadb
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: primary
+  serviceName: release-name-mariadb
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        checksum/configuration: eb346bffa76b9777eeeb6150ebcc09286b68ecbf4ba105dc1407952ec1bcd93d
+      labels:
+        app.kubernetes.io/name: mariadb
+        helm.sh/chart: mariadb-10.5.1
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: primary
+    spec:
+      serviceAccountName: release-name-mariadb
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: mariadb
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: primary
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: mariadb
+          image: docker.io/bitnami/mariadb:10.5.15-debian-10-r62
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10400
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-mariadb
+                  key: mariadb-root-password
+            - name: MARIADB_USER
+              value: bn_wordpress
+            - name: MARIADB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-mariadb
+                  key: mariadb-password
+            - name: MARIADB_DATABASE
+              value: bitnami_wordpress
+          ports:
+            - name: mysql
+              containerPort: 3306
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - |
+                  password_aux="${MARIADB_ROOT_PASSWORD:-}"
+                  if [[ -f "${MARIADB_ROOT_PASSWORD_FILE:-}" ]]; then
+                      password_aux=$(cat "$MARIADB_ROOT_PASSWORD_FILE")
+                  fi
+                  mysqladmin status -uroot -p"${password_aux}"
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - |
+                  password_aux="${MARIADB_ROOT_PASSWORD:-}"
+                  if [[ -f "${MARIADB_ROOT_PASSWORD_FILE:-}" ]]; then
+                      password_aux=$(cat "$MARIADB_ROOT_PASSWORD_FILE")
+                  fi
+                  mysqladmin status -uroot -p"${password_aux}"
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/mariadb
+            - name: config
+              mountPath: /opt/bitnami/mariadb/conf/my.cnf
+              subPath: my.cnf
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-mariadb
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: mariadb
+          app.kubernetes.io/instance: release-name
+          app.kubernetes.io/component: primary
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi

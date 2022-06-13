@@ -1,0 +1,148 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-frontend-config
+data:
+  frontend_name: admin-portal-prod
+  users_backend_url_suffix: /api/users/
+  tasks_backend_url_suffix: /api/tasks/
+  app_frontend_version: 1.0.2
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: backend-service
+spec:
+  selector:
+    app: backend
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  annotations:
+    metallb.universe.tf/allow-shared-ip: key-to-share-10.7.158.149
+spec:
+  loadBalancerIP: 10.7.158.149
+  selector:
+    app: my-admin-frontend
+  type: LoadBalancer
+  ports:
+    - protocol: TCP
+      port: 8081
+      targetPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: json-server-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: node-server
+          image: soulou2019/node-server
+          imagePullPolicy: Always
+          resources:
+            limits:
+              memory: 128Mi
+              cpu: 500m
+          ports:
+            - containerPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-admin-portal-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: my-admin-frontend
+  template:
+    metadata:
+      labels:
+        app: my-admin-frontend
+    spec:
+      containers:
+        - name: my-admin-frontend
+          image: soulou2019/angular-nginx
+          imagePullPolicy: Always
+          env:
+            - name: USERS_BACKEND_URL_SUFFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-frontend-config
+                  key: users_backend_url_suffix
+            - name: TASKS_BACKEND_URL_SUFFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-frontend-config
+                  key: tasks_backend_url_suffix
+            - name: FRONTEND_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-frontend-config
+                  key: frontend_name
+            - name: APP_FRONTEND_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-frontend-config
+                  key: app_frontend_version
+          resources:
+            limits:
+              memory: 128Mi
+              cpu: 500m
+          ports:
+            - containerPort: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: admin-portal-api
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /api(/|$)(.*)
+            pathType: Prefix
+            backend:
+              service:
+                name: backend-service
+                port:
+                  number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: admin-portal-front
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-service
+                port:
+                  number: 80

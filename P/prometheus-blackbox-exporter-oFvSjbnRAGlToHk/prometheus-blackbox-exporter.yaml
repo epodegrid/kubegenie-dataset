@@ -1,0 +1,192 @@
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: release-name-prometheus-blackbox-exporter-psp
+  labels:
+    app.kubernetes.io/name: prometheus-blackbox-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: prometheus-blackbox-exporter-4.10.1
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  volumes:
+    - configMap
+    - secret
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  runAsUser:
+    rule: RunAsAny
+  seLinux:
+    rule: RunAsAny
+  supplementalGroups:
+    rule: MustRunAs
+    ranges:
+      - min: 1
+        max: 65535
+  fsGroup:
+    rule: MustRunAs
+    ranges:
+      - min: 1
+        max: 65535
+  readOnlyRootFilesystem: true
+  rule: MustRunAsNonRoot
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-prometheus-blackbox-exporter
+  labels:
+    app.kubernetes.io/name: prometheus-blackbox-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: prometheus-blackbox-exporter-4.10.1
+  annotations: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-prometheus-blackbox-exporter
+  labels:
+    app.kubernetes.io/name: prometheus-blackbox-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: prometheus-blackbox-exporter-4.10.1
+data:
+  blackbox.yaml: |
+    modules:
+      http_2xx:
+        http:
+          no_follow_redirects: false
+          preferred_ip_protocol: ip4
+          valid_http_versions:
+          - HTTP/1.1
+          - HTTP/2.0
+        prober: http
+        timeout: 5s
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/name: prometheus-blackbox-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: prometheus-blackbox-exporter-4.10.1
+  name: release-name-prometheus-blackbox-exporter
+rules:
+  - apiGroups:
+      - policy
+    resources:
+      - podsecuritypolicies
+    resourceNames:
+      - release-name-prometheus-blackbox-exporter-psp
+    verbs:
+      - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/name: prometheus-blackbox-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: prometheus-blackbox-exporter-4.10.1
+  name: release-name-prometheus-blackbox-exporter
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-prometheus-blackbox-exporter
+subjects:
+  - kind: ServiceAccount
+    name: release-name-prometheus-blackbox-exporter
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: release-name-prometheus-blackbox-exporter
+  labels:
+    app.kubernetes.io/name: prometheus-blackbox-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: prometheus-blackbox-exporter-4.10.1
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 9115
+      targetPort: 9115
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: prometheus-blackbox-exporter
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-prometheus-blackbox-exporter
+  labels:
+    app.kubernetes.io/name: prometheus-blackbox-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: prometheus-blackbox-exporter-4.10.1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus-blackbox-exporter
+      app.kubernetes.io/instance: release-name
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: prometheus-blackbox-exporter
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: prometheus-blackbox-exporter-4.10.1
+      annotations:
+        checksum/config: 3688ee3cbccbcf5b07fefd3b9f632c4ae0c90dd1ec8ab35e668d800818d04464
+    spec:
+      serviceAccountName: release-name-prometheus-blackbox-exporter
+      restartPolicy: Always
+      containers:
+        - name: blackbox-exporter
+          image: prom/blackbox-exporter:v0.18.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10613
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+          env: null
+          args:
+            - --config.file=/config/blackbox.yaml
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            - containerPort: 9115
+              name: http
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+          volumeMounts:
+            - mountPath: /config
+              name: config
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-prometheus-blackbox-exporter

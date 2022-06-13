@@ -1,0 +1,178 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: release-name-nimbus
+  labels:
+    app.kubernetes.io/name: nimbus
+    helm.sh/chart: nimbus-1.1.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nimbus
+      app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-nimbus
+  labels:
+    app.kubernetes.io/name: nimbus
+    helm.sh/chart: nimbus-1.1.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-nimbus
+  labels:
+    app.kubernetes.io/name: nimbus
+    helm.sh/chart: nimbus-1.1.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 86400
+  ports:
+    - port: 9190
+      targetPort: json-rpc
+      protocol: TCP
+      name: json-rpc
+    - port: 5052
+      targetPort: rest
+      protocol: TCP
+      name: rest
+    - port: 8008
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    app.kubernetes.io/name: nimbus
+    app.kubernetes.io/instance: release-name
+---
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  name: release-name-nimbus
+  labels:
+    app.kubernetes.io/name: nimbus
+    helm.sh/chart: nimbus-1.1.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nimbus
+      app.kubernetes.io/instance: release-name
+  serviceName: release-name-nimbus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nimbus
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-nimbus
+      priorityClassName: ""
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+      initContainers:
+        - name: init-chown
+          image: busybox:1.34
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 0
+          command:
+            - /bin/sh
+            - -c
+            - mkdir -p /data/nimbus && chown -R 1000:1000 /data/nimbus && chmod 700 /data/nimbus
+          volumeMounts:
+            - name: data
+              mountPath: /data/nimbus
+      containers:
+        - name: nimbus
+          image: statusim/nimbus-eth2:multiarch-v22.4.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --network=mainnet
+            - --data-dir=/data/nimbus
+            - --non-interactive
+            - --rpc
+            - --rpc-port=9190
+            - --rpc-address=0.0.0.0
+            - --rest
+            - --rest-port=5052
+            - --rest-address=0.0.0.0
+            - --metrics
+            - --metrics-address=0.0.0.0
+            - --metrics-port=8008
+          ports:
+            - name: json-rpc
+              containerPort: 9190
+              protocol: TCP
+            - name: rest
+              containerPort: 5052
+              protocol: TCP
+            - name: metrics
+              containerPort: 8008
+              protocol: TCP
+          volumeMounts:
+            - name: data
+              mountPath: /data/nimbus
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+        - name: sidecar
+          image: europe-west4-docker.pkg.dev/stakewiselabs/public/ethnode-sidecar:v1.0.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SERVER_BINDADDR
+              value: 0.0.0.0:3000
+            - name: CLIENT_PORT
+              value: "5052"
+          ports:
+            - containerPort: 3000
+              name: sidecar
+              protocol: TCP
+          livenessProbe:
+            initialDelaySeconds: 900
+            timeoutSeconds: 3
+            periodSeconds: 30
+            failureThreshold: 3
+            successThreshold: 1
+            httpGet:
+              path: /eth2/liveness
+              port: sidecar
+              scheme: HTTP
+          readinessProbe:
+            initialDelaySeconds: 60
+            timeoutSeconds: 3
+            periodSeconds: 30
+            failureThreshold: 30
+            successThreshold: 2
+            httpGet:
+              path: /eth2/readiness
+              port: sidecar
+              scheme: HTTP
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: nimbus
+          helm.sh/chart: nimbus-1.1.0
+          app.kubernetes.io/instance: release-name
+          app.kubernetes.io/managed-by: Helm
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: null
+        resources:
+          requests:
+            storage: 300Gi

@@ -1,0 +1,84 @@
+kind: StorageClass
+apiVersion: storage.k8s.io/v1beta1
+metadata:
+  name: fast
+provisioner: kubernetes.io/gce-pd
+parameters:
+  type: pd-ssd
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-postgres-physpvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: fast
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-postgres
+spec:
+  ports:
+    - name: postgres
+      port: 5432
+  selector:
+    name: release-name-postgres
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-postgres
+  labels:
+    app: release-name-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: release-name-postgres
+  template:
+    metadata:
+      labels:
+        name: release-name-postgres
+    spec:
+      containers:
+        - name: release-name-postgres
+          imagePullPolicy: Always
+          image: lsstsqre/lsp-postgres:latest
+          ports:
+            - name: postgres
+              containerPort: 5432
+          volumeMounts:
+            - name: storage
+              mountPath: /var/lib/postgresql
+          env:
+            - name: DEBUG
+              value: ""
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgres
+                  key: root_password
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: release-name-postgres-physpvc
+---
+apiVersion: ricoberger.de/v1alpha1
+kind: VaultSecret
+metadata:
+  name: postgres
+  labels:
+    app: release-name-postgres
+    app.kubernetes.io/name: postgres
+    helm.sh/chart: postgres-0.1.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  path: ""
+  type: Opaque

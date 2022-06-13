@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-registry-headless
+  namespace: dm4EGH1OD
+  labels:
+    app.kubernetes.io/name: registry
+    helm.sh/chart: registry-1.0.4
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: registry
+      port: 5000
+      protocol: TCP
+      targetPort: 5000
+  selector:
+    app.kubernetes.io/name: registry
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-registry
+  namespace: dm4EGH1OD
+  labels:
+    app.kubernetes.io/name: registry
+    helm.sh/chart: registry-1.0.4
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: registry
+      app.kubernetes.io/instance: release-name
+  serviceName: release-name-registry
+  template:
+    metadata:
+      annotations: null
+      labels:
+        app.kubernetes.io/name: registry
+        helm.sh/chart: registry-1.0.4
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      containers:
+        - name: registry
+          image: registry:2.7.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: registry
+              containerPort: 5000
+          resources:
+            limits:
+              cpu: 125m
+              memory: 256Mi
+          volumeMounts:
+            - name: host-time
+              readOnly: true
+              mountPath: /etc/localtime
+            - name: data
+              mountPath: /var/lib/registry
+      volumes:
+        - name: host-time
+          hostPath:
+            path: /etc/localtime
+            type: ""
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: registry
+          app.kubernetes.io/instance: release-name
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 20Gi
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: release-name-registry
+  namespace: dm4EGH1OD
+  labels:
+    app.kubernetes.io/name: registry
+    helm.sh/chart: registry-1.0.4
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 1024m
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: saber.registry.org
+      http:
+        paths:
+          - path: /
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: release-name-registry-headless
+                port:
+                  number: 5000

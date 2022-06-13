@@ -1,0 +1,191 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-fluentd-aggregator",
+      "labels": {
+        "helm.sh/chart": "fluentd-aggregator-2.7.1",
+        "app.kubernetes.io/name": "fluentd-aggregator",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.14.10",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-fluentd-aggregator",
+      "labels": {
+        "helm.sh/chart": "fluentd-aggregator-2.7.1",
+        "app.kubernetes.io/name": "fluentd-aggregator",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.14.10",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "debug.conf": "<filter **>\n  @type stdout\n</filter>",
+      "filter.conf": "",
+      "forward.conf": "<source>\n  @type forward\n  @id input\n  port 24224\n  bind 0.0.0.0\n</source>",
+      "general.conf": "<system>\n  root_dir /fluentd/buffers/\n</system>\n<source>\n  @type http\n  port 9880\n  bind 0.0.0.0\n</source>\n<source>\n  @type monitor_agent\n  @label @FLUENT_MONITOR\n  bind 0.0.0.0\n  port 24220\n  tag fluent.monitor\n</source>\n<match fluent.healthcheck>\n  @type relabel\n  @label @FLUENT_HEALTHCHECK\n</match>\n<label @FLUENT_LOG>\n  <match **>\n    @type stdout\n  </match>\n</label>\n<label @FLUENT_MONITOR>\n  <match **>\n    @type null\n  </match>\n</label>\n<label @FLUENT_HEALTHCHECK>\n  <match **>\n    @type null\n  </match>\n</label>",
+      "metrics.conf": "<source>\n  @type prometheus\n  port 24231\n</source>\n<source>\n  @type prometheus_monitor\n  <labels>\n    host ${hostname}\n  </labels>\n</source>\n<source>\n  @type prometheus_output_monitor\n  <labels>\n    host ${hostname}\n  </labels>\n</source>\n<filter **>\n  @type prometheus\n  <metric>\n    name fluentd_input_status_num_records_total\n    type counter\n    desc The total number of incoming records\n    <labels>\n      host ${hostname}\n      tag ${tag}\n    </labels>\n  </metric>\n</filter>\n<label @PROMETHEUS>\n  <match **>\n    @type prometheus\n    <metric>\n      name fluentd_output_status_num_records_total\n      type counter\n      desc The total number of outgoing records\n      <labels>\n        tag ${tag}\n        hostname ${hostname}\n      </labels>\n    </metric>\n  </match>\n</label>",
+      "no-metrics.conf": "<label @PROMETHEUS>\n  <match **>\n    @type null\n  </match>\n</label>",
+      "output.conf": "<label @DEFAULT>\n  <match **>\n    @type null\n  </match>\n</label>",
+      "route.conf": "<match **>\n  @type route\n  <route **>\n    copy\n    @label @PROMETHEUS\n  </route>\n  <route **>\n    copy\n    @label @DEFAULT\n  </route>\n</match>",
+      "fluent.conf": "@include /fluentd/etc/general.conf\n@include /fluentd/etc/forward.conf\n@include /fluentd/etc/no-metrics.conf\n@include /fluentd/etc/filter.conf\n@include /fluentd/etc/route.conf\n@include /fluentd/etc/output.conf"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-fluentd-aggregator",
+      "labels": {
+        "helm.sh/chart": "fluentd-aggregator-2.7.1",
+        "app.kubernetes.io/name": "fluentd-aggregator",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.14.10",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "selector": {
+        "app.kubernetes.io/name": "fluentd-aggregator",
+        "app.kubernetes.io/instance": "release-name"
+      },
+      "ports": [
+        {
+          "name": "forward",
+          "protocol": "TCP",
+          "port": 24224,
+          "targetPort": "forward"
+        },
+        {
+          "name": "http",
+          "protocol": "TCP",
+          "port": 9880,
+          "targetPort": "http"
+        },
+        {
+          "name": "monitor",
+          "protocol": "TCP",
+          "port": 24220,
+          "targetPort": "monitor"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-fluentd-aggregator",
+      "labels": {
+        "helm.sh/chart": "fluentd-aggregator-2.7.1",
+        "app.kubernetes.io/name": "fluentd-aggregator",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.14.10",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "serviceName": "release-name-fluentd-aggregator",
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "fluentd-aggregator",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "fluentd-aggregator",
+            "app.kubernetes.io/instance": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "c63aff8f3391af6aef286c5b0fcf6eaf99c4aa9ff94c7476f267712fbde41bbd"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-fluentd-aggregator",
+          "securityContext": {
+            "fsGroup": 2000
+          },
+          "terminationGracePeriodSeconds": 30,
+          "containers": [
+            {
+              "name": "fluentd",
+              "image": "ghcr.io/stevehipwell/fluentd-aggregator:1.14.10",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "forward",
+                  "protocol": "TCP",
+                  "containerPort": 24224
+                },
+                {
+                  "name": "http",
+                  "protocol": "TCP",
+                  "containerPort": 9880
+                },
+                {
+                  "name": "monitor",
+                  "protocol": "TCP",
+                  "containerPort": 24220
+                }
+              ],
+              "livenessProbe": {
+                "failureThreshold": 10,
+                "httpGet": {
+                  "path": "/fluent.healthcheck?json=%7B%22ping%22%3A+%22pong%22%7D",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 15,
+                "periodSeconds": 30,
+                "timeoutSeconds": 1
+              },
+              "readinessProbe": {
+                "failureThreshold": 10,
+                "httpGet": {
+                  "path": "/fluent.healthcheck?json=%7B%22ping%22%3A+%22pong%22%7D",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 15,
+                "periodSeconds": 30,
+                "timeoutSeconds": 1
+              },
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/fluentd/etc"
+                },
+                {
+                  "name": "buffer",
+                  "mountPath": "/fluentd/buffers"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-fluentd-aggregator",
+                "defaultMode": 511
+              }
+            },
+            {
+              "name": "buffer",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  }
+]

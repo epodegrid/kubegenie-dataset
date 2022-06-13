@@ -1,0 +1,210 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-octoprint-data
+  labels:
+    helm.sh/chart: octoprint-6.0.3
+    app.kubernetes.io/name: octoprint
+    app.kubernetes.io/instance: release-name
+    helm-revision: "1"
+    app.kubernetes.io/version: 1.8.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 999Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-octoprint
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: octoprint
+    app.kubernetes.io/version: 1.8.1
+    helm-revision: "1"
+    helm.sh/chart: octoprint-6.0.3
+  annotations: null
+spec:
+  type: ClusterIP
+  ipFamilyPolicy: SingleStack
+  ports:
+    - port: 10021
+      targetPort: 80
+      protocol: TCP
+      name: main
+  selector:
+    app.kubernetes.io/name: octoprint
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-octoprint
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: octoprint
+    app.kubernetes.io/version: 1.8.1
+    helm-revision: "1"
+    helm.sh/chart: octoprint-6.0.3
+spec:
+  revisionHistoryLimit: 3
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: octoprint
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations: null
+      labels:
+        app.kubernetes.io/name: octoprint
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      securityContext:
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 0
+        runAsUser: 0
+        supplementalGroups:
+          - 568
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 10
+      initContainers:
+        - name: autopermissions
+          image: ghcr.io/truecharts/alpine:v3.15.2@sha256:29ed3480a0ee43f7af681fed5d4fc215516abf1c41eade6938b26d8c9c2c7583
+          securityContext:
+            runAsUser: 11744
+            privileged: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+          command:
+            - /bin/sh
+            - -c
+            - |
+              /bin/bash <<'EOF'
+              echo "Automatically correcting permissions..."
+              echo "increasing inotify limits..."
+              ( sysctl -w fs.inotify.max_user_watches=524288 || echo "error setting inotify") && ( sysctl -w fs.inotify.max_user_instances=512 || echo "error setting inotify")
+              EOF
+          volumeMounts: null
+      containers:
+        - name: release-name-octoprint
+          image: tccr.io/truecharts/octoprint:v1.8.1@sha256:cc18260e7b2bb8eafcbcf958655cbd6a71c9ced949023927e42f2456986fff42
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: false
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: PUID
+              value: "568"
+            - name: USER_ID
+              value: "568"
+            - name: UID
+              value: "568"
+            - name: UMASK
+              value: "2"
+            - name: UMASK_SET
+              value: "2"
+            - name: PGID
+              value: "568"
+            - name: GROUP_ID
+              value: "568"
+            - name: GID
+              value: "568"
+            - name: S6_READ_ONLY_ROOT
+              value: "1"
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: void
+            - name: TZ
+              value: UTC
+            - name: CAMERA_DEV
+              value: null
+            - name: ENABLE_MJPG_STREAMER
+              value: "true"
+            - name: MJPG_STREAMER_INPUT
+              value: null
+          envFrom: null
+          ports:
+            - name: main
+              containerPort: 80
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /octoprint
+              name: data
+            - mountPath: /shared
+              name: shared
+            - mountPath: /tmp
+              name: temp
+            - mountPath: /var/logs
+              name: varlogs
+            - mountPath: /var/run
+              name: varrun
+          livenessProbe:
+            tcpSocket:
+              port: 80
+            initialDelaySeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 80
+            initialDelaySeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 5
+            periodSeconds: 10
+          startupProbe:
+            tcpSocket:
+              port: 80
+            initialDelaySeconds: 10
+            failureThreshold: 60
+            timeoutSeconds: 2
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: release-name-octoprint-data
+        - name: shared
+          emptyDir: {}
+        - name: temp
+          emptyDir:
+            medium: Memory
+        - name: varlogs
+          emptyDir: {}
+        - name: varrun
+          emptyDir:
+            medium: Memory

@@ -1,0 +1,195 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-mlflow",
+      "labels": {
+        "helm.sh/chart": "mlflow-0.1.4",
+        "app.kubernetes.io/name": "mlflow",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.7.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-mlflow",
+      "labels": {
+        "helm.sh/chart": "mlflow-0.1.4",
+        "app.kubernetes.io/name": "mlflow",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.7.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 5000,
+          "targetPort": 5000,
+          "protocol": "TCP",
+          "name": "mlflow"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "mlflow",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-mlflow",
+      "labels": {
+        "helm.sh/chart": "mlflow-0.1.4",
+        "app.kubernetes.io/name": "mlflow",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.7.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "mlflow",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "mlflow",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-mlflow",
+          "securityContext": {},
+          "containers": [
+            {
+              "name": "mlflow",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "k8scc01covidacr.azurecr.io/mlflow:1.7.2",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "mlflow",
+                  "containerPort": 5000,
+                  "protocol": "TCP"
+                }
+              ],
+              "env": [
+                {
+                  "name": "MLFLOW_SERVER_DEFAULT_ARTIFACT_ROOT",
+                  "value": "file:///mnt/mlruns/artifacts"
+                },
+                {
+                  "name": "MLFLOW_SERVER_FILE_STORE",
+                  "value": "sqlite:///mnt/mlruns/mlflow.db"
+                },
+                {
+                  "name": "MLFLOW_SERVER_HOST",
+                  "value": "0.0.0.0"
+                },
+                {
+                  "name": "MLFLOW_SERVER_PORT",
+                  "value": "5000"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "mlflow"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "mlflow"
+                }
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": null
+            }
+          ],
+          "volumes": null
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1beta1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "release-name-mlflow",
+      "labels": {
+        "app.kubernetes.io/name": "mlflow",
+        "helm.sh/chart": "mlflow-0.1.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "kubernetes.io/ingress.class": "istio"
+      }
+    },
+    "spec": {
+      "rules": [
+        {
+          "host": "chart-example.local",
+          "http": {
+            "paths": [
+              {
+                "path": "/*",
+                "backend": {
+                  "serviceName": "release-name-mlflow",
+                  "servicePort": 5000
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "networking.istio.io/v1alpha3",
+    "kind": "DestinationRule",
+    "metadata": {
+      "name": "release-name-mlflow",
+      "labels": {
+        "app": "mlflow",
+        "chart": "mlflow-0.1.4",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "host": "release-name-mlflow.default.svc.cluster.local",
+      "trafficPolicy": {
+        "tls": {
+          "mode": "DISABLE"
+        }
+      }
+    }
+  }
+]

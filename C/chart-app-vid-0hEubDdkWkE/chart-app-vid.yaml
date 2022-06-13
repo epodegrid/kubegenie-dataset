@@ -1,0 +1,143 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: mongo
+  name: mongodb-vids
+spec:
+  ports:
+    - protocol: TCP
+      port: 27017
+      targetPort: 27017
+  selector:
+    app: mongo
+  type: LoadBalancer
+status:
+  loadBalancer: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    k.image-pull-policy: Always
+  creationTimestamp: null
+  labels:
+    app: sparkvid-api
+    release: release-name
+  name: sparkvid-api
+spec:
+  ports:
+    - name: "8080"
+      port: 8080
+      targetPort: 8080
+  selector:
+    app: sparkvid-api
+    release: release-name
+  type: NodePort
+status:
+  loadBalancer: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: mongodb-vids
+  name: mongodb-vids
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongo
+  template:
+    metadata:
+      labels:
+        app: mongo
+    spec:
+      containers:
+        - image: mongo:latest
+          name: mongodbvids
+          ports:
+            - containerPort: 27017
+      restartPolicy: Always
+      hostNetwork: true
+status: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    k.image-pull-policy: Always
+    k.service.type: Nodeport
+  creationTimestamp: null
+  labels:
+    app: sparkvid-api
+    release: release-name
+  name: sparkvid-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sparkvid-api
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        k.service.type: Nodeport
+      creationTimestamp: null
+      labels:
+        app: sparkvid-api
+    spec:
+      volumes:
+        - name: sparkvid-api-hostpath0
+          hostPath:
+            path: /app/kubehost/sparkvid/dati/
+        - name: sparkvid-model-hostpath0
+          hostPath:
+            path: /app/kubehost/sparkvid/models/
+      containers:
+        - env:
+            - name: spring.data.mongodb.uri
+              value: mongodb://kubelocal:27017/local
+            - name: video.mongo.database
+              value: local
+            - name: video.mongo.uri
+              value: mongodb://kubelocal:27017
+          image: docker.io/fimperato/sparkvid-api:1.0.5-RELEASE
+          imagePullPolicy: Always
+          name: sparkvidapi
+          ports:
+            - containerPort: 8080
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: sparkvid-api-hostpath0
+              mountPath: /app/dati/
+            - name: sparkvid-model-hostpath0
+              mountPath: /app/models/
+      restartPolicy: Always
+      hostNetwork: true
+status: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-apps
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+    kubernetes.io/ingress.class: nginx
+  labels:
+    name: ingress-apps
+spec:
+  rules:
+    - host: localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sparkvid-api
+                port:
+                  number: 8080

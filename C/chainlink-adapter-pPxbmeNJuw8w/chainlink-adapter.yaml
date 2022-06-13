@@ -1,0 +1,102 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-chainlink-adapter
+  labels:
+    helm.sh/chart: chainlink-adapter-0.1.1
+    app.kubernetes.io/name: chainlink-adapter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-chainlink-adapter-configmap
+data:
+  CACHE_ENABLED: "true"
+  CACHE_MAX_AGE: "60000"
+  CACHE_TYPE: local
+  EXPERIMENTAL_METRICS_ENABLED: "true"
+  METRICS_ENABLED: "true"
+  METRICS_PORT: "9080"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-chainlink-adapter
+  labels:
+    helm.sh/chart: chainlink-adapter-0.1.1
+    app.kubernetes.io/name: chainlink-adapter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: chainlink-adapter
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-chainlink-adapter
+  labels:
+    helm.sh/chart: chainlink-adapter-0.1.1
+    app.kubernetes.io/name: chainlink-adapter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chainlink-adapter
+      app.kubernetes.io/instance: release-name
+  serviceName: release-name-chainlink-adapter
+  template:
+    metadata:
+      annotations:
+        checksum/configmap: 1670f0f40f2d04b0eeb3c8baa4df5121a82b5cf79702962bfb172f84e1c183ad
+      labels:
+        app.kubernetes.io/name: chainlink-adapter
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-chainlink-adapter
+      securityContext: {}
+      containers:
+        - name: chainlink-adapter
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: public.ecr.aws/chainlink-staging/adapters/1forge-adapter:latest
+          imagePullPolicy: IfNotPresent
+          command: null
+          args: null
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          envFrom:
+            - configMapRef:
+                name: release-name-chainlink-adapter-configmap
+          resources:
+            seccompProfile:
+              type: RuntimeDefault

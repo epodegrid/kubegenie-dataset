@@ -1,0 +1,163 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-kafkamagic
+  labels:
+    app: kafkamagic
+    release: release-name
+    helm.sh/chart: kafkamagic-0.2.3
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-kafkamagic
+  labels:
+    app: kafkamagic
+    release: release-name
+    helm.sh/chart: kafkamagic-0.2.3
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+  KMAGIC_CONFIG_ENCRYPTION_KEY: RUlWZ1dDNk1BaUhaSjlXdDl0SU5mTGw1SVFKN25nTGE=
+  KMAGIC_CONFIG_STORE_CONNECTION: RGF0YSBTb3VyY2U9L2RhdGEvS2Fma2FNYWdpY0NvbmZpZy5kYjs=
+  KMAGIC_CONFIG_STORE_TYPE: ZmlsZQ==
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-kafkamagic
+  labels:
+    app: kafkamagic
+    release: release-name
+    helm.sh/chart: kafkamagic-0.2.3
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+data:
+  appsettings.json: |-
+    {
+      "Kestrel": {
+        "Endpoints": {
+          "Http": {
+            "Url": "http://+:8080"
+          }
+        }
+      }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-kafkamagic
+  labels:
+    app: kafkamagic
+    release: release-name
+    helm.sh/chart: kafkamagic-0.2.3
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: kafkamagic
+    release: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-kafkamagic
+  labels:
+    app: kafkamagic
+    release: release-name
+    helm.sh/chart: kafkamagic-0.2.3
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: kafkamagic
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: kafkamagic
+        release: release-name
+      annotations:
+        checksum/secret: 45d9c8c8e3e8d7cdfc6231a33efe7eef93f30a1719adfab014d3b43882a5d3b8
+        checksum/config: 1f3acab6a0e6afd23a7bed0215c10172a93e009999bfec5c3f2a446383b644f4
+    spec:
+      serviceAccountName: release-name-kafkamagic
+      securityContext: {}
+      containers:
+        - name: kafkamagic
+          securityContext:
+            capabilities:
+              add:
+                - NET_BIND_SERVICE
+              drop:
+                - ALL
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 11242
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          image: digitsy/kafka-magic:2.0.3.4
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: release-name-kafkamagic
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: conf
+              mountPath: /app/appsettings.json
+              readOnly: true
+              subPath: appsettings.json
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: conf
+          configMap:
+            name: release-name-kafkamagic
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-kafkamagic-test-connection
+  labels:
+    app: kafkamagic
+    release: release-name
+    helm.sh/chart: kafkamagic-0.2.3
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-kafkamagic:8080
+  restartPolicy: Never

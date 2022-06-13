@@ -1,0 +1,525 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: release-name-spark
+  annotations:
+    appstore.uninett.no/contact_email: example@uninett.no
+  labels:
+    app: release-name-spark
+    chart: spark-0.10.21
+    release: release-name
+    heritage: Helm
+spec:
+  podSelector:
+    matchLabels:
+      group: release-name-spark
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: default
+      ports:
+        - protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: release-name-spark-ui
+  annotations:
+    appstore.uninett.no/contact_email: example@uninett.no
+  labels:
+    app: release-name-spark
+    chart: spark-0.10.21
+    release: release-name
+    heritage: Helm
+spec:
+  podSelector:
+    matchLabels:
+      group: release-name-spark
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-ingress
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-spark
+  annotations:
+    appstore.uninett.no/contact_email: example@uninett.no
+  labels:
+    app: release-name-spark
+    chart: spark-0.10.21
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  dataporten_client_id: MDAwMA==
+  dataporten_client_secret: MDAwMA==
+  goidc.json: ewogICJwcm94eSI6IHsKICAgICJ0YXJnZXQiOiAiaHR0cDovL2xvY2FsaG9zdDo5MDAxIgogIH0sCiAgImVuZ2luZSI6IHsKICAgICJjbGllbnRfaWQiOiAiMDAwMCIsCiAgICAiY2xpZW50X3NlY3JldCI6ICIwMDAwIiwKICAgICJpc3N1ZXJfdXJsIjogImh0dHBzOi8vYXV0aC5kYXRhcG9ydGVuLm5vIiwKICAgICJyZWRpcmVjdF91cmwiOiAiaHR0cHM6Ly9ob3N0LmV4YW1wbGUuY29tL29hdXRoMi9jYWxsYmFjayIsCiAgICAic2NvcGVzIjogIiIsCiAgICAic2lnbmtleSI6ICJXdFZ6SnE4T2piZVA1MEZ4QklWbGtkbVFybW9HamlBYUZNM2MxMVZlZjFwV2RRa3U2UWJmQjN0QnFBZXIiLAogICAgInRva2VuX3R5cGUiOiAiIiwKICAgICJncm91cHNfZW5kcG9pbnQiOiAiaHR0cHM6Ly9ncm91cHMtYXBpLmRhdGFwb3J0ZW4ubm8vZ3JvdXBzL21lL2dyb3VwcyIsCiAgICAiand0X3Rva2VuX2lzc3VlciI6ICIiLAogICAgInhocl9lbmRwb2ludHMiOiAiIiwKICAgICJhdXRob3JpemVkX3ByaW5jaXBhbHMiOiAiIiwKICAgICJ0d29mYWN0b3IiOiB7CiAgICAgICJhbGwiOiBmYWxzZSwKICAgICAgInByaW5jaXBhbHMiOiAiIiwKICAgICAgImFjcl92YWx1ZXMiOiAiIiwKICAgICAgImJhY2tlbmQiOiAiIgogICAgfSwKICAgICJsb2dnaW5nIjogewogICAgICAibGV2ZWwiOiAiaW5mbyIKICAgIH0KICB9LAogICJzZXJ2ZXIiOiB7CiAgICAicG9ydCI6IDgwMDAsCiAgICAiaGVhbHRoX3BvcnQiOiAxMzM3LAogICAgImNlcnQiOiAiY2VydC5wZW0iLAogICAgImtleSI6ICJrZXkucGVtIiwKICAgICJyZWFkdGltZW91dCI6IDEwLAogICAgIndyaXRldGltZW91dCI6IDIwLAogICAgImlkbGV0aW1lb3V0IjogMTIwLAogICAgInNzbCI6IGZhbHNlLAogICAgInNlY3VyZV9jb29raWUiOiBmYWxzZQogIH0KfQ==
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-spark
+  annotations:
+    appstore.uninett.no/contact_email: example@uninett.no
+  labels:
+    app: release-name-spark
+    chart: spark-0.10.21
+    release: release-name
+    heritage: Helm
+data:
+  default.conf: |
+    upstream node {
+      server localhost:8080;
+    }
+
+    server {
+      server_name             _;
+      listen                  9001;
+
+      location / {
+          proxy_set_header X-Real-IP \$remote_addr;
+          proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+          proxy_set_header Host host.example.com;
+          proxy_pass http://node;
+          proxy_redirect off;
+          port_in_redirect off;
+      }
+    }
+  nginx.conf: |
+    pid   /tmp/nginx.pid;
+
+    worker_processes 1;
+
+    events {
+      worker_connections 1024;
+    }
+
+    http {
+      # Set an array of temp and cache file options that will otherwise default to
+      # restricted locations accessible only to root.
+      client_body_temp_path /tmp/client_body;
+      fastcgi_temp_path /tmp/fastcgi_temp;
+      proxy_temp_path /tmp/proxy_temp;
+      scgi_temp_path /tmp/scgi_temp;
+      uwsgi_temp_path /tmp/uwsgi_temp;
+
+      tcp_nopush on;
+      tcp_nodelay on;
+      keepalive_timeout 65;
+      types_hash_max_size 2048;
+
+      log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                          '$status $body_bytes_sent "$http_referer" '
+                          '"$http_user_agent" "$http_x_forwarded_for"';
+
+      include /etc/nginx/mime.types;
+      index index.html index.htm index.php;
+      default_type  application/octet-stream;
+
+      # Disable access log and error log to stderr
+      access_log  /dev/null;
+      error_log  /dev/stderr;
+
+      include /etc/nginx/conf.d/*.conf;
+    }
+  passwd: |-
+    # Create /etc/passwd file to contain UID of users we add
+
+    daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
+    bin:x:2:2:bin:/bin:/usr/sbin/nologin
+    sys:x:3:3:sys:/dev:/usr/sbin/nologin
+    sync:x:4:65534:sync:/bin:/bin/sync
+    games:x:5:60:games:/usr/games:/usr/sbin/nologin
+    man:x:6:12:man:/var/cache/man:/usr/sbin/nologin
+    lp:x:7:7:lp:/var/spool/lpd:/usr/sbin/nologin
+    mail:x:8:8:mail:/var/mail:/usr/sbin/nologin
+    news:x:9:9:news:/var/spool/news:/usr/sbin/nologin
+    uucp:x:10:10:uucp:/var/spool/uucp:/usr/sbin/nologin
+    proxy:x:13:13:proxy:/bin:/usr/sbin/nologin
+    www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin
+    backup:x:34:34:backup:/var/backups:/usr/sbin/nologin
+    list:x:38:38:Mailing List Manager:/var/list:/usr/sbin/nologin
+    irc:x:39:39:ircd:/var/run/ircd:/usr/sbin/nologin
+    gnats:x:41:41:Gnats Bug-Reporting System (admin):/var/lib/gnats:/usr/sbin/nologin
+    nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin
+    _apt:x:100:65534::/nonexistent:/usr/sbin/nologin
+    jovyan:x:1000:100::/home/jovyan:/bin/bash
+    notebook:x:999:999::/home/notebook:/bin/bash
+    notebook:x:999:999::/home/notebook:/bin/bash
+  group: |-
+    # Create /etc/group file to contain UID of users we add
+
+    root:x:0:
+    daemon:x:1:
+    bin:x:2:
+    sys:x:3:
+    adm:x:4:
+    tty:x:5:
+    disk:x:6:
+    lp:x:7:
+    mail:x:8:
+    news:x:9:
+    uucp:x:10:
+    man:x:12:
+    proxy:x:13:
+    kmem:x:15:
+    dialout:x:20:
+    fax:x:21:
+    voice:x:22:
+    cdrom:x:24:
+    floppy:x:25:
+    tape:x:26:
+    sudo:x:27:
+    audio:x:29:
+    dip:x:30:
+    www-data:x:33:
+    backup:x:34:
+    operator:x:37:
+    list:x:38:
+    irc:x:39:
+    src:x:40:
+    gnats:x:41:
+    shadow:x:42:
+    utmp:x:43:
+    video:x:44:
+    sasl:x:45:
+    plugdev:x:46:
+    staff:x:50:
+    games:x:60:
+    users:x:100:notebook
+    nogroup:x:65534:
+    wheel:x:11:
+    ssh:x:101:
+    notebook:x:999:
+    notebook:x:999:
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: release-name-spark-master
+  annotations:
+    appstore.uninett.no/contact_email: example@uninett.no
+  labels:
+    group: release-name-spark
+    app: release-name-spark
+    chart: spark-0.10.21
+    release: release-name
+    heritage: Helm
+spec:
+  ports:
+    - port: 7077
+      targetPort: 7077
+  selector:
+    app: release-name-spark-master
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: release-name-spark-master-ui
+  annotations:
+    appstore.uninett.no/contact_email: example@uninett.no
+  labels:
+    group: release-name-spark
+    app: release-name-spark
+    chart: spark-0.10.21
+    release: release-name
+    heritage: Helm
+spec:
+  ports:
+    - port: 80
+      targetPort: 8000
+  selector:
+    app: release-name-spark-master
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-spark-master
+  annotations:
+    appstore.uninett.no/contact_email: example@uninett.no
+  labels:
+    app: release-name-spark
+    chart: spark-0.10.21
+    release: release-name
+    heritage: Helm
+spec:
+  strategy:
+    type: Recreate
+  replicas: 1
+  selector:
+    matchLabels:
+      app: release-name-spark-master
+      group: release-name-spark
+      release: release-name
+  template:
+    metadata:
+      labels:
+        group: release-name-spark
+        app: release-name-spark-master
+        chart: spark-0.10.21
+        release: release-name
+        heritage: Helm
+      annotations:
+        checksum/config: 709d639a6834982b6e9928084cea6f3f79bc8173da41592b939c8ada7b174158
+        appstore.uninett.no/contact_email: example@uninett.no
+    spec:
+      hostname: release-name-spark-master
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 999
+      volumes:
+        - name: oidcconfig
+          secret:
+            secretName: release-name-spark
+        - name: release-name-spark-rewrite-config
+          configMap:
+            name: release-name-spark
+            items:
+              - key: default.conf
+                path: default.conf
+        - name: release-name-spark-nginx-config
+          configMap:
+            name: release-name-spark
+            items:
+              - key: nginx.conf
+                path: nginx.conf
+        - name: passwd
+          configMap:
+            name: release-name-spark
+            items:
+              - key: passwd
+                path: passwd
+        - name: group
+          configMap:
+            name: release-name-spark
+            items:
+              - key: group
+                path: group
+      containers:
+        - name: proxy-rewriter
+          image: registry.uninett.no/public/nginx:1.21.0-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9001
+          securityContext:
+            runAsUser: 10005
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: release-name-spark-rewrite-config
+              mountPath: /etc/nginx/conf.d
+            - name: release-name-spark-nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+        - name: auth-proxy
+          image: quay.io/uninett/goidc-proxy:v1.1.4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DATAPORTEN_CLIENTID
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-spark
+                  key: dataporten_client_id
+            - name: DATAPORTEN_CLIENTSECRET
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-spark
+                  key: dataporten_client_secret
+          ports:
+            - containerPort: 8000
+          securityContext:
+            runAsUser: 65534
+            readOnlyRootFilesystem: true
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 30
+            timeoutSeconds: 30
+          volumeMounts:
+            - name: oidcconfig
+              mountPath: /conf
+          workingDir: /conf
+        - name: spark-master
+          image: quay.io/nird-toolkit/jupyter-spark:20220216-fbbf65f
+          imagePullPolicy: IfNotPresent
+          args:
+            - /usr/local/bin/start-master.sh
+          ports:
+            - containerPort: 7077
+            - containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 30
+            timeoutSeconds: 30
+          securityContext:
+            runAsUser: 999
+            runAsGroup: 999
+          resources:
+            requests:
+              cpu: 2
+              memory: 2G
+            limits:
+              cpu: 4
+              memory: 2G
+          env:
+            - name: SPARK_PUBLIC_DNS
+              value: host.example.com
+            - name: SPARK_DAEMON_MEMORY
+              value: 2G
+            - name: SPARK_DAEMON_CORES
+              value: "2"
+            - name: OWNER_ID
+              value: 0000-1234
+          volumeMounts:
+            - name: passwd
+              mountPath: /etc/passwd
+              subPath: passwd
+            - name: group
+              mountPath: /etc/group
+              subPath: group
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-spark-worker
+  annotations:
+    appstore.uninett.no/contact_email: example@uninett.no
+  labels:
+    app: release-name-spark
+    chart: spark-0.10.21
+    release: release-name
+    heritage: Helm
+spec:
+  strategy:
+    type: Recreate
+  replicas: 1
+  selector:
+    matchLabels:
+      app: release-name-spark-worker
+      group: release-name-spark
+      release: release-name
+  template:
+    metadata:
+      annotations:
+        appstore.uninett.no/contact_email: example@uninett.no
+      labels:
+        group: release-name-spark
+        app: release-name-spark-worker
+        chart: spark-0.10.21
+        release: release-name
+        heritage: Helm
+    spec:
+      volumes:
+        - name: passwd
+          configMap:
+            name: release-name-spark
+            items:
+              - key: passwd
+                path: passwd
+        - name: group
+          configMap:
+            name: release-name-spark
+            items:
+              - key: group
+                path: group
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256M
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 999
+      containers:
+        - name: spark-worker
+          image: quay.io/nird-toolkit/jupyter-spark:20220216-fbbf65f
+          imagePullPolicy: IfNotPresent
+          args:
+            - /usr/local/bin/start-worker.sh
+          env:
+            - name: SPARK_WORKER_MEMORY
+              value: 2G
+            - name: SPARK_WORKER_CORES
+              value: "2"
+            - name: OWNER_ID
+              value: 0000-1234
+            - name: SPARK_MASTER_SERVICE_HOST
+              value: release-name-spark-master
+          ports:
+            - containerPort: 8081
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8081
+            initialDelaySeconds: 30
+            timeoutSeconds: 30
+          securityContext:
+            runAsUser: 11903
+            runAsGroup: 999
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 2
+              memory: 2G
+            limits:
+              cpu: 4
+              memory: 2G
+          volumeMounts:
+            - name: passwd
+              mountPath: /etc/passwd
+              subPath: passwd
+            - name: group
+              mountPath: /etc/group
+              subPath: group
+            - name: shm
+              mountPath: /dev/shm
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: release-name-spark
+  annotations:
+    appstore.uninett.no/contact_email: example@uninett.no
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+  labels:
+    group: release-name-spark
+    app: release-name-spark
+    chart: spark-0.10.21
+    release: release-name
+    heritage: Helm
+spec:
+  tls:
+    - hosts:
+        - host.example.com
+      secretName: wildcard-tls
+  rules:
+    - host: host.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: release-name-spark-master-ui
+                port:
+                  number: 80

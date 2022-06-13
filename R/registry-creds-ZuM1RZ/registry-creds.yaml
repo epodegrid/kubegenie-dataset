@@ -1,0 +1,191 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: registry-creds-secret
+data:
+  .dockerconfigjson: eyJhdXRocyI6eyJodHRwczovL2luZGV4LmRvY2tlci5pby92MS8iOnsiYXV0aCI6ImRYTmxjbTVoYldVNmNHRnpjM2R2Y21RPSIsInBhc3N3b3JkIjoicGFzc3dvcmQiLCJ1c2VybmFtZSI6InVzZXJuYW1lIn19fQ==
+type: kubernetes.io/dockerconfigjson
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: registry-creds-registry-creds-role
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces/status
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - secrets/status
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - serviceaccounts
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - serviceaccounts/status
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
+      - ops.alexellis.io
+    resources:
+      - clusterpullsecrets
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ops.alexellis.io
+    resources:
+      - clusterpullsecrets/status
+    verbs:
+      - get
+      - patch
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: registry-creds-registry-creds-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: registry-creds-registry-creds-role
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: registry-creds-leader-election-role
+  namespace: ZuM1RZ
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - create
+      - update
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: registry-creds-leader-election-rolebinding
+  namespace: ZuM1RZ
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: registry-creds-leader-election-role
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-registry-creds
+  labels:
+    app: release-name-registry-creds
+  namespace: ZuM1RZ
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: release-name-registry-creds
+  template:
+    metadata:
+      annotations:
+        checksum/config: 56d79c6e2c119ab0f4a1d6dcb926568340c5cbd49ac4abfac7b23bac850dd0b1
+      labels:
+        app: release-name-registry-creds
+    spec:
+      securityContext: {}
+      containers:
+        - name: registry-creds
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          image: ghcr.io/alexellis/registry-creds:0.3.1
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 100m
+              memory: 45Mi
+          args:
+            - --enable-leader-election
+          command:
+            - /controller
+      terminationGracePeriodSeconds: 10
+---
+apiVersion: ops.alexellis.io/v1
+kind: ClusterPullSecret
+metadata:
+  name: docker-registry
+spec:
+  secretRef:
+    name: registry-creds-secret
+    namespace: default

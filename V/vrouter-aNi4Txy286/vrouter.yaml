@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vrouter
+data:
+  serviceConfig: |
+    name: vrouter
+    accessor:
+      username: "admin@opencord.org"
+      password: "letmein"
+      endpoint: "xos-core:50051"
+    logging:
+      version: 1
+      handlers:
+        console:
+          class: logging.StreamHandler
+        file:
+          class: logging.handlers.RotatingFileHandler
+          filename: /var/log/xos.log
+          maxBytes: 10485760
+          backupCount: 5
+        kafka:
+          class: kafkaloghandler.KafkaLogHandler
+          bootstrap_servers:
+            - "cord-kafka:9092"
+          topic: xos.log.vrouter
+      loggers:
+        '':
+          handlers:
+            - console
+            - file
+            - kafka
+          level: DEBUG
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-vrouter
+  labels:
+    app: vrouter
+    chart: vrouter-3.0.1
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vrouter
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: vrouter
+        release: release-name
+      annotations:
+        checksum/config: 1b34e13d3c028bfcbde1525bf459d728dbed4bd46f344d3f0aa07a9de96ef294
+    spec:
+      containers:
+        - name: vrouter
+          image: xosproject/vrouter-synchronizer:3.0.0
+          imagePullPolicy: Always
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: vrouter-config
+              mountPath: /opt/xos/synchronizers/vrouter/mounted_config.yaml
+              subPath: mounted_config.yaml
+            - name: certchain-volume
+              mountPath: /usr/local/share/ca-certificates/local_certs.crt
+              subPath: config/ca_cert_chain.pem
+      volumes:
+        - name: vrouter-config
+          configMap:
+            name: vrouter
+            items:
+              - key: serviceConfig
+                path: mounted_config.yaml
+        - name: certchain-volume
+          configMap:
+            name: ca-certificates
+            items:
+              - key: chain
+                path: config/ca_cert_chain.pem

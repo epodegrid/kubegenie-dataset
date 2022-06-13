@@ -1,0 +1,152 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-cratedb
+  labels:
+    helm.sh/chart: cratedb-2.0.3
+    app.kubernetes.io/name: cratedb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 4.7.0
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crate-external-service
+  namespace: HbQKugmaun5KYKK
+  labels:
+    helm.sh/chart: cratedb-2.0.3
+    app.kubernetes.io/name: cratedb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 4.7.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 4200
+      protocol: TCP
+      name: crate-web
+    - port: 5432
+      protocol: TCP
+      name: postgres
+  selector:
+    app.kubernetes.io/name: cratedb
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: crate-internal-service
+  namespace: HbQKugmaun5KYKK
+  labels:
+    helm.sh/chart: cratedb-2.0.3
+    app.kubernetes.io/name: cratedb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 4.7.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 4300
+      targetPort: 4300
+      protocol: TCP
+      name: crate-internal
+  selector:
+    app.kubernetes.io/name: cratedb
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  namespace: HbQKugmaun5KYKK
+  name: cratedb
+  labels:
+    helm.sh/chart: cratedb-2.0.3
+    app.kubernetes.io/name: cratedb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 4.7.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  serviceName: crate-set
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cratedb
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      namespace: default
+      labels:
+        app.kubernetes.io/name: cratedb
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-cratedb
+      securityContext: {}
+      volumes:
+        - name: data
+          emptyDir: {}
+      initContainers:
+        - name: init-sysctl
+          image: busybox
+          imagePullPolicy: IfNotPresent
+          command:
+            - sysctl
+            - -w
+            - vm.max_map_count=262144
+          securityContext:
+            privileged: true
+      containers:
+        - name: crate
+          image: crate:4.7.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /docker-entrypoint.sh
+            - -Ccluster.name=${CLUSTER_NAME}
+            - -Ccluster.initial_master_nodes=2
+            - -Cdiscovery.seed_providers=srv
+            - -Cdiscovery.srv.query=_crate-internal._tcp.crate-internal-service.${NAMESPACE}.svc.cluster.local
+            - -Cgateway.recover_after_nodes=2
+            - -Cgateway.expected_nodes=${EXPECTED_NODES}
+            - -Chttp.cors.allow-origin=*
+            - -Chttp.cors.enabled=false
+            - -Cpath.data=/data
+          ports:
+            - containerPort: 4300
+              name: crate-internal
+            - containerPort: 4200
+              name: crate-web
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: CRATE_HEAP_SIZE
+              value: 1G
+            - name: EXPECTED_NODES
+              value: "3"
+            - name: CLUSTER_NAME
+              value: cratedb-cluster
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-cratedb-test-connection
+  labels:
+    helm.sh/chart: cratedb-2.0.3
+    app.kubernetes.io/name: cratedb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 4.7.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-cratedb:4300
+  restartPolicy: Never

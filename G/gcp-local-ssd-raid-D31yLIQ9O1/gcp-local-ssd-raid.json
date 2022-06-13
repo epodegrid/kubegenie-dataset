@@ -1,0 +1,239 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-gcp-local-ssd-raid",
+      "labels": {
+        "helm.sh/chart": "gcp-local-ssd-raid-0.1.3",
+        "app.kubernetes.io/name": "gcp-local-ssd-raid",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.1.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-gcp-local-ssd-raid-config"
+    },
+    "data": {
+      "setPVOwnerRef": "true",
+      "nodeLabelsForPV": "- kubernetes.io/hostname\n",
+      "storageClassMap": "local-storage:\n  hostDir: /mnt/disks\n  mountDir: /mnt/disks\n"
+    }
+  },
+  {
+    "apiVersion": "storage.k8s.io/v1",
+    "kind": "StorageClass",
+    "metadata": {
+      "name": "local-storage"
+    },
+    "provisioner": "kubernetes.io/no-provisioner",
+    "volumeBindingMode": "WaitForFirstConsumer"
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "name": "release-name-gcp-local-ssd-raid-clusterrole"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "nodes"
+        ],
+        "verbs": [
+          "get"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "release-name-gcp-local-ssd-raid-pv-binding"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-gcp-local-ssd-raid",
+        "namespace": "default"
+      }
+    ],
+    "roleRef": {
+      "kind": "ClusterRole",
+      "name": "system:persistent-volume-provisioner",
+      "apiGroup": "rbac.authorization.k8s.io"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "release-name-gcp-local-ssd-raid-node-binding"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-gcp-local-ssd-raid",
+        "namespace": "default"
+      }
+    ],
+    "roleRef": {
+      "kind": "ClusterRole",
+      "name": "release-name-gcp-local-ssd-raid-clusterrole",
+      "apiGroup": "rbac.authorization.k8s.io"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "DaemonSet",
+    "metadata": {
+      "name": "release-name-gcp-local-ssd-raid",
+      "labels": {
+        "helm.sh/chart": "gcp-local-ssd-raid-0.1.3",
+        "app.kubernetes.io/name": "gcp-local-ssd-raid",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.1.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "gcp-local-ssd-raid",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "gcp-local-ssd-raid",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "hostPID": true,
+          "nodeSelector": {
+            "cloud.google.com/gke-local-ssd": "true"
+          },
+          "serviceAccountName": "release-name-gcp-local-ssd-raid",
+          "initContainers": [
+            {
+              "name": "local-ssd-startup",
+              "image": "alpine",
+              "command": [
+                "/bin/sh",
+                "-c",
+                "nsenter -t 1 -m -u -i -n -p -- bash -c \"${STARTUP_SCRIPT}\""
+              ],
+              "securityContext": {
+                "privileged": true
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/mnt/disks",
+                  "name": "local-disks",
+                  "mountPropagation": "Bidirectional"
+                }
+              ],
+              "env": [
+                {
+                  "name": "STARTUP_SCRIPT",
+                  "value": "#!/usr/bin/env bash\nset -euo pipefail\nset -x\n\n# discard,nobarrier are required to optimize local SSD\n# performance in GCP, see\n# https://cloud.google.com/compute/docs/disks/performance#optimize_local_ssd\nmnt_opts=\"defaults,nodelalloc,noatime,discard,nobarrier\"\n\n# use /var because it is writeable on COS\nif ! findmnt -n -a -l | grep /mnt/disks/ssd ; then\n  if test -f /var/ssd_mounts ; then\n    ssd_mounts=$(cat /var/ssd_mounts)\n  else\n    echo \"no ssds mounted yet\"\n    exit 1\n  fi\nelse\n  ssd_mounts=$(findmnt -n -a -l --nofsroot | grep /mnt/disks/ssd)\n  echo \"$ssd_mounts\" > /var/ssd_mounts\nfi\n\n# Re-mount all disks as a single logical volume with a UUID\nif old_mounts=$(findmnt -n -a -l --nofsroot | grep /mnt/disks/ssd) ; then\n  echo \"$old_mounts\" | awk '{print $1}' | while read -r ssd ; do\n    umount \"$ssd\"\n    new_fstab=$(grep -v \"$ssd\" /etc/fstab) || echo \"fstab is now empty\"\n    echo \"$new_fstab\" > /etc/fstab\n  done\nfi\necho \"$ssd_mounts\" | awk '{print $1}' | while read -r ssd ; do\n  if test -d \"$ssd\"; then\n    rm -r \"$ssd\"\n  fi\ndone\n\ndevs=$(echo \"$ssd_mounts\" | awk '{print $2}')\nraid_dev=/dev/md1\n\n# If RAID or LVM is already in use, this may have been re-deployed.\n# Don't try to change the disks.\npvs=$((test -x /sbin/pvs && /sbin/pvs) || echo \"\")\nif ! test -e $raid_dev && ! echo \"$pvs\" | grep volume_all_ssds ; then\n  # wipe all devices\n  echo \"$devs\" | while read -r dev ; do\n    dev_basename=$(basename \"$dev\")\n    mkdir -p /var/dev_wiped/\n    if ! test -f /var/dev_wiped/$dev_basename ; then\n      if findmnt -n -a -l --nofsroot | grep \"$dev\" ; then\n        echo \"$dev\" already individually mounted\n        exit 1\n      fi\n      /sbin/wipefs --all \"$dev\"\n      touch /var/dev_wiped/$dev_basename\n    fi\n  done\n\n  # Don't combine if there is 1 disk or the environment variable is set.\n  # lvm and mdadm do have overhead, so don't use them if there is just 1 disk\n  # remount with uuid, set mount options (nobarrier), and exit\n  NO_COMBINE_LOCAL_SSD=\"${NO_COMBINE_LOCAL_SSD:-\"\"}\"\n  if ! test -z \"$NO_COMBINE_LOCAL_SSD\" || [ \"$(echo \"$devs\" | wc -l)\" -eq 1 ] ; then\n    echo \"$devs\" | while read -r dev ; do\n      if ! findmnt -n -a -l --nofsroot | grep \"$dev\" ; then\n        if ! uuid=$(blkid -s UUID -o value \"$dev\") ; then\n          mkfs.ext4  \"$dev\"\n          uuid=$(blkid -s UUID -o value \"$dev\")\n        fi\n        mnt_dir=\"/mnt/disks/$uuid\"\n        mkdir -p \"$mnt_dir\"\n        if ! grep \"$uuid\" /etc/fstab ; then\n          echo \"UUID=$uuid $mnt_dir ext4 $mnt_opts\" >> /etc/fstab\n        fi\n        mount -U \"$uuid\" -t ext4 --target \"$mnt_dir\" --options \"$mnt_opts\"\n        chmod a+w \"$mnt_dir\"\n      fi\n    done\n\n    exit 0\n  fi\nfi\n\nnew_dev=\nUSE_LVM=\"${USE_LVM:-\"\"}\"\n# If RAID is available use it because it performs better than LVM\nif test -e $raid_dev || (test -x /sbin/mdadm && test -z \"$USE_LVM\") ; then\n  if ! test -e $raid_dev ; then\n    echo \"$devs\" | xargs /sbin/mdadm --create $raid_dev --level=0 --raid-devices=$(echo \"$devs\" | wc -l)\n    sudo mkfs.ext4  -F $raid_dev\n    new_dev=$raid_dev\n  fi\nelse\n  if ! echo \"$pvs\" | grep volume_all_ssds ; then\n    echo \"$devs\" | xargs /sbin/pvcreate\n  fi\n  /sbin/pvdisplay\n  if ! /sbin/vgs | grep volume_all_ssds ; then\n    echo \"$devs\" | xargs /sbin/vgcreate volume_all_ssds\n  fi\n  /sbin/vgdisplay\n  if ! /sbin/lvs | grep logical_all_ssds ; then\n    /sbin/lvcreate -l 100%FREE -n logical_all_ssds volume_all_ssds\n  fi\n  /sbin/lvdisplay\n  new_dev=/dev/volume_all_ssds/logical_all_ssds\nfi\n\nif ! uuid=$(blkid -s UUID -o value $new_dev) ; then\n  mkfs.ext4  $new_dev\n  uuid=$(blkid -s UUID -o value $new_dev)\nfi\nmnt_dir=\"/mnt/disks/$uuid\"\nmkdir -p \"$mnt_dir\"\n\nif ! grep \"$uuid\" /etc/fstab ; then\n  echo \"UUID=$uuid $mnt_dir ext4 $mnt_opts\" >> /etc/fstab\nfi\nmount -U \"$uuid\" -t ext4 --target \"$mnt_dir\" --options \"$mnt_opts\"\nchmod a+w \"$mnt_dir\"\n"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "image": "quay.io/external_storage/local-volume-provisioner:v2.3.2",
+              "name": "provisioner",
+              "securityContext": {
+                "privileged": true,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "resources": {
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "100Mi"
+                },
+                "limits": {
+                  "cpu": "100m",
+                  "memory": "100Mi"
+                }
+              },
+              "env": [
+                {
+                  "name": "MY_NODE_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "spec.nodeName"
+                    }
+                  }
+                },
+                {
+                  "name": "MY_NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "JOB_CONTAINER_IMAGE",
+                  "value": "quay.io/external_storage/local-volume-provisioner:v2.3.2"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/etc/provisioner/config",
+                  "name": "provisioner-config",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/mnt/disks",
+                  "name": "local-disks",
+                  "mountPropagation": "HostToContainer"
+                }
+              ]
+            }
+          ],
+          "tolerations": [
+            {
+              "effect": "NoSchedule",
+              "operator": "Exists"
+            }
+          ],
+          "volumes": [
+            {
+              "name": "provisioner-config",
+              "configMap": {
+                "name": "release-name-gcp-local-ssd-raid-config"
+              }
+            },
+            {
+              "name": "local-disks",
+              "hostPath": {
+                "path": "/mnt/disks"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

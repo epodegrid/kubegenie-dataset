@@ -1,0 +1,189 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    chart: nfs-subdir-external-provisioner-4.0.16
+    heritage: Helm
+    app: nfs-subdir-external-provisioner
+    release: release-name
+  name: release-name-nfs-subdir-external-provisioner
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  labels:
+    chart: nfs-subdir-external-provisioner-4.0.16
+    heritage: Helm
+    app: nfs-subdir-external-provisioner
+    release: release-name
+  name: nfs-client
+  annotations: null
+provisioner: cluster.local/release-name-nfs-subdir-external-provisioner
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+parameters:
+  archiveOnDelete: "true"
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  labels:
+    chart: nfs-subdir-external-provisioner-4.0.16
+    heritage: Helm
+    app: nfs-subdir-external-provisioner
+    release: release-name
+  name: release-name-nfs-subdir-external-provisioner-runner
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - persistentvolumes
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+  - apiGroups:
+      - storage.k8s.io
+    resources:
+      - storageclasses
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - update
+      - patch
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  labels:
+    chart: nfs-subdir-external-provisioner-4.0.16
+    heritage: Helm
+    app: nfs-subdir-external-provisioner
+    release: release-name
+  name: run-release-name-nfs-subdir-external-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: release-name-nfs-subdir-external-provisioner
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: release-name-nfs-subdir-external-provisioner-runner
+  apiGroup: rbac.authorization.k8s.io
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  labels:
+    chart: nfs-subdir-external-provisioner-4.0.16
+    heritage: Helm
+    app: nfs-subdir-external-provisioner
+    release: release-name
+  name: leader-locking-release-name-nfs-subdir-external-provisioner
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  labels:
+    chart: nfs-subdir-external-provisioner-4.0.16
+    heritage: Helm
+    app: nfs-subdir-external-provisioner
+    release: release-name
+  name: leader-locking-release-name-nfs-subdir-external-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: release-name-nfs-subdir-external-provisioner
+    namespace: default
+roleRef:
+  kind: Role
+  name: leader-locking-release-name-nfs-subdir-external-provisioner
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-nfs-subdir-external-provisioner
+  labels:
+    chart: nfs-subdir-external-provisioner-4.0.16
+    heritage: Helm
+    app: nfs-subdir-external-provisioner
+    release: release-name
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: nfs-subdir-external-provisioner
+      release: release-name
+  template:
+    metadata:
+      annotations: null
+      labels:
+        app: nfs-subdir-external-provisioner
+        release: release-name
+    spec:
+      serviceAccountName: release-name-nfs-subdir-external-provisioner
+      securityContext: {}
+      containers:
+        - name: nfs-subdir-external-provisioner
+          image: k8s.gcr.io/sig-storage/nfs-subdir-external-provisioner:v4.0.2
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: nfs-subdir-external-provisioner-root
+              mountPath: /persistentvolumes
+          env:
+            - name: PROVISIONER_NAME
+              value: cluster.local/release-name-nfs-subdir-external-provisioner
+            - name: NFS_SERVER
+              value: null
+            - name: NFS_PATH
+              value: /nfs-storage
+      volumes:
+        - name: nfs-subdir-external-provisioner-root
+          nfs:
+            server: null
+            path: /nfs-storage

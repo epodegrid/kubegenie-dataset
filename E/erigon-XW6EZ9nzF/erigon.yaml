@@ -1,0 +1,273 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-erigon
+  labels:
+    app.kubernetes.io/name: erigon
+    helm.sh/chart: erigon-1.0.6
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-erigon
+  labels:
+    app.kubernetes.io/name: erigon
+    helm.sh/chart: erigon-1.0.6
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-erigon
+  labels:
+    app.kubernetes.io/name: erigon
+    helm.sh/chart: erigon-1.0.6
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-erigon
+subjects:
+  - kind: ServiceAccount
+    name: release-name-erigon
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-erigon
+  labels:
+    app.kubernetes.io/name: erigon
+    helm.sh/chart: erigon-1.0.6
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-erigon
+  labels:
+    app.kubernetes.io/name: erigon
+    helm.sh/chart: erigon-1.0.6
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-erigon
+subjects:
+  - kind: ServiceAccount
+    name: release-name-erigon
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-erigon
+  labels:
+    app.kubernetes.io/name: erigon
+    helm.sh/chart: erigon-1.0.6
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8545
+      targetPort: rpc
+      protocol: TCP
+      name: rpc
+    - port: 9090
+      targetPort: grpc
+      protocol: TCP
+      name: grpc
+    - port: 6060
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    app.kubernetes.io/name: erigon
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-erigon
+  labels:
+    app.kubernetes.io/name: erigon
+    helm.sh/chart: erigon-1.0.6
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: erigon
+      app.kubernetes.io/instance: release-name
+  serviceName: release-name-erigon
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: erigon
+        app.kubernetes.io/instance: release-name
+    spec:
+      securityContext:
+        fsGroup: 1001
+        runAsUser: 1001
+      priorityClassName: ""
+      serviceAccountName: release-name-erigon
+      initContainers:
+        - name: init-chown
+          image: busybox:1.34
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 0
+          command:
+            - chown
+            - -R
+            - 1001:1001
+            - /data
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      containers:
+        - name: erigon
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: thorax/erigon:v2022.04.01
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -ac
+            - |
+              exec erigon --datadir=/data/erigon --private.api.addr=127.0.0.1:9090 --chain=mainnet --nat=extip:$(POD_IP) --port=30303 --prune.r.before=11184524 --prune=htc --metrics --metrics.addr=0.0.0.0 --metrics.port=6060
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.podIP
+          ports:
+            - name: grpc
+              protocol: TCP
+              containerPort: 9090
+            - name: metrics
+              protocol: TCP
+              containerPort: 6060
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: data
+              mountPath: /data
+        - name: erigon-rpc-daemon
+          securityContext: {}
+          image: thorax/erigon:v2022.04.01
+          imagePullPolicy: IfNotPresent
+          command:
+            - rpcdaemon
+          args:
+            - --private.api.addr=127.0.0.1:9090
+            - --http.addr=0.0.0.0
+            - --http.vhosts=*
+            - --http.corsdomain=*
+            - --http.api=eth,erigon,web3,net,txpool
+            - --http.port=8545
+          ports:
+            - name: rpc
+              protocol: TCP
+              containerPort: 8545
+          resources: {}
+        - name: sidecar
+          image: europe-west4-docker.pkg.dev/stakewiselabs/public/ethnode-sidecar:v1.0.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SERVER_BINDADDR
+              value: 0.0.0.0:3000
+            - name: CLIENT_PORT
+              value: "8545"
+          ports:
+            - containerPort: 3000
+              name: sidecar
+              protocol: TCP
+          livenessProbe:
+            initialDelaySeconds: 900
+            timeoutSeconds: 3
+            periodSeconds: 30
+            failureThreshold: 3
+            successThreshold: 1
+            httpGet:
+              path: /eth1/liveness
+              port: sidecar
+              scheme: HTTP
+          readinessProbe:
+            initialDelaySeconds: 30
+            timeoutSeconds: 3
+            periodSeconds: 30
+            failureThreshold: 30
+            successThreshold: 1
+            httpGet:
+              path: /eth1/readiness
+              port: sidecar
+              scheme: HTTP
+      volumes: null
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: erigon
+          helm.sh/chart: erigon-1.0.6
+          app.kubernetes.io/instance: release-name
+          app.kubernetes.io/managed-by: Helm
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: null
+        resources:
+          requests:
+            storage: 1000Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ' release-name-erigon-test-connection'
+  labels:
+    app.kubernetes.io/name: erigon
+    helm.sh/chart: erigon-1.0.6
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - ' release-name-erigon:8545'
+  restartPolicy: Never

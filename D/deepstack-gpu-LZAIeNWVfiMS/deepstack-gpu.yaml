@@ -1,0 +1,217 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-deepstack-gpu-data
+  labels:
+    helm.sh/chart: deepstack-gpu-3.0.7
+    app.kubernetes.io/name: deepstack-gpu
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2021.09.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 999Gi
+  storageClassName: null
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-deepstack-gpu-modelstore
+  labels:
+    helm.sh/chart: deepstack-gpu-3.0.7
+    app.kubernetes.io/name: deepstack-gpu
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2021.09.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 999Gi
+  storageClassName: null
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-deepstack-gpu
+  labels:
+    helm.sh/chart: deepstack-gpu-3.0.7
+    app.kubernetes.io/name: deepstack-gpu
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2021.09.1
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  type: ClusterIP
+  ports:
+    - port: 10050
+      targetPort: 5000
+      protocol: TCP
+      name: main
+  selector:
+    app.kubernetes.io/name: deepstack-gpu
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-deepstack-gpu
+  labels:
+    helm.sh/chart: deepstack-gpu-3.0.7
+    app.kubernetes.io/name: deepstack-gpu
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2021.09.1
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    rollme: 36YkH
+spec:
+  revisionHistoryLimit: 3
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: deepstack-gpu
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        rollme: y145w
+      labels:
+        app.kubernetes.io/name: deepstack-gpu
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      securityContext:
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 0
+        runAsUser: 0
+        supplementalGroups:
+          - 568
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 10
+      initContainers:
+        - name: autopermissions
+          image: ghcr.io/truecharts/alpine:v3.14.2@sha256:4095394abbae907e94b1f2fd2e2de6c4f201a5b9704573243ca8eb16db8cdb7c
+          securityContext:
+            runAsUser: 0
+            privileged: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+          command:
+            - /bin/sh
+            - -c
+            - echo 'Automatically correcting permissions...';
+          volumeMounts: null
+      containers:
+        - name: release-name-deepstack-gpu
+          image: tccr.io/truecharts/deepstack-gpu:v2021.09.1@sha256:f924cebf518a54bca2ca2ac33911cf3af4dd7403cad371781422436ce4254a28
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: false
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: PGID
+              value: "568"
+            - name: GROUP_ID
+              value: "568"
+            - name: GID
+              value: "568"
+            - name: MODE
+              value: High
+            - name: MODELSTORE-DETECTION
+              value: /modelstore/detection
+            - name: PUID
+              value: "568"
+            - name: USER_ID
+              value: "568"
+            - name: VISION-DETECTION
+              value: "True"
+            - name: VISION-FACE
+              value: "True"
+            - name: VISION-SCENE
+              value: "True"
+          envFrom: null
+          ports:
+            - name: main
+              containerPort: 5000
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /datastore
+              name: data
+            - mountPath: /modelstore/detection
+              name: modelstore
+            - mountPath: /shared
+              name: shared
+            - mountPath: /tmp
+              name: temp
+            - mountPath: /var/logs
+              name: varlogs
+          livenessProbe:
+            tcpSocket:
+              port: 5000
+            initialDelaySeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 5000
+            initialDelaySeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 5
+            periodSeconds: 10
+          startupProbe:
+            tcpSocket:
+              port: 5000
+            initialDelaySeconds: 10
+            failureThreshold: 60
+            timeoutSeconds: 2
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: release-name-deepstack-gpu-data
+        - name: modelstore
+          persistentVolumeClaim:
+            claimName: release-name-deepstack-gpu-modelstore
+        - name: shared
+          emptyDir: {}
+        - name: temp
+          emptyDir:
+            medium: Memory
+        - name: varlogs
+          emptyDir: {}

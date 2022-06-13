@@ -1,0 +1,374 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "pd",
+      "labels": {
+        "app": "pd"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 2379,
+          "targetPort": 2379,
+          "protocol": "TCP",
+          "name": "client"
+        },
+        {
+          "port": 2380,
+          "targetPort": 2380,
+          "protocol": "TCP",
+          "name": "peer"
+        }
+      ],
+      "selector": {
+        "app": "pd"
+      }
+    },
+    "status": {
+      "loadBalancer": {}
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "tidb-cluster",
+      "labels": {
+        "app": "tidb"
+      }
+    },
+    "spec": {
+      "type": "NodePort",
+      "ports": [
+        {
+          "port": 4000,
+          "targetPort": 4000,
+          "protocol": "TCP",
+          "name": "mysql"
+        },
+        {
+          "port": 10080,
+          "targetPort": 10080,
+          "protocol": "TCP",
+          "name": "status"
+        }
+      ],
+      "selector": {
+        "app": "tidb"
+      }
+    },
+    "status": {
+      "loadBalancer": {}
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "tikv",
+      "labels": {
+        "app": "TiDB"
+      }
+    },
+    "spec": {
+      "podManagementPolicy": "OrderedReady",
+      "replicas": 3,
+      "revisionHistoryLimit": 3,
+      "strategy": {
+        "rollingUpdate": {
+          "maxUnavailable": 0
+        },
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": null,
+        "app": "TiDB"
+      },
+      "serviceName": "tikv",
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "tikv"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "env": [
+                {
+                  "name": "PD_REPLICAS",
+                  "value": "3"
+                }
+              ],
+              "name": "tikv",
+              "securityContext": {
+                "privileged": true,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "registry.saas.hand-china.com/hitoa/tikv:v2.0.0-rc.6",
+              "imagePullPolicy": "Always",
+              "ports": [
+                {
+                  "containerPort": 20160,
+                  "name": "client",
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/data",
+                  "name": "datadir"
+                },
+                {
+                  "name": "timestamp",
+                  "mountPath": "/etc/localtime:ro"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "timestamp",
+              "hostPath": {
+                "path": "/etc/localtime"
+              }
+            }
+          ],
+          "dnsPolicy": "ClusterFirst",
+          "restartPolicy": "Always",
+          "schedulerName": "default-scheduler",
+          "securityContext": {},
+          "terminationGracePeriodSeconds": 30
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "creationTimestamp": null,
+            "name": "datadir"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteMany"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "50Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "pd",
+      "labels": {
+        "app": "pd"
+      }
+    },
+    "spec": {
+      "podManagementPolicy": "OrderedReady",
+      "replicas": 3,
+      "revisionHistoryLimit": 3,
+      "strategy": {
+        "rollingUpdate": {
+          "maxUnavailable": 0
+        },
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": null,
+        "app": "pd"
+      },
+      "serviceName": "pd",
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "pd"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "env": [
+                {
+                  "name": "PD_REPLICAS",
+                  "value": "3"
+                }
+              ],
+              "name": "pd",
+              "securityContext": {
+                "privileged": true,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "registry.saas.hand-china.com/hitoa/pd:v2.0.0-rc.6",
+              "imagePullPolicy": "Always",
+              "ports": [
+                {
+                  "containerPort": 2379,
+                  "name": "client",
+                  "protocol": "TCP"
+                },
+                {
+                  "containerPort": 2380,
+                  "name": "peer",
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/data",
+                  "name": "datadir"
+                },
+                {
+                  "name": "timestamp",
+                  "mountPath": "/etc/localtime:ro"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "timestamp",
+              "hostPath": {
+                "path": "/etc/localtime"
+              }
+            }
+          ],
+          "dnsPolicy": "ClusterFirst",
+          "restartPolicy": "Always",
+          "schedulerName": "default-scheduler",
+          "securityContext": {},
+          "terminationGracePeriodSeconds": 30
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "creationTimestamp": null,
+            "name": "datadir"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteMany"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "50Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "tidb",
+      "labels": {
+        "app": "tidb"
+      }
+    },
+    "spec": {
+      "podManagementPolicy": "OrderedReady",
+      "replicas": 3,
+      "revisionHistoryLimit": 3,
+      "strategy": {
+        "rollingUpdate": {
+          "maxUnavailable": 0
+        },
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": null,
+        "app": "tidb"
+      },
+      "serviceName": "tidb",
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "tidb"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "env": [
+                {
+                  "name": "PD_REPLICAS",
+                  "value": "3"
+                }
+              ],
+              "name": "tidb",
+              "securityContext": {
+                "privileged": true,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "registry.saas.hand-china.com/hitoa/tidb:v2.0.0-rc.6",
+              "imagePullPolicy": "Always",
+              "ports": [
+                {
+                  "containerPort": 4000,
+                  "name": "mysql",
+                  "protocol": "TCP"
+                },
+                {
+                  "containerPort": 10080,
+                  "name": "status",
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "timestamp",
+                  "mountPath": "/etc/localtime:ro"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "timestamp",
+              "hostPath": {
+                "path": "/etc/localtime"
+              }
+            }
+          ],
+          "dnsPolicy": "ClusterFirst",
+          "restartPolicy": "Always",
+          "schedulerName": "default-scheduler",
+          "securityContext": {},
+          "terminationGracePeriodSeconds": 30
+        }
+      }
+    }
+  }
+]

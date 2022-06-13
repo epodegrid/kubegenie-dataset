@@ -1,0 +1,138 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tks-info
+  labels:
+    helm.sh/chart: tks-info-0.1.0
+    app.kubernetes.io/service: tks
+    app.kubernetes.io/name: tks-info
+    app.kubernetes.io/version: 0.1.0
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tks-info
+  namespace: tks
+  labels:
+    helm.sh/chart: tks-info-0.1.0
+    app.kubernetes.io/service: tks
+    app.kubernetes.io/name: tks-info
+    app.kubernetes.io/version: 0.1.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 9110
+      targetPort: 9110
+      protocol: TCP
+  selector:
+    app.kubernetes.io/service: tks
+    app.kubernetes.io/name: tks-info
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tks-info
+  namespace: tks
+  labels:
+    helm.sh/chart: tks-info-0.1.0
+    app.kubernetes.io/service: tks
+    app.kubernetes.io/name: tks-info
+    app.kubernetes.io/version: 0.1.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/service: tks
+      app.kubernetes.io/name: tks-info
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/service: tks
+        app.kubernetes.io/name: tks-info
+    spec:
+      serviceAccountName: tks-info
+      securityContext: {}
+      containers:
+        - name: tks-info
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: docker.io/sktcloud/tks-info:latest
+          imagePullPolicy: Always
+          ports:
+            - name: tks-info
+              containerPort: 9110
+              protocol: TCP
+          command:
+            - /app/server
+          args:
+            - -contract-address
+            - tks-contract.tks.svc
+            - -contract-port
+            - "9110"
+            - -dbhost
+            - postgresql.decapod-db.svc
+            - -port
+            - "9110"
+            - -dbhost
+            - postgresql.decapod-db.svc
+            - -dbport
+            - "5432"
+            - -dbuser
+            - tksuser
+            - -dbpassword
+            - tkspassword
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tks-info
+  namespace: tks
+  labels:
+    helm.sh/chart: tks-info-0.1.0
+    app.kubernetes.io/service: tks
+    app.kubernetes.io/name: tks-info
+    app.kubernetes.io/version: 0.1.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: pre-install
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  template:
+    metadata:
+      name: tks-info
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: pre-install-job
+          image: bitnami/postgresql:11.12.0-debian-10-r44
+          env:
+            - name: DB_ADMIN_USER
+              value: postgres
+            - name: PGPASSWORD
+              value: tacopassword
+            - name: DB_NAME
+              value: tks
+            - name: DB_USER
+              value: tksuser
+            - name: DB_PASSWORD
+              value: tkspassword
+            - name: DB_URL
+              value: postgresql.decapod-db.svc
+            - name: DB_PORT
+              value: "5432"
+          command:
+            - /bin/bash
+            - -c
+            - -x
+            - "# check if ${DB_NAME} database already exists.\npsql -h ${DB_URL} -p ${DB_PORT} -U ${DB_ADMIN_USER} -lqt | cut -d \\| -f 1 | grep -qw ${DB_NAME}\nif [[ $? -ne 0 ]]; then\n  psql -h ${DB_URL} -p ${DB_PORT} -U ${DB_ADMIN_USER} -c \"CREATE DATABASE ${DB_NAME};\"\nfi\n\n# check if ${DB_USER} user already exists.\npsql -h ${DB_URL} -p ${DB_PORT} -U ${DB_ADMIN_USER} -tc '\\du' | cut -d \\| -f 1 | grep -qw ${DB_USER}\nif [[ $? -ne 0 ]]; then\n  psql -h ${DB_URL} -p ${DB_PORT} -U ${DB_ADMIN_USER} -c \"create user ${DB_USER} SUPERUSER password '${DB_PASSWORD}';\"\nfi\n\n# check if contracts table in tks database already exists.\npsql -h ${DB_URL} -p ${DB_PORT} -U ${DB_ADMIN_USER} -d ${DB_NAME} -tc '\\dt' | cut -d \\| -f 2 | grep -qw csp_infos\nif [[ $? -ne 0 ]]; then\n  echo \"\"\"\n    \\c ${DB_NAME};\n    CREATE TABLE csp_infos\n    (\n        id uuid primary key,\n        contract_id uuid,\n        name character varying(50) COLLATE pg_catalog.\"default\",\n        auth character varying(200) COLLATE pg_catalog.\"default\",\n        csp_type integer,\n        updated_at timestamp with time zone,\n        created_at timestamp with time zone\n    );\n    CREATE TABLE clusters\n    (\n        name character varying(50) COLLATE pg_catalog.\"default\",\n        id uuid primary key,\n        contract_id uuid,\n        csp_id uuid,\n        workflow_id character varying(100) COLLATE pg_catalog.\"default\",\n        status integer,\n        status_desc character varying(10000) COLLATE pg_catalog.\"default\",\n        ssh_key_name character varying(50) COLLATE pg_catalog.\"default\",\n        region character varying(50) COLLATE pg_catalog.\"default\",\n        num_of_az integer,\n        machine_type character varying(50) COLLATE pg_catalog.\"default\",\n        min_size_per_az integer,\n        max_size_per_az integer,\n        kubeconfig character varying(1000) COLLATE pg_catalog.\"default\",\n        updated_at timestamp with time zone,\n        created_at timestamp with time zone\n    );\n    CREATE TABLE application_groups\n    (\n        name character varying(50) COLLATE pg_catalog.\"default\",\n        id uuid primary key,\n        type bigint,\n        workflow_id character varying(100) COLLATE pg_catalog.\"default\",\n        status integer,\n        status_desc character varying(10000) COLLATE pg_catalog.\"default\",\n        cluster_id uuid,\n        external_label character varying(50) COLLATE pg_catalog.\"default\",\n        updated_at timestamp with time zone,\n        created_at timestamp with time zone\n    );\n    CREATE TABLE applications\n    (\n        id uuid primary key,\n        type bigint,\n        app_group_id uuid,\n        endpoint character varying(200) COLLATE pg_catalog.\"default\",\n        metadata json,\n        updated_at timestamp with time zone,\n        created_at timestamp with time zone\n    );\n    CREATE TABLE keycloak_infos\n    (\n        id uuid primary key,\n        cluster_id uuid,\n        realm character varying(100) COLLATE pg_catalog.\"default\",\n        client_id character varying(100) COLLATE pg_catalog.\"default\",\n        secret character varying(1000) COLLATE pg_catalog.\"default\",\n        private_key character varying(1000) COLLATE pg_catalog.\"default\",\n        updated_at timestamp with time zone,\n        created_at timestamp with time zone,\n        CONSTRAINT keycloak_infos_ukey UNIQUE (cluster_id, realm, secret)\n    );\n    \n  \"\"\" | psql -h ${DB_URL} -p ${DB_PORT} -U ${DB_ADMIN_USER}\nfi\n"

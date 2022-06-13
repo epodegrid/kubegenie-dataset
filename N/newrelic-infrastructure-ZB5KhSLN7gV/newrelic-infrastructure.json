@@ -1,0 +1,102 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "namespace": "ZB5KhSLN7gV",
+      "labels": {
+        "app": "newrelic-infrastructure",
+        "chart": "newrelic-infrastructure-2.10.1",
+        "heritage": "Helm",
+        "release": "release-name"
+      },
+      "annotations": null,
+      "name": "release-name-newrelic-infrastructure"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "namespace": "ZB5KhSLN7gV",
+      "labels": {
+        "app": "newrelic-infrastructure",
+        "chart": "newrelic-infrastructure-2.10.1",
+        "heritage": "Helm",
+        "release": "release-name",
+        "mode": "privileged"
+      },
+      "name": "release-name-newrelic-infrastructure-integrations-cfg"
+    },
+    "data": {
+      "nri-pixie-check.yaml": "---\n# This Flex config performs periodic checks of the Pixie\n# /healthz and /statusz endpoints exposed by the Pixie Cloud Connector.\n# A status for each endpoint is sent to New Relic in a pixieHealthCheck event.\n#\n# If Pixie is not installed in the cluster, no events will be generated.\n# This can also be disabled with enablePixieHealthCheck: false in the values.yaml file.\ndiscovery:\n  command:\n    exec: /var/db/newrelic-infra/nri-discovery-kubernetes\n    match:\n      label.name: vizier-cloud-connector\nintegrations:\n  - name: nri-flex\n    interval: 60s\n    config:\n      name: pixie-health-check\n      apis:\n        - event_type: pixieHealth\n          commands:\n            - run: curl --insecure -s https://${discovery.ip}:50800/healthz | xargs | awk '{print \"cloud_connector_health:\"$1}'\n              split_by: \":\"\n          merge: pixieHealthCheck\n        - event_type: pixieStatus\n          commands:\n            - run: curl --insecure -s https://${discovery.ip}:50800/statusz | awk '{if($1 == \"\"){ print \"cloud_connector_status:OK\" } else { print \"cloud_connector_status:\"$1 }}'\n              split_by: \":\"\n          merge: pixieHealthCheck # include Pixie Health Check\n"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "labels": {
+        "app": "newrelic-infrastructure",
+        "chart": "newrelic-infrastructure-2.10.1",
+        "heritage": "Helm",
+        "release": "release-name",
+        "mode": "privileged"
+      },
+      "name": "release-name-newrelic-infrastructure"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "nodes",
+          "nodes/metrics",
+          "nodes/stats",
+          "nodes/proxy",
+          "pods",
+          "services"
+        ],
+        "verbs": [
+          "get",
+          "list"
+        ]
+      },
+      {
+        "nonResourceURLs": [
+          "/metrics"
+        ],
+        "verbs": [
+          "get"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "labels": {
+        "app": "newrelic-infrastructure",
+        "chart": "newrelic-infrastructure-2.10.1",
+        "heritage": "Helm",
+        "release": "release-name",
+        "mode": "privileged"
+      },
+      "name": "release-name-newrelic-infrastructure"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "release-name-newrelic-infrastructure"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-newrelic-infrastructure",
+        "namespace": "default"
+      }
+    ]
+  }
+]

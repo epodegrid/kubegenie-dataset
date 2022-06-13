@@ -1,0 +1,274 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-appmesh-prometheus",
+      "labels": {
+        "app.kubernetes.io/name": "appmesh-prometheus",
+        "helm.sh/chart": "appmesh-prometheus-1.0.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "2.13.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-appmesh-prometheus",
+      "labels": {
+        "app.kubernetes.io/name": "appmesh-prometheus",
+        "helm.sh/chart": "appmesh-prometheus-1.0.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "2.13.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "prometheus.yml": "global:\n  scrape_interval: 5s\n\nscrape_configs:\n\n# Scrape config for AppMesh Envoy sidecar\n- job_name: 'appmesh-envoy'\n  metrics_path: /stats/prometheus\n  kubernetes_sd_configs:\n  - role: pod\n  relabel_configs:\n  - source_labels: [__meta_kubernetes_pod_container_name]\n    action: keep\n    regex: '^envoy$'\n  - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]\n    action: replace\n    regex: ([^:]+)(?::\\d+)?;(\\d+)\n    replacement: ${1}:9901\n    target_label: __address__\n  - action: labelmap\n    regex: __meta_kubernetes_pod_label_(.+)\n  - source_labels: [__meta_kubernetes_namespace]\n    action: replace\n    target_label: kubernetes_namespace\n  - source_labels: [__meta_kubernetes_pod_name]\n    action: replace\n    target_label: kubernetes_pod_name\n\n  # Exclude high cardinality metrics\n  metric_relabel_configs:\n  - source_labels: [ cluster_name ]\n    regex: '(outbound|inbound|prometheus_stats).*'\n    action: drop\n  - source_labels: [ tcp_prefix ]\n    regex: '(outbound|inbound|prometheus_stats).*'\n    action: drop\n  - source_labels: [ listener_address ]\n    regex: '(.+)'\n    action: drop\n  - source_labels: [ http_conn_manager_listener_prefix ]\n    regex: '(.+)'\n    action: drop\n  - source_labels: [ http_conn_manager_prefix ]\n    regex: '(.+)'\n    action: drop\n  - source_labels: [ __name__ ]\n    regex: 'envoy_tls.*'\n    action: drop\n  - source_labels: [ __name__ ]\n    regex: 'envoy_tcp_downstream.*'\n    action: drop\n  - source_labels: [ __name__ ]\n    regex: 'envoy_http_(stats|admin).*'\n    action: drop\n  - source_labels: [ __name__ ]\n    regex: 'envoy_cluster_(lb|retry|bind|internal|max|original).*'\n    action: drop\n\n# Scrape config for API servers\n- job_name: 'kubernetes-apiservers'\n  kubernetes_sd_configs:\n  - role: endpoints\n    namespaces:\n      names:\n      - default\n  scheme: https\n  tls_config:\n    ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n    insecure_skip_verify: true\n  bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token\n  relabel_configs:\n  - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]\n    action: keep\n    regex: kubernetes;https\n\n# Scrape config for cAdvisor\n- job_name: 'kubernetes-cadvisor'\n  scheme: https\n  tls_config:\n    ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n    insecure_skip_verify: true\n  bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token\n  kubernetes_sd_configs:\n  - role: node\n  relabel_configs:\n  - action: labelmap\n    regex: __meta_kubernetes_node_label_(.+)\n  - target_label: __address__\n    replacement: kubernetes.default.svc:443\n  - source_labels: [__meta_kubernetes_node_name]\n    regex: (.+)\n    target_label: __metrics_path__\n    replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor\n\n  # Exclude high cardinality metrics\n  metric_relabel_configs:\n  - source_labels: [__name__]\n    regex: (container|machine)_(cpu|memory|network|fs)_(.+)\n    action: keep\n  - source_labels: [__name__]\n    regex: container_memory_failures_total\n    action: drop\n\n# Scrape config for pods\n- job_name: kubernetes-pods\n  kubernetes_sd_configs:\n  - role: pod\n  relabel_configs:\n  - action: keep\n    regex: true\n    source_labels:\n    - __meta_kubernetes_pod_annotation_prometheus_io_scrape\n  - source_labels: [ __address__ ]\n    regex: '.*9901.*'\n    action: drop\n  - action: replace\n    regex: (.+)\n    source_labels:\n    - __meta_kubernetes_pod_annotation_prometheus_io_path\n    target_label: __metrics_path__\n  - action: replace\n    regex: ([^:]+)(?::\\d+)?;(\\d+)\n    replacement: $1:$2\n    source_labels:\n    - __address__\n    - __meta_kubernetes_pod_annotation_prometheus_io_port\n    target_label: __address__\n  - action: labelmap\n    regex: __meta_kubernetes_pod_label_(.+)\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_namespace\n    target_label: kubernetes_namespace\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_pod_name\n    target_label: kubernetes_pod_name"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1beta1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "name": "release-name-appmesh-prometheus",
+      "labels": {
+        "app.kubernetes.io/name": "appmesh-prometheus",
+        "helm.sh/chart": "appmesh-prometheus-1.0.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "2.13.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "nodes",
+          "services",
+          "endpoints",
+          "pods",
+          "nodes/proxy"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "configmaps"
+        ],
+        "verbs": [
+          "get"
+        ]
+      },
+      {
+        "nonResourceURLs": [
+          "/metrics"
+        ],
+        "verbs": [
+          "get"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1beta1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "release-name-appmesh-prometheus",
+      "labels": {
+        "app.kubernetes.io/name": "appmesh-prometheus",
+        "helm.sh/chart": "appmesh-prometheus-1.0.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "2.13.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "release-name-appmesh-prometheus"
+    },
+    "subjects": [
+      {
+        "name": "release-name-appmesh-prometheus",
+        "namespace": "default",
+        "kind": "ServiceAccount"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-appmesh-prometheus",
+      "labels": {
+        "app.kubernetes.io/name": "appmesh-prometheus",
+        "helm.sh/chart": "appmesh-prometheus-1.0.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "2.13.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 9090,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "appmesh-prometheus",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-appmesh-prometheus",
+      "labels": {
+        "app.kubernetes.io/name": "appmesh-prometheus",
+        "helm.sh/chart": "appmesh-prometheus-1.0.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "2.13.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "type": "Recreate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "appmesh-prometheus",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "appmesh-prometheus",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/part-of": "appmesh"
+          },
+          "annotations": {
+            "checksum/config": "f410af700d4d64ac8898f4e4e1b323008023cc2315022f13880305abb47f8afa"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-appmesh-prometheus",
+          "volumes": [
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "release-name-appmesh-prometheus"
+              }
+            },
+            {
+              "name": "data-volume",
+              "emptyDir": {}
+            }
+          ],
+          "initContainers": [
+            {
+              "name": "chown",
+              "image": "alpine:latest",
+              "command": [
+                "/bin/sh",
+                "-c"
+              ],
+              "args": [
+                "chown 65534:65534 /mount;"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "data-volume",
+                  "mountPath": "/mount"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "appmesh-prometheus",
+              "image": "prom/prometheus:v2.13.1",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "--storage.tsdb.retention=6h",
+                "--config.file=/etc/prometheus/prometheus.yml"
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 9090,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/-/healthy",
+                  "port": "http"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/-/ready",
+                  "port": "http"
+                }
+              },
+              "securityContext": {
+                "runAsUser": 10826,
+                "runAsGroup": 65534,
+                "runAsNonRoot": true,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "volumeMounts": [
+                {
+                  "name": "config-volume",
+                  "mountPath": "/etc/prometheus"
+                },
+                {
+                  "name": "data-volume",
+                  "mountPath": "/prometheus/data"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "2000m",
+                  "memory": "2Gi"
+                },
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "256Mi"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

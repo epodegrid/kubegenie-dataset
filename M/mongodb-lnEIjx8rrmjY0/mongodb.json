@@ -1,0 +1,187 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-mongodb",
+      "labels": {
+        "app.kubernetes.io/name": "mongodb",
+        "helm.sh/chart": "mongodb-0.3.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "4.2.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "default.conf": "storage:\n  dbPath: /data/db\nnet:\n  bindIp: 0.0.0.0\n  port: 27017\nsecurity:\n  authorization: enabled\n",
+      "user.conf": ""
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-mongodb",
+      "labels": {
+        "app.kubernetes.io/name": "mongodb",
+        "helm.sh/chart": "mongodb-0.3.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "4.2.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 27017,
+          "targetPort": "mongodb",
+          "protocol": "TCP",
+          "name": "mongodb"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "mongodb",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-mongodb",
+      "labels": {
+        "app.kubernetes.io/name": "mongodb",
+        "helm.sh/chart": "mongodb-0.3.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "4.2.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "mongodb",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "serviceName": "release-name-mongodb",
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "db-data",
+            "labels": {
+              "app.kubernetes.io/name": "mongodb",
+              "helm.sh/chart": "mongodb-0.3.2",
+              "app.kubernetes.io/instance": "release-name",
+              "app.kubernetes.io/version": "4.2.1",
+              "app.kubernetes.io/managed-by": "Helm"
+            }
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "5Gi"
+              }
+            }
+          }
+        }
+      ],
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "mongodb",
+            "helm.sh/chart": "mongodb-0.3.2",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/version": "4.2.1",
+            "app.kubernetes.io/managed-by": "Helm"
+          }
+        },
+        "spec": {
+          "volumes": [
+            {
+              "name": "configs",
+              "configMap": {
+                "name": "release-name-mongodb"
+              }
+            },
+            {
+              "name": "mongo-conf",
+              "emptyDir": {}
+            }
+          ],
+          "initContainers": [
+            {
+              "name": "init-config",
+              "volumeMounts": [
+                {
+                  "name": "configs",
+                  "mountPath": "/tmp/conf"
+                },
+                {
+                  "name": "mongo-conf",
+                  "mountPath": "/etc/mongo"
+                }
+              ],
+              "image": "mikefarah/yq:2.4.1",
+              "imagePullPolicy": null,
+              "command": [
+                "sh",
+                "-c",
+                "cp /tmp/conf/default.conf /etc/mongo/mongod.conf\nyq m -ei /etc/mongo/mongod.conf /tmp/conf/user.conf\n"
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "mongodb",
+              "volumeMounts": [
+                {
+                  "name": "db-data",
+                  "mountPath": "/data/db"
+                },
+                {
+                  "name": "mongo-conf",
+                  "mountPath": "/etc/mongo"
+                }
+              ],
+              "image": "mongo:4.2.1",
+              "imagePullPolicy": null,
+              "env": [
+                {
+                  "name": "MONGO_INITDB_ROOT_USERNAME",
+                  "value": "admin"
+                },
+                {
+                  "name": "MONGO_INITDB_ROOT_PASSWORD",
+                  "value": "password"
+                }
+              ],
+              "args": [
+                "-f",
+                "/etc/mongo/mongod.conf"
+              ],
+              "ports": [
+                {
+                  "name": "mongodb",
+                  "containerPort": 27017,
+                  "protocol": "TCP"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,162 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-k8s-spot-rescheduler
+  labels:
+    app: k8s-spot-rescheduler
+    chart: k8s-spot-rescheduler-0.4.0
+    release: release-name
+    heritage: Helm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-k8s-spot-rescheduler
+  labels:
+    app: k8s-spot-rescheduler
+    chart: k8s-spot-rescheduler-0.4.0
+    release: release-name
+    heritage: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+    verbs:
+      - get
+      - update
+      - create
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+      - pods
+      - replicasets
+      - replicationcontrollers
+      - services
+      - statefulsets
+      - poddisruptionbudgets
+      - persistentvolumes
+      - persistentvolumeclaims
+    verbs:
+      - list
+      - get
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+    verbs:
+      - list
+      - get
+      - watch
+  - apiGroups:
+      - extensions
+    resources:
+      - replicasets
+    verbs:
+      - list
+      - get
+      - watch
+  - apiGroups:
+      - policy
+    resources:
+      - poddisruptionbudgets
+    verbs:
+      - list
+      - get
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - pods/eviction
+    verbs:
+      - create
+  - apiGroups:
+      - storage.k8s.io
+    resources:
+      - storageclasses
+    verbs:
+      - list
+      - get
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-k8s-spot-rescheduler
+  labels:
+    app: k8s-spot-rescheduler
+    chart: k8s-spot-rescheduler-0.4.0
+    release: release-name
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-k8s-spot-rescheduler
+subjects:
+  - kind: ServiceAccount
+    name: release-name-k8s-spot-rescheduler
+    namespace: default
+---
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  name: release-name-k8s-spot-rescheduler
+  labels:
+    app: k8s-spot-rescheduler
+    chart: k8s-spot-rescheduler-0.4.0
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: k8s-spot-rescheduler
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: k8s-spot-rescheduler
+        release: release-name
+    spec:
+      serviceAccountName: release-name-k8s-spot-rescheduler
+      containers:
+        - name: k8s-spot-rescheduler
+          image: registry.cn-hangzhou.aliyuncs.com/kubeapps/quay-k8s-spot-rescheduler:v0.2.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - rescheduler
+            - --namespace=default
+            - --delete-non-replicated-pods
+            - --housekeeping-interval=10s
+            - --kube-api-content-type=application/vnd.kubernetes.protobuf
+            - --listen-address=0.0.0.0:9235
+            - --max-graceful-termination=2m
+            - --node-drain-delay=10m
+            - --on-demand-node-label=node-role.kubernetes.io/worker
+            - --pod-eviction-timeout=2m
+            - --running-in-cluster=true
+            - --spot-node-label=node-role.kubernetes.io/spot-worker
+            - --v=2
+          ports:
+            - name: http
+              containerPort: 9235
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      nodeSelector: {}
+      tolerations: []

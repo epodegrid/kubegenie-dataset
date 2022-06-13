@@ -1,0 +1,137 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-minecraft-datadir
+  labels:
+    app: release-name-minecraft
+    chart: minecraft-3.0.1
+    release: release-name
+    heritage: Helm
+  annotations:
+    volume.beta.kubernetes.io/storage-class: fast
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: fast
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-minecraft
+  labels:
+    app: release-name-minecraft
+    chart: minecraft-3.0.1
+    release: release-name
+    heritage: Helm
+spec:
+  type: LoadBalancer
+  loadBalancerIP: 34.89.229.103
+  ports:
+    - name: minecraft
+      port: 25565
+      targetPort: minecraft
+      protocol: TCP
+  selector:
+    app: release-name-minecraft
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-minecraft
+  labels:
+    app: release-name-minecraft
+    chart: minecraft-3.0.1
+    release: release-name
+    heritage: Helm
+spec:
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: release-name-minecraft
+  template:
+    metadata:
+      labels:
+        app: release-name-minecraft
+    spec:
+      containers:
+        - name: release-name-minecraft
+          image: itzg/minecraft-server:latest
+          imagePullPolicy: Always
+          resources:
+            limits:
+              cpu: 1.5
+              memory: 9Gi
+            requests:
+              cpu: 0.5
+              memory: 3Gi
+          livenessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - /health.sh
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+            successThreshold: 1
+            timeoutSeconds: 5
+          env:
+            - name: AUTOPAUSE_PERIOD
+              value: "15"
+            - name: AUTOPAUSE_TIMEOUT_EST
+              value: "60"
+            - name: AUTOPAUSE_TIMEOUT_INIT
+              value: "90"
+            - name: AUTOPAUSE_TIMEOUT_KN
+              value: "30"
+            - name: DIFFICULTY
+              value: hard
+            - name: ENABLE_AUTOPAUSE
+              value: "TRUE"
+            - name: EULA
+              value: "TRUE"
+            - name: ICON
+              value: https://raw.githubusercontent.com/Paul1365972/fshhu-server/master/icons/hhu-logo.png
+            - name: INIT_MEMORY
+              value: 2G
+            - name: JVM_DD_OPTS
+              value: disable.watchdog:true
+            - name: MAX_MEMORY
+              value: 9G
+            - name: MAX_PLAYERS
+              value: "50"
+            - name: MAX_TICK_TIME
+              value: "-1"
+            - name: MOTD
+              value: HHU Inofficial Anarchy Server
+            - name: OPS
+              value: Paul1365972
+            - name: OVERRIDE_SERVER_PROPERTIES
+              value: "true"
+            - name: SEED
+              value: fshhu
+            - name: SPAWN_PROTECTION
+              value: "0"
+            - name: TYPE
+              value: PAPER
+            - name: USE_AIKAR_FLAGS
+              value: "true"
+            - name: VERSION
+              value: 1.16.3
+            - name: VIEW_DISTANCE
+              value: "12"
+          ports:
+            - name: minecraft
+              containerPort: 25565
+              protocol: TCP
+          volumeMounts:
+            - name: datadir
+              mountPath: /data
+      volumes:
+        - name: datadir
+          persistentVolumeClaim:
+            claimName: release-name-minecraft-datadir

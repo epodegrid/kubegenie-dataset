@@ -1,0 +1,249 @@
+[
+  {
+    "apiVersion": "policy/v1beta1",
+    "kind": "PodDisruptionBudget",
+    "metadata": {
+      "name": "release-name-vault"
+    },
+    "spec": {
+      "maxUnavailable": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "vault",
+          "release": "release-name"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-vault-config",
+      "labels": {
+        "app": "vault",
+        "release": "release-name",
+        "heritage": "Helm",
+        "chart": "vault-0.18.7"
+      }
+    },
+    "data": {
+      "config.json": "{\"listener\":{\"tcp\":{\"address\":\"[::]:8200\",\"cluster_address\":\"[::]:8201\",\"tls_cipher_suites\":\"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA\",\"tls_disable\":true,\"tls_prefer_server_cipher_suites\":true}},\"storage\":null}\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-vault",
+      "labels": {
+        "app": "vault",
+        "chart": "vault-0.18.7",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 8200,
+          "protocol": "TCP",
+          "targetPort": 8200,
+          "name": "api"
+        }
+      ],
+      "selector": {
+        "app": "vault",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "extensions/v1beta1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-vault",
+      "labels": {
+        "app": "vault",
+        "chart": "vault-0.18.7",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": {}
+    },
+    "spec": {
+      "replicas": 3,
+      "strategy": {
+        "type": "RollingUpdate",
+        "rollingUpdate": {
+          "maxUnavailable": 1
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "vault",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "3b83e71509b498202d5af38cac5f86205932f2fff9efaab011cd465e35d22816"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "vault",
+              "image": "vault:1.0.1",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "vault",
+                "server",
+                "-dev",
+                "-dev-listen-address",
+                "[::]:8200"
+              ],
+              "ports": [
+                {
+                  "containerPort": 8200,
+                  "name": "api"
+                },
+                {
+                  "containerPort": 8201,
+                  "name": "cluster-address"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/v1/sys/health?standbyok=true&uninitcode=204&sealedcode=204&",
+                  "port": 8200,
+                  "scheme": "HTTP",
+                  "initialDelaySeconds": 30,
+                  "periodSeconds": 10
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/v1/sys/health?standbycode=204&uninitcode=204&",
+                  "port": 8200,
+                  "scheme": "HTTP",
+                  "initialDelaySeconds": 10,
+                  "periodSeconds": 10
+                }
+              },
+              "securityContext": {
+                "readOnlyRootFilesystem": true,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "allowPrivilegeEscalation": false
+              },
+              "env": [
+                {
+                  "name": "POD_IP",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "status.podIP"
+                    }
+                  }
+                },
+                {
+                  "name": "VAULT_CLUSTER_ADDR",
+                  "value": "https://$(POD_IP):8201"
+                },
+                {
+                  "name": "VAULT_LOG_LEVEL",
+                  "value": "info"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "vault-config",
+                  "mountPath": "/vault/config/"
+                },
+                {
+                  "name": "vault-root",
+                  "mountPath": "/root/"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                },
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              }
+            }
+          ],
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app": "vault",
+                        "release": "release-name"
+                      }
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 100
+                }
+              ]
+            }
+          },
+          "volumes": [
+            {
+              "name": "vault-config",
+              "configMap": {
+                "name": "release-name-vault-config"
+              }
+            },
+            {
+              "name": "vault-root",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-vault-status-test",
+      "annotations": {
+        "helm.sh/hook": "test-success"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "release-name-vault-status-test",
+          "image": "vault:1.0.1",
+          "env": [
+            {
+              "name": "VAULT_ADDR",
+              "value": "http://release-name-vault.default:8200"
+            }
+          ],
+          "command": [
+            "sh",
+            "-c",
+            "vault status"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

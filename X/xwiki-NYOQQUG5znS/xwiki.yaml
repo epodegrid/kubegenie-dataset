@@ -1,0 +1,219 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    choerodon.io/release: release-name
+    choerodon.io/infra: xwiki
+    choerodon.io/logs-parser: spring-boot
+  name: release-name
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        choerodon.io/release: release-name
+        choerodon.io/infra: xwiki
+    spec:
+      containers:
+        - name: release-name
+          image: registry.cn-shanghai.aliyuncs.com/choerodon/xwiki:10.4-mysql-tomcat-0.18.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CHOERODON_REQUEST_API_URL
+              value: http://api.choerodon.com
+            - name: CHOERODON_REQUEST_FRONT_URL
+              value: http://choerodon.com
+            - name: DB_DATABASE
+              value: xwiki
+            - name: DB_HOST
+              value: 127.0.0.1
+            - name: DB_PASSWORD
+              value: password
+            - name: DB_PORT
+              value: "3306"
+            - name: DB_USER
+              value: xwiki
+            - name: JAVA_OPTS
+              value: -Xmx2048m
+            - name: MINIO_ACCESSKEY
+              value: accessKey
+            - name: MINIO_ENDPOINT
+              value: http://minio.example.choerodon.io
+            - name: MINIO_SECRETKEY
+              value: secretKey
+            - name: OIDC_CLIENTID
+              value: wiki
+            - name: OIDC_ENDPOINT_AUTHORIZATION
+              value: http://api.choerodon.com/oauth/oauth/authorize
+            - name: OIDC_ENDPOINT_LOGOUT
+              value: http://api.choerodon.com/oauth/logout
+            - name: OIDC_ENDPOINT_TOKEN
+              value: http://api.choerodon.com/oauth/oauth/token
+            - name: OIDC_ENDPOINT_USERINFO
+              value: http://api.choerodon.com/iam/v1/users/self
+            - name: OIDC_SECRET
+              value: secret
+            - name: OIDC_WIKI_TOKEN
+              value: Choerodon
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          resources:
+            limits:
+              memory: 3Gi
+            requests:
+              memory: 2Gi
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: xwiki-data
+              mountPath: /usr/local/xwiki
+              subPath: data
+      volumes:
+        - name: xwiki-data
+          emptyDir: {}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-init-data
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+  labels:
+    choerodon.io/release: release-name
+    choerodon.io/infra: xwiki
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 1200
+  template:
+    metadata:
+      name: release-name-init-data
+    spec:
+      containers:
+        - name: init
+          image: registry.cn-shanghai.aliyuncs.com/choerodon/xwiki:10.4-mysql-tomcat-0.18.1
+          command:
+            - /bin/sh
+            - -c
+            - cp -rf /root/data/* /data && rm -rf /data/data/hibernate.cfg.xml && rm -rf /data/data/xwiki.cfg && rm -rf /data/data/xwiki.properties
+          volumeMounts:
+            - name: xwiki-data
+              mountPath: /data
+              subPath: data
+          env:
+            - name: CHOERODON_REQUEST_API_URL
+              value: http://api.choerodon.com
+            - name: CHOERODON_REQUEST_FRONT_URL
+              value: http://choerodon.com
+            - name: DB_DATABASE
+              value: xwiki
+            - name: DB_HOST
+              value: 127.0.0.1
+            - name: DB_PASSWORD
+              value: password
+            - name: DB_PORT
+              value: "3306"
+            - name: DB_USER
+              value: xwiki
+            - name: JAVA_OPTS
+              value: -Xmx2048m
+            - name: MINIO_ACCESSKEY
+              value: accessKey
+            - name: MINIO_ENDPOINT
+              value: http://minio.example.choerodon.io
+            - name: MINIO_SECRETKEY
+              value: secretKey
+            - name: OIDC_CLIENTID
+              value: wiki
+            - name: OIDC_ENDPOINT_AUTHORIZATION
+              value: http://api.choerodon.com/oauth/oauth/authorize
+            - name: OIDC_ENDPOINT_LOGOUT
+              value: http://api.choerodon.com/oauth/logout
+            - name: OIDC_ENDPOINT_TOKEN
+              value: http://api.choerodon.com/oauth/oauth/token
+            - name: OIDC_ENDPOINT_USERINFO
+              value: http://api.choerodon.com/iam/v1/users/self
+            - name: OIDC_SECRET
+              value: secret
+            - name: OIDC_WIKI_TOKEN
+              value: Choerodon
+      restartPolicy: Never
+      volumes:
+        - name: xwiki-data
+          emptyDir: {}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-init-db
+  annotations:
+    helm.sh/hook: pre-install
+  labels:
+    choerodon.io/release: release-name
+    choerodon.io/infra: xwiki
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 1200
+  template:
+    metadata:
+      name: release-name-init-data
+    spec:
+      containers:
+        - name: release-name-init-db
+          image: registry.cn-hangzhou.aliyuncs.com/choerodon-tools/mysql-client:10.2.15-r0
+          imagePullPolicy: IfNotPresent
+          args:
+            - -c
+            - $(mysql -u"${DB_USER}" -p"${DB_PASSWORD}" -h"${DB_HOST}" -P "${DB_PORT}"< /root/data/xwiki-release.sql)
+          command:
+            - /bin/sh
+          volumeMounts:
+            - name: xwiki-data
+              mountPath: /root/data
+              subPath: data
+          env:
+            - name: CHOERODON_REQUEST_API_URL
+              value: http://api.choerodon.com
+            - name: CHOERODON_REQUEST_FRONT_URL
+              value: http://choerodon.com
+            - name: DB_DATABASE
+              value: xwiki
+            - name: DB_HOST
+              value: 127.0.0.1
+            - name: DB_PASSWORD
+              value: password
+            - name: DB_PORT
+              value: "3306"
+            - name: DB_USER
+              value: xwiki
+            - name: JAVA_OPTS
+              value: -Xmx2048m
+            - name: MINIO_ACCESSKEY
+              value: accessKey
+            - name: MINIO_ENDPOINT
+              value: http://minio.example.choerodon.io
+            - name: MINIO_SECRETKEY
+              value: secretKey
+            - name: OIDC_CLIENTID
+              value: wiki
+            - name: OIDC_ENDPOINT_AUTHORIZATION
+              value: http://api.choerodon.com/oauth/oauth/authorize
+            - name: OIDC_ENDPOINT_LOGOUT
+              value: http://api.choerodon.com/oauth/logout
+            - name: OIDC_ENDPOINT_TOKEN
+              value: http://api.choerodon.com/oauth/oauth/token
+            - name: OIDC_ENDPOINT_USERINFO
+              value: http://api.choerodon.com/iam/v1/users/self
+            - name: OIDC_SECRET
+              value: secret
+            - name: OIDC_WIKI_TOKEN
+              value: Choerodon
+      restartPolicy: Never
+      volumes:
+        - name: xwiki-data
+          emptyDir: {}

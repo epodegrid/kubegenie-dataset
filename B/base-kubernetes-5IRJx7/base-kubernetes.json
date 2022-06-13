@@ -1,0 +1,176 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "kubernetes"
+    },
+    "data": {
+      "serviceConfig": "name: kubernetes\nkafka_bootstrap_servers: [\"cord-kafka\"]\naccessor:\n  username: \"admin@opencord.org\"\n  password: \"letmein\"\n  endpoint: \"xos-core:50051\"\nevent_bus:\n  endpoint: \"cord-kafka\"\n  kind: kafka\nlogging:\n  version: 1\n  handlers:\n    console:\n      class: logging.StreamHandler\n    file:\n      class: logging.handlers.RotatingFileHandler\n      filename: /var/log/xos.log\n      maxBytes: 10485760\n      backupCount: 5\n    kafka:\n      class: kafkaloghandler.KafkaLogHandler\n      bootstrap_servers:\n        - \"cord-kafka:9092\"\n      topic: xos.log.kubernetes\n  loggers:\n    '':\n      handlers:\n          - console\n          - file\n          - kafka\n      level: DEBUG\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "base-kubernetes-tosca"
+    },
+    "data": {
+      "010-fixtures.yaml": "description: Some basic fixtures\nimports:\n- custom_types/networkparametertype.yaml\n- custom_types/networktemplate.yaml\ntopology_template:\n  node_templates:\n    Private:\n      properties:\n        name: Private\n        translation: none\n        visibility: private\n      type: tosca.nodes.NetworkTemplate\n    Public dedicated IPv4:\n      properties:\n        name: Public dedicated IPv4\n        shared_network_name: ext-net\n        translation: none\n        visibility: public\n      type: tosca.nodes.NetworkTemplate\n    Public shared IPv4:\n      properties:\n        name: Public shared IPv4\n        shared_network_name: nat-net\n        translation: NAT\n        visibility: private\n      type: tosca.nodes.NetworkTemplate\n    bridge:\n      properties:\n        name: bridge\n      type: tosca.nodes.NetworkParameterType\n    c_tag:\n      properties:\n        name: c_tag\n      type: tosca.nodes.NetworkParameterType\n    device:\n      properties:\n        name: device\n      type: tosca.nodes.NetworkParameterType\n    neutron_port_name:\n      properties:\n        name: neutron_port_name\n      type: tosca.nodes.NetworkParameterType\n    next_hop:\n      properties:\n        name: next_hop\n      type: tosca.nodes.NetworkParameterType\n    s_tag:\n      properties:\n        name: s_tag\n      type: tosca.nodes.NetworkParameterType\ntosca_definitions_version: tosca_simple_yaml_1_0\n",
+      "040-cord-services.yaml": "description: Set up Kubernetes Service\nimports:\n- custom_types/kubernetesservice.yaml\n- custom_types/trustdomain.yaml\ntopology_template:\n  node_templates:\n    default_trustdomain:\n      properties:\n        name: default\n      requirements:\n      - owner:\n          node: service#kubernetes\n          relationship: tosca.relationships.BelongsToOne\n      type: tosca.nodes.TrustDomain\n    service#kubernetes:\n      properties:\n        name: kubernetes\n      type: tosca.nodes.KubernetesService\ntosca_definitions_version: tosca_simple_yaml_1_0\n",
+      "050-service-graph-constraints.yaml": "description: Constraints on the Services position in the graph\nimports:\n- custom_types/servicegraphconstraint.yaml\ntopology_template:\n  node_templates:\n    constraints:\n      properties:\n        constraints: '[]'\n      type: tosca.nodes.ServiceGraphConstraint\ntosca_definitions_version: tosca_simple_yaml_1_0\n"
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta2",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-kubernetes",
+      "labels": {
+        "app": "kubernetes",
+        "chart": "kubernetes-2.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "kubernetes",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "kubernetes",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "04ab1236116e13fc86e04773d28a0ea99bbeb82c52cdc0cb47d651a3b8e596de"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "kubernetes-synchronizer",
+          "containers": [
+            {
+              "name": "kubernetes",
+              "image": "xosproject/kubernetes-synchronizer:2.0.0",
+              "imagePullPolicy": "Always",
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "kubernetes-config",
+                  "mountPath": "/opt/xos/synchronizers/kubernetes/mounted_config.yaml",
+                  "subPath": "mounted_config.yaml"
+                },
+                {
+                  "name": "certchain-volume",
+                  "mountPath": "/usr/local/share/ca-certificates/local_certs.crt",
+                  "subPath": "config/ca_cert_chain.pem"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "kubernetes-config",
+              "configMap": {
+                "name": "kubernetes",
+                "items": [
+                  {
+                    "key": "serviceConfig",
+                    "path": "mounted_config.yaml"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "certchain-volume",
+              "configMap": {
+                "name": "ca-certificates",
+                "items": [
+                  {
+                    "key": "chain",
+                    "path": "config/ca_cert_chain.pem"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+      "name": "release-name-base-kubernetes-tosca-loader",
+      "labels": {
+        "app": "base-kubernetes",
+        "chart": "base-kubernetes-2.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "backoffLimit": 12,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "base-kubernetes",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "69411cd6483f6323a20a38290a8e524614f5619ef51dfeb2bd6fd3cce8d02b49"
+          }
+        },
+        "spec": {
+          "restartPolicy": "OnFailure",
+          "containers": [
+            {
+              "name": "base-kubernetes-tosca-loader",
+              "image": "xosproject/tosca-loader:1.3.1",
+              "imagePullPolicy": "Always",
+              "env": [
+                {
+                  "name": "XOS_USER",
+                  "value": "admin@opencord.org"
+                },
+                {
+                  "name": "XOS_PASSWD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "xos-admin-passwd-secret",
+                      "key": "password"
+                    }
+                  }
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "base-kubernetes-tosca",
+                  "mountPath": "/opt/tosca"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "base-kubernetes-tosca",
+              "configMap": {
+                "name": "base-kubernetes-tosca"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

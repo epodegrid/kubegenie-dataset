@@ -1,0 +1,342 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-barman-pgpass-secret",
+      "labels": {
+        "helm.sh/chart": "barman-0.8.1",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/part-of": "barman",
+        "app.kubernetes.io/version": "v2.19",
+        "app.kubernetes.io/name": "barman",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    },
+    "type": "Opaque",
+    "stringData": {
+      ".pgpass": "postgresql:5432:*:postgres:postgres\npostgresql:5432:*:barman:barman\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-barman-backups-config",
+      "labels": {
+        "helm.sh/chart": "barman-0.8.1",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/part-of": "barman",
+        "app.kubernetes.io/version": "v2.19",
+        "app.kubernetes.io/name": "barman",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    },
+    "data": {
+      "postgresql.conf": "[postgresql]\nactive = true\ndescription = \"PostgreSQL Database (Streaming-Only)\"\nconninfo = host=postgresql user=postgres dbname=postgres\nstreaming_conninfo = host=postgresql user=barman\nbackup_method = postgres\nstreaming_archiver = on\nslot_name = barman\nlast_backup_maximum_age = 1 day\nretention_policy = RECOVERY WINDOW of 1 MONTH\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-barman-cron-config",
+      "labels": {
+        "helm.sh/chart": "barman-0.8.1",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/part-of": "barman",
+        "app.kubernetes.io/version": "v2.19",
+        "app.kubernetes.io/name": "barman",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    },
+    "data": {
+      "barman": "* * * * * barman /usr/local/bin/barman receive-wal --create-slot postgresql; /usr/local/bin/barman cron\n0 4 * * * barman /usr/local/bin/barman backup postgresql\n# required by cron\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-barman-global-config",
+      "labels": {
+        "helm.sh/chart": "barman-0.8.1",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/part-of": "barman",
+        "app.kubernetes.io/version": "v2.19",
+        "app.kubernetes.io/name": "barman",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    },
+    "data": {
+      "barman.conf": "; Commented lines show the default values\n[barman]\n; archiver = off\nbackup_method = postgres\n; backup_directory = %(barman_home)s/%(name)s\n\nbackup_options = concurrent_backup\n\n; This must be set to the BARMAN_DATA_DIR environment variable\nbarman_home = /var/lib/barman\n\nbarman_user = barman\n\n; barman_lock_directory = %(barman_home)s\ncompression = gzip\nconfiguration_files_directory = /etc/barman/barman.d\nlast_backup_maximum_age = 1 day\nminimum_redundancy = 1\n;network_compression = true\nretention_policy = RECOVERY WINDOW of 1 MONTH\n; retention_policy_mode = auto\n;reuse_backup = link\nstreaming_archiver = on\n; wal_retention_policy = main\n\n; use empty log_file for stderr output\nlog_file = \"\"\nlog_level = INFO\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-barman-config",
+      "labels": {
+        "helm.sh/chart": "barman-0.8.1",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/part-of": "barman",
+        "app.kubernetes.io/version": "v2.19",
+        "app.kubernetes.io/name": "barman",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    },
+    "data": {
+      "BARMAN_BACKUP_SCHEDULE": "0 4 * * *"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "name": "release-name-barman-data",
+      "labels": {
+        "helm.sh/chart": "barman-0.8.1",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/part-of": "barman",
+        "app.kubernetes.io/version": "v2.19",
+        "app.kubernetes.io/name": "barman",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "20Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "barman-exporter",
+      "labels": {
+        "helm.sh/chart": "barman-0.8.1",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/part-of": "barman",
+        "app.kubernetes.io/version": "v2.19",
+        "app.kubernetes.io/name": "barman",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 9780,
+          "targetPort": 9780,
+          "protocol": "TCP",
+          "name": "prom-exporter"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "barman",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-barman",
+      "labels": {
+        "helm.sh/chart": "barman-0.8.1",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/part-of": "barman",
+        "app.kubernetes.io/version": "v2.19",
+        "app.kubernetes.io/name": "barman",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "barman",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "strategy": {
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "helm.sh/chart": "barman-0.8.1",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/part-of": "barman",
+            "app.kubernetes.io/version": "v2.19",
+            "app.kubernetes.io/name": "barman",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "barman",
+              "image": "ubcctlt/barman:v2.19",
+              "imagePullPolicy": "Always",
+              "command": [
+                "tini",
+                "--",
+                "/entrypoint.sh"
+              ],
+              "args": [
+                "cron",
+                "-L",
+                "4",
+                "-f"
+              ],
+              "ports": [
+                {
+                  "name": "prom-exporter",
+                  "containerPort": 9780,
+                  "protocol": "TCP"
+                }
+              ],
+              "lifecycle": {
+                "postStart": {
+                  "exec": {
+                    "command": [
+                      "/bin/sh",
+                      "-c",
+                      "HOME=/home/barman && cp /.pgpass $HOME/ && chown barman:barman $HOME/.pgpass && chmod 600 $HOME/.pgpass"
+                    ]
+                  }
+                }
+              },
+              "envFrom": [
+                {
+                  "configMapRef": {
+                    "name": "release-name-barman-config"
+                  }
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/var/lib/barman",
+                  "name": "data",
+                  "subPath": "data"
+                },
+                {
+                  "mountPath": "/var/lib/barman/recover",
+                  "name": "recover",
+                  "subPath": "recover"
+                },
+                {
+                  "mountPath": "/etc/barman/barman.d",
+                  "name": "barman-backups-config"
+                },
+                {
+                  "mountPath": "/etc/barman.conf",
+                  "name": "barman-global-config",
+                  "subPath": "barman.conf"
+                },
+                {
+                  "mountPath": "/.pgpass",
+                  "name": "barman-pgpass-secret",
+                  "subPath": ".pgpass"
+                },
+                {
+                  "mountPath": "/etc/cron.d/barman",
+                  "name": "barman-cron-config",
+                  "subPath": "barman"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "memory": "256Mi"
+                },
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "128Mi"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "data",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-barman-data"
+              }
+            },
+            {
+              "name": "recover",
+              "emptyDir": {}
+            },
+            {
+              "name": "barman-backups-config",
+              "configMap": {
+                "name": "release-name-barman-backups-config"
+              }
+            },
+            {
+              "name": "barman-global-config",
+              "configMap": {
+                "name": "release-name-barman-global-config"
+              }
+            },
+            {
+              "name": "barman-pgpass-secret",
+              "secret": {
+                "secretName": "release-name-barman-pgpass-secret",
+                "defaultMode": 384
+              }
+            },
+            {
+              "name": "barman-cron-config",
+              "configMap": {
+                "name": "release-name-barman-cron-config"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "monitoring.coreos.com/v1",
+    "kind": "ServiceMonitor",
+    "metadata": {
+      "name": "release-name-barman",
+      "labels": {
+        "helm.sh/chart": "barman-0.8.1",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/part-of": "barman",
+        "app.kubernetes.io/version": "v2.19",
+        "app.kubernetes.io/name": "barman",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "barman",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "endpoints": [
+        {
+          "targetPort": 9780,
+          "interval": "30s",
+          "path": "/metrics"
+        }
+      ]
+    }
+  }
+]

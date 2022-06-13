@@ -1,0 +1,357 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-postgresql
+  labels:
+    app.kubernetes.io/name: postgresql
+    helm.sh/chart: postgresql-9.7.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+  postgresql-password: ZGVwVHJhY2s=
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-dependency-track-config
+  labels:
+    helm.sh/chart: dependency-track-0.1.8
+    app.kubernetes.io/name: dependency-track
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.8.0
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+stringData:
+  application.properties: |2-
+    alpine.bcrypt.rounds=14
+    alpine.data.directory=/data
+    alpine.database.driver=org.postgresql.Driver
+    alpine.database.driver.path=/extlib/postgresql-42.2.5.jar
+    alpine.database.mode=external
+    alpine.database.password=depTrack
+    alpine.database.pool.enabled=true
+    alpine.database.pool.idle.timeout=600000
+    alpine.database.pool.max.lifetime=600000
+    alpine.database.pool.max.size=10
+    alpine.database.url=jdbc:postgresql://release-name-postgresql.default.svc.cluster.local:5432/depTrack
+    alpine.database.username=depTrack
+    alpine.enforce.authentification=true
+    alpine.enforce.authorization=true
+    alpine.watchdog.logging.interval=0
+    alpine.worker.thread.multiplier=4
+    alpine.worker.threads=0
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-postgresql-headless
+  labels:
+    app.kubernetes.io/name: postgresql
+    helm.sh/chart: postgresql-9.7.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-postgresql
+  labels:
+    app.kubernetes.io/name: postgresql
+    helm.sh/chart: postgresql-9.7.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: release-name
+    role: master
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-dependency-track
+  labels:
+    helm.sh/chart: dependency-track-0.1.8
+    app.kubernetes.io/name: dependency-track
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.8.0
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: dependency-track
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-postgresql
+  labels:
+    app.kubernetes.io/name: postgresql
+    helm.sh/chart: postgresql-9.7.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  serviceName: release-name-postgresql-headless
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/instance: release-name
+      role: master
+  template:
+    metadata:
+      name: release-name-postgresql
+      labels:
+        app.kubernetes.io/name: postgresql
+        helm.sh/chart: postgresql-9.7.2
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        role: master
+    spec:
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: release-name-postgresql
+          image: docker.io/bitnami/postgresql:11.9.0-debian-10-r34
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            seccompProfile:
+              type: RuntimeDefault
+          securityContext:
+            runAsUser: 10363
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: POSTGRESQL_PORT_NUMBER
+              value: "5432"
+            - name: POSTGRESQL_VOLUME_DIR
+              value: /bitnami/postgresql
+            - name: PGDATA
+              value: /bitnami/postgresql/data
+            - name: POSTGRES_USER
+              value: depTrack
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql
+                  key: postgresql-password
+            - name: POSTGRES_DB
+              value: depTrack
+            - name: POSTGRESQL_ENABLE_LDAP
+              value: "no"
+            - name: POSTGRESQL_ENABLE_TLS
+              value: "no"
+            - name: POSTGRESQL_LOG_HOSTNAME
+              value: "false"
+            - name: POSTGRESQL_LOG_CONNECTIONS
+              value: "false"
+            - name: POSTGRESQL_LOG_DISCONNECTIONS
+              value: "false"
+            - name: POSTGRESQL_PGAUDIT_LOG_CATALOG
+              value: "off"
+            - name: POSTGRESQL_CLIENT_MIN_MESSAGES
+              value: error
+            - name: POSTGRESQL_SHARED_PRELOAD_LIBRARIES
+              value: pgaudit
+          ports:
+            - name: tcp-postgresql
+              containerPort: 5432
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - exec pg_isready -U "depTrack" -d "dbname=depTrack" -h 127.0.0.1 -p 5432
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - -e
+                - |
+                  exec pg_isready -U "depTrack" -d "dbname=depTrack" -h 127.0.0.1 -p 5432
+                  [ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+            - name: data
+              mountPath: /bitnami/postgresql
+              subPath: null
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-dependency-track
+  labels:
+    helm.sh/chart: dependency-track-0.1.8
+    app.kubernetes.io/name: dependency-track
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.8.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dependency-track
+      app.kubernetes.io/instance: release-name
+  serviceName: release-name-dependency-track
+  template:
+    metadata:
+      annotations:
+        checksum/config: e66e62de8c8c83aaceafef0d2ac49982175b83e62014ccabdc1151d33656e0f8
+      labels:
+        app.kubernetes.io/name: dependency-track
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: dependency-track
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          image: docker.io/owasp/dependency-track:3.8.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ALPINE_APPLICATION_PROPERTIES
+              value: /config/application.properties
+            - name: JAVA_OPTIONS
+              value: -XX:MaxRAMPercentage=90.0 -Dalpine.application.properties=/config/application.properties
+            - name: LOGGING_LEVEL
+              value: DEBUG
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            timeoutSeconds: 1
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 3
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 16Gi
+            requests:
+              cpu: 1500m
+              memory: 4Gi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /config
+      volumes:
+        - name: config
+          secret:
+            secretName: release-name-dependency-track-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: longhorn
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-dependency-track-test-connection
+  labels:
+    helm.sh/chart: dependency-track-0.1.8
+    app.kubernetes.io/name: dependency-track
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.8.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-dependency-track:80
+  restartPolicy: Never

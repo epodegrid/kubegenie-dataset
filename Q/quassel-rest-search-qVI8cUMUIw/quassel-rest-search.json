@@ -1,0 +1,180 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-quassel-rest-search-config",
+      "labels": {
+        "app.kubernetes.io/name": "quassel-rest-search",
+        "helm.sh/chart": "quassel-rest-search-0.4.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "qrs_config.php": "<?php\ndefine('qrs_db_host', 'example.com');\ndefine('qrs_db_port', 5432);\ndefine('qrs_db_name', 'quassel');\n\n// Only change this if you know what you are doing\ndefine('qrs_db_connector', null);\n\ndefine('qrs_db_user', 'quassel');\ndefine('qrs_db_pass', 'password');\n\ndefine('qrs_db_option_tsqueryfunction', \"plainto_tsquery('english', :query)\");\n// Timeout in milliseconds\ndefine('qrs_db_option_timeout', 5000);\n\ndefine('qrs_backend', 'pgsql-smart');\ndefine('qrs_enable_ranking', false);\n\ndefine('qrs_path_prefix', '');\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-quassel-rest-search",
+      "labels": {
+        "helm.sh/chart": "quassel-rest-search-0.4.1",
+        "app.kubernetes.io/name": "quassel-rest-search",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "latest",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "main",
+          "protocol": "TCP",
+          "name": "main"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "quassel-rest-search",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-quassel-rest-search",
+      "labels": {
+        "helm.sh/chart": "quassel-rest-search-0.4.1",
+        "app.kubernetes.io/name": "quassel-rest-search",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "latest",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "quassel-rest-search",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "quassel-rest-search",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "securityContext": {},
+          "containers": [
+            {
+              "name": "quassel-rest-search",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "k8r.eu/justjanne/quassel-rest-search:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "main",
+                  "containerPort": 8080,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "main"
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "main"
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                },
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/var/www/html/qrs_config.php",
+                  "subPath": "qrs_config.php"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-quassel-rest-search-config"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-quassel-rest-search-test-connection",
+      "labels": {
+        "helm.sh/chart": "quassel-rest-search-0.4.1",
+        "app.kubernetes.io/name": "quassel-rest-search",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "latest",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test-success"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "wget",
+          "image": "busybox",
+          "command": [
+            "wget"
+          ],
+          "args": [
+            "release-name-quassel-rest-search:80"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

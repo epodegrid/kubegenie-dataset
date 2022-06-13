@@ -1,0 +1,504 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "mysql-cluster-config"
+    },
+    "data": {
+      "mysql-cluster.cnf": "[tcp default]\nSendBufferMemory=2M\nReceiveBufferMemory=2M\n\n[ndbd default]\nNoOfReplicas=3\nLockPagesInMainMemory=1\nDataMemory=256M\nNoOfFragmentLogFiles=300\nDataDir=/var/lib/mysql\nMaxNoOfConcurrentOperations=100000\nSchedulerSpinTimer=400\nSchedulerExecutionTimer=100\nRealTimeScheduler=0\n\nTimeBetweenGlobalCheckpoints=1000\nTimeBetweenEpochs=200\nRedoBuffer=32M\n\nMaxNoOfTables=1024\nMaxNoOfOrderedIndexes=256\n\nMaxNoOfConcurrentScans=500\nMaxParallelScansPerFragment=500\n\n[ndb_mgmd]\nNodeId=1\nhostname=mysql-mgmd-0.mysql-mgmd\ndatadir=/var/lib/mysql\n\n[ndb_mgmd]\nNodeId=2\nhostname=mysql-mgmd-1.mysql-mgmd\ndatadir=/var/lib/mysql\n\n[ndbd]\nNodeId=3\nhostname=mysql-data-0.mysql-data\ndatadir=/var/lib/mysql\nLockExecuteThreadToCPU=1\nLockMaintThreadsToCPU=0\n\n[ndbd]\nNodeId=4\nhostname=mysql-data-1.mysql-data\ndatadir=/var/lib/mysql\nLockExecuteThreadToCPU=1\nLockMaintThreadsToCPU=0\n\n[ndbd]\nNodeId=5\nhostname=mysql-data-2.mysql-data\ndatadir=/var/lib/mysql\nLockExecuteThreadToCPU=1\nLockMaintThreadsToCPU=0\n\n[mysqld]\nNodeId=6\nhostname=mysql-server-0.mysql-server\n\n[mysqld]\nNodeId=7\nhostname=mysql-server-1.mysql-server\n",
+      "my.cnf": "[mysqld]\nndbcluster\nndb-connectstring=mysql-mgmd-0.mysql-mgmd,mysql-mgmd-1.mysql-mgmd\nperformance_schema=OFF\nmax_connections=2000\n\n[mysql_cluster]\nndb-connectstring=mysql-mgmd-0.mysql-mgmd,mysql-mgmd-1.mysql-mgmd\n",
+      "my-server.cnf": "[mysqld]\nndbcluster\nndb-connectstring=mysql-mgmd-0.mysql-mgmd,mysql-mgmd-1.mysql-mgmd\nperformance_schema=OFF\ndefault_storage_engine=ndbcluster\nmax_connections=2000\n\n[mysql_cluster]\nndb-connectstring=mysql-mgmd-0.mysql-mgmd,mysql-mgmd-1.mysql-mgmd\n",
+      "root-user.sql": "CREATE USER 'test'@'%' IDENTIFIED WITH mysql_native_password BY 'testpassword';\nGRANT ALL PRIVILEGES ON *.* TO 'test'@'%' WITH GRANT OPTION;\nFLUSH PRIVILEGES;\n",
+      "waitforcurl.sh": "#!/bin/sh\n\nHOST=$1\nCURL_EXIT_CODE=$2\n\nwhile true\ndo\n\tcurl ${HOST}\n\texit_code=$?\n\tif test \"$exit_code\" == \"${CURL_EXIT_CODE}\"; then\n\t   break\n\tfi\n\techo \"exit code = ${exit_code}\"\n\tsleep 1\ndone\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "mysql-mgmd",
+      "labels": {
+        "app": "mysql-mgmd"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "port": 1186
+        }
+      ],
+      "selector": {
+        "app": "mysql-mgmd"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "mysql-data",
+      "labels": {
+        "app": "mysql-data"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "port": 2202
+        }
+      ],
+      "selector": {
+        "app": "mysql-data"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "mysql-server",
+      "labels": {
+        "app": "mysql-server"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "port": 3306,
+          "name": "mysql-server"
+        },
+        {
+          "port": 33060,
+          "name": "x-plugin"
+        }
+      ],
+      "selector": {
+        "app": "mysql-server"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "mysql-host",
+      "labels": {
+        "app": "mysql-server"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 3306
+        }
+      ],
+      "selector": {
+        "app": "mysql-server"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "mysql-data"
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "mysql-data"
+        }
+      },
+      "serviceName": "mysql-data",
+      "replicas": 3,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "mysql-data"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "weight": 1,
+                  "podAffinityTerm": {
+                    "topologyKey": "kubernetes.io/hostname",
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "app",
+                          "operator": "In",
+                          "values": [
+                            "mysql-data"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "containers": [
+            {
+              "name": "mysql-data",
+              "image": "mysql/mysql-cluster:8.0.20",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "mysql-data",
+                  "containerPort": 2202
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "mysql-data-volumeclaim",
+                  "mountPath": "/var/lib/mysql",
+                  "subPath": "mysql"
+                },
+                {
+                  "name": "mysql-cluster-config-cluster-cnf",
+                  "mountPath": "/etc/mysql-cluster.cnf",
+                  "subPath": "mysql-cluster.cnf"
+                },
+                {
+                  "name": "mysql-cluster-config-my-cnf",
+                  "mountPath": "/etc/my.cnf",
+                  "subPath": "my.cnf"
+                },
+                {
+                  "name": "waitforcurl",
+                  "mountPath": "/waitforcurl.sh",
+                  "subPath": "waitforcurl.sh"
+                }
+              ],
+              "command": [
+                "bash",
+                "-c",
+                "./waitforcurl.sh mysql-server-0.mysql-server 7\n./waitforcurl.sh mysql-server-1.mysql-server 7\n\n./waitforcurl.sh mysql-data-0.mysql-data 7\n./waitforcurl.sh mysql-data-1.mysql-data 7\n./waitforcurl.sh mysql-data-2.mysql-data 7\n\n./waitforcurl.sh mysql-mgmd-0.mysql-mgmd 7\n./waitforcurl.sh mysql-mgmd-1.mysql-mgmd 7\n\n./entrypoint.sh ndbd\n"
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "mysql-cluster-config-cluster-cnf",
+              "configMap": {
+                "name": "mysql-cluster-config",
+                "items": [
+                  {
+                    "key": "mysql-cluster.cnf",
+                    "path": "mysql-cluster.cnf"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "mysql-cluster-config-my-cnf",
+              "configMap": {
+                "name": "mysql-cluster-config",
+                "items": [
+                  {
+                    "key": "my.cnf",
+                    "path": "my.cnf"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "waitforcurl",
+              "configMap": {
+                "name": "mysql-cluster-config",
+                "defaultMode": 511,
+                "items": [
+                  {
+                    "key": "waitforcurl.sh",
+                    "path": "waitforcurl.sh"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "mysql-data-volumeclaim"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "storageClassName": "local-storage",
+            "resources": {
+              "requests": {
+                "storage": "10Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "mysql-mgmd"
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "mysql-mgmd"
+        }
+      },
+      "serviceName": "mysql-mgmd",
+      "replicas": 2,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "mysql-mgmd"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "weight": 1,
+                  "podAffinityTerm": {
+                    "topologyKey": "kubernetes.io/hostname",
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "app",
+                          "operator": "In",
+                          "values": [
+                            "mysql-mgmd"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "containers": [
+            {
+              "name": "mysql-mgmd",
+              "image": "mysql/mysql-cluster:8.0.20",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "mysql-mgmd",
+                  "containerPort": 1186
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "mysql-cluster-config-cluster-cnf",
+                  "mountPath": "/etc/mysql-cluster.cnf",
+                  "subPath": "mysql-cluster.cnf"
+                },
+                {
+                  "name": "mysql-cluster-config-my-cnf",
+                  "mountPath": "/etc/my.cnf",
+                  "subPath": "my.cnf"
+                },
+                {
+                  "name": "waitforcurl",
+                  "mountPath": "/waitforcurl.sh",
+                  "subPath": "waitforcurl.sh"
+                }
+              ],
+              "command": [
+                "bash",
+                "-c",
+                "./waitforcurl.sh mysql-server-0.mysql-server 7\n./waitforcurl.sh mysql-server-1.mysql-server 7\n\n./waitforcurl.sh mysql-data-0.mysql-data 7\n./waitforcurl.sh mysql-data-1.mysql-data 7\n./waitforcurl.sh mysql-data-2.mysql-data 7\n\n./waitforcurl.sh mysql-mgmd-0.mysql-mgmd 7\n./waitforcurl.sh mysql-mgmd-1.mysql-mgmd 7\n\n./entrypoint.sh ndb_mgmd\n"
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "mysql-cluster-config-cluster-cnf",
+              "configMap": {
+                "name": "mysql-cluster-config",
+                "items": [
+                  {
+                    "key": "mysql-cluster.cnf",
+                    "path": "mysql-cluster.cnf"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "mysql-cluster-config-my-cnf",
+              "configMap": {
+                "name": "mysql-cluster-config",
+                "items": [
+                  {
+                    "key": "my.cnf",
+                    "path": "my.cnf"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "waitforcurl",
+              "configMap": {
+                "name": "mysql-cluster-config",
+                "defaultMode": 511,
+                "items": [
+                  {
+                    "key": "waitforcurl.sh",
+                    "path": "waitforcurl.sh"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "mysql-server"
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "mysql-server"
+        }
+      },
+      "serviceName": "mysql-server",
+      "replicas": 2,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "mysql-server"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "weight": 1,
+                  "podAffinityTerm": {
+                    "topologyKey": "kubernetes.io/hostname",
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "app",
+                          "operator": "In",
+                          "values": [
+                            "mysql-server"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "containers": [
+            {
+              "name": "mysql-server",
+              "image": "mysql/mysql-cluster:8.0.20",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "mysql-server",
+                  "containerPort": 3306
+                },
+                {
+                  "name": "x-plugin",
+                  "containerPort": 33060
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "mysql-cluster-config-cluster-cnf",
+                  "mountPath": "/etc/mysql-cluster.cnf",
+                  "subPath": "mysql-cluster.cnf"
+                },
+                {
+                  "name": "mysql-cluster-config-my-cnf",
+                  "mountPath": "/etc/my.cnf",
+                  "subPath": "my.cnf"
+                },
+                {
+                  "name": "waitforcurl",
+                  "mountPath": "/waitforcurl.sh",
+                  "subPath": "waitforcurl.sh"
+                }
+              ],
+              "env": [
+                {
+                  "name": "MYSQL_ROOT_PASSWORD",
+                  "value": 123123
+                }
+              ],
+              "command": [
+                "bash",
+                "-c",
+                "./waitforcurl.sh mysql-server-0.mysql-server 7\n./waitforcurl.sh mysql-server-1.mysql-server 7\n\n./waitforcurl.sh mysql-data-0.mysql-data 7\n./waitforcurl.sh mysql-data-1.mysql-data 7\n./waitforcurl.sh mysql-data-2.mysql-data 7\n\n./waitforcurl.sh mysql-mgmd-0.mysql-mgmd 7\n./waitforcurl.sh mysql-mgmd-1.mysql-mgmd 7\n\n./entrypoint.sh mysqld --ssl=0 --user=root\n"
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "mysql-cluster-config-cluster-cnf",
+              "configMap": {
+                "name": "mysql-cluster-config",
+                "items": [
+                  {
+                    "key": "mysql-cluster.cnf",
+                    "path": "mysql-cluster.cnf"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "mysql-cluster-config-my-cnf",
+              "configMap": {
+                "name": "mysql-cluster-config",
+                "items": [
+                  {
+                    "key": "my-server.cnf",
+                    "path": "my.cnf"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "waitforcurl",
+              "configMap": {
+                "name": "mysql-cluster-config",
+                "defaultMode": 511,
+                "items": [
+                  {
+                    "key": "waitforcurl.sh",
+                    "path": "waitforcurl.sh"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

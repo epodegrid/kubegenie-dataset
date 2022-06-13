@@ -1,0 +1,202 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-hazelcast-jet",
+      "labels": {
+        "app": "hazelcast-jet",
+        "chart": "hazelcast-jet-1.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-hazelcast-jet-configuration",
+      "labels": {
+        "app": "hazelcast-jet",
+        "chart": "hazelcast-jet-1.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "hazelcast-jet.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<hazelcast-jet xsi:schemaLocation=\"http://www.hazelcast.com/schema/jet-config hazelcast-jet-config-0.8.xsd\"\n              xmlns=\"http://www.hazelcast.com/schema/jet-config\"\n              xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n    <instance>\n        <!-- number of threads in the cooperative thread pool -->\n      <cooperative-thread-count>8</cooperative-thread-count>\n        <!-- period between flow control packets in milliseconds -->\n      <flow-control-period>100</flow-control-period>\n        <!-- number of backup copies to configure for Hazelcast IMaps used internally in a Jet job -->\n      <backup-count>1</backup-count>\n    </instance>\n    <!-- custom properties which can be read in the user code -->\n    <properties>\n      <property name=\"custom.property\">custom property</property>\n    </properties>\n    <edge-defaults>\n        <!-- capacity of the concurrent SPSC queue between each two processors -->\n      <queue-size>1024</queue-size>\n        <!-- network packet size limit in bytes, only applies to distributed edges -->\n      <packet-size-limit>16384</packet-size-limit>\n        <!-- receive window size multiplier, only applies to distributed edges -->\n      <receive-window-multiplier>3</receive-window-multiplier>\n    </edge-defaults>\n    <!-- whether metrics collection is enabled -->\n    <metrics enabled=\"true\">\n        <!-- the number of seconds the metrics will be retained on the instance -->\n        <retention-seconds>120</retention-seconds>\n        <!-- the metrics collection interval in seconds -->\n        <collection-interval-seconds>5</collection-interval-seconds>\n        <!-- whether metrics should be collected for data structures. Metrics\n            collection can have some overhead if there is a large number of data\n            structures -->\n        <metrics-for-data-structures>false</metrics-for-data-structures>\n    </metrics>\n</hazelcast-jet>",
+      "hazelcast.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<hazelcast xsi:schemaLocation=\"http://www.hazelcast.com/schema/config hazelcast-config-3.10.xsd\"\n               xmlns=\"http://www.hazelcast.com/schema/config\"\n               xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n  <properties>\n    <property name=\"hazelcast.discovery.enabled\">true</property>\n  </properties>\n  <network>\n    <join>\n      <multicast enabled=\"false\"/>\n      <tcp-ip enabled=\"false\" />\n      <discovery-strategies>\n        <discovery-strategy enabled=\"true\" class=\"com.hazelcast.kubernetes.HazelcastKubernetesDiscoveryStrategy\">\n          <properties>\n            <property name=\"service-name\">${serviceName}</property>\n            <property name=\"namespace\">${namespace}</property>\n          </properties>\n        </discovery-strategy>\n      </discovery-strategies>\n    </join>\n  </network>\n</hazelcast>"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "release-name-hazelcast-jet",
+      "labels": {
+        "app": "hazelcast-jet",
+        "chart": "hazelcast-jet-1.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "endpoints"
+        ],
+        "verbs": [
+          "get",
+          "list"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "release-name-hazelcast-jet",
+      "labels": {
+        "app": "hazelcast-jet",
+        "chart": "hazelcast-jet-1.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "release-name-hazelcast-jet"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-hazelcast-jet",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-hazelcast-jet",
+      "labels": {
+        "app": "hazelcast-jet",
+        "chart": "hazelcast-jet-1.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "selector": {
+        "app": "hazelcast-jet",
+        "release": "release-name"
+      },
+      "ports": [
+        {
+          "protocol": "TCP",
+          "port": 5701,
+          "targetPort": "hazelcast-jet",
+          "name": "hzport"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-hazelcast-jet",
+      "labels": {
+        "app": "hazelcast-jet",
+        "chart": "hazelcast-jet-1.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 2,
+      "selector": {
+        "matchLabels": {
+          "app": "hazelcast-jet",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "hazelcast-jet",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "terminationGracePeriodSeconds": 600,
+          "containers": [
+            {
+              "name": "release-name-hazelcast-jet",
+              "image": "hazelcast/hazelcast-jet:3.0",
+              "imagePullPolicy": "IfNotPresent",
+              "resources": null,
+              "ports": [
+                {
+                  "name": "hazelcast-jet",
+                  "containerPort": 5701
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/hazelcast/health/node-state",
+                  "port": 5701
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 3
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/hazelcast/health/node-state",
+                  "port": 5701
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "timeoutSeconds": 1,
+                "successThreshold": 1,
+                "failureThreshold": 3
+              },
+              "volumeMounts": [
+                {
+                  "name": "hazelcast-jet-storage",
+                  "mountPath": "/data/hazelcast-jet"
+                }
+              ],
+              "env": [
+                {
+                  "name": "JAVA_OPTS",
+                  "value": "-Dhazelcast.rest.enabled=true -Dhazelcast.config=/data/hazelcast-jet/hazelcast.xml -Dhazelcast.jet.config=/data/hazelcast-jet/hazelcast-jet.xml -DserviceName=release-name-hazelcast-jet -Dnamespace=default -Dhazelcast.shutdownhook.policy=GRACEFUL -Dhazelcast.shutdownhook.enabled=true -Dhazelcast.graceful.shutdown.max.wait=600  "
+                }
+              ]
+            }
+          ],
+          "serviceAccountName": "release-name-hazelcast-jet",
+          "volumes": [
+            {
+              "name": "hazelcast-jet-storage",
+              "configMap": {
+                "name": "release-name-hazelcast-jet-configuration"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

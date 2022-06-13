@@ -1,0 +1,150 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-oidc-proxy
+  namespace: IQK879
+  labels:
+    helm.sh/chart: oidc-proxy-0.0.36
+    app.kubernetes.io/name: oidc-proxy
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: terra
+    app.kubernetes.io/version: 0.0.36
+    app.kubernetes.io/managed-by: Helm
+data:
+  siteconf: "ServerAdmin ${SERVER_ADMIN}\nServerName ${SERVER_NAME}\nServerTokens ProductOnly\nTraceEnable off\n\nLogFormat \"%h %l %u \\\"%{OAUTH2_CLAIM_email}i\\\" \\\"%{X-App-ID}i\\\" [%{%FT%T}t.%{msec_frac}t%{%z}t] %D %X \\\"%r\\\" %>s %b \\\"%{Referer}i\\\" \\\"%{Origin}i\\\" \\\"%{User-Agent}i\\\"\" combined\nLogFormat \"%{X-Forwarded-For}i %l %u \\\"%{OAUTH2_CLAIM_email}i\\\" \\\"%{X-App-ID}i\\\" [%{%FT%T}t.%{msec_frac}t%{%z}t] %D %X \\\"%r\\\" %>s %b \\\"%{Referer}i\\\" \\\"%{User-Agent}i\\\"\" proxy\nSetEnvIf X-Forwarded-For \"^.*\\..*\\..*\\..*\" forwarded\nCustomLog \"/dev/stdout\" combined env=!forwarded\nCustomLog \"/dev/stdout\" proxy env=forwarded\nLogLevel ${LOG_LEVEL}\n\nAddType application/x-httpd-php .php\n\nHeader unset X-Frame-Options\nHeader always set X-Frame-Options SAMEORIGIN\nHeader always set Access-Control-Allow-Headers DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization,Accept,Referer,X-App-Id,Origin\nHeader always set Access-Control-Allow-Methods GET,POST,DELETE,PUT,PATCH,OPTIONS,HEAD\nHeader always set X-Content-Type-Options nosniff\nHeader always set Strict-Transport-Security max-age=31536000;includeSubDomains\nHeader always set Cache-Control no-cache,no-store,must-revalidate\n\n# If CORS_REGEX environment variable is set, match the domains in the regex\n# to set the Access-Control-Allow-Origin. Domains not in the regex will be\n# denied.\n<If \"-n osenv('CORS_REGEX')\">\n    SetEnvIf Origin \"${CORS_REGEX}\" ORIGIN_SUB_DOMAIN=$0\n</If>\n# If no CORS_REGEX environment variable is set, echo the Origin domain back\n# in the Access-Control-Allow-Origin header.\n<Else>\n    SetEnvIf Origin \"(.+)\" ORIGIN_SUB_DOMAIN=$0\n</Else>\n# CORS header will ONLY be set if the Origin header was sent. The browser\n# does NOT set the Origin header on GETs: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Origin\n# Due to this change Access-Control-Allow-Origin '*' is never set.\nHeader always set Access-Control-Allow-Origin %{ORIGIN_SUB_DOMAIN}e env=ORIGIN_SUB_DOMAIN\nHeader merge Vary Origin\n\nProxyTimeout ${PROXY_TIMEOUT}\nOIDCOAuthTokenIntrospectionInterval 60\n# Enabling cache encryption via 'OIDCCacheEncrypt On' has two side effects:\n# 1. it reduces key size to avoid \"could not construct cache key since key size is too large\" cache errors\n# 2. it causes intermittent duplicate requests between the proxy and the underlying app\n# the latter side effect is too dangerous, so cache encryption is off\nOIDCCacheEncrypt Off\n# Use GET for the introspection endpoint to avoid a performance issue with POST requests.\n# See https://broadworkbench.atlassian.net/browse/PROD-634\nOIDCOAuthIntrospectionEndpointMethod GET\n\n<VirtualHost _default_:${HTTPD_PORT}>\n    ServerAdmin ${SERVER_ADMIN}\n    ServerName ${SERVER_NAME}\n    ErrorLog /dev/stdout\n    CustomLog \"/dev/stdout\" combined\n    RewriteEngine On\n    RewriteCond  %{HTTP:X-Forwarded-Proto} !https\n    RewriteCond %{REQUEST_URI}  !^/(version|status) [NC]\n    SSLProxyEngine on\n\n    ErrorLog /dev/stdout\n    CustomLog \"/dev/stdout\" combined\n\n    DocumentRoot /app\n    \n    <Directory \"/app\">\n      AllowOverride All\n      Options -Indexes\n      \n      Order allow,deny\n      Allow from all\n    </Directory>\n\n    <Location /introspect/>\n        RewriteEngine off\n        Require all granted\n        AuthType None\n    </Location>\n\n    <LocationMatch \"^(?!/introspect/)(${PROXY_PATH})(.*)\">\n        RewriteEngine On\n        RewriteCond %{REQUEST_METHOD} OPTIONS\n        RewriteRule ^(.*)$ $1 [R=204,L]\n\n        <Limit OPTIONS>\n            Require all granted\n        </Limit>\n\n        ${AUTH_TYPE}\n        ${AUTH_REQUIRE}\n\n        ProxyPassMatch ${PROXY_URL}$2\n        ProxyPassReverse ${PROXY_URL}\n\n        ${FILTER}\n    </LocationMatch>\n\n    <Location ${PROXY_PATH2}>\n        RewriteEngine On\n        RewriteCond %{REQUEST_METHOD} OPTIONS\n        RewriteRule ^(.*)$ $1 [R=204,L]\n\n        <Limit OPTIONS>\n            Require all granted\n        </Limit>\n\n        ${AUTH_TYPE2}\n        <RequireAll>\n          <RequireAll>\n            ${AUTH_REQUIRE2}\n          </RequireAll>\n          <RequireAll>\n            # Note: we need to reference %{REMOTE_USER} to ensure that this expression is evaluated _after_ the authentication has happened\n            # %{REMOTE_USER} != %{REMOTE_USER} will never evaluate to true but will ensure that the expression is evaluated at the correct time\n            # An example expression can look like:\n            # Require expr \"%{REMOTE_USER} != %{REMOTE_USER} || %{HTTP:OAUTH2_CLAIM_email} =~ /.gserviceaccount.com$/\"\n            Require expr \"%{REMOTE_USER} != %{REMOTE_USER} || ('${ENVIRONMENT}' in {'dev', 'alpha', 'perf', 'staging', 'prod'} && (${ALLOW_EXPRESSION}))\"\n          </RequireAll>\n        </RequireAll>\n\n\n        RequestHeader set oidc_claim_email \"expr=%{HTTP:OAUTH2_CLAIM_email}\"\n        RequestHeader set oidc_claim_user_id \"expr=%{HTTP:OAUTH2_CLAIM_sub}\"\n        RequestHeader set oidc_access_token \"expr=%{HTTP:OAUTH2_CLAIM_access_token}\"\n        RequestHeader set oidc_claim_expires_in \"expr=%{HTTP:OAUTH2_CLAIM_exp}\"\n\n        ProxyPass ${PROXY_URL2}\n        ProxyPassReverse ${PROXY_URL2}\n\n        ${FILTER2}\n    </Location>\n\n    <Location ${PROXY_PATH3}>\n        RewriteEngine Off\n\n        # DRS OPTIONS endpoints can be accessed without any authentication.\n        # DRS POST endpoints typically use Passport auth, so the user does not need to pass through B2C login.\n        <Limit OPTIONS POST>\n            ${AUTH_TYPE}\n            ${AUTH_REQUIRE}\n        </Limit>\n\n        ${AUTH_TYPE3}\n        <RequireAll>\n          <RequireAll>\n            ${AUTH_REQUIRE3}\n          </RequireAll>\n          <RequireAll>\n            # Note: we need to reference %{REMOTE_USER} to ensure that this expression is evaluated _after_ the authentication has happened\n            # %{REMOTE_USER} != %{REMOTE_USER} will never evaluate to true but will ensure that the expression is evaluated at the correct time\n            # An example expression can look like:\n            # Require expr \"%{REMOTE_USER} != %{REMOTE_USER} || %{HTTP:OAUTH2_CLAIM_email} =~ /.gserviceaccount.com$/\"\n            Require expr \"%{REMOTE_USER} != %{REMOTE_USER} || ('${ENVIRONMENT}' in {'dev', 'alpha', 'perf', 'staging', 'prod'} && (${ALLOW_EXPRESSION}))\"\n          </RequireAll>\n        </RequireAll>\n\n        RequestHeader set oidc_claim_email \"expr=%{HTTP:OAUTH2_CLAIM_email}\"\n        RequestHeader set oidc_claim_user_id \"expr=%{HTTP:OAUTH2_CLAIM_sub}\"\n        RequestHeader set oidc_access_token \"expr=%{HTTP:OAUTH2_CLAIM_access_token}\"\n        RequestHeader set oidc_claim_expires_in \"expr=%{HTTP:OAUTH2_CLAIM_exp}\"\n\n        ProxyPass ${PROXY_URL3}\n        ProxyPassReverse ${PROXY_URL3}\n\n        ${FILTER3}\n    </Location>\n\n    # DRS GetServiceInfo endpoint can be accessed without any authentication.\n    <Location ${PROXY_PATH3}/drs/v1/service-info>\n        ${AUTH_TYPE}\n        ${AUTH_REQUIRE}\n    </Location>\n\n    # Bigquery redirect logic.  Note: we are not authorizing the request since that is handled by the bigquery API\n    # This is here to work around CORS rules that are enforced by the BigQuery APIs.  This makes it so that ours are\n    # used instead.\n    <Location /bigquery>\n        ProxyPass https://bigquery.googleapis.com/bigquery\n        ProxyPassReverse https://bigquery.googleapis.com/bigquery\n    </Location>\n\n    <Location /googlesheets>\n      ProxyPass https://sheets.googleapis.com\n      ProxyPassReverse https://sheets.googleapis.com\n    </Location>\n\n    <Location /drive>\n      ProxyPass https://www.googleapis.com/drive\n      ProxyPassReverse https://www.googleapis.com/drive\n    </Location>\n\n    # Oauth proxying logic.  This allows sending unauthed oauth requests through to the back end\n    <Location /oauth2>\n        ProxyPass ${PROXY_URL}oauth2\n        ProxyPassReverse ${PROXY_URL}oauth2\n    </Location>\n\n</VirtualHost>"
+  oauth2conf: |-
+    OAuth2TokenVerify metadata https://terradevb2c.b2clogin.com/terradevb2c.onmicrosoft.com/B2C_1A_SIGNUP_SIGNIN/v2.0/.well-known/openid-configuration metadata.ssl_verify=true&verify.iat=skip
+    OAuth2TokenVerify metadata https://terradevb2c.b2clogin.com/terradevb2c.onmicrosoft.com/B2C_1A_SIGNUP_SIGNIN_TDR/v2.0/.well-known/openid-configuration metadata.ssl_verify=true&verify.iat=skip
+    OAuth2TokenVerify metadata https://tdrb2ctest.b2clogin.com/tdrb2ctest.onmicrosoft.com/B2C_1A_SIGNUP_SIGNIN_TDR/v2.0/.well-known/openid-configuration metadata.ssl_verify=true&verify.iat=skip
+    OAuth2TokenVerify introspect http://127.0.0.1/introspect/ introspect.ssl_verify=false&verify.iat=skip
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: release-name-oidc-proxy
+  labels:
+    helm.sh/chart: oidc-proxy-0.0.36
+    app.kubernetes.io/name: oidc-proxy
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: terra
+    app.kubernetes.io/version: 0.0.36
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    beta.cloud.google.com/backend-config: '{"ports": {"http":"oidc-backend-config"}}'
+spec:
+  type: NodePort
+  selector:
+    component: release-name-oidc-proxy
+  ports:
+    - protocol: TCP
+      name: http
+      port: 80
+      targetPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-oidc-proxy
+  labels:
+    helm.sh/chart: oidc-proxy-0.0.36
+    app.kubernetes.io/name: oidc-proxy
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: terra
+    app.kubernetes.io/version: 0.0.36
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: release-name-oidc-proxy
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: oidc-proxy-0.0.36
+        app.kubernetes.io/name: oidc-proxy
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/component: frontend
+        app.kubernetes.io/part-of: terra
+        app.kubernetes.io/version: 0.0.36
+        app.kubernetes.io/managed-by: Helm
+        app: release-name-oidc-proxy
+        component: release-name-oidc-proxy
+      annotations:
+        checksum/configmap: ef6d0a7a9b2ec406494a93a914118d9be2d9e961f9c47e470c5d4673a2ffb6af
+    spec:
+      serviceAccountName: default
+      containers:
+        - name: oidc-proxy
+          image: us.gcr.io/broad-dsp-gcr-public/openidc-terra-proxy:v0.1.12
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 80
+            initialDelaySeconds: 35
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 80
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 3
+          env: null
+          volumeMounts:
+            - mountPath: /etc/apache2/sites-available/site.conf
+              name: siteconf
+              subPath: site.conf
+            - mountPath: /etc/apache2/mods-enabled/oauth2.conf
+              name: oauth2conf
+              subPath: oauth2.conf
+      volumes:
+        - name: siteconf
+          configMap:
+            name: release-name-oidc-proxy
+            items:
+              - key: siteconf
+                path: site.conf
+        - name: oauth2conf
+          configMap:
+            name: release-name-oidc-proxy
+            items:
+              - key: oauth2conf
+                path: oauth2.conf
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  annotations:
+    kubernetes.io/ingress.allow-http: "false"
+  name: release-name-oidc-proxy
+  labels:
+    helm.sh/chart: oidc-proxy-0.0.36
+    app.kubernetes.io/name: oidc-proxy
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: terra
+    app.kubernetes.io/version: 0.0.36
+    app.kubernetes.io/managed-by: Helm
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /*
+            backend:
+              serviceName: release-name-oidc-proxy
+              servicePort: 80
+---
+apiVersion: cloud.google.com/v1beta1
+kind: BackendConfig
+metadata:
+  name: oidc-backend-config
+spec:
+  timeoutSec: 600

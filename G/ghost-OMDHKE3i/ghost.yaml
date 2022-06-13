@@ -1,0 +1,155 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-ghost
+  labels:
+    helm.sh/chart: ghost-0.48.1
+    app.kubernetes.io/name: ghost
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 5.2.2
+    app.kubernetes.io/managed-by: Helm
+data:
+  database__client: c3FsaXRlMw==
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-ghost
+  labels:
+    helm.sh/chart: ghost-0.48.1
+    app.kubernetes.io/name: ghost
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 5.2.2
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: ghost
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-ghost
+  labels:
+    helm.sh/chart: ghost-0.48.1
+    app.kubernetes.io/name: ghost
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 5.2.2
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ghost
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/secureconfig: 2ec40e25756495a66e0a2d8b961dd866f21e5ce889aefcd8bb1ac833f953a629
+      labels:
+        app.kubernetes.io/name: ghost
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: ghost
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 10268
+            capabilities:
+              drop:
+                "": NET_RAW
+          image: ghost:5.2.2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 2368
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: release-name-ghost
+          env:
+            - name: logging__transports
+              value: '["stdout"]'
+            - name: mail__transport
+              value: SMTP
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: localhost:2368
+            initialDelaySeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+            successThreshold: 1
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: localhost:2368
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: localhost:2368
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+            periodSeconds: 10
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp
+            - mountPath: /var/lib/ghost/content
+              name: ghost-vol
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: ghost-vol
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-ghost-test-connection
+  labels:
+    helm.sh/chart: ghost-0.48.1
+    app.kubernetes.io/name: ghost
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 5.2.2
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-ghost:80
+  restartPolicy: Never

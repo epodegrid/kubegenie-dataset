@@ -1,0 +1,333 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "spgwu",
+      "labels": {
+        "release": "release-name",
+        "app": "spgwu"
+      }
+    },
+    "data": {
+      "spgwu.json": "{\n  \"mode\": \"dpdk\",\n  \"ue_cidr\": \"10.250.0.0/16\",\n  \"enb_cidr\": \"192.168.251.0/24\",\n  \"s1u\": {\n    \"ifname\": \"s1u\"\n  },\n  \"sgi\": {\n    \"ifname\": \"sgi\"\n  },\n  \"workers\": 1,\n  \"max_sessions\": 50000\n}\n",
+      "bessd-poststart.sh": "#!/bin/bash\n\n# Copyright 2020-present Open Networking Foundation\n#\n# SPDX-License-Identifier: LicenseRef-ONF-Member-Only-1.0\n\nset -ex\n\nuntil bessctl run /opt/bess/bessctl/conf/spgwu; do\n    sleep 2;\ndone;\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "spgwu-headless",
+      "labels": {
+        "release": "release-name",
+        "app": "spgwu"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "selector": {
+        "release": "release-name",
+        "app": "spgwu"
+      },
+      "ports": [
+        {
+          "name": "zmq",
+          "protocol": "TCP",
+          "port": 20
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "spgwu-external",
+      "labels": {
+        "release": "release-name",
+        "app": "spgwu"
+      }
+    },
+    "spec": {
+      "selector": {
+        "release": "release-name",
+        "app": "spgwu"
+      },
+      "type": "NodePort",
+      "ports": [
+        {
+          "name": "bess-web",
+          "protocol": "TCP",
+          "port": 8000,
+          "nodePort": 36000
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "spgwu",
+      "serviceName": "spgwu-headless",
+      "labels": {
+        "release": "release-name",
+        "app": "spgwu"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "release": "release-name",
+          "app": "spgwu"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "release": "release-name",
+            "app": "spgwu"
+          },
+          "annotations": {
+            "k8s.v1.cni.cncf.io/networks": "[ { \"name\": \"s1u-net\", \"interface\": \"s1u\", \"ips\": \"192.168.252.3/24\" }, { \"name\": \"sgi-net\", \"interface\": \"sgi\", \"ips\": \"192.168.250.3/24\" } ]"
+          }
+        },
+        "spec": {
+          "shareProcessNamespace": true,
+          "initContainers": [
+            {
+              "name": "bess-init",
+              "image": "docker.io/omecproject/upf-epc-bess:master-latest",
+              "imagePullPolicy": "Always",
+              "command": [
+                "sh",
+                "-xec"
+              ],
+              "args": [
+                "ip route replace 192.168.251.0/24 via 192.168.252.1; ip route replace default via 192.168.250.1 metric 110; iptables -I OUTPUT -p icmp --icmp-type port-unreachable -j DROP;"
+              ],
+              "securityContext": {
+                "capabilities": {
+                  "add": [
+                    "NET_ADMIN"
+                  ]
+                }
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "bessd",
+              "image": "docker.io/omecproject/upf-epc-bess:master-latest",
+              "imagePullPolicy": "Always",
+              "securityContext": {
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true
+              },
+              "stdin": true,
+              "tty": true,
+              "command": [
+                "/bin/bash",
+                "-xc"
+              ],
+              "args": [
+                "bessd -f -grpc-url=0.0.0.0:10514"
+              ],
+              "lifecycle": {
+                "postStart": {
+                  "exec": {
+                    "command": [
+                      "/etc/bess/conf/bessd-poststart.sh"
+                    ]
+                  }
+                }
+              },
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": 10514
+                },
+                "initialDelaySeconds": 15,
+                "periodSeconds": 20
+              },
+              "resources": {
+                "requests": {
+                  "cpu": 2,
+                  "memory": "256Mi",
+                  "hugepages-1Gi": "2Gi",
+                  "intel.com/sriov_vfio_s1u_net": 1,
+                  "intel.com/sriov_vfio_sgi_net": 1
+                },
+                "limits": {
+                  "cpu": 2,
+                  "memory": "256Mi",
+                  "hugepages-1Gi": "2Gi",
+                  "intel.com/sriov_vfio_s1u_net": 1,
+                  "intel.com/sriov_vfio_sgi_net": 1
+                }
+              },
+              "env": [
+                {
+                  "name": "CONF_FILE",
+                  "value": "/etc/bess/conf/spgwu.json"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "hugepages",
+                  "mountPath": "/dev/hugepages"
+                },
+                {
+                  "name": "configs",
+                  "mountPath": "/etc/bess/conf"
+                }
+              ]
+            },
+            {
+              "name": "routectl",
+              "image": "docker.io/omecproject/upf-epc-bess:master-latest",
+              "imagePullPolicy": "Always",
+              "env": [
+                {
+                  "name": "PYTHONUNBUFFERED",
+                  "value": "1"
+                }
+              ],
+              "command": [
+                "/opt/bess/bessctl/conf/route_control.py"
+              ],
+              "args": [
+                "-i",
+                "s1u",
+                "sgi"
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "256m",
+                  "memory": "128Mi"
+                },
+                "requests": {
+                  "cpu": "256m",
+                  "memory": "128Mi"
+                }
+              }
+            },
+            {
+              "name": "web",
+              "image": "docker.io/omecproject/upf-epc-bess:master-latest",
+              "imagePullPolicy": "Always",
+              "command": [
+                "/bin/bash",
+                "-xc",
+                "bessctl http 0.0.0.0 8000"
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "256m",
+                  "memory": "128Mi"
+                },
+                "requests": {
+                  "cpu": "256m",
+                  "memory": "128Mi"
+                }
+              }
+            },
+            {
+              "name": "cpiface",
+              "image": "docker.io/omecproject/upf-epc-cpiface:master-latest",
+              "imagePullPolicy": "Always",
+              "env": [
+                {
+                  "name": "ZMQD_IP",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "status.podIP"
+                    }
+                  }
+                },
+                {
+                  "name": "GLOG_v",
+                  "value": "1"
+                }
+              ],
+              "command": [
+                "zmq-cpiface"
+              ],
+              "args": [
+                "--hostname",
+                "dp-name",
+                "--zmqd_nb_ip",
+                "spgwc-headless",
+                "--zmqd_nb_port",
+                "21",
+                "--zmqd_recv_port",
+                "20",
+                "--zmqd_ip",
+                "$(ZMQD_IP)",
+                "--s1u_sgw_ip",
+                "192.168.252.3"
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "256m",
+                  "memory": "128Mi"
+                },
+                "requests": {
+                  "cpu": "256m",
+                  "memory": "128Mi"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "configs",
+              "configMap": {
+                "name": "spgwu",
+                "defaultMode": 493
+              }
+            },
+            {
+              "name": "hugepages",
+              "emptyDir": {
+                "medium": "HugePages"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "k8s.cni.cncf.io/v1",
+    "kind": "NetworkAttachmentDefinition",
+    "metadata": {
+      "name": "s1u-net",
+      "annotations": {
+        "k8s.v1.cni.cncf.io/resourceName": "intel.com/sriov_vfio_s1u_net"
+      }
+    },
+    "spec": {
+      "config": "{ \"type\": \"vfioveth\", \"ipam\": { \"type\": \"static\" } }"
+    }
+  },
+  {
+    "apiVersion": "k8s.cni.cncf.io/v1",
+    "kind": "NetworkAttachmentDefinition",
+    "metadata": {
+      "name": "sgi-net",
+      "annotations": {
+        "k8s.v1.cni.cncf.io/resourceName": "intel.com/sriov_vfio_sgi_net"
+      }
+    },
+    "spec": {
+      "config": "{ \"type\": \"vfioveth\", \"ipam\": { \"type\": \"static\" } }"
+    }
+  }
+]

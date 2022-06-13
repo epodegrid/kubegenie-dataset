@@ -1,0 +1,978 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kafka-generate-acl
+  namespace: 0t6sxl4qQ97b5yC
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus-kafka-exporter
+  namespace: 0t6sxl4qQ97b5yC
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-test
+  namespace: 0t6sxl4qQ97b5yC
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-kafka
+  namespace: 0t6sxl4qQ97b5yC
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kafka-etc
+type: Opaque
+data:
+  jaas.conf: S2Fma2FTZXJ2ZXIgewogICAgb3JnLmFwYWNoZS5rYWZrYS5jb21tb24uc2VjdXJpdHkucGxhaW4uUGxhaW5Mb2dpbk1vZHVsZSByZXF1aXJlZAogICAgdXNlcm5hbWU9ImFkbWluIgogICAgcGFzc3dvcmQ9ImNoYW5nZW1lIgogICAgdXNlcl9hZG1pbj0iY2hhbmdlbWUiCiAgICB1c2VyX2thZmthLWV4cG9ydGVyPSJjaGFuZ2VtZSI7Cn07CkthZmthQ2xpZW50IHsKICAgIG9yZy5hcGFjaGUua2Fma2EuY29tbW9uLnNlY3VyaXR5LnBsYWluLlBsYWluTG9naW5Nb2R1bGUgcmVxdWlyZWQKICAgIHVzZXJuYW1lPSJhZG1pbiIKICAgIHBhc3N3b3JkPSJjaGFuZ2VtZSI7Cn07CkNsaWVudCB7CiAgICBvcmcuYXBhY2hlLmthZmthLmNvbW1vbi5zZWN1cml0eS5wbGFpbi5QbGFpbkxvZ2luTW9kdWxlIHJlcXVpcmVkCiAgICB1c2VybmFtZT0iYWRtaW4iCiAgICBwYXNzd29yZD0iY2hhbmdlbWUiOwp9Ow==
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kafka-exporter-creds
+type: Opaque
+data:
+  KAFKA_EXPORTER_USERNAME: a2Fma2EtZXhwb3J0ZXI=
+  KAFKA_EXPORTER_PASSWORD: Y2hhbmdlbWU=
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kafka-admin-creds
+type: Opaque
+data:
+  KAFKA_ADMIN_USERNAME: YWRtaW4=
+  KAFKA_ADMIN_PASSWORD: Y2hhbmdlbWU=
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-bin
+data:
+  kafka.sh: |
+    #!/bin/bash
+
+    export KAFKA_AUTHORIZER_CLASS_NAME="kafka.security.auth.SimpleAclAuthorizer"
+    export KAFKA_LISTENERS="SASL_PLAINTEXT://:9092"
+    export KAFKA_MESSAGE_MAX_BYTES=5000000
+    export KAFKA_SASL_ENABLED_MECHANISMS="PLAIN"
+    export KAFKA_SASL_MECHANISM="PLAIN"
+    export KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL="PLAIN"
+    export KAFKA_SECURITY_INTER_BROKER_PROTOCOL="SASL_PLAINTEXT"
+    export KAFKA_SECURITY_PROTOCOL="SASL_PLAINTEXT"
+    export KAFKA_SUPER_USERS="User:$ADMIN_USERNAME"
+
+    COMMAND="${@:-start}"
+
+    function start() {
+      ./usr/bin/start-kafka.sh
+    }
+
+    function stop () {
+      kill -TERM 1
+    }
+
+    $COMMAND
+  kafka-liveness.sh: |
+    #!/bin/sh
+
+
+
+    set -ex
+
+    echo ruok | nc 127.0.0.1 ${KAFKA_PORT}
+  kafka-readiness.sh: |
+    #!/bin/sh
+
+
+
+    set -ex
+
+    echo ruok | nc 127.0.0.1 ${KAFKA_PORT}
+  helm-test.sh: |
+    #!/bin/bash
+
+
+    function create_topic () {
+        ./opt/kafka/bin/kafka-topics.sh \
+            --create --topic $1 \
+            --partitions $2 \
+            --replication-factor $3 \
+            --zookeeper $KAFKA_ZOOKEEPER_CONNECT
+    }
+
+    function describe_topic () {
+        ./opt/kafka/bin/kafka-topics.sh \
+            --describe --topic $1 \
+            --zookeeper $KAFKA_ZOOKEEPER_CONNECT
+    }
+
+    function produce_message () {
+        echo $2 | \
+        ./opt/kafka/bin/kafka-console-producer.sh \
+            --topic $1 \
+            --broker-list $KAFKA_BROKERS
+    }
+
+    function consume_messages () {
+        ./opt/kafka/bin/kafka-console-consumer.sh \
+            --topic $1 \
+            --timeout-ms 5000 \
+            --from-beginning \
+            --bootstrap-server $KAFKA_BROKERS
+    }
+
+    function delete_partition_messages () {
+        ./opt/kafka/bin/kafka-delete-records.sh \
+            --offset-json-file $1 \
+            --bootstrap-server $KAFKA_BROKERS
+    }
+
+    function delete_topic () {
+        ./opt/kafka/bin/kafka-topics.sh \
+            --delete --topic $1 \
+            --zookeeper $KAFKA_ZOOKEEPER_CONNECT
+    }
+
+    set -ex
+
+    TOPIC="kafka-test"
+    PARTITION_COUNT=3
+    PARTITION_REPLICAS=2
+
+    echo "Creating topic $TOPIC"
+    create_topic $TOPIC $PARTITION_COUNT $PARTITION_REPLICAS
+    describe_topic $TOPIC
+
+    # Note: The commands used here are not playing well with the WIP
+    # SASL auth implementation. Commenting for now:
+
+    # echo "Producing 5 messages"
+    # for i in {1..5}; do
+    #     MESSAGE="Message #$i"
+    #     produce_message $TOPIC "$MESSAGE"
+    # done
+
+    # echo -e "\nConsuming messages (A \"TimeoutException\" is expected, else this would consume forever)"
+    # consume_messages $TOPIC
+
+    # echo "Producing 5 more messages"
+    # for i in {6..10}; do
+    #     MESSAGE="Message #$i"
+    #     produce_message $TOPIC "$MESSAGE"
+    # done
+
+    # echo -e "\nCreating partition offset reset json file"
+    # tee /tmp/partition_offsets.json << EOF
+    # {
+    # "partitions": [
+    #     {
+    #         "topic": "$TOPIC",
+    #         "partition": 0,
+    #         "offset": -1
+    #     }, {
+    #         "topic": "$TOPIC",
+    #         "partition": 1,
+    #         "offset": -1
+    #     }, {
+    #         "topic": "$TOPIC",
+    #         "partition": 2,
+    #         "offset": -1
+    #     }
+    # ],
+    # "version": 1
+    # }
+    # EOF
+
+    # echo "Resetting $TOPIC partitions (deleting messages)"
+    # delete_partition_messages /tmp/partition_offsets.json
+
+    echo "Deleting topic $TOPIC"
+    delete_topic $TOPIC >> /tmp/deletion
+
+    cat /tmp/deletion
+
+    if [ $(cat /tmp/deletion | grep 'marked for deletion' | wc -l) -eq 1 ]
+    then
+        echo "Topic $TOPIC was deleted successfully."
+        exit 0
+    else
+        echo "Topic $TOPIC was not successfully deleted."
+        exit 1
+    fi
+  generate-acl.sh: |
+    #!/bin/sh
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License. */}}
+    /opt/kafka/bin/kafka-acls.sh \
+        --authorizer kafka.security.auth.SimpleAclAuthorizer \
+        --authorizer-properties zookeeper.connect=$KAFKA_ZOOKEEPER_CONNECT \
+        --add \
+        --allow-principal User:kafka-exporter \
+        --operation DESCRIBE \
+        --topic "*" \
+        --group "*" \
+        --cluster
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-exporter-bin
+data:
+  kafka-exporter.sh: |
+    #!/bin/sh
+
+
+
+    COMMAND="${@:-start}"
+
+    function start () {
+      exec /bin/kafka_exporter \
+            --sasl.enabled \
+            --sasl.username=$KAFKA_EXPORTER_USERNAME \
+            --sasl.password=$KAFKA_EXPORTER_PASSWORD \
+            --kafka.server=$KAFKA_BROKERS
+    }
+
+    function stop () {
+      kill -TERM 1
+    }
+
+    $COMMAND
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-kafka
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+      - nodes/proxy
+      - services
+      - endpoints
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+  - nonResourceURLs:
+      - /metrics
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-kafka
+subjects:
+  - kind: ServiceAccount
+    name: release-name-kafka
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: release-name-kafka
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-default-kafka-generate-acl
+  namespace: 0t6sxl4qQ97b5yC
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - batch
+      - apps
+    verbs:
+      - get
+      - list
+    resources:
+      - services
+      - endpoints
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-default-prometheus-kafka-exporter
+  namespace: 0t6sxl4qQ97b5yC
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - batch
+      - apps
+    verbs:
+      - get
+      - list
+    resources:
+      - services
+      - endpoints
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-default-release-name-kafka
+  namespace: 0t6sxl4qQ97b5yC
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - batch
+      - apps
+    verbs:
+      - get
+      - list
+    resources:
+      - services
+      - endpoints
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-kafka-generate-acl
+  namespace: 0t6sxl4qQ97b5yC
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-default-kafka-generate-acl
+subjects:
+  - kind: ServiceAccount
+    name: kafka-generate-acl
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-prometheus-kafka-exporter
+  namespace: 0t6sxl4qQ97b5yC
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-default-prometheus-kafka-exporter
+subjects:
+  - kind: ServiceAccount
+    name: prometheus-kafka-exporter
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-release-name-kafka
+  namespace: 0t6sxl4qQ97b5yC
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-default-release-name-kafka
+subjects:
+  - kind: ServiceAccount
+    name: release-name-kafka
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-exporter
+  labels:
+    release_group: release-name
+    application: kafka-exporter
+    component: metrics
+  annotations:
+    prometheus.io/scrape: "true"
+spec:
+  ports:
+    - name: exporter
+      port: 9308
+      targetPort: 9308
+  selector:
+    release_group: release-name
+    application: kafka-exporter
+    component: exporter
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-discovery
+  labels:
+    release_group: release-name
+    application: kafka
+    component: broker
+spec:
+  ports:
+    - name: broker
+      targetPort: broker
+      port: 9092
+  clusterIP: None
+  selector:
+    release_group: release-name
+    application: kafka
+    component: broker
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+spec:
+  ports:
+    - name: http
+      port: 80
+    - name: https
+      port: 443
+  selector:
+    app: ingress-api
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-broker
+  labels:
+    release_group: release-name
+    application: kafka
+    component: broker
+spec:
+  ports:
+    - name: broker
+      port: 9092
+  selector:
+    release_group: release-name
+    application: kafka
+    component: broker
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-kafka-exporter
+  labels:
+    release_group: release-name
+    application: kafka-exporter
+    component: exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      release_group: release-name
+      application: kafka-exporter
+      component: exporter
+  template:
+    metadata:
+      labels:
+        release_group: release-name
+        application: kafka-exporter
+        component: exporter
+      annotations:
+        openstackhelm.openstack.org/release_uuid: ""
+    spec:
+      securityContext: {}
+      serviceAccountName: prometheus-kafka-exporter
+      nodeSelector:
+        openstack-control-plane: enabled
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: init
+          image: quay.io/stackanetes/kubernetes-entrypoint:v0.3.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: INTERFACE_NAME
+              value: eth0
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: DEPENDENCY_SERVICE
+              value: default:kafka-broker
+            - name: DEPENDENCY_DAEMONSET
+              value: ""
+            - name: DEPENDENCY_CONTAINER
+              value: ""
+            - name: DEPENDENCY_POD_JSON
+              value: ""
+            - name: DEPENDENCY_CUSTOM_RESOURCE
+              value: ""
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+      containers:
+        - name: kafka-exporter
+          image: docker.io/danielqsj/kafka-exporter:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          command:
+            - /tmp/kafka-exporter.sh
+            - start
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /tmp/kafka-exporter.sh
+                  - stop
+          env:
+            - name: KAFKA_BROKERS
+              value: kafka-broker.default.svc.cluster.local:9092
+            - name: KAFKA_EXPORTER_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: kafka-exporter-creds
+                  key: KAFKA_EXPORTER_USERNAME
+            - name: KAFKA_EXPORTER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kafka-exporter-creds
+                  key: KAFKA_EXPORTER_PASSWORD
+          ports:
+            - name: exporter
+              containerPort: 9308
+          readinessProbe:
+            tcpSocket:
+              port: 9308
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: kafka-exporter-bin
+              mountPath: /tmp/kafka-exporter.sh
+              subPath: kafka-exporter.sh
+              readOnly: true
+      volumes:
+        - name: pod-tmp
+          emptyDir: {}
+        - name: kafka-exporter-bin
+          configMap:
+            name: kafka-exporter-bin
+            defaultMode: 365
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  annotations:
+    openstackhelm.openstack.org/release_uuid: ""
+  labels:
+    release_group: release-name
+    application: kafka
+    component: broker
+spec:
+  serviceName: kafka-discovery
+  replicas: 3
+  updateStrategy:
+    type: OnDelete
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      release_group: release-name
+      application: kafka
+      component: broker
+  template:
+    metadata:
+      labels:
+        release_group: release-name
+        application: kafka
+        component: broker
+      annotations:
+        openstackhelm.openstack.org/release_uuid: ""
+        configmap-bin-hash: a0f274484bba33ee5dfff5b640d74be377c5cb17d8bc4f395de2774b9a3ab729
+    spec:
+      securityContext: {}
+      serviceAccountName: release-name-kafka
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: release_group
+                      operator: In
+                      values:
+                        - release-name
+                    - key: application
+                      operator: In
+                      values:
+                        - kafka
+                    - key: component
+                      operator: In
+                      values:
+                        - broker
+                topologyKey: kubernetes.io/hostname
+              weight: 10
+      nodeSelector:
+        openstack-control-plane: enabled
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: init
+          image: quay.io/stackanetes/kubernetes-entrypoint:v0.3.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: INTERFACE_NAME
+              value: eth0
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: DEPENDENCY_SERVICE
+              value: default:zookeeper-int
+            - name: DEPENDENCY_DAEMONSET
+              value: ""
+            - name: DEPENDENCY_CONTAINER
+              value: ""
+            - name: DEPENDENCY_POD_JSON
+              value: ""
+            - name: DEPENDENCY_CUSTOM_RESOURCE
+              value: ""
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+      containers:
+        - name: kafka
+          command:
+            - /tmp/kafka.sh
+          image: docker.io/wurstmeister/kafka:2.12-2.3.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          ports:
+            - name: broker
+              containerPort: 9092
+          env:
+            - name: ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: kafka-admin-creds
+                  key: KAFKA_ADMIN_USERNAME
+            - name: KAFKA_PORT
+              value: "9092"
+            - name: ZOOKEEPER_PORT
+              value: "2181"
+            - name: KAFKA_ZOOKEEPER_CONNECT
+              value: zookeeper-int.default.svc.cluster.local:2181
+            - name: KAFKA_LISTENERS
+              value: PLAINTEXT://:9092
+            - name: KAFKA_CREATE_TOPICS
+              value: ""
+            - name: KAFKA_OPTS
+              value: -Djava.security.auth.login.config=/opt/kafka/config/jaas.conf
+          readinessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 2
+            successThreshold: 1
+            exec:
+              command:
+                - /tmp/kafka-readiness.sh
+          livenessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 2
+            successThreshold: 1
+            exec:
+              command:
+                - /tmp/kafka-liveness.sh
+          volumeMounts:
+            - name: kafka-bin
+              mountPath: /tmp/kafka.sh
+              subPath: kafka.sh
+              readOnly: true
+            - name: kafka-bin
+              mountPath: /tmp/kafka-liveness.sh
+              subPath: kafka-liveness.sh
+              readOnly: true
+            - name: kafka-bin
+              mountPath: /tmp/kafka-readiness.sh
+              subPath: kafka-readiness.sh
+              readOnly: true
+            - name: kafka-etc
+              mountPath: /opt/kafka/config/jaas.conf
+              subPath: jaas.conf
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/kafka/data
+      volumes:
+        - name: kafka-bin
+          configMap:
+            name: kafka-bin
+            defaultMode: 365
+        - name: kafka-etc
+          secret:
+            secretName: kafka-etc
+            defaultMode: 292
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+        storageClassName: general
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kafka-generate-acl
+  annotations:
+    openstackhelm.openstack.org/release_uuid: ""
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        release_group: release-name
+        application: kafka
+        component: generate-acl
+    spec:
+      securityContext: null
+      serviceAccountName: kafka-generate-acl
+      activeDeadlineSeconds: 600
+      restartPolicy: OnFailure
+      nodeSelector:
+        openstack-control-plane: enabled
+      initContainers:
+        - name: init
+          image: quay.io/stackanetes/kubernetes-entrypoint:v0.3.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: INTERFACE_NAME
+              value: eth0
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: DEPENDENCY_SERVICE
+              value: default:kafka-broker
+            - name: DEPENDENCY_DAEMONSET
+              value: ""
+            - name: DEPENDENCY_CONTAINER
+              value: ""
+            - name: DEPENDENCY_POD_JSON
+              value: ""
+            - name: DEPENDENCY_CUSTOM_RESOURCE
+              value: ""
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+      containers:
+        - name: generate-acl
+          image: docker.io/wurstmeister/kafka:2.12-2.3.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: KAFKA_ZOOKEEPER_CONNECT
+              value: zookeeper-int.default.svc.cluster.local:2181
+          command:
+            - /tmp/generate-acl.sh
+          volumeMounts:
+            - name: kafka-bin
+              mountPath: /tmp/generate-acl.sh
+              subPath: generate-acl.sh
+              readOnly: true
+            - name: kafka-etc
+              mountPath: /opt/kafka/config/jaas.conf
+              subPath: jaas.conf
+              readOnly: true
+      volumes:
+        - name: kafka-bin
+          configMap:
+            name: kafka-bin
+            defaultMode: 365
+        - name: kafka-etc
+          secret:
+            secretName: kafka-etc
+            defaultMode: 292
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: kafka
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/affinity: cookie
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/session-cookie-expires: "600"
+    nginx.ingress.kubernetes.io/session-cookie-hash: sha1
+    nginx.ingress.kubernetes.io/session-cookie-max-age: "600"
+    nginx.ingress.kubernetes.io/session-cookie-name: kube-ingress-session-kafka
+spec:
+  rules:
+    - host: kafka
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: kafka-broker
+              servicePort: broker
+    - host: kafka.default
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: kafka-broker
+              servicePort: broker
+    - host: kafka.default.svc.cluster.local
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: kafka-broker
+              servicePort: broker
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-test
+  labels:
+    release_group: release-name
+    application: kafka
+    component: test
+  annotations:
+    helm.sh/hook: test-success
+    openstackhelm.openstack.org/release_uuid: ""
+spec:
+  securityContext: null
+  serviceAccountName: release-name-test
+  nodeSelector:
+    openstack-control-plane: enabled
+  restartPolicy: Never
+  initContainers:
+    - name: init
+      image: quay.io/stackanetes/kubernetes-entrypoint:v0.3.1
+      imagePullPolicy: IfNotPresent
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsUser: 65534
+      env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+        - name: INTERFACE_NAME
+          value: eth0
+        - name: PATH
+          value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+        - name: DEPENDENCY_SERVICE
+          value: ""
+        - name: DEPENDENCY_DAEMONSET
+          value: ""
+        - name: DEPENDENCY_CONTAINER
+          value: ""
+        - name: DEPENDENCY_POD_JSON
+          value: ""
+        - name: DEPENDENCY_CUSTOM_RESOURCE
+          value: ""
+      command:
+        - kubernetes-entrypoint
+      volumeMounts: []
+  containers:
+    - name: release-name-helm-test
+      image: docker.io/wurstmeister/kafka:2.12-2.3.0
+      imagePullPolicy: IfNotPresent
+      command:
+        - /tmp/helm-test.sh
+      env:
+        - name: KAFKA_ZOOKEEPER_CONNECT
+          value: zookeeper-int.default.svc.cluster.local:2181
+        - name: KAFKA_BROKERS
+          value: kafka-broker.default.svc.cluster.local:9092
+        - name: KAFKA_OPTS
+          value: -Djava.security.auth.login.config=/opt/kafka/config/jaas.conf
+      volumeMounts:
+        - name: pod-tmp
+          mountPath: /tmp
+        - name: kafka-bin
+          mountPath: /tmp/helm-test.sh
+          subPath: helm-test.sh
+          readOnly: true
+        - name: kafka-etc
+          mountPath: /opt/kafka/config/jaas.conf
+          subPath: jaas.conf
+          readOnly: true
+  volumes:
+    - name: pod-tmp
+      emptyDir: {}
+    - name: kafka-bin
+      configMap:
+        name: kafka-bin
+        defaultMode: 365
+    - name: kafka-etc
+      secret:
+        secretName: kafka-etc
+        defaultMode: 292

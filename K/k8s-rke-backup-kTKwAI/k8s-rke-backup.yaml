@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: release-name-k8s-rke-backup
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 2Gbi
+  storageClassName: backup
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: release-name-k8s-rke-backup
+  labels:
+    helm.sh/chart: k8s-rke-backup-0.0.1
+    app.kubernetes.io/name: k8s-rke-backup
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.0.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: k8s-rke-backup
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: k8s-rke-backup
+        app.kubernetes.io/instance: release-name
+    spec:
+      containers:
+        - name: k8s-rke-backup
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            seccompProfile:
+              type: RuntimeDefault
+          image: kvalitetsit/rke-etcd-backup:0.0.1
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: source
+              mountPath: /src
+              readOnly: true
+            - name: backup
+              mountPath: /backup
+          resources:
+            limits:
+              cpu: 200m
+              memory: 128Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: node-role.kubernetes.io/master
+                    operator: Exists
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+      volumes:
+        - name: source
+          hostPath:
+            path: /opt/rke/etcd-snapshots
+            type: Directory
+        - name: backup
+          persistentVolumeClaim:
+            claimName: release-name-k8s-rke-backup

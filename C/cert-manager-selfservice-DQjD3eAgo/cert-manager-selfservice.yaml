@@ -1,0 +1,115 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-cert-manager-selfservice
+  labels:
+    helm.sh/chart: cert-manager-selfservice-1.0.3
+    app.kubernetes.io/name: cert-manager-selfservice
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/app: cert-manager-selfservice
+    app.kubernetes.io/version: v1.1.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: serviceaccount
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-cert-manager-selfservice
+rules:
+  - apiGroups:
+      - ""
+      - cert-manager.io
+    resources:
+      - secrets
+      - certificates
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-cert-manager-selfservice
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-cert-manager-selfservice
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: release-name-cert-manager-selfservice
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-cert-manager-selfservice
+  labels:
+    helm.sh/chart: cert-manager-selfservice-1.0.3
+    app.kubernetes.io/name: cert-manager-selfservice
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/app: cert-manager-selfservice
+    app.kubernetes.io/version: v1.1.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: selfservice-service
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: cert-manager-selfservice
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/app: cert-manager-selfservice
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-cert-manager-selfservice
+  labels:
+    helm.sh/chart: cert-manager-selfservice-1.0.3
+    app.kubernetes.io/name: cert-manager-selfservice
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/app: cert-manager-selfservice
+    app.kubernetes.io/version: v1.1.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: selfservice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cert-manager-selfservice
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/app: cert-manager-selfservice
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: cert-manager-selfservice-1.0.3
+        app.kubernetes.io/name: cert-manager-selfservice
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/app: cert-manager-selfservice
+        app.kubernetes.io/version: v1.1.0
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: release-name-cert-manager-selfservice
+      containers:
+        - name: selfservice
+          image: ghcr.io/mario-f/cert-manager-selfservice:v1.1.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - server
+            - --port=5080
+            - --manager-id=release-name
+            - --issuer-kind=ClusterIssuer
+            - --issuer-name=default-issuer
+            - --cleanup-hours=72
+          ports:
+            - name: http
+              containerPort: 5080
+              protocol: TCP
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault

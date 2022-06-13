@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-aws-iam-authenticator
+  labels:
+    k8s-app: aws-iam-authenticator
+data:
+  config.yaml: "clusterID: \nserver:\n  mapUsers:\n  mapRoles:\n"
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: release-name-aws-iam-authenticator
+  labels:
+    app.kubernetes.io/name: aws-iam-authenticator
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: aws-iam-authenticator-v1.6.0
+  annotations:
+    checksum/config: 296b88a28d9c9334192ccdb6b0a2c599a778d7d786c0b9098848f57422f425f3
+spec:
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: aws-iam-authenticator
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config: 296b88a28d9c9334192ccdb6b0a2c599a778d7d786c0b9098848f57422f425f3
+        scheduler.alpha.kubernetes.io/critical-pod: ""
+      labels:
+        app.kubernetes.io/name: aws-iam-authenticator
+        app.kubernetes.io/instance: release-name
+    spec:
+      hostNetwork: true
+      nodeSelector:
+        node-role.kubernetes.io/master: ""
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+        - key: CriticalAddonsOnly
+          operator: Exists
+      containers:
+        - name: aws-iam-authenticator
+          image: 602401143452.dkr.ecr.us-west-2.amazonaws.com/amazon/aws-iam-authenticator:v0.5.3-scratch
+          imagePullPolicy: Always
+          args:
+            - server
+            - --config=/etc/aws-iam-authenticator/config.yaml
+            - --state-dir=/var/aws-iam-authenticator/
+            - --generate-kubeconfig=/etc/kubernetes/aws-iam-authenticator/kubeconfig.yaml
+            - --kubeconfig-pregenerated=true
+          resources:
+            limits:
+              cpu: 100m
+              memory: 20Mi
+            requests:
+              cpu: 10m
+              memory: 20Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/aws-iam-authenticator/
+            - name: state
+              mountPath: /var/aws-iam-authenticator/
+            - name: output
+              mountPath: /etc/kubernetes/aws-iam-authenticator/
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-aws-iam-authenticator
+        - name: output
+          hostPath:
+            path: /srv/kubernetes/aws-iam-authenticator/
+        - name: state
+          hostPath:
+            path: /srv/kubernetes/aws-iam-authenticator/

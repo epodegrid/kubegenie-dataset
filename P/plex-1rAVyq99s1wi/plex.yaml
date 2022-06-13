@@ -1,0 +1,233 @@
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: release-name-plex
+  labels:
+    helm.sh/chart: plex-2.2.0
+    app.kubernetes.io/name: plex
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.19.5.3112-b23ab3896
+    app.kubernetes.io/managed-by: Helm
+spec:
+  allowPrivilegeEscalation: false
+  forbiddenSysctls:
+    - '*'
+  requiredDropCapabilities:
+    - ALL
+  fsGroup:
+    ranges:
+      - max: 65535
+        min: 1
+    rule: RunAsAny
+  hostNetwork: false
+  hostPorts: []
+  runAsUser:
+    rule: RunAsAny
+  volumes:
+    - configMap
+    - secret
+    - persistentVolumeClaim
+  supplementalGroups:
+    ranges:
+      - max: 65535
+        min: 1
+    rule: MustRunAs
+  seLinux:
+    rule: RunAsAny
+  rule: MustRunAsNonRoot
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-plex
+  labels:
+    helm.sh/chart: plex-2.2.0
+    app.kubernetes.io/name: plex
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.19.5.3112-b23ab3896
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-plex
+  labels:
+    helm.sh/chart: plex-2.2.0
+    app.kubernetes.io/name: plex
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.19.5.3112-b23ab3896
+    app.kubernetes.io/managed-by: Helm
+data:
+  PLEX_CLAIM: Y2xhaW0tWFhYWFhYWFg=
+  ADVERTISE_IP: aHR0cDovL3BsZXguZXhhbXBsZS5vcmc=
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-plex
+  labels:
+    helm.sh/chart: plex-2.2.0
+    app.kubernetes.io/name: plex
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.19.5.3112-b23ab3896
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - policy
+    resources:
+      - podsecuritypolicies
+    resourceNames:
+      - release-name-plex
+    verbs:
+      - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-plex
+  labels:
+    helm.sh/chart: plex-2.2.0
+    app.kubernetes.io/name: plex
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.19.5.3112-b23ab3896
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-plex
+subjects:
+  - kind: ServiceAccount
+    name: release-name-plex
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-plex
+  labels:
+    helm.sh/chart: plex-2.2.0
+    app.kubernetes.io/name: plex
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.19.5.3112-b23ab3896
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 32400
+      targetPort: http
+      protocol: TCP
+      name: http
+    - name: dlna-tcp
+      targetPort: dlna-tcp
+      protocol: TCP
+      port: 32469
+    - name: dlna-udp
+      targetPort: dlna-udp
+      protocol: UDP
+      port: 1900
+  selector:
+    app.kubernetes.io/name: plex
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-plex
+  labels:
+    helm.sh/chart: plex-2.2.0
+    app.kubernetes.io/name: plex
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.19.5.3112-b23ab3896
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: plex
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: plex
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-plex
+      securityContext: {}
+      containers:
+        - name: plex
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: plexinc/pms-docker:1.19.5.3112-b23ab3896
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: release-name-plex
+          env:
+            - name: PLEX_UID
+              value: "1001"
+            - name: PLEX_GID
+              value: "1001"
+          ports:
+            - name: http
+              containerPort: 32400
+              protocol: TCP
+            - name: dlna-tcp
+              containerPort: 32469
+              protocol: TCP
+            - name: dlna-udp
+              containerPort: 1900
+              protocol: UDP
+          livenessProbe:
+            httpGet:
+              path: /identity
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /identity
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - mountPath: /config
+              name: config
+            - mountPath: /data
+              name: data
+              readOnly: true
+            - mountPath: /transcode
+              name: transcode
+            - mountPath: /tmp
+              name: transcode
+      volumes:
+        - name: config
+          emptyDir: {}
+        - name: data
+          emptyDir: {}
+        - name: transcode
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-plex-test-connection
+  labels:
+    helm.sh/chart: plex-2.2.0
+    app.kubernetes.io/name: plex
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.19.5.3112-b23ab3896
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-plex:32400/identity
+  restartPolicy: Never

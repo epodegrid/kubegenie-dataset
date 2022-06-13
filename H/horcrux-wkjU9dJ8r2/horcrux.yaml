@@ -1,0 +1,217 @@
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: release-name-horcrux
+  namespace: default
+  labels:
+    app: horcrux
+    chart: horcrux-1.0.0
+    release: release-name
+    heritage: Helm
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  volumes:
+    - configMap
+    - emptyDir
+    - projected
+    - secret
+    - downwardAPI
+    - persistentVolumeClaim
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  runAsUser:
+    rule: MustRunAsNonRoot
+  seLinux:
+    rule: RunAsAny
+  supplementalGroups:
+    rule: MustRunAs
+    ranges:
+      - min: 1
+        max: 65535
+  fsGroup:
+    rule: MustRunAs
+    ranges:
+      - min: 1
+        max: 65535
+  readOnlyRootFilesystem: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-horcrux-dispatcher
+  namespace: wkjU9dJ8r2
+  labels:
+    app: horcrux
+    chart: horcrux-1.0.0
+    component: dispatcher
+    release: release-name
+    heritage: Helm
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-horcrux-dispatcher
+  namespace: wkjU9dJ8r2
+  labels:
+    app: horcrux
+    chart: horcrux-1.0.0
+    component: dispatcher
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  AUTHENTICATION_KEY: ""
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-horcrux-dispatcher
+  namespace: wkjU9dJ8r2
+  labels:
+    app: horcrux
+    chart: horcrux-1.0.0
+    component: dispatcher
+    release: release-name
+    heritage: Helm
+rules:
+  - apiGroups:
+      - extensions
+    resources:
+      - podsecuritypolicies
+    verbs:
+      - use
+    resourceNames:
+      - release-name-horcrux
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    resourceNames:
+      - release-name-horcrux-dispatcher
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-horcrux-dispatcher
+  namespace: wkjU9dJ8r2
+  labels:
+    app: horcrux
+    chart: horcrux-1.0.0
+    component: dispatcher
+    release: release-name
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-horcrux-dispatcher
+subjects:
+  - kind: ServiceAccount
+    name: release-name-horcrux-dispatcher
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-horcrux-dispatcher
+  namespace: wkjU9dJ8r2
+  labels:
+    app: horcrux
+    chart: horcrux-1.0.0
+    component: dispatcher
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: http
+  selector:
+    app: horcrux
+    component: dispatcher
+    release: release-name
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: release-name-horcrux-dispatcher
+  namespace: wkjU9dJ8r2
+  labels:
+    app: horcrux
+    chart: horcrux-1.0.0
+    component: dispatcher
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: horcrux
+      release: release-name
+      component: dispatcher
+  template:
+    metadata:
+      labels:
+        app: horcrux
+        release: release-name
+        component: dispatcher
+      annotations:
+        checksum/dispatcher-secret: 7d0d0df9708bc13fec06ccc64794eb44c028cb0d5a9a0f22ba345bc21ace2790
+    spec:
+      securityContext:
+        fsGroup: 1001
+        runAsUser: 1001
+      serviceAccountName: release-name-horcrux-dispatcher
+      priorityClassName: ""
+      containers:
+        - name: horcrux
+          image: stakewiselabs/bls-horcrux:v1.0.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - uvicorn
+            - --host=0.0.0.0
+            - --port=8000
+            - dispatcher.main:app
+          envFrom:
+            - secretRef:
+                name: release-name-horcrux-dispatcher
+          env:
+            - name: DATABASE_PATH
+              value: sqlite:////data/dispatcher/dispatcher.db
+          resources:
+            requests:
+              cpu: 10m
+              memory: 150Mi
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health/
+              port: http
+            timeoutSeconds: 30
+            failureThreshold: 5
+            periodSeconds: 60
+          readinessProbe:
+            httpGet:
+              path: /health/
+              port: http
+            timeoutSeconds: 30
+            failureThreshold: 5
+            periodSeconds: 60
+          volumeMounts:
+            - name: data
+              mountPath: /data/dispatcher
+      volumes:
+        - name: data
+          emptyDir: {}

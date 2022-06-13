@@ -1,0 +1,171 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-automatic-music-downloader-config
+  labels:
+    helm.sh/chart: automatic-music-downloader-2.0.3
+    app.kubernetes.io/name: automatic-music-downloader
+    app.kubernetes.io/instance: release-name
+    helm-revision: "1"
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 999Gi
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-automatic-music-downloader-data
+  labels:
+    helm.sh/chart: automatic-music-downloader-2.0.3
+    app.kubernetes.io/name: automatic-music-downloader
+    app.kubernetes.io/instance: release-name
+    helm-revision: "1"
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 999Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-automatic-music-downloader
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: automatic-music-downloader
+    app.kubernetes.io/version: latest
+    helm-revision: "1"
+    helm.sh/chart: automatic-music-downloader-2.0.3
+spec:
+  revisionHistoryLimit: 3
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: automatic-music-downloader
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations: null
+      labels:
+        app.kubernetes.io/name: automatic-music-downloader
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      securityContext:
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 0
+        runAsUser: 0
+        supplementalGroups:
+          - 568
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 10
+      initContainers:
+        - name: autopermissions
+          image: ghcr.io/truecharts/alpine:v3.15.2@sha256:29ed3480a0ee43f7af681fed5d4fc215516abf1c41eade6938b26d8c9c2c7583
+          securityContext:
+            runAsUser: 10941
+            privileged: true
+            allowPrivilegeEscalation: false
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+          command:
+            - /bin/sh
+            - -c
+            - |
+              /bin/bash <<'EOF'
+              echo "Automatically correcting permissions..."
+              echo "increasing inotify limits..."
+              ( sysctl -w fs.inotify.max_user_watches=524288 || echo "error setting inotify") && ( sysctl -w fs.inotify.max_user_instances=512 || echo "error setting inotify")
+              EOF
+          volumeMounts: null
+      containers:
+        - name: release-name-automatic-music-downloader
+          image: tccr.io/truecharts/automatic-music-downloader:latest@sha256:541eff647695209e9071e9483f434420e2d333068865e75e9db40b045e1a8358
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: false
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: PUID
+              value: "568"
+            - name: USER_ID
+              value: "568"
+            - name: UID
+              value: "568"
+            - name: UMASK
+              value: "2"
+            - name: UMASK_SET
+              value: "2"
+            - name: PGID
+              value: "568"
+            - name: GROUP_ID
+              value: "568"
+            - name: GID
+              value: "568"
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: void
+            - name: TZ
+              value: UTC
+          envFrom: null
+          ports: null
+          volumeMounts:
+            - mountPath: /config
+              name: config
+            - mountPath: /downloads-amd
+              name: data
+            - mountPath: /shared
+              name: shared
+            - mountPath: /tmp
+              name: temp
+            - mountPath: /var/logs
+              name: varlogs
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: release-name-automatic-music-downloader-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: release-name-automatic-music-downloader-data
+        - name: shared
+          emptyDir: {}
+        - name: temp
+          emptyDir:
+            medium: Memory
+        - name: varlogs
+          emptyDir: {}

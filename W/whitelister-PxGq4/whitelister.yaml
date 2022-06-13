@@ -1,0 +1,121 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: whitelister
+    group: com.stakater.platform
+    provider: stakater
+    version: v0.0.16
+    chart: whitelister-v0.0.16
+    release: release-name
+    heritage: Helm
+  name: whitelister
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: whitelister
+    group: com.stakater.platform
+    provider: stakater
+    version: v0.0.16
+    chart: whitelister-v0.0.16
+    release: release-name
+    heritage: Helm
+  name: whitelister
+data:
+  config.yaml: "syncInterval: 10s\nfilter:\n  labelName: whitelister\n  labelValue: true\nipProviders:\n- name: kubernetes\n  params:\n    FromPort: 0\n    IpProtocol: tcp\n    ToPort: 65535\n- name: git\n  params:\n    AccessToken: ACCESS_TOKEN\n    Config: config.yaml\n    URL: http://github.com/example.git    \nprovider:\n    name: aws\n    params:\n      KeepRuleDescriptionPrefix: DO NOT REMOVE -\n      Region: <aws-region>\n      RemoveRule: true\n      RoleArn: <aws-iam-role-arn>"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app: whitelister
+    group: com.stakater.platform
+    provider: stakater
+    version: v0.0.16
+    chart: whitelister-v0.0.16
+    release: release-name
+    heritage: Helm
+  name: whitelister-role
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+      - services
+    verbs:
+      - list
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app: whitelister
+    group: com.stakater.platform
+    provider: stakater
+    version: v0.0.16
+    chart: whitelister-v0.0.16
+    release: release-name
+    heritage: Helm
+  name: whitelister-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: whitelister-role
+subjects:
+  - kind: ServiceAccount
+    name: whitelister
+    namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    reloader.stakater.com/auto: "true"
+  labels:
+    app: whitelister
+    group: com.stakater.platform
+    provider: stakater
+    version: v0.0.16
+    chart: whitelister-v0.0.16
+    release: release-name
+    heritage: Helm
+  name: whitelister
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: whitelister
+      group: com.stakater.platform
+      provider: stakater
+  template:
+    metadata:
+      annotations:
+        configmap.fabric8.io/update-on-change: whitelister
+      labels:
+        app: whitelister
+        group: com.stakater.platform
+        provider: stakater
+    spec:
+      containers:
+        - env:
+            - name: KUBERNETES_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: CONFIG_FILE_PATH
+              value: /configs/config.yaml
+          image: stakater/whitelister:v0.0.16
+          imagePullPolicy: IfNotPresent
+          name: whitelister
+          volumeMounts:
+            - mountPath: /configs
+              name: config-volume
+      serviceAccountName: whitelister
+      volumes:
+        - configMap:
+            name: whitelister
+          name: config-volume

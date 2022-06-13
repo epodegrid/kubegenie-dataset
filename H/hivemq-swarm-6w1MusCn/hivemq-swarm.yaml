@@ -1,0 +1,251 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-hivemq-swarm
+  namespace: 6w1MusCn
+  labels:
+    helm.sh/chart: hivemq-swarm-0.2.7
+    app.kubernetes.io/name: hivemq-swarm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 4.8.1
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-hivemq-swarm-agents
+  namespace: 6w1MusCn
+  labels:
+    hivemq.com/swarm-role: agent
+    helm.sh/chart: hivemq-swarm-0.2.7
+    app.kubernetes.io/name: hivemq-swarm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 4.8.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - port: 3881
+      targetPort: agent-transport
+      protocol: TCP
+      name: agent-transport
+    - port: 8181
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  publishNotReadyAddresses: true
+  selector:
+    hivemq.com/swarm-role: agent
+    app.kubernetes.io/name: hivemq-swarm
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-hivemq-swarm-api
+  namespace: 6w1MusCn
+  labels:
+    hivemq.com/swarm-role: commander
+    helm.sh/chart: hivemq-swarm-0.2.7
+    app.kubernetes.io/name: hivemq-swarm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 4.8.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: api
+      protocol: TCP
+      name: api
+  selector:
+    hivemq.com/swarm-role: commander
+    app.kubernetes.io/name: hivemq-swarm
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-hivemq-swarm-agent
+  namespace: 6w1MusCn
+  labels:
+    helm.sh/chart: hivemq-swarm-0.2.7
+    app.kubernetes.io/name: hivemq-swarm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 4.8.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      hivemq.com/swarm-role: agent
+      app.kubernetes.io/name: hivemq-swarm
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        hivemq.com/swarm-role: agent
+        app.kubernetes.io/name: hivemq-swarm
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-hivemq-swarm
+      securityContext:
+        sysctls:
+          - name: net.ipv4.ip_local_port_range
+            value: 1024 65535
+      containers:
+        - name: hivemq-swarm-agent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          image: hivemq/hivemq-swarm:4.8.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SWARM_AGENT_BIND_ADDRESS
+              value: 0.0.0.0
+            - name: SWARM_AGENT_BIND_PORT
+              value: "3881"
+            - name: SWARM_REST_ENABLED
+              value: "true"
+            - name: SWARM_REST_LISTENER_0_HTTP_ENABLED
+              value: "true"
+            - name: SWARM_REST_LISTENER_0_HTTP_ADDRESS
+              value: 0.0.0.0
+            - name: SWARM_REST_LISTENER_0_HTTP_PORT
+              value: "8181"
+            - name: LOG_LEVEL
+              value: info
+            - name: JAVA_TOOL_OPTIONS
+              value: -XX:+UnlockExperimentalVMOptions -XX:InitialRAMPercentage=30 -XX:MaxRAMPercentage=80 -XX:MinRAMPercentage=30 -XX:MaxDirectMemorySize=500M
+          ports:
+            - name: metrics
+              containerPort: 8181
+              protocol: TCP
+            - name: agent-transport
+              containerPort: 3881
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 500m
+              memory: 1G
+            requests:
+              cpu: 500m
+              memory: 1G
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-hivemq-swarm-commander
+  namespace: 6w1MusCn
+  labels:
+    helm.sh/chart: hivemq-swarm-0.2.7
+    app.kubernetes.io/name: hivemq-swarm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 4.8.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  serviceName: release-name-hivemq-swarm-api
+  selector:
+    matchLabels:
+      hivemq.com/swarm-role: commander
+      app.kubernetes.io/name: hivemq-swarm
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        hivemq.com/swarm-role: commander
+        app.kubernetes.io/name: hivemq-swarm
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-hivemq-swarm
+      securityContext: {}
+      containers:
+        - name: hivemq-swarm-commander
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          image: hivemq/hivemq-swarm:4.8.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SWARM_COMMANDER_MODE
+              value: rest
+            - name: SWARM_REST_ENABLED
+              value: "true"
+            - name: SWARM_REST_LISTENER_0_HTTP_ENABLED
+              value: "true"
+            - name: SWARM_REST_LISTENER_0_HTTP_ADDRESS
+              value: 0.0.0.0
+            - name: SWARM_REST_LISTENER_0_HTTP_PORT
+              value: "8080"
+            - name: SWARM_DNS_DISCOVERY_ADDRESS
+              value: release-name-hivemq-swarm-agents.default.svc.cluster.local
+            - name: SWARM_DNS_DISCOVERY_AGENT_COUNT
+              value: "3"
+            - name: LOG_LEVEL
+              value: info
+            - name: JAVA_TOOL_OPTIONS
+              value: -XX:+UnlockExperimentalVMOptions -XX:InitialRAMPercentage=30 -XX:MaxRAMPercentage=80 -XX:MinRAMPercentage=30 -XX:MaxDirectMemorySize=500M
+          ports:
+            - name: api
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /commander
+              port: api
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /commander
+              port: api
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          resources:
+            limits:
+              cpu: 500m
+              memory: 1G
+            requests:
+              cpu: 500m
+              memory: 1G
+          volumeMounts:
+            - mountPath: /scenario
+              name: scenario-persistence
+      volumes:
+        - emptyDir: {}
+          name: scenario-persistence
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-hivemq-swarm-test-connection
+  namespace: 6w1MusCn
+  labels:
+    helm.sh/chart: hivemq-swarm-0.2.7
+    app.kubernetes.io/name: hivemq-swarm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 4.8.1
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-hivemq-swarm-api:80/commander
+  restartPolicy: Never

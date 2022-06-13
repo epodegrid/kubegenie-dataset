@@ -1,0 +1,87 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-vmware-exporter-secret
+  labels:
+    app: vmware-exporter
+    chart: vmware-exporter-2.2.0
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  VSPHERE_PASSWORD: bmE=
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-vmware-exporter-config
+  labels:
+    app: vmware-exporter
+    chart: vmware-exporter-2.2.0
+    release: release-name
+    heritage: Helm
+data:
+  VSPHERE_USER: user
+  VSPHERE_HOST: vcenter
+  VSPHERE_IGNORE_SSL: "true"
+  VSPHERE_SPECS_SIZE: "5000"
+  VSPHERE_FETCH_CUSTOM_ATTRIBUTES: "true"
+  VSPHERE_FETCH_TAGS: "true"
+  VSPHERE_FETCH_ALARMS: "true"
+  VSPHERE_COLLECT_HOSTS: "true"
+  VSPHERE_COLLECT_DATASTORES: "true"
+  VSPHERE_COLLECT_VMS: "true"
+  VSPHERE_COLLECT_VMGUESTS: "true"
+  VSPHERE_COLLECT_SNAPSHOTS: "true"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-vmware-exporter
+  labels:
+    app: vmware-exporter
+    chart: vmware-exporter-2.2.0
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vmware-exporter
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: vmware-exporter
+        release: release-name
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9272"
+        prometheus.io/scrape: "true"
+    spec:
+      containers:
+        - name: vmware-exporter
+          image: pryorda/vmware_exporter:v0.13.2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9272
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: release-name-vmware-exporter-config
+            - secretRef:
+                name: release-name-vmware-exporter-secret
+          livenessProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /healthz
+              port: 9272
+            initialDelaySeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9272
+          resources:
+            seccompProfile:
+              type: RuntimeDefault

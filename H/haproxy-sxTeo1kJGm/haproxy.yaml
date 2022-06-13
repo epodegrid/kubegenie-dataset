@@ -1,0 +1,172 @@
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: release-name-haproxy
+  labels:
+    helm.sh/chart: haproxy-1.14.0
+    app.kubernetes.io/name: haproxy
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.5.5
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    seccomp.security.alpha.kubernetes.io/allowedProfileNames: docker/default,runtime/default
+    apparmor.security.beta.kubernetes.io/allowedProfileNames: runtime/default
+    seccomp.security.alpha.kubernetes.io/defaultProfileName: runtime/default
+    apparmor.security.beta.kubernetes.io/defaultProfileName: runtime/default
+spec:
+  allowPrivilegeEscalation: true
+  allowedCapabilities:
+    - NET_BIND_SERVICE
+  fsGroup:
+    rule: MustRunAs
+    ranges:
+      - max: 65535
+        min: 1
+  hostIPC: false
+  hostPID: false
+  privileged: false
+  runAsUser:
+    rule: RunAsAny
+  seLinux:
+    rule: RunAsAny
+  supplementalGroups:
+    rule: MustRunAs
+    ranges:
+      - max: 65535
+        min: 1
+  volumes:
+    - configMap
+    - emptyDir
+    - projected
+    - secret
+  rule: MustRunAsNonRoot
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-haproxy
+  labels:
+    helm.sh/chart: haproxy-1.14.0
+    app.kubernetes.io/name: haproxy
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.5.5
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-haproxy
+  labels:
+    helm.sh/chart: haproxy-1.14.0
+    app.kubernetes.io/name: haproxy
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.5.5
+    app.kubernetes.io/managed-by: Helm
+data:
+  haproxy.cfg: |2
+    global
+      log stdout format raw local0
+      maxconn 1024
+
+    defaults
+      log global
+      timeout client 60s
+      timeout connect 60s
+      timeout server 60s
+
+    frontend fe_main
+      bind :80
+      default_backend be_main
+
+    backend be_main
+      server web1 10.0.0.1:8080 check
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-haproxy
+  labels:
+    helm.sh/chart: haproxy-1.14.0
+    app.kubernetes.io/name: haproxy
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.5.5
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: haproxy
+    app.kubernetes.io/instance: release-name
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: http
+    - name: https
+      protocol: TCP
+      port: 443
+      targetPort: https
+    - name: stat
+      protocol: TCP
+      port: 1024
+      targetPort: stat
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-haproxy
+  labels:
+    helm.sh/chart: haproxy-1.14.0
+    app.kubernetes.io/name: haproxy
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.5.5
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: haproxy
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: haproxy
+        app.kubernetes.io/instance: release-name
+      annotations:
+        checksum/environment: c59aef70b0ad881081b4b8d4ca47cee4699a00f67333b96fe1167b170b6730a9
+    spec:
+      serviceAccountName: release-name-haproxy
+      terminationGracePeriodSeconds: 60
+      securityContext: {}
+      dnsPolicy: ClusterFirst
+      volumes:
+        - name: haproxy-config
+          configMap:
+            name: release-name-haproxy
+      containers:
+        - name: haproxy
+          image: haproxytech/haproxy-alpine:2.5.5
+          imagePullPolicy: IfNotPresent
+          args:
+            - -f
+            - /usr/local/etc/haproxy/haproxy.cfg
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+            - name: https
+              containerPort: 443
+              protocol: TCP
+            - name: stat
+              containerPort: 1024
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: haproxy-config
+              mountPath: /usr/local/etc/haproxy/haproxy.cfg
+              subPath: haproxy.cfg

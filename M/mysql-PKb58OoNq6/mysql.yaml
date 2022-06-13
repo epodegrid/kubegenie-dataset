@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secret
+  labels:
+    helm.sh/chart: mysql-0.3
+    app-name: mysql
+    component: database-server
+    hostNetwork: "false"
+    internal-service: "true"
+    managed-by: chynten
+    created-by: chynten
+    version: 8.0.29
+type: Opaque
+data:
+  mysql-root-password: dG9vcg==
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 15G
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-svc
+  labels:
+    helm.sh/chart: mysql-0.3
+    app-name: mysql
+    component: database-server
+    hostNetwork: "false"
+    internal-service: "true"
+    managed-by: chynten
+    created-by: chynten
+    version: 8.0.29
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3306
+      targetPort: mysql
+      protocol: TCP
+      name: mysql
+  selector:
+    app-name: mysql
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql-statefuleset
+  labels:
+    helm.sh/chart: mysql-0.3
+    app-name: mysql
+    component: database-server
+    hostNetwork: "false"
+    internal-service: "true"
+    managed-by: chynten
+    created-by: chynten
+    version: 8.0.29
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app-name: mysql
+  serviceName: mysql-svc
+  template:
+    metadata:
+      labels:
+        app-name: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0.27
+          imagePullPolicy: IfNotPresent
+          args:
+            - --default-authentication-plugin=mysql_native_password
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: mysql-root-password
+          ports:
+            - name: mysql
+              containerPort: 3306
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+              subPath: mysql
+      securityContext: {}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: mysql-pvc

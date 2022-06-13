@@ -1,0 +1,306 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hive-config
+data:
+  hive-site: |
+    <?xml version="1.0"?>
+    <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+
+    <configuration>
+
+    <!--
+    <property>
+      <name>hive.support.concurrency</name>
+      <value>false</value>
+      <description>Whether hive supports concurrency or not. A zookeeper instance must be up and running for the default hive lock manager to support read-write locks.</description>
+    </property>
+    -->
+
+    </configuration>
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hue-config-extra
+data:
+  hue-ini: |
+    [desktop]
+    secret_key=hue123
+    app_blacklist=filebrowser,search,hbase,security,jobbrowser,oozie
+    django_debug_mode=false
+    gunicorn_work_class=sync
+    enable_prometheus=true
+
+    [[task_server]]
+    enabled=false
+    broker_url=redis://redis:6379/0
+    result_cache='{"BACKEND": "django_redis.cache.RedisCache", "LOCATION": "redis://redis:6379/0", "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},"KEY_PREFIX": "queries"}'
+    celery_result_backend=redis://redis:6379/0
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hue-config
+data:
+  hue-ini: |
+    [desktop]
+
+    [[database]]
+    engine=postgresql_psycopg2
+    host=postgres-hue
+    port=5432
+    user=hue
+    password=hue
+    name=hue
+
+    [aws]
+    [[aws_accounts]]
+    [[[default]]]
+    access_key_id=
+    secret_access_key=
+    region=
+
+    [notebook]
+    [[interpreters]]
+        [[[postgresql]]]
+      name = postgresql
+      interface=sqlalchemy
+      options='{"url": "postgresql://hue:hue@postgres-hue:5432/hue"}'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+data:
+  hue: |
+    server {
+        server_name hue;
+        charset utf-8;
+
+        listen 80;
+
+        # Or if running hue on https://
+        ## listen 8001 ssl;
+        ## ssl_certificate /path/to/ssl/cert;
+        ## ssl_certificate_key /path/to/ssl/key;
+
+        location / {
+            proxy_pass http://127.0.0.1:8888;
+
+            # Or if the upstream Hue instances are running behind https://
+            ## proxy_pass https://hue;
+        }
+
+        location /static/ {
+            alias /usr/share/nginx/html/hue/static/;
+
+            expires 30d;
+            add_header Cache-Control public;
+        }
+    }
+
+    upstream hue {
+        ip_hash;
+
+        # List all the Hue instances here for high availability.
+        server 127.0.0.1:8888 max_fails=3;
+        #server HUE_HOST2:8888 max_fails=3;
+    }
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: postgres-pv
+  labels:
+    type: local
+spec:
+  storageClassName: microk8s-hostpath
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: /data/postgres-pv
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+spec:
+  storageClassName: microk8s-hostpath
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hue
+  labels:
+    pod: hue
+spec:
+  selector:
+    pod: hue
+  ports:
+    - name: hue
+      port: 8888
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hue-balancer
+spec:
+  type: NodePort
+  selector:
+    pod: hue
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 86400
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-hue
+spec:
+  ports:
+    - name: pgql
+      port: 5432
+  type: NodePort
+  selector:
+    app: postgres-hue
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hue
+  labels:
+    deployment: hue
+spec:
+  selector:
+    matchLabels:
+      pod: hue
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        pod: hue
+      annotations:
+        checksum/config: 923f3b2168b51e3d0b99aa441a3e8870f98c2637aa9223c8b99379485f8c6f87
+        checksum/config-extra: 82449ce52e26d3fb34110efeba2d1aa0bf518bb90d06f7323dfdef2a18dadc1f
+        checksum/config-hive: c58fde318bb6a33b9e6a641bf274df60c32a7e64955105389950e1ad00006bb8
+    spec:
+      initContainers:
+        - name: hue-init
+          image: gethue/hue:latest
+          imagePullPolicy: Always
+          args:
+            - /bin/sh
+            - -c
+            - |
+              set -x; while [ $(curl -s --connect-timeout 1 postgres-hue:5432 || echo $?) -ne 52 ]; do
+                sleep 1;
+              done
+      containers:
+        - name: hue
+          image: gethue/hue:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8888
+          resources:
+            requests:
+              cpu: 50m
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: config-volume
+              mountPath: /usr/share/hue/desktop/conf/z-hue.ini
+              subPath: hue-ini
+            - name: config-volume-extra
+              mountPath: /usr/share/hue/desktop/conf/zz-hue.ini
+              subPath: hue-ini
+            - name: hive-config-volume
+              mountPath: /etc/hive/conf/hive-site.xml
+              subPath: hive-site
+          readinessProbe:
+            httpGet:
+              path: /desktop/debug/is_alive
+              port: 8888
+            initialDelaySeconds: 3
+            periodSeconds: 3
+            failureThreshold: 30
+        - name: nginx
+          image: gethue/nginx:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 20m
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/sites-available/hue
+              subPath: hue
+      volumes:
+        - name: config-volume
+          configMap:
+            name: hue-config
+        - name: config-volume-extra
+          configMap:
+            name: hue-config-extra
+        - name: hive-config-volume
+          configMap:
+            name: hive-config
+        - name: nginx-config
+          configMap:
+            name: nginx-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-hue
+spec:
+  selector:
+    matchLabels:
+      app: postgres-hue
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: postgres-hue
+    spec:
+      containers:
+        - name: postgres-hue
+          image: postgres:9.5
+          env:
+            - name: POSTGRES_USER
+              value: hue
+            - name: POSTGRES_PASSWORD
+              value: hue
+            - name: POSTGRES_DB
+              value: hue
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          resources:
+            requests:
+              cpu: 20m
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - mountPath: /var/lib/postgresql/data
+              name: postgres-data
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: postgres-pvc

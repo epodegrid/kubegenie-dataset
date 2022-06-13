@@ -1,0 +1,3205 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-mongodb
+  namespace: 7xtatPGcfw4rmwM
+  labels:
+    app.kubernetes.io/name: mongodb
+    helm.sh/chart: mongodb-11.1.10
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+secrets:
+  - name: release-name-mongodb
+---
+apiVersion: v1
+kind: ServiceAccount
+automountServiceAccountToken: true
+metadata:
+  name: release-name-redis
+  namespace: 7xtatPGcfw4rmwM
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-16.8.5
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-serviceaccount
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-price-history-config
+  labels:
+    helm.sh/chart: price-0.1.0
+    app.kubernetes.io/name: price-history
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.1.0
+    app.kubernetes.io/managed-by: Helm
+stringData:
+  custom.yaml: '{}'
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-redis
+  namespace: 7xtatPGcfw4rmwM
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-16.8.5
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+  redis-password: cGFzc3dvcmQ=
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: galoy-config-map
+  labels:
+    app: galoy
+    app.kubernetes.io/managed-by: Helm
+stringData:
+  custom.yaml: |-
+    apollo:
+      playground: false
+    name: Galoy Wallet
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: jwt-secret
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/resource-policy: keep
+data:
+  secret: V1dKZlN5eHN5Rm1wdkRoTnlZdVZmUXhG
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-mongodb-init-scripts
+  namespace: 7xtatPGcfw4rmwM
+  labels:
+    app.kubernetes.io/name: mongodb
+    helm.sh/chart: mongodb-11.1.10
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: mongodb
+data:
+  grant_user_admin_role.sh: |
+    isMaster=$(mongo admin -u root -p "$MONGODB_ROOT_PASSWORD" --eval "rs.isMaster().ismaster" | tail -1 | tr -d '\n')
+    if [ "$isMaster" == "true" ]; then
+    mongo admin -u root -p $MONGODB_ROOT_PASSWORD << EOF
+      use admin;
+      db.grantRolesToUser('root', [ {role: "userAdmin", db: "galoy"} ]);
+    EOF
+    fi;
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-mongodb-scripts
+  namespace: 7xtatPGcfw4rmwM
+  labels:
+    app.kubernetes.io/name: mongodb
+    helm.sh/chart: mongodb-11.1.10
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: mongodb
+data:
+  setup.sh: |-
+    #!/bin/bash
+
+    . /opt/bitnami/scripts/mongodb-env.sh
+    . /opt/bitnami/scripts/libfs.sh
+    . /opt/bitnami/scripts/liblog.sh
+    . /opt/bitnami/scripts/libvalidations.sh
+
+    if is_empty_value "$MONGODB_ADVERTISED_PORT_NUMBER"; then
+      export MONGODB_ADVERTISED_PORT_NUMBER="$MONGODB_PORT_NUMBER"
+    fi
+
+    info "Advertised Hostname: $MONGODB_ADVERTISED_HOSTNAME"
+    info "Advertised Port: $MONGODB_ADVERTISED_PORT_NUMBER"
+
+    # Check for existing replica set in case there is no data in the PVC
+    # This is for cases where the PVC is lost or for MongoDB caches without
+    # persistence
+    current_primary=""
+    if is_dir_empty "${MONGODB_DATA_DIR}/db"; then
+      info "Data dir empty, checking if the replica set already exists"
+      current_primary=$(mongo admin --host "release-name-mongodb-0.release-name-mongodb-headless.default.svc.cluster.local:27017,release-name-mongodb-1.release-name-mongodb-headless.default.svc.cluster.local:27017,release-name-mongodb-2.release-name-mongodb-headless.default.svc.cluster.local:27017" --authenticationDatabase admin -u root -p $MONGODB_ROOT_PASSWORD --eval 'db.runCommand("ismaster")' | awk -F\" '/primary/ {print $4}')
+
+      if ! is_empty_value "$current_primary"; then
+        info "Detected existing primary: ${current_primary}"
+      fi
+    fi
+
+    if ! is_empty_value "$current_primary" && [[ "$MONGODB_ADVERTISED_HOSTNAME:$MONGODB_ADVERTISED_PORT_NUMBER" == "$current_primary" ]]; then
+        info "Advertised name matches current primary, configuring node as a primary"
+        export MONGODB_REPLICA_SET_MODE="primary"
+    elif ! is_empty_value "$current_primary" && [[ "$MONGODB_ADVERTISED_HOSTNAME:$MONGODB_ADVERTISED_PORT_NUMBER" != "$current_primary" ]]; then
+        info "Current primary is different from this node. Configuring the node as replica of ${current_primary}"
+        export MONGODB_REPLICA_SET_MODE="secondary"
+        export MONOGDB_INITIAL_PRIMARY_HOST="${current_primary%:*}"
+        export MONGODB_INITIAL_PRIMARY_PORT_NUMBER="${current_primary#*:}"
+        export MONGODB_SET_SECONDARY_OK="yes"
+    elif [[ "$MY_POD_NAME" = "release-name-mongodb-0" ]]; then
+        info "Pod name matches initial primary pod name, configuring node as a primary"
+        export MONGODB_REPLICA_SET_MODE="primary"
+    else
+        info "Pod name doesn't match initial primary pod name, configuring node as a secondary"
+        export MONGODB_REPLICA_SET_MODE="secondary"
+        export MONGODB_INITIAL_PRIMARY_PORT_NUMBER="$MONGODB_PORT_NUMBER"
+    fi
+
+    if [[ "$MONGODB_REPLICA_SET_MODE" == "secondary" ]]; then
+        export MONGODB_INITIAL_PRIMARY_ROOT_USER="$MONGODB_ROOT_USER"
+        export MONGODB_INITIAL_PRIMARY_ROOT_PASSWORD="$MONGODB_ROOT_PASSWORD"
+        export MONGODB_ROOT_PASSWORD=""
+        export MONGODB_EXTRA_USERNAMES=""
+        export MONGODB_EXTRA_DATABASES=""
+        export MONGODB_EXTRA_PASSWORDS=""
+        export MONGODB_ROOT_PASSWORD_FILE=""
+        export MONGODB_EXTRA_USERNAMES_FILE=""
+        export MONGODB_EXTRA_DATABASES_FILE=""
+        export MONGODB_EXTRA_PASSWORDS_FILE=""
+    fi
+
+    exec /opt/bitnami/scripts/mongodb/entrypoint.sh /opt/bitnami/scripts/mongodb/run.sh
+  setup-hidden.sh: |-
+    #!/bin/bash
+
+    . /opt/bitnami/scripts/mongodb-env.sh
+
+    echo "Advertised Hostname: $MONGODB_ADVERTISED_HOSTNAME"
+    echo "Advertised Port: $MONGODB_ADVERTISED_PORT_NUMBER"
+    echo "Configuring node as a hidden node"
+    export MONGODB_REPLICA_SET_MODE="hidden"
+    export MONGODB_INITIAL_PRIMARY_ROOT_USER="$MONGODB_ROOT_USER"
+    export MONGODB_INITIAL_PRIMARY_ROOT_PASSWORD="$MONGODB_ROOT_PASSWORD"
+    export MONGODB_INITIAL_PRIMARY_PORT_NUMBER="$MONGODB_PORT_NUMBER"
+    export MONGODB_ROOT_PASSWORD=""
+    export MONGODB_EXTRA_USERNAMES=""
+    export MONGODB_EXTRA_DATABASES=""
+    export MONGODB_EXTRA_PASSWORDS=""
+    export MONGODB_ROOT_PASSWORD_FILE=""
+    export MONGODB_EXTRA_USERNAMES_FILE=""
+    export MONGODB_EXTRA_DATABASES_FILE=""
+    export MONGODB_EXTRA_PASSWORDS_FILE=""
+    exec /opt/bitnami/scripts/mongodb/entrypoint.sh /opt/bitnami/scripts/mongodb/run.sh
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-redis-configuration
+  namespace: 7xtatPGcfw4rmwM
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-16.8.5
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  redis.conf: |-
+    # User-supplied common configuration:
+    # Enable AOF https://redis.io/topics/persistence#append-only-file
+    appendonly yes
+    # Disable RDB persistence, AOF persistence already enabled.
+    save ""
+    # End of common configuration
+  master.conf: |-
+    dir /data
+    # User-supplied master configuration:
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+    # End of master configuration
+  replica.conf: |-
+    dir /data
+    slave-read-only yes
+    # User-supplied replica configuration:
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+    # End of replica configuration
+  sentinel.conf: |-
+    dir "/tmp"
+    port 26379
+    sentinel monitor mymaster release-name-redis-node-0.release-name-redis-headless.default.svc.cluster.local 6379 2
+    sentinel down-after-milliseconds mymaster 60000
+    sentinel failover-timeout mymaster 18000
+    sentinel parallel-syncs mymaster 1
+    # User-supplied sentinel configuration:
+    # End of sentinel configuration
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-redis-health
+  namespace: 7xtatPGcfw4rmwM
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-16.8.5
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  ping_readiness_local.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    [[ -n "$REDIS_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_PASSWORD"
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$?" -eq "124" ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_local.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    [[ -n "$REDIS_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_PASSWORD"
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$?" -eq "124" ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    responseFirstWord=$(echo $response | head -n1 | awk '{print $1;}')
+    if [ "$response" != "PONG" ] && [ "$responseFirstWord" != "LOADING" ] && [ "$responseFirstWord" != "MASTERDOWN" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_sentinel.sh: |-
+    #!/bin/bash
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    [[ -n "$REDIS_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_PASSWORD"
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h localhost \
+        -p $REDIS_SENTINEL_PORT \
+        ping
+    )
+    if [ "$?" -eq "124" ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  parse_sentinels.awk: |-
+    /ip/ {FOUND_IP=1}
+    /port/ {FOUND_PORT=1}
+    /runid/ {FOUND_RUNID=1}
+    !/ip|port|runid/ {
+      if (FOUND_IP==1) {
+        IP=$1; FOUND_IP=0;
+      }
+      else if (FOUND_PORT==1) {
+        PORT=$1;
+        FOUND_PORT=0;
+      } else if (FOUND_RUNID==1) {
+        printf "\nsentinel known-sentinel mymaster %s %s %s", IP, PORT, $0; FOUND_RUNID=0;
+      }
+    }
+  ping_readiness_master.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD="$(< "${REDIS_MASTER_PASSWORD_FILE}")"
+    [[ -n "$REDIS_MASTER_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_MASTER_PASSWORD"
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$?" -eq "124" ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_master.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD="$(< "${REDIS_MASTER_PASSWORD_FILE}")"
+    [[ -n "$REDIS_MASTER_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_MASTER_PASSWORD"
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$?" -eq "124" ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    responseFirstWord=$(echo $response | head -n1 | awk '{print $1;}')
+    if [ "$response" != "PONG" ] && [ "$responseFirstWord" != "LOADING" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_readiness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_readiness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+  ping_liveness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_liveness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_liveness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-redis-scripts
+  namespace: 7xtatPGcfw4rmwM
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-16.8.5
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  start-node.sh: |
+    #!/bin/bash
+
+    . /opt/bitnami/scripts/libos.sh
+    . /opt/bitnami/scripts/liblog.sh
+    . /opt/bitnami/scripts/libvalidations.sh
+
+    get_port() {
+        hostname="$1"
+        type="$2"
+
+        port_var=$(echo "${hostname^^}_SERVICE_PORT_$type" | sed "s/-/_/g")
+        port=${!port_var}
+
+        if [ -z "$port" ]; then
+            case $type in
+                "SENTINEL")
+                    echo 26379
+                    ;;
+                "REDIS")
+                    echo 6379
+                    ;;
+            esac
+        else
+            echo $port
+        fi
+    }
+
+    get_full_hostname() {
+        hostname="$1"
+        echo "${hostname}.${HEADLESS_SERVICE}"
+    }
+
+    REDISPORT=$(get_port "$HOSTNAME" "REDIS")
+
+    HEADLESS_SERVICE="release-name-redis-headless.default.svc.cluster.local"
+
+    if [ -n "$REDIS_EXTERNAL_MASTER_HOST" ]; then
+        REDIS_SERVICE="$REDIS_EXTERNAL_MASTER_HOST"
+    else
+        REDIS_SERVICE="release-name-redis.default.svc.cluster.local"
+    fi
+
+    SENTINEL_SERVICE_PORT=$(get_port "release-name-redis" "TCP_SENTINEL")
+    validate_quorum() {
+        if is_boolean_yes "$REDIS_SENTINEL_TLS_ENABLED"; then
+            quorum_info_command="REDISCLI_AUTH="\$REDIS_PASSWORD" redis-cli -h $REDIS_SERVICE -p $SENTINEL_SERVICE_PORT --tls --cert ${REDIS_SENTINEL_TLS_CERT_FILE} --key ${REDIS_SENTINEL_TLS_KEY_FILE} --cacert ${REDIS_SENTINEL_TLS_CA_FILE} sentinel master mymaster"
+        else
+            quorum_info_command="REDISCLI_AUTH="\$REDIS_PASSWORD" redis-cli -h $REDIS_SERVICE -p $SENTINEL_SERVICE_PORT sentinel master mymaster"
+        fi
+        info "about to run the command: $quorum_info_command"
+        eval $quorum_info_command | grep -Fq "s_down"
+    }
+
+    trigger_manual_failover() {
+        if is_boolean_yes "$REDIS_SENTINEL_TLS_ENABLED"; then
+            failover_command="REDISCLI_AUTH="\$REDIS_PASSWORD" redis-cli -h $REDIS_SERVICE -p $SENTINEL_SERVICE_PORT --tls --cert ${REDIS_SENTINEL_TLS_CERT_FILE} --key ${REDIS_SENTINEL_TLS_KEY_FILE} --cacert ${REDIS_SENTINEL_TLS_CA_FILE} sentinel failover mymaster"
+        else
+            failover_command="REDISCLI_AUTH="\$REDIS_PASSWORD" redis-cli -h $REDIS_SERVICE -p $SENTINEL_SERVICE_PORT sentinel failover mymaster"
+        fi
+
+        info "about to run the command: $failover_command"
+        eval $failover_command
+    }
+
+    get_sentinel_master_info() {
+        if is_boolean_yes "$REDIS_SENTINEL_TLS_ENABLED"; then
+            sentinel_info_command="REDISCLI_AUTH="\$REDIS_PASSWORD" timeout 220 redis-cli -h $REDIS_SERVICE -p $SENTINEL_SERVICE_PORT --tls --cert ${REDIS_SENTINEL_TLS_CERT_FILE} --key ${REDIS_SENTINEL_TLS_KEY_FILE} --cacert ${REDIS_SENTINEL_TLS_CA_FILE} sentinel get-master-addr-by-name mymaster"
+        else
+            sentinel_info_command="REDISCLI_AUTH="\$REDIS_PASSWORD" timeout 220 redis-cli -h $REDIS_SERVICE -p $SENTINEL_SERVICE_PORT sentinel get-master-addr-by-name mymaster"
+        fi
+
+        info "about to run the command: $sentinel_info_command"
+        eval $sentinel_info_command
+    }
+
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    [[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD="$(< "${REDIS_MASTER_PASSWORD_FILE}")"
+
+    # check if there is a master
+    master_in_persisted_conf="$(get_full_hostname "$HOSTNAME")"
+    master_port_in_persisted_conf="$REDIS_MASTER_PORT_NUMBER"
+    master_in_sentinel="$(get_sentinel_master_info)"
+    redisRetVal=$?
+
+    if [[ $redisRetVal -ne 0 ]]; then
+        if [[ "$master_in_persisted_conf" == "$(get_full_hostname "$HOSTNAME")" ]]; then
+            # Case 1: No active sentinel and in previous sentinel.conf we were the master --> MASTER
+            info "Configuring the node as master"
+            export REDIS_REPLICATION_MODE="master"
+        else
+            # Case 2: No active sentinel and in previous sentinel.conf we were not master --> REPLICA
+            info "Configuring the node as replica"
+            export REDIS_REPLICATION_MODE="slave"
+            REDIS_MASTER_HOST=${master_in_persisted_conf}
+            REDIS_MASTER_PORT_NUMBER=${master_port_in_persisted_conf}
+        fi
+    else
+        # Fetches current master's host and port
+        REDIS_SENTINEL_INFO=($(get_sentinel_master_info))
+        info "Current master: REDIS_SENTINEL_INFO=(${REDIS_SENTINEL_INFO[0]},${REDIS_SENTINEL_INFO[1]})"
+        REDIS_MASTER_HOST=${REDIS_SENTINEL_INFO[0]}
+        REDIS_MASTER_PORT_NUMBER=${REDIS_SENTINEL_INFO[1]}
+
+        if [[ "$REDIS_MASTER_HOST" == "$(get_full_hostname "$HOSTNAME")" ]]; then
+            # Case 3: Active sentinel and master it is this node --> MASTER
+            info "Configuring the node as master"
+            export REDIS_REPLICATION_MODE="master"
+        else
+            # Case 4: Active sentinel and master is not this node --> REPLICA
+            info "Configuring the node as replica"
+            export REDIS_REPLICATION_MODE="slave"
+        fi
+    fi
+
+    if [[ -n "$REDIS_EXTERNAL_MASTER_HOST" ]]; then
+      REDIS_MASTER_HOST="$REDIS_EXTERNAL_MASTER_HOST"
+      REDIS_MASTER_PORT_NUMBER="${REDIS_EXTERNAL_MASTER_PORT}"
+    fi
+
+    if [[ ! -f /opt/bitnami/redis/etc/replica.conf ]];then
+        cp /opt/bitnami/redis/mounted-etc/replica.conf /opt/bitnami/redis/etc/replica.conf
+    fi
+
+    if [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then
+        cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf
+    fi
+
+    echo "" >> /opt/bitnami/redis/etc/replica.conf
+    echo "replica-announce-port $REDISPORT" >> /opt/bitnami/redis/etc/replica.conf
+    echo "replica-announce-ip $(get_full_hostname "$HOSTNAME")" >> /opt/bitnami/redis/etc/replica.conf
+    ARGS=("--port" "${REDIS_PORT}")
+
+    if [[ "$REDIS_REPLICATION_MODE" = "slave" ]]; then
+        ARGS+=("--slaveof" "${REDIS_MASTER_HOST}" "${REDIS_MASTER_PORT_NUMBER}")
+    fi
+    ARGS+=("--requirepass" "${REDIS_PASSWORD}")
+    ARGS+=("--masterauth" "${REDIS_MASTER_PASSWORD}")
+    ARGS+=("--include" "/opt/bitnami/redis/etc/replica.conf")
+    ARGS+=("--include" "/opt/bitnami/redis/etc/redis.conf")
+    exec redis-server "${ARGS[@]}"
+  start-sentinel.sh: |
+    #!/bin/bash
+
+    . /opt/bitnami/scripts/libos.sh
+    . /opt/bitnami/scripts/libvalidations.sh
+    . /opt/bitnami/scripts/libfile.sh
+
+    HEADLESS_SERVICE="release-name-redis-headless.default.svc.cluster.local"
+    REDIS_SERVICE="release-name-redis.default.svc.cluster.local"
+
+    get_port() {
+        hostname="$1"
+        type="$2"
+
+        port_var=$(echo "${hostname^^}_SERVICE_PORT_$type" | sed "s/-/_/g")
+        port=${!port_var}
+
+        if [ -z "$port" ]; then
+            case $type in
+                "SENTINEL")
+                    echo 26379
+                    ;;
+                "REDIS")
+                    echo 6379
+                    ;;
+            esac
+        else
+            echo $port
+        fi
+    }
+
+    get_full_hostname() {
+        hostname="$1"
+        echo "${hostname}.${HEADLESS_SERVICE}"
+    }
+
+    SERVPORT=$(get_port "$HOSTNAME" "SENTINEL")
+    REDISPORT=$(get_port "$HOSTNAME" "REDIS")
+    SENTINEL_SERVICE_PORT=$(get_port "release-name-redis" "TCP_SENTINEL")
+
+    sentinel_conf_set() {
+        local -r key="${1:?missing key}"
+        local value="${2:-}"
+
+        # Sanitize inputs
+        value="${value//\\/\\\\}"
+        value="${value//&/\\&}"
+        value="${value//\?/\\?}"
+        [[ "$value" = "" ]] && value="\"$value\""
+
+        replace_in_file "/opt/bitnami/redis-sentinel/etc/sentinel.conf" "^#*\s*${key} .*" "${key} ${value}" false
+    }
+    sentinel_conf_add() {
+        echo $'\n'"$@" >> "/opt/bitnami/redis-sentinel/etc/sentinel.conf"
+    }
+    host_id() {
+        echo "$1" | openssl sha1 | awk '{print $2}'
+    }
+    get_sentinel_master_info() {
+        if is_boolean_yes "$REDIS_SENTINEL_TLS_ENABLED"; then
+            sentinel_info_command="REDISCLI_AUTH="\$REDIS_PASSWORD" redis-cli -h $REDIS_SERVICE -p $SENTINEL_SERVICE_PORT --tls --cert ${REDIS_SENTINEL_TLS_CERT_FILE} --key ${REDIS_SENTINEL_TLS_KEY_FILE} --cacert ${REDIS_SENTINEL_TLS_CA_FILE} sentinel get-master-addr-by-name mymaster"
+        else
+            sentinel_info_command="REDISCLI_AUTH="\$REDIS_PASSWORD" redis-cli -h $REDIS_SERVICE -p $SENTINEL_SERVICE_PORT sentinel get-master-addr-by-name mymaster"
+        fi
+        info "about to run the command: $sentinel_info_command"
+        eval $sentinel_info_command
+    }
+
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+
+    master_in_persisted_conf="$(get_full_hostname "$HOSTNAME")"
+    if ! get_sentinel_master_info && [[ "$master_in_persisted_conf" == "$(get_full_hostname "$HOSTNAME")" ]]; then
+        # No master found, lets create a master node
+        export REDIS_REPLICATION_MODE="master"
+
+        REDIS_MASTER_HOST=$(get_full_hostname "$HOSTNAME")
+        REDIS_MASTER_PORT_NUMBER="$REDISPORT"
+    else
+        export REDIS_REPLICATION_MODE="slave"
+
+        # Fetches current master's host and port
+        REDIS_SENTINEL_INFO=($(get_sentinel_master_info))
+        info "printing REDIS_SENTINEL_INFO=(${REDIS_SENTINEL_INFO[0]},${REDIS_SENTINEL_INFO[1]})"
+        REDIS_MASTER_HOST=${REDIS_SENTINEL_INFO[0]}
+        REDIS_MASTER_PORT_NUMBER=${REDIS_SENTINEL_INFO[1]}
+    fi
+
+    if [[ -n "$REDIS_EXTERNAL_MASTER_HOST" ]]; then
+      REDIS_MASTER_HOST="$REDIS_EXTERNAL_MASTER_HOST"
+      REDIS_MASTER_PORT_NUMBER="${REDIS_EXTERNAL_MASTER_PORT}"
+    fi
+
+    cp /opt/bitnami/redis-sentinel/mounted-etc/sentinel.conf /opt/bitnami/redis-sentinel/etc/sentinel.conf
+    printf "\nsentinel auth-pass %s %s" "mymaster" "$REDIS_PASSWORD" >> /opt/bitnami/redis-sentinel/etc/sentinel.conf
+    printf "\nrequirepass %s" "$REDIS_PASSWORD" >> /opt/bitnami/redis-sentinel/etc/sentinel.conf
+    printf "\nsentinel myid %s" "$(host_id "$HOSTNAME")" >> /opt/bitnami/redis-sentinel/etc/sentinel.conf
+
+    sentinel_conf_set "sentinel monitor" "mymaster "$REDIS_MASTER_HOST" "$REDIS_MASTER_PORT_NUMBER" 2"
+
+    add_known_sentinel() {
+        hostname="$1"
+        ip="$2"
+
+        if [[ -n "$hostname" && -n "$ip" && "$hostname" != "$HOSTNAME" ]]; then
+            sentinel_conf_add "sentinel known-sentinel mymaster $(get_full_hostname "$hostname") $(get_port "$hostname" "SENTINEL") $(host_id "$hostname")"
+        fi
+    }
+    add_known_replica() {
+        hostname="$1"
+        ip="$2"
+
+        if [[ -n "$ip" && "$(get_full_hostname "$hostname")" != "$REDIS_MASTER_HOST" ]]; then
+            sentinel_conf_add "sentinel known-replica mymaster $(get_full_hostname "$hostname") $(get_port "$hostname" "REDIS")"
+        fi
+    }
+
+    # Add available hosts on the network as known replicas & sentinels
+    for node in $(seq 0 $((3-1))); do
+        hostname="release-name-redis-node-$node"
+        ip="$(getent hosts "$hostname.$HEADLESS_SERVICE" | awk '{ print $1 }')"
+        add_known_sentinel "$hostname" "$ip"
+        add_known_replica "$hostname" "$ip"
+    done
+
+    echo "" >> /opt/bitnami/redis-sentinel/etc/sentinel.conf
+    echo "sentinel announce-hostnames yes" >> /opt/bitnami/redis-sentinel/etc/sentinel.conf
+    echo "sentinel resolve-hostnames yes" >> /opt/bitnami/redis-sentinel/etc/sentinel.conf
+    echo "sentinel announce-port $SERVPORT" >> /opt/bitnami/redis-sentinel/etc/sentinel.conf
+    echo "sentinel announce-ip $(get_full_hostname "$HOSTNAME")" >> /opt/bitnami/redis-sentinel/etc/sentinel.conf
+    exec redis-server /opt/bitnami/redis-sentinel/etc/sentinel.conf --sentinel
+  prestop-sentinel.sh: |
+    #!/bin/bash
+
+    . /opt/bitnami/scripts/libvalidations.sh
+    . /opt/bitnami/scripts/libos.sh
+
+    HEADLESS_SERVICE="release-name-redis-headless.default.svc.cluster.local"
+    SENTINEL_SERVICE_ENV_NAME=RELEASE_NAME_REDIS_SERVICE_PORT_TCP_SENTINEL
+    SENTINEL_SERVICE_PORT=${!SENTINEL_SERVICE_ENV_NAME}
+
+    get_full_hostname() {
+        hostname="$1"
+        echo "${hostname}.${HEADLESS_SERVICE}"
+    }
+    run_sentinel_command() {
+        if is_boolean_yes "$REDIS_SENTINEL_TLS_ENABLED"; then
+            redis-cli -h "$REDIS_SERVICE" -p "$SENTINEL_SERVICE_PORT" --tls --cert "$REDIS_SENTINEL_TLS_CERT_FILE" --key "$REDIS_SENTINEL_TLS_KEY_FILE" --cacert "$REDIS_SENTINEL_TLS_CA_FILE" sentinel "$@"
+        else
+            redis-cli -h "$REDIS_SERVICE" -p "$SENTINEL_SERVICE_PORT" sentinel "$@"
+        fi
+    }
+    failover_finished() {
+      REDIS_SENTINEL_INFO=($(run_sentinel_command get-master-addr-by-name "mymaster"))
+      REDIS_MASTER_HOST="${REDIS_SENTINEL_INFO[0]}"
+      [[ "$REDIS_MASTER_HOST" != "$(get_full_hostname $HOSTNAME)" ]]
+    }
+
+    REDIS_SERVICE="release-name-redis.default.svc.cluster.local"
+
+    # redis-cli automatically consumes credentials from the REDISCLI_AUTH variable
+    [[ -n "$REDIS_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_PASSWORD"
+    [[ -f "$REDIS_PASSWORD_FILE" ]] && export REDISCLI_AUTH="$(< "${REDIS_PASSWORD_FILE}")"
+
+    if ! failover_finished; then
+        echo "I am the master pod and you are stopping me. Starting sentinel failover"
+        # if I am the master, issue a command to failover once and then wait for the failover to finish
+        run_sentinel_command failover "mymaster"
+        if retry_while "failover_finished" "20" 1; then
+            echo "Master has been successfuly failed over to a different pod."
+            exit 0
+        else
+            echo "Master failover failed"
+            exit 1
+        fi
+    else
+        exit 0
+    fi
+  prestop-redis.sh: |
+    #!/bin/bash
+
+    . /opt/bitnami/scripts/libvalidations.sh
+    . /opt/bitnami/scripts/libos.sh
+
+    run_redis_command() {
+        if is_boolean_yes "$REDIS_TLS_ENABLED"; then
+            redis-cli -h 127.0.0.1 -p "$REDIS_TLS_PORT" --tls --cert "$REDIS_TLS_CERT_FILE" --key "$REDIS_TLS_KEY_FILE" --cacert "$REDIS_TLS_CA_FILE" "$@"
+        else
+            redis-cli -h 127.0.0.1 -p ${REDIS_PORT} "$@"
+        fi
+    }
+    failover_finished() {
+        REDIS_ROLE=$(run_redis_command role | head -1)
+        [[ "$REDIS_ROLE" != "master" ]]
+    }
+
+    # redis-cli automatically consumes credentials from the REDISCLI_AUTH variable
+    [[ -n "$REDIS_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_PASSWORD"
+    [[ -f "$REDIS_PASSWORD_FILE" ]] && export REDISCLI_AUTH="$(< "${REDIS_PASSWORD_FILE}")"
+
+    if ! failover_finished; then
+        echo "Waiting for sentinel to run failover for up to 20s"
+        retry_while "failover_finished" "20" 1
+    else
+        exit 0
+    fi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mongo-backup-configmap
+  labels:
+    app: galoy
+data:
+  backup.sh: |
+    echo "backup script starts"
+    export BUCKET_NAME="galoy-staging-backups"
+    set -e
+    LOG_TIME=$(date +%s)
+    BACKUP_NAME="$NETWORK-$LOG_TIME.gz"
+    echo "Activating service account"
+    gcloud auth activate-service-account --key-file=$GOOGLE_APPLICATION_CREDENTIALS
+    echo "Backing up mongodb"
+    mongodump --host=$MONGODB_ADDRESS --port=$MONGODB_PORT --username=$MONGODB_USER --password=$MONGODB_PASSWORD --gzip --archive=$BACKUP_NAME -d=$MONGODB_DB --readPreference=secondary
+    echo "Uploading backup $BACKUP_NAME to dropbox"
+    curl -X POST https://content.dropboxapi.com/2/files/upload --http1.1 --header "Authorization: Bearer $DROPBOX_ACCESS_TOKEN" --header "Dropbox-API-Arg: {\"path\": \"/mongo/$BACKUP_NAME\"}" --header "Content-Type: application/octet-stream" --data-binary $BACKUP_NAME
+    echo "Uploading backup $BACKUP_NAME to gcs"
+    gsutil cp $BACKUP_NAME gs://$BUCKET_NAME/$BACKUP_NAME 2>&1
+    echo "Uploaded backup successfully"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-role
+rules:
+  - apiGroups:
+      - batch
+    resources:
+      - cronjobs
+    verbs:
+      - get
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-rolebinding
+roleRef:
+  kind: Role
+  name: release-name-role
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+  - kind: ServiceAccount
+    name: release-name-serviceaccount
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-mongodb-metrics
+  namespace: 7xtatPGcfw4rmwM
+  labels:
+    app.kubernetes.io/name: mongodb
+    helm.sh/chart: mongodb-11.1.10
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: metrics
+  annotations:
+    prometheus.io/path: /metrics
+    prometheus.io/port: "9216"
+    prometheus.io/scrape: "true"
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9216
+      targetPort: metrics
+      protocol: TCP
+      name: http-metrics
+  selector:
+    app.kubernetes.io/name: mongodb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: mongodb
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-mongodb-headless
+  namespace: 7xtatPGcfw4rmwM
+  labels:
+    app.kubernetes.io/name: mongodb
+    helm.sh/chart: mongodb-11.1.10
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: mongodb
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: mongodb
+      port: 27017
+      targetPort: mongodb
+  selector:
+    app.kubernetes.io/name: mongodb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: mongodb
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-postgresql-hl
+  namespace: 7xtatPGcfw4rmwM
+  labels:
+    app.kubernetes.io/name: postgresql
+    helm.sh/chart: postgresql-11.1.9
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: primary
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-postgresql
+  namespace: 7xtatPGcfw4rmwM
+  labels:
+    app.kubernetes.io/name: postgresql
+    helm.sh/chart: postgresql-11.1.9
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+  annotations: null
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: primary
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-price-history
+  labels:
+    helm.sh/chart: price-0.1.0
+    app.kubernetes.io/name: price-history
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.1.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 50052
+      targetPort: grpc
+      protocol: TCP
+      name: grpc
+    - port: 9464
+      targetPort: prometheus
+      protocol: TCP
+      name: prometheus
+  selector:
+    app.kubernetes.io/name: price-history
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-price
+  labels:
+    helm.sh/chart: price-0.1.0
+    app.kubernetes.io/name: price
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.1.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 50051
+      targetPort: grpc
+      protocol: TCP
+      name: grpc
+    - port: 9464
+      targetPort: prometheus
+      protocol: TCP
+      name: prometheus
+  selector:
+    app.kubernetes.io/name: price
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-redis-headless
+  namespace: 7xtatPGcfw4rmwM
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-16.8.5
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: tcp-redis
+      port: 6379
+      targetPort: redis
+    - name: tcp-sentinel
+      port: 26379
+      targetPort: redis-sentinel
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-redis-metrics
+  namespace: 7xtatPGcfw4rmwM
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-16.8.5
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: metrics
+spec:
+  type: ClusterIP
+  ports:
+    - name: http-metrics
+      port: 9121
+      protocol: TCP
+      targetPort: metrics
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-redis
+  namespace: 7xtatPGcfw4rmwM
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-16.8.5
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: node
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-redis
+      port: 6379
+      targetPort: 6379
+      nodePort: null
+    - name: tcp-sentinel
+      port: 26379
+      targetPort: 26379
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: node
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: graphql
+  labels:
+    app: graphql
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  type: NodePort
+  ports:
+    - port: 4000
+      targetPort: 4000
+      protocol: TCP
+      name: http
+  selector:
+    app: graphql
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: graphql-admin
+  labels:
+    app: graphql-admin
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  type: NodePort
+  ports:
+    - port: 4001
+      targetPort: 4001
+      protocol: TCP
+      name: http
+  selector:
+    app: graphql-admin
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  labels:
+    app: api
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  type: NodePort
+  ports:
+    - port: 4002
+      targetPort: 4002
+      protocol: TCP
+      name: http
+  selector:
+    app: api
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trigger
+  labels:
+    app: trigger
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8888
+      targetPort: 8888
+      protocol: TCP
+      name: http
+  selector:
+    app: trigger
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-price
+  labels:
+    helm.sh/chart: price-0.1.0
+    app.kubernetes.io/name: price
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.1.0
+    app.kubernetes.io/managed-by: Helm
+    kube-monkey/enabled: enabled
+    kube-monkey/identifier: price
+    kube-monkey/kill-mode: fixed
+    kube-monkey/kill-value: "1"
+    kube-monkey/mtbf: "8"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: price
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9464"
+        prometheus.io/scrape: "true"
+      labels:
+        app.kubernetes.io/name: price
+        app.kubernetes.io/instance: release-name
+        kube-monkey/enabled: enabled
+        kube-monkey/identifier: price
+    spec:
+      serviceAccountName: default
+      securityContext: {}
+      containers:
+        - name: price
+          securityContext:
+            runAsUser: 11595
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: us.gcr.io/galoy-org/price@sha256:ee709cdeceb0bca231b477bfd8506929cd803107f2266045c307b4c0ba363965
+          ports:
+            - name: grpc
+              containerPort: 50051
+              protocol: TCP
+            - name: prometheus
+              containerPort: 9464
+              protocol: TCP
+          livenessProbe:
+            exec:
+              command:
+                - /bin/grpc_health_probe
+                - -addr=:50051
+            initialDelaySeconds: 45
+            timeoutSeconds: 2
+          readinessProbe:
+            exec:
+              command:
+                - /bin/grpc_health_probe
+                - -addr=:50051
+            timeoutSeconds: 2
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-price-history
+  labels:
+    helm.sh/chart: price-0.1.0
+    app.kubernetes.io/name: price-history
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.1.0
+    app.kubernetes.io/managed-by: Helm
+    kube-monkey/enabled: enabled
+    kube-monkey/identifier: priceHistory
+    kube-monkey/kill-mode: fixed
+    kube-monkey/kill-value: "1"
+    kube-monkey/mtbf: "8"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: price-history
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: price-history
+        app.kubernetes.io/instance: release-name
+        kube-monkey/enabled: enabled
+        kube-monkey/identifier: priceHistory
+    spec:
+      containers:
+        - name: history
+          image: us.gcr.io/galoy-org/price-history@sha256:86294559d50931f4ebb11e08fde47a4183cf7d976899c9633ccd3563f62dd6ec
+          ports:
+            - name: grpc
+              containerPort: 50052
+              protocol: TCP
+            - name: prometheus
+              containerPort: 9464
+              protocol: TCP
+          env:
+            - name: DB_HOST
+              value: galoy-postgresql
+            - name: DB_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-price-history-postgres-creds
+                  key: password
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-price-history-postgres-creds
+                  key: username
+            - name: DB_DB
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-price-history-postgres-creds
+                  key: database
+          volumeMounts:
+            - name: custom-yaml
+              mountPath: /var/yaml/
+          livenessProbe:
+            exec:
+              command:
+                - /bin/grpc_health_probe
+                - -addr=:50052
+            initialDelaySeconds: 45
+            timeoutSeconds: 2
+          readinessProbe:
+            exec:
+              command:
+                - /bin/grpc_health_probe
+                - -addr=:50052
+            timeoutSeconds: 2
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: custom-yaml
+          secret:
+            secretName: release-name-price-history-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graphql-admin
+  labels:
+    app: graphql-admin
+    app.kubernetes.io/managed-by: Helm
+    kube-monkey/enabled: enabled
+    kube-monkey/identifier: graphql-admin
+    kube-monkey/kill-mode: fixed
+    kube-monkey/kill-value: "1"
+    kube-monkey/mtbf: "8"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: graphql-admin
+  template:
+    metadata:
+      name: graphql-admin
+      labels:
+        app: graphql-admin
+        kube-monkey/enabled: enabled
+        kube-monkey/identifier: graphql-admin
+        allow-to-lnd: "true"
+        allow-to-bitcoind: "true"
+    spec:
+      serviceAccountName: release-name-serviceaccount
+      initContainers:
+        - name: wait-for-mongodb-migrate
+          image: groundnuty/k8s-wait-for:v1.5.1
+          args:
+            - job-wr
+            - release-name-mongodb-migrate-1
+      containers:
+        - name: graphql-admin
+          image: us.gcr.io/galoy-org/galoy-app@sha256:f51110f9567ea1011d5581342cf03bb19508ff64d4b1bfa2191102fc5be992bd
+          args:
+            - -r
+            - /app/lib/services/tracing.js
+            - lib/servers/graphql-admin-server.js
+          volumeMounts:
+            - name: firebase-serviceaccount
+              mountPath: /tmp/firebase-serviceaccount
+              readOnly: true
+            - name: custom-yaml
+              mountPath: /var/yaml/
+          ports:
+            - name: http
+              containerPort: 4001
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+            limits:
+              cpu: 1000m
+          env:
+            - name: HELMREVISION
+              value: "1"
+            - name: NODE_ENV
+              value: production
+            - name: JAEGER_HOST
+              value: localhost
+            - name: TRACING_SERVICE_NAME
+              value: galoy-graphql-admin
+            - name: MONGODB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-mongodb
+                  key: mongodb-password
+            - name: MONGODB_USER
+              value: testGaloy
+            - name: MONGODB_ADDRESS
+              value: galoy-mongodb-0.galoy-mongodb-headless,galoy-mongodb-1.galoy-mongodb-headless,galoy-mongodb-2.galoy-mongodb-headless
+            - name: LND1_DNS
+              value: null
+            - name: LND1_MACAROON
+              valueFrom:
+                secretKeyRef:
+                  name: lnd1-credentials
+                  key: admin_macaroon_base64
+            - name: LND1_TLS
+              valueFrom:
+                secretKeyRef:
+                  name: lnd1-credentials
+                  key: tls_base64
+            - name: LND1_PUBKEY
+              valueFrom:
+                secretKeyRef:
+                  name: lnd1-pubkey
+                  key: pubkey
+            - name: LND2_DNS
+              value: null
+            - name: LND2_MACAROON
+              valueFrom:
+                secretKeyRef:
+                  name: lnd2-credentials
+                  key: admin_macaroon_base64
+            - name: LND2_TLS
+              valueFrom:
+                secretKeyRef:
+                  name: lnd2-credentials
+                  key: tls_base64
+            - name: LND2_PUBKEY
+              valueFrom:
+                secretKeyRef:
+                  name: lnd2-pubkey
+                  key: pubkey
+            - name: BITCOINDADDR
+              value: null
+            - name: BITCOINDRPCPASS
+              valueFrom:
+                secretKeyRef:
+                  name: bitcoind-rpcpassword
+                  key: password
+            - name: BITCOINDPORT
+              value: "8332"
+            - name: GEETEST_ID
+              valueFrom:
+                secretKeyRef:
+                  name: geetest-key
+                  key: id
+            - name: GEETEST_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: geetest-key
+                  key: key
+            - name: REDIS_MASTER_NAME
+              value: mymaster
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+            - name: REDIS_0_DNS
+              value: galoy-redis-node-0.galoy-redis-headless
+            - name: REDIS_1_DNS
+              value: galoy-redis-node-1.galoy-redis-headless
+            - name: REDIS_2_DNS
+              value: galoy-redis-node-2.galoy-redis-headless
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: jwt-secret
+                  key: secret
+            - name: NETWORK
+              value: mainnet
+            - name: LOGLEVEL
+              value: debug
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /tmp/firebase-serviceaccount/galoyapp-firebase-serviceaccount.json
+            - name: TWILIO_PHONE_NUMBER
+              valueFrom:
+                secretKeyRef:
+                  name: twilio-secret
+                  key: TWILIO_PHONE_NUMBER
+            - name: TWILIO_ACCOUNT_SID
+              valueFrom:
+                secretKeyRef:
+                  name: twilio-secret
+                  key: TWILIO_ACCOUNT_SID
+            - name: TWILIO_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: twilio-secret
+                  key: TWILIO_AUTH_TOKEN
+            - name: PRICE_SERVER_HOST
+              value: dealer-price.namespace.svc.cluster.local
+            - name: PRICE_SERVER_PORT
+              value: "50055"
+            - name: PRICE_HISTORY_HOST
+              value: galoy-price-history
+            - name: PRICE_HISTORY_PORT
+              value: "50052"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 4001
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 4001
+            initialDelaySeconds: 5
+            failureThreshold: 5
+            successThreshold: 2
+            timeoutSeconds: 1
+      volumes:
+        - name: firebase-serviceaccount
+          secret:
+            secretName: galoyapp-firebase-serviceaccount
+        - name: custom-yaml
+          secret:
+            secretName: galoy-config-map
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  labels:
+    app: api
+    app.kubernetes.io/managed-by: Helm
+    kube-monkey/enabled: enabled
+    kube-monkey/identifier: api
+    kube-monkey/kill-mode: fixed
+    kube-monkey/kill-value: "1"
+    kube-monkey/mtbf: "8"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      name: api
+      labels:
+        app: api
+        kube-monkey/enabled: enabled
+        kube-monkey/identifier: api
+        allow-to-lnd: "true"
+        allow-to-bitcoind: "true"
+    spec:
+      serviceAccountName: release-name-serviceaccount
+      initContainers:
+        - name: wait-for-mongodb-migrate
+          image: groundnuty/k8s-wait-for:v1.5.1
+          args:
+            - job-wr
+            - release-name-mongodb-migrate-1
+      containers:
+        - name: api
+          image: us.gcr.io/galoy-org/galoy-app@sha256:f51110f9567ea1011d5581342cf03bb19508ff64d4b1bfa2191102fc5be992bd
+          args:
+            - -r
+            - /app/lib/services/tracing.js
+            - lib/servers/graphql-main-server.js
+          volumeMounts:
+            - name: firebase-serviceaccount
+              mountPath: /tmp/firebase-serviceaccount
+              readOnly: true
+            - name: custom-yaml
+              mountPath: /var/yaml/
+          ports:
+            - name: http
+              containerPort: 4002
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+            limits:
+              cpu: 1000m
+          env:
+            - name: HELMREVISION
+              value: "1"
+            - name: NODE_ENV
+              value: production
+            - name: JAEGER_HOST
+              value: localhost
+            - name: TRACING_SERVICE_NAME
+              value: galoy-api
+            - name: MONGODB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-mongodb
+                  key: mongodb-password
+            - name: MONGODB_USER
+              value: testGaloy
+            - name: MONGODB_ADDRESS
+              value: galoy-mongodb-0.galoy-mongodb-headless,galoy-mongodb-1.galoy-mongodb-headless,galoy-mongodb-2.galoy-mongodb-headless
+            - name: LND1_DNS
+              value: null
+            - name: LND1_MACAROON
+              valueFrom:
+                secretKeyRef:
+                  name: lnd1-credentials
+                  key: admin_macaroon_base64
+            - name: LND1_TLS
+              valueFrom:
+                secretKeyRef:
+                  name: lnd1-credentials
+                  key: tls_base64
+            - name: LND1_PUBKEY
+              valueFrom:
+                secretKeyRef:
+                  name: lnd1-pubkey
+                  key: pubkey
+            - name: LND2_DNS
+              value: null
+            - name: LND2_MACAROON
+              valueFrom:
+                secretKeyRef:
+                  name: lnd2-credentials
+                  key: admin_macaroon_base64
+            - name: LND2_TLS
+              valueFrom:
+                secretKeyRef:
+                  name: lnd2-credentials
+                  key: tls_base64
+            - name: LND2_PUBKEY
+              valueFrom:
+                secretKeyRef:
+                  name: lnd2-pubkey
+                  key: pubkey
+            - name: BITCOINDADDR
+              value: null
+            - name: BITCOINDRPCPASS
+              valueFrom:
+                secretKeyRef:
+                  name: bitcoind-rpcpassword
+                  key: password
+            - name: BITCOINDPORT
+              value: "8332"
+            - name: GEETEST_ID
+              valueFrom:
+                secretKeyRef:
+                  name: geetest-key
+                  key: id
+            - name: GEETEST_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: geetest-key
+                  key: key
+            - name: REDIS_MASTER_NAME
+              value: mymaster
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+            - name: REDIS_0_DNS
+              value: galoy-redis-node-0.galoy-redis-headless
+            - name: REDIS_1_DNS
+              value: galoy-redis-node-1.galoy-redis-headless
+            - name: REDIS_2_DNS
+              value: galoy-redis-node-2.galoy-redis-headless
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: jwt-secret
+                  key: secret
+            - name: NETWORK
+              value: mainnet
+            - name: LOGLEVEL
+              value: debug
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /tmp/firebase-serviceaccount/galoyapp-firebase-serviceaccount.json
+            - name: APOLLO_GRAPH_VARIANT
+              value: current
+            - name: APOLLO_SCHEMA_REPORTING
+              value: "true"
+            - name: APOLLO_GRAPH_ID
+              valueFrom:
+                secretKeyRef:
+                  name: galoy-apollo-secret
+                  key: id
+            - name: APOLLO_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: galoy-apollo-secret
+                  key: key
+            - name: TWILIO_PHONE_NUMBER
+              valueFrom:
+                secretKeyRef:
+                  name: twilio-secret
+                  key: TWILIO_PHONE_NUMBER
+            - name: TWILIO_ACCOUNT_SID
+              valueFrom:
+                secretKeyRef:
+                  name: twilio-secret
+                  key: TWILIO_ACCOUNT_SID
+            - name: TWILIO_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: twilio-secret
+                  key: TWILIO_AUTH_TOKEN
+            - name: PRICE_SERVER_HOST
+              value: dealer-price.namespace.svc.cluster.local
+            - name: PRICE_SERVER_PORT
+              value: "50055"
+            - name: PRICE_HISTORY_HOST
+              value: galoy-price-history
+            - name: PRICE_HISTORY_PORT
+              value: "50052"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 4002
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 4002
+            initialDelaySeconds: 5
+            failureThreshold: 5
+            successThreshold: 2
+            timeoutSeconds: 1
+      volumes:
+        - name: firebase-serviceaccount
+          secret:
+            secretName: galoyapp-firebase-serviceaccount
+        - name: custom-yaml
+          secret:
+            secretName: galoy-config-map
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: exporter
+  labels:
+    app: exporter
+    app.kubernetes.io/managed-by: Helm
+    kube-monkey/enabled: enabled
+    kube-monkey/identifier: exporter
+    kube-monkey/kill-mode: fixed
+    kube-monkey/kill-value: "1"
+    kube-monkey/mtbf: "8"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: exporter
+  template:
+    metadata:
+      name: exporter
+      labels:
+        app: exporter
+        kube-monkey/enabled: enabled
+        kube-monkey/identifier: exporter
+        allow-to-lnd: "true"
+        allow-to-bitcoind: "true"
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "3000"
+        prometheus.io/scrape: "true"
+    spec:
+      serviceAccountName: release-name-serviceaccount
+      initContainers:
+        - name: wait-for-mongodb-migrate
+          image: groundnuty/k8s-wait-for:v1.5.1
+          args:
+            - job-wr
+            - release-name-mongodb-migrate-1
+      containers:
+        - name: exporter
+          image: us.gcr.io/galoy-org/galoy-app@sha256:f51110f9567ea1011d5581342cf03bb19508ff64d4b1bfa2191102fc5be992bd
+          args:
+            - -r
+            - /app/lib/services/tracing.js
+            - lib/servers/exporter.js
+          volumeMounts:
+            - name: firebase-serviceaccount
+              mountPath: /tmp/firebase-serviceaccount
+              readOnly: true
+            - name: custom-yaml
+              mountPath: /var/yaml/
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+            limits:
+              cpu: 1000m
+          env:
+            - name: HELMREVISION
+              value: "1"
+            - name: NODE_ENV
+              value: production
+            - name: JAEGER_HOST
+              value: localhost
+            - name: TRACING_SERVICE_NAME
+              value: galoy-exporter
+            - name: MONGODB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-mongodb
+                  key: mongodb-password
+            - name: MONGODB_USER
+              value: testGaloy
+            - name: MONGODB_ADDRESS
+              value: galoy-mongodb-0.galoy-mongodb-headless,galoy-mongodb-1.galoy-mongodb-headless,galoy-mongodb-2.galoy-mongodb-headless
+            - name: LND1_DNS
+              value: null
+            - name: LND1_MACAROON
+              valueFrom:
+                secretKeyRef:
+                  name: lnd1-credentials
+                  key: admin_macaroon_base64
+            - name: LND1_TLS
+              valueFrom:
+                secretKeyRef:
+                  name: lnd1-credentials
+                  key: tls_base64
+            - name: LND1_PUBKEY
+              valueFrom:
+                secretKeyRef:
+                  name: lnd1-pubkey
+                  key: pubkey
+            - name: LND2_DNS
+              value: null
+            - name: LND2_MACAROON
+              valueFrom:
+                secretKeyRef:
+                  name: lnd2-credentials
+                  key: admin_macaroon_base64
+            - name: LND2_TLS
+              valueFrom:
+                secretKeyRef:
+                  name: lnd2-credentials
+                  key: tls_base64
+            - name: LND2_PUBKEY
+              valueFrom:
+                secretKeyRef:
+                  name: lnd2-pubkey
+                  key: pubkey
+            - name: BITCOINDADDR
+              value: null
+            - name: BITCOINDRPCPASS
+              valueFrom:
+                secretKeyRef:
+                  name: bitcoind-rpcpassword
+                  key: password
+            - name: BITCOINDPORT
+              value: "8332"
+            - name: GEETEST_ID
+              valueFrom:
+                secretKeyRef:
+                  name: geetest-key
+                  key: id
+            - name: GEETEST_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: geetest-key
+                  key: key
+            - name: REDIS_MASTER_NAME
+              value: mymaster
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+            - name: REDIS_0_DNS
+              value: galoy-redis-node-0.galoy-redis-headless
+            - name: REDIS_1_DNS
+              value: galoy-redis-node-1.galoy-redis-headless
+            - name: REDIS_2_DNS
+              value: galoy-redis-node-2.galoy-redis-headless
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: jwt-secret
+                  key: secret
+            - name: NETWORK
+              value: mainnet
+            - name: LOGLEVEL
+              value: debug
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /tmp/firebase-serviceaccount/galoyapp-firebase-serviceaccount.json
+            - name: TWILIO_PHONE_NUMBER
+              valueFrom:
+                secretKeyRef:
+                  name: twilio-secret
+                  key: TWILIO_PHONE_NUMBER
+            - name: TWILIO_ACCOUNT_SID
+              valueFrom:
+                secretKeyRef:
+                  name: twilio-secret
+                  key: TWILIO_ACCOUNT_SID
+            - name: TWILIO_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: twilio-secret
+                  key: TWILIO_AUTH_TOKEN
+            - name: PRICE_SERVER_HOST
+              value: dealer-price.namespace.svc.cluster.local
+            - name: PRICE_SERVER_PORT
+              value: "50055"
+            - name: PRICE_HISTORY_HOST
+              value: galoy-price-history
+            - name: PRICE_HISTORY_PORT
+              value: "50052"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 3000
+            initialDelaySeconds: 5
+            failureThreshold: 5
+            successThreshold: 2
+            timeoutSeconds: 1
+      volumes:
+        - name: firebase-serviceaccount
+          secret:
+            secretName: galoyapp-firebase-serviceaccount
+        - name: custom-yaml
+          secret:
+            secretName: galoy-config-map
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trigger
+  labels:
+    app: trigger
+    app.kubernetes.io/managed-by: Helm
+    kube-monkey/enabled: enabled
+    kube-monkey/identifier: trigger
+    kube-monkey/kill-mode: fixed
+    kube-monkey/kill-value: "1"
+    kube-monkey/mtbf: "8"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trigger
+  template:
+    metadata:
+      name: trigger
+      labels:
+        app: trigger
+        kube-monkey/enabled: enabled
+        kube-monkey/identifier: trigger
+        allow-to-lnd: "true"
+        allow-to-bitcoind: "true"
+    spec:
+      serviceAccountName: release-name-serviceaccount
+      initContainers:
+        - name: wait-for-mongodb-migrate
+          image: groundnuty/k8s-wait-for:v1.5.1
+          args:
+            - job-wr
+            - release-name-mongodb-migrate-1
+      containers:
+        - name: trigger
+          image: us.gcr.io/galoy-org/galoy-app@sha256:f51110f9567ea1011d5581342cf03bb19508ff64d4b1bfa2191102fc5be992bd
+          args:
+            - -r
+            - /app/lib/services/tracing.js
+            - lib/servers/trigger.js
+          volumeMounts:
+            - name: firebase-serviceaccount
+              mountPath: /tmp/firebase-serviceaccount
+              readOnly: true
+            - name: service-account
+              mountPath: /var/secret/cloud.google.com
+            - name: custom-yaml
+              mountPath: /var/yaml/
+          ports:
+            - name: http
+              containerPort: 8888
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+            limits:
+              cpu: 1000m
+          env:
+            - name: HELMREVISION
+              value: "1"
+            - name: NODE_ENV
+              value: production
+            - name: JAEGER_HOST
+              value: localhost
+            - name: TRACING_SERVICE_NAME
+              value: galoy-trigger
+            - name: MONGODB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-mongodb
+                  key: mongodb-password
+            - name: MONGODB_USER
+              value: testGaloy
+            - name: MONGODB_ADDRESS
+              value: galoy-mongodb-0.galoy-mongodb-headless,galoy-mongodb-1.galoy-mongodb-headless,galoy-mongodb-2.galoy-mongodb-headless
+            - name: LND1_DNS
+              value: null
+            - name: LND1_MACAROON
+              valueFrom:
+                secretKeyRef:
+                  name: lnd1-credentials
+                  key: admin_macaroon_base64
+            - name: LND1_TLS
+              valueFrom:
+                secretKeyRef:
+                  name: lnd1-credentials
+                  key: tls_base64
+            - name: LND1_PUBKEY
+              valueFrom:
+                secretKeyRef:
+                  name: lnd1-pubkey
+                  key: pubkey
+            - name: LND2_DNS
+              value: null
+            - name: LND2_MACAROON
+              valueFrom:
+                secretKeyRef:
+                  name: lnd2-credentials
+                  key: admin_macaroon_base64
+            - name: LND2_TLS
+              valueFrom:
+                secretKeyRef:
+                  name: lnd2-credentials
+                  key: tls_base64
+            - name: LND2_PUBKEY
+              valueFrom:
+                secretKeyRef:
+                  name: lnd2-pubkey
+                  key: pubkey
+            - name: BITCOINDADDR
+              value: null
+            - name: BITCOINDRPCPASS
+              valueFrom:
+                secretKeyRef:
+                  name: bitcoind-rpcpassword
+                  key: password
+            - name: BITCOINDPORT
+              value: "8332"
+            - name: GEETEST_ID
+              valueFrom:
+                secretKeyRef:
+                  name: geetest-key
+                  key: id
+            - name: GEETEST_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: geetest-key
+                  key: key
+            - name: REDIS_MASTER_NAME
+              value: mymaster
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+            - name: REDIS_0_DNS
+              value: galoy-redis-node-0.galoy-redis-headless
+            - name: REDIS_1_DNS
+              value: galoy-redis-node-1.galoy-redis-headless
+            - name: REDIS_2_DNS
+              value: galoy-redis-node-2.galoy-redis-headless
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: jwt-secret
+                  key: secret
+            - name: NETWORK
+              value: mainnet
+            - name: LOGLEVEL
+              value: debug
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /tmp/firebase-serviceaccount/galoyapp-firebase-serviceaccount.json
+            - name: GCS_APPLICATION_CREDENTIALS
+              value: /var/secret/cloud.google.com/gcs-sa-key.json
+            - name: DROPBOX_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: dropbox-access-token
+                  key: token
+            - name: TWILIO_PHONE_NUMBER
+              valueFrom:
+                secretKeyRef:
+                  name: twilio-secret
+                  key: TWILIO_PHONE_NUMBER
+            - name: TWILIO_ACCOUNT_SID
+              valueFrom:
+                secretKeyRef:
+                  name: twilio-secret
+                  key: TWILIO_ACCOUNT_SID
+            - name: TWILIO_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: twilio-secret
+                  key: TWILIO_AUTH_TOKEN
+            - name: PRICE_SERVER_HOST
+              value: dealer-price.namespace.svc.cluster.local
+            - name: PRICE_SERVER_PORT
+              value: "50055"
+            - name: PRICE_HISTORY_HOST
+              value: galoy-price-history
+            - name: PRICE_HISTORY_PORT
+              value: "50052"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8888
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8888
+            initialDelaySeconds: 5
+            failureThreshold: 5
+            successThreshold: 2
+            timeoutSeconds: 30
+      volumes:
+        - name: firebase-serviceaccount
+          secret:
+            secretName: galoyapp-firebase-serviceaccount
+        - name: service-account
+          secret:
+            secretName: gcs-sa-key
+        - name: custom-yaml
+          secret:
+            secretName: galoy-config-map
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-mongodb
+  namespace: 7xtatPGcfw4rmwM
+  labels:
+    app.kubernetes.io/name: mongodb
+    helm.sh/chart: mongodb-11.1.10
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: mongodb
+    kube-monkey/enabled: enabled
+    kube-monkey/identifier: mongodb
+    kube-monkey/kill-mode: fixed
+    kube-monkey/kill-value: "1"
+    kube-monkey/mtbf: "8"
+spec:
+  serviceName: release-name-mongodb-headless
+  podManagementPolicy: OrderedReady
+  replicas: 3
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mongodb
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: mongodb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mongodb
+        helm.sh/chart: mongodb-11.1.10
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: mongodb
+        kube-monkey/enabled: enabled
+        kube-monkey/identifier: mongodb
+    spec:
+      serviceAccountName: release-name-mongodb
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: mongodb
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: mongodb
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+        sysctls: []
+      containers:
+        - name: mongodb
+          image: docker.io/bitnami/mongodb:4.4.13-debian-10-r52
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10810
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          command:
+            - /scripts/setup.sh
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: MY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: MY_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: MY_POD_HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: K8S_SERVICE_NAME
+              value: release-name-mongodb-headless
+            - name: MONGODB_INITIAL_PRIMARY_HOST
+              value: release-name-mongodb-0.$(K8S_SERVICE_NAME).$(MY_POD_NAMESPACE).svc.cluster.local
+            - name: MONGODB_REPLICA_SET_NAME
+              value: rs0
+            - name: MONGODB_ADVERTISED_HOSTNAME
+              value: $(MY_POD_NAME).$(K8S_SERVICE_NAME).$(MY_POD_NAMESPACE).svc.cluster.local
+            - name: MONGODB_EXTRA_USERNAMES
+              value: testGaloy
+            - name: MONGODB_EXTRA_DATABASES
+              value: galoy
+            - name: MONGODB_EXTRA_PASSWORDS
+              valueFrom:
+                secretKeyRef:
+                  name: galoy-mongodb
+                  key: mongodb-passwords
+            - name: MONGODB_ROOT_USER
+              value: root
+            - name: MONGODB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: galoy-mongodb
+                  key: mongodb-root-password
+            - name: MONGODB_REPLICA_SET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: galoy-mongodb
+                  key: mongodb-replica-set-key
+            - name: ALLOW_EMPTY_PASSWORD
+              value: "no"
+            - name: MONGODB_SYSTEM_LOG_VERBOSITY
+              value: "0"
+            - name: MONGODB_DISABLE_SYSTEM_LOG
+              value: "no"
+            - name: MONGODB_DISABLE_JAVASCRIPT
+              value: "no"
+            - name: MONGODB_ENABLE_JOURNAL
+              value: "yes"
+            - name: MONGODB_ENABLE_IPV6
+              value: "no"
+            - name: MONGODB_ENABLE_DIRECTORY_PER_DB
+              value: "no"
+          ports:
+            - containerPort: 27017
+              name: mongodb
+          livenessProbe:
+            exec:
+              command:
+                - mongo
+                - --disableImplicitSessions
+                - --eval
+                - db.adminCommand('ping')
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - mongo
+                - --disableImplicitSessions
+                - --eval
+                - db.adminCommand('ping')
+            failureThreshold: 6
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: datadir
+              mountPath: /bitnami/mongodb
+              subPath: null
+            - name: custom-init-scripts
+              mountPath: /docker-entrypoint-initdb.d
+            - name: scripts
+              mountPath: /scripts/setup.sh
+              subPath: setup.sh
+        - name: metrics
+          image: docker.io/bitnami/mongodb-exporter:0.31.2-debian-10-r14
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+          command:
+            - /bin/bash
+            - -ec
+          args:
+            - "/bin/mongodb_exporter --web.listen-address \":9216\" --mongodb.uri \"mongodb://$MONGODB_ROOT_USER:$(echo $MONGODB_ROOT_PASSWORD | sed -r \"s/@/%40/g;s/:/%3A/g\")@localhost:27017/admin?\" \n"
+          env:
+            - name: MONGODB_ROOT_USER
+              value: root
+            - name: MONGODB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: galoy-mongodb
+                  key: mongodb-root-password
+          volumeMounts: null
+          ports:
+            - name: metrics
+              containerPort: 9216
+          livenessProbe:
+            httpGet:
+              path: /
+              port: metrics
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+          readinessProbe:
+            httpGet:
+              path: /
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 1
+            failureThreshold: 3
+            successThreshold: 1
+          resources:
+            limits: {}
+            requests: {}
+      volumes:
+        - name: custom-init-scripts
+          configMap:
+            name: release-name-mongodb-init-scripts
+        - name: scripts
+          configMap:
+            name: release-name-mongodb-scripts
+            defaultMode: 493
+  volumeClaimTemplates:
+    - metadata:
+        name: datadir
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-postgresql
+  namespace: 7xtatPGcfw4rmwM
+  labels:
+    app.kubernetes.io/name: postgresql
+    helm.sh/chart: postgresql-11.1.9
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+  annotations: null
+spec:
+  replicas: 1
+  serviceName: release-name-postgresql-hl
+  updateStrategy:
+    rollingUpdate: {}
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: primary
+  template:
+    metadata:
+      name: release-name-postgresql
+      labels:
+        app.kubernetes.io/name: postgresql
+        helm.sh/chart: postgresql-11.1.9
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: primary
+      annotations: null
+    spec:
+      serviceAccountName: default
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: postgresql
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: primary
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+      hostNetwork: false
+      hostIPC: false
+      initContainers: null
+      containers:
+        - name: postgresql
+          image: docker.io/bitnami/postgresql:14.2.0-debian-10-r35
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 11535
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: POSTGRESQL_PORT_NUMBER
+              value: "5432"
+            - name: POSTGRESQL_VOLUME_DIR
+              value: /bitnami/postgresql
+            - name: PGDATA
+              value: /bitnami/postgresql/data
+            - name: POSTGRES_USER
+              value: price-history
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: galoy-price-history-postgres-creds
+                  key: password
+            - name: POSTGRES_DB
+              value: price-history
+            - name: POSTGRESQL_ENABLE_LDAP
+              value: "no"
+            - name: POSTGRESQL_ENABLE_TLS
+              value: "no"
+            - name: POSTGRESQL_LOG_HOSTNAME
+              value: "false"
+            - name: POSTGRESQL_LOG_CONNECTIONS
+              value: "false"
+            - name: POSTGRESQL_LOG_DISCONNECTIONS
+              value: "false"
+            - name: POSTGRESQL_PGAUDIT_LOG_CATALOG
+              value: "off"
+            - name: POSTGRESQL_CLIENT_MIN_MESSAGES
+              value: error
+            - name: POSTGRESQL_SHARED_PRELOAD_LIBRARIES
+              value: pgaudit
+          ports:
+            - name: tcp-postgresql
+              containerPort: 5432
+          livenessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - exec pg_isready -U "price-history" -d "dbname=price-history" -h 127.0.0.1 -p 5432
+          readinessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - -e
+                - |
+                  exec pg_isready -U "price-history" -d "dbname=price-history" -h 127.0.0.1 -p 5432
+                  [ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]
+          resources:
+            limits: {}
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+            - name: data
+              mountPath: /bitnami/postgresql
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-redis-node
+  namespace: 7xtatPGcfw4rmwM
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-16.8.5
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: node
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: node
+  serviceName: release-name-redis-headless
+  updateStrategy:
+    rollingUpdate: {}
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+        helm.sh/chart: redis-16.8.5
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: node
+      annotations:
+        checksum/configmap: 775e16da3296a248a6b161a2bf3666ce57b1f71423f57b1be4be00c2c0c62735
+        checksum/health: 27f5bcdf2b94ff4b32780a6b30ac24a407ad117e0c2ebf2f2e502ffa2d3b5b97
+        checksum/scripts: 5e8d2a9cc86bf8e083de41f5896b5bea618a6b7f4ab9070f24c9d2a2ca152a69
+        checksum/secret: 0610e93883a472a3aceb913818cd4f557bbeb9aecf135909b9f7c23f31384948
+        prometheus.io/port: "9121"
+        prometheus.io/scrape: "true"
+    spec:
+      securityContext:
+        fsGroup: 1001
+      serviceAccountName: release-name-redis
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: redis
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: node
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: redis
+          image: docker.io/bitnami/redis:6.2.6-debian-10-r179
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 10730
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          command:
+            - /bin/bash
+          args:
+            - -c
+            - /opt/bitnami/scripts/start-scripts/start-node.sh
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: REDIS_MASTER_PORT_NUMBER
+              value: "6379"
+            - name: ALLOW_EMPTY_PASSWORD
+              value: "no"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+            - name: REDIS_MASTER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+            - name: REDIS_TLS_ENABLED
+              value: "no"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_DATA_DIR
+              value: /data
+          ports:
+            - name: redis
+              containerPort: 6379
+          startupProbe:
+            failureThreshold: 22
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+            tcpSocket:
+              port: redis
+          livenessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_liveness_local.sh 5
+          readinessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_readiness_local.sh 5
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: start-scripts
+              mountPath: /opt/bitnami/scripts/start-scripts
+            - name: health
+              mountPath: /health
+            - name: redis-data
+              mountPath: /data
+              subPath: null
+            - name: config
+              mountPath: /opt/bitnami/redis/mounted-etc
+            - name: redis-tmp-conf
+              mountPath: /opt/bitnami/redis/etc
+            - name: tmp
+              mountPath: /tmp
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/bash
+                  - -c
+                  - /opt/bitnami/scripts/start-scripts/prestop-redis.sh
+        - name: sentinel
+          image: docker.io/bitnami/redis-sentinel:6.2.6-debian-10-r176
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 1001
+          command:
+            - /bin/bash
+          args:
+            - -c
+            - /opt/bitnami/scripts/start-scripts/start-sentinel.sh
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+            - name: REDIS_SENTINEL_TLS_ENABLED
+              value: "no"
+            - name: REDIS_SENTINEL_PORT
+              value: "26379"
+          ports:
+            - name: redis-sentinel
+              containerPort: 26379
+          startupProbe:
+            failureThreshold: 22
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+            tcpSocket:
+              port: redis-sentinel
+          livenessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_sentinel.sh 5
+          readinessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_sentinel.sh 5
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/bash
+                  - -c
+                  - /opt/bitnami/scripts/start-scripts/prestop-sentinel.sh
+          resources:
+            limits: {}
+            requests: {}
+          volumeMounts:
+            - name: start-scripts
+              mountPath: /opt/bitnami/scripts/start-scripts
+            - name: health
+              mountPath: /health
+            - name: sentinel-data
+              mountPath: /opt/bitnami/redis-sentinel/etc
+            - name: redis-data
+              mountPath: /data
+              subPath: null
+            - name: config
+              mountPath: /opt/bitnami/redis-sentinel/mounted-etc
+        - name: metrics
+          image: docker.io/bitnami/redis-exporter:1.37.0-debian-10-r18
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 1001
+          command:
+            - /bin/bash
+            - -c
+            - |
+              if [[ -f '/secrets/redis-password' ]]; then
+                  export REDIS_PASSWORD=$(cat /secrets/redis-password)
+              fi
+              redis_exporter
+          env:
+            - name: REDIS_ALIAS
+              value: release-name-redis
+            - name: REDIS_USER
+              value: default
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+          ports:
+            - name: metrics
+              containerPort: 9121
+          resources:
+            limits: {}
+            requests: {}
+          volumeMounts: null
+      volumes:
+        - name: start-scripts
+          configMap:
+            name: release-name-redis-scripts
+            defaultMode: 493
+        - name: health
+          configMap:
+            name: release-name-redis-health
+            defaultMode: 493
+        - name: config
+          configMap:
+            name: release-name-redis-configuration
+        - name: sentinel-data
+          emptyDir: {}
+        - name: redis-tmp-conf
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+        labels:
+          app.kubernetes.io/name: redis
+          app.kubernetes.io/instance: release-name
+          app.kubernetes.io/component: node
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-price-history-postgres-migrate-1
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      containers:
+        - name: migrate
+          image: us.gcr.io/galoy-org/price-history-migrate@sha256:007a3ec51d7e705238d1b98bc3e5fa4168f2cb23ed8333fe68823d93b322ef8f
+          env:
+            - name: DB_HOST
+              value: galoy-postgresql
+            - name: DB_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-price-history-postgres-creds
+                  key: password
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-price-history-postgres-creds
+                  key: username
+            - name: DB_DB
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-price-history-postgres-creds
+                  key: database
+      restartPolicy: Never
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-mongodb-migrate-1
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      serviceAccountName: release-name-serviceaccount
+      initContainers:
+        - name: trigger-mongodb-backup
+          image: groundnuty/k8s-wait-for:v1.5.1
+          command:
+            - /bin/sh
+            - -c
+            - |
+              job_name="release-name-pre-migration-backup-1"
+              echo "Executing ${job_name}"
+              kubectl delete job "${job_name}" || true
+              kubectl create job --from=cronjob/mongo-backup "${job_name}"
+              sleep 1
+              wait_for.sh job "${job_name}"
+              sleep 1
+              status="$(kubectl get job ${job_name} -o jsonpath='{.status.succeeded}')"
+              if [[ "${status}" != "1" ]]; then
+                echo "Backup failed!"
+                exit 1
+              else
+                echo "Backup succeeded!"
+              fi
+              kubectl delete job "${job_name}"
+      containers:
+        - name: mongodb-migrate
+          image: us.gcr.io/galoy-org/galoy-app-migrate@sha256:204c561dc0e877a8decf02c0b4b3af525e47c3b1a82a46b7f94fd823321604e2
+          env:
+            - name: MONGODB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-mongodb
+                  key: mongodb-password
+            - name: MONGODB_USER
+              value: testGaloy
+            - name: MONGODB_ADDRESS
+              value: galoy-mongodb-0.galoy-mongodb-headless,galoy-mongodb-1.galoy-mongodb-headless,galoy-mongodb-2.galoy-mongodb-headless
+      restartPolicy: Never
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: release-name-price-history-cronjob
+  labels:
+    app.kubernetes.io/managed-by: Helm
+spec:
+  schedule: 2 * * * *
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 60
+      template:
+        spec:
+          containers:
+            - name: update-price
+              image: us.gcr.io/galoy-org/price-history@sha256:86294559d50931f4ebb11e08fde47a4183cf7d976899c9633ccd3563f62dd6ec
+              args:
+                - servers/history/cron.js
+              env:
+                - name: DB_HOST
+                  value: galoy-postgresql
+                - name: DB_PWD
+                  valueFrom:
+                    secretKeyRef:
+                      name: release-name-price-history-postgres-creds
+                      key: password
+                - name: DB_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: release-name-price-history-postgres-creds
+                      key: username
+                - name: DB_DB
+                  valueFrom:
+                    secretKeyRef:
+                      name: release-name-price-history-postgres-creds
+                      key: database
+              volumeMounts:
+                - name: custom-yaml
+                  mountPath: /var/yaml/
+          volumes:
+            - name: custom-yaml
+              secret:
+                secretName: release-name-price-history-config
+          restartPolicy: OnFailure
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: cronjob
+  labels:
+    app.kubernetes.io/managed-by: Helm
+spec:
+  schedule: 0 2 * * *
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 7201
+      template:
+        metadata:
+          labels:
+            allow-to-lnd: "true"
+            allow-to-bitcoind: "true"
+        spec:
+          serviceAccountName: release-name-serviceaccount
+          initContainers:
+            - name: wait-for-mongodb-migrate
+              image: groundnuty/k8s-wait-for:v1.5.1
+              args:
+                - job-wr
+                - release-name-mongodb-migrate-1
+          containers:
+            - name: cronjob
+              image: us.gcr.io/galoy-org/galoy-app@sha256:f51110f9567ea1011d5581342cf03bb19508ff64d4b1bfa2191102fc5be992bd
+              args:
+                - -r
+                - /app/lib/services/tracing.js
+                - lib/servers/cron.js
+              volumeMounts:
+                - name: firebase-serviceaccount
+                  mountPath: /tmp/firebase-serviceaccount
+                  readOnly: true
+                - name: custom-yaml
+                  mountPath: /var/yaml/
+              env:
+                - name: HELMREVISION
+                  value: "1"
+                - name: MONGODB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: release-name-mongodb
+                      key: mongodb-password
+                - name: JWT_SECRET
+                  value: dummy
+                - name: MONGODB_USER
+                  value: testGaloy
+                - name: JAEGER_HOST
+                  value: localhost
+                - name: TRACING_SERVICE_NAME
+                  value: galoy-cronjob
+                - name: MONGODB_ADDRESS
+                  value: galoy-mongodb-0.galoy-mongodb-headless,galoy-mongodb-1.galoy-mongodb-headless,galoy-mongodb-2.galoy-mongodb-headless
+                - name: LND1_DNS
+                  value: null
+                - name: LND1_MACAROON
+                  valueFrom:
+                    secretKeyRef:
+                      name: lnd1-credentials
+                      key: admin_macaroon_base64
+                - name: LND1_TLS
+                  valueFrom:
+                    secretKeyRef:
+                      name: lnd1-credentials
+                      key: tls_base64
+                - name: LND1_PUBKEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: lnd1-pubkey
+                      key: pubkey
+                - name: LND2_DNS
+                  value: null
+                - name: LND2_MACAROON
+                  valueFrom:
+                    secretKeyRef:
+                      name: lnd2-credentials
+                      key: admin_macaroon_base64
+                - name: LND2_TLS
+                  valueFrom:
+                    secretKeyRef:
+                      name: lnd2-credentials
+                      key: tls_base64
+                - name: LND2_PUBKEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: lnd2-pubkey
+                      key: pubkey
+                - name: BITCOINDADDR
+                  value: null
+                - name: BITCOINDRPCPASS
+                  valueFrom:
+                    secretKeyRef:
+                      name: bitcoind-rpcpassword
+                      key: password
+                - name: BITCOINDPORT
+                  value: "8332"
+                - name: NETWORK
+                  value: mainnet
+                - name: REDIS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: release-name-redis
+                      key: redis-password
+                - name: REDIS_MASTER_NAME
+                  value: mymaster
+                - name: REDIS_0_DNS
+                  value: galoy-redis-node-0.galoy-redis-headless
+                - name: REDIS_1_DNS
+                  value: galoy-redis-node-1.galoy-redis-headless
+                - name: REDIS_2_DNS
+                  value: galoy-redis-node-2.galoy-redis-headless
+                - name: LOGLEVEL
+                  value: debug
+                - name: GOOGLE_APPLICATION_CREDENTIALS
+                  value: /tmp/firebase-serviceaccount/galoyapp-firebase-serviceaccount.json
+                - name: DROPBOX_ACCESS_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: dropbox-access-token
+                      key: token
+          restartPolicy: OnFailure
+          volumes:
+            - name: firebase-serviceaccount
+              secret:
+                secretName: galoyapp-firebase-serviceaccount
+            - name: custom-yaml
+              secret:
+                secretName: galoy-config-map
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: balance-notif
+  labels:
+    app.kubernetes.io/managed-by: Helm
+spec:
+  schedule: 0 14 * * *
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 7201
+      template:
+        metadata:
+          labels:
+            allow-to-lnd: "true"
+            allow-to-bitcoind: "true"
+        spec:
+          serviceAccountName: release-name-serviceaccount
+          initContainers:
+            - name: wait-for-mongodb-migrate
+              image: groundnuty/k8s-wait-for:v1.5.1
+              args:
+                - job-wr
+                - release-name-mongodb-migrate-1
+          containers:
+            - name: balance-notif
+              image: us.gcr.io/galoy-org/galoy-app@sha256:f51110f9567ea1011d5581342cf03bb19508ff64d4b1bfa2191102fc5be992bd
+              args:
+                - -r
+                - /app/lib/services/tracing.js
+                - lib/servers/daily-balance-notification.js
+              volumeMounts:
+                - name: firebase-serviceaccount
+                  mountPath: /tmp/firebase-serviceaccount
+                  readOnly: true
+                - name: custom-yaml
+                  mountPath: /var/yaml/
+              env:
+                - name: HELMREVISION
+                  value: "1"
+                - name: MONGODB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: release-name-mongodb
+                      key: mongodb-password
+                - name: JWT_SECRET
+                  value: dummy
+                - name: MONGODB_USER
+                  value: testGaloy
+                - name: JAEGER_HOST
+                  value: localhost
+                - name: TRACING_SERVICE_NAME
+                  value: galoy-balance-notif
+                - name: MONGODB_ADDRESS
+                  value: galoy-mongodb-0.galoy-mongodb-headless,galoy-mongodb-1.galoy-mongodb-headless,galoy-mongodb-2.galoy-mongodb-headless
+                - name: LND1_DNS
+                  value: null
+                - name: LND1_MACAROON
+                  valueFrom:
+                    secretKeyRef:
+                      name: lnd1-credentials
+                      key: admin_macaroon_base64
+                - name: LND1_TLS
+                  valueFrom:
+                    secretKeyRef:
+                      name: lnd1-credentials
+                      key: tls_base64
+                - name: LND1_PUBKEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: lnd1-pubkey
+                      key: pubkey
+                - name: LND2_DNS
+                  value: null
+                - name: LND2_MACAROON
+                  valueFrom:
+                    secretKeyRef:
+                      name: lnd2-credentials
+                      key: admin_macaroon_base64
+                - name: LND2_TLS
+                  valueFrom:
+                    secretKeyRef:
+                      name: lnd2-credentials
+                      key: tls_base64
+                - name: LND2_PUBKEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: lnd2-pubkey
+                      key: pubkey
+                - name: BITCOINDADDR
+                  value: null
+                - name: BITCOINDRPCPASS
+                  valueFrom:
+                    secretKeyRef:
+                      name: bitcoind-rpcpassword
+                      key: password
+                - name: BITCOINDPORT
+                  value: "8332"
+                - name: NETWORK
+                  value: mainnet
+                - name: REDIS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: release-name-redis
+                      key: redis-password
+                - name: REDIS_MASTER_NAME
+                  value: mymaster
+                - name: REDIS_0_DNS
+                  value: galoy-redis-node-0.galoy-redis-headless
+                - name: REDIS_1_DNS
+                  value: galoy-redis-node-1.galoy-redis-headless
+                - name: REDIS_2_DNS
+                  value: galoy-redis-node-2.galoy-redis-headless
+                - name: LOGLEVEL
+                  value: debug
+                - name: GOOGLE_APPLICATION_CREDENTIALS
+                  value: /tmp/firebase-serviceaccount/galoyapp-firebase-serviceaccount.json
+                - name: DROPBOX_ACCESS_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: dropbox-access-token
+                      key: token
+          restartPolicy: OnFailure
+          volumes:
+            - name: firebase-serviceaccount
+              secret:
+                secretName: galoyapp-firebase-serviceaccount
+            - name: custom-yaml
+              secret:
+                secretName: galoy-config-map
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: mongo-backup
+  labels:
+    app.kubernetes.io/managed-by: Helm
+spec:
+  schedule: 0 * * * *
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 300
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: mongodb-backup
+              image: us.gcr.io/galoy-org/mongo-backup@sha256:4cfc197ea082ef3dae2d4321a9dfa31ef185f43d578a37a224095b75de656e6a
+              command:
+                - /bin/sh
+                - -c
+                - /var/backup.sh
+              volumeMounts:
+                - name: mongo-backup-configmap
+                  mountPath: /var/backup.sh
+                  subPath: backup.sh
+                - name: service-account
+                  mountPath: /var/secret/cloud.google.com
+              env:
+                - name: NETWORK
+                  value: mainnet
+                - name: MONGODB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: release-name-mongodb
+                      key: mongodb-password
+                - name: MONGODB_USER
+                  value: testGaloy
+                - name: MONGODB_ADDRESS
+                  value: galoy-mongodb-0.galoy-mongodb-headless,galoy-mongodb-1.galoy-mongodb-headless,galoy-mongodb-2.galoy-mongodb-headless
+                - name: MONGODB_PORT
+                  value: "27017"
+                - name: MONGODB_DB
+                  value: galoy
+                - name: DROPBOX_ACCESS_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: dropbox-access-token
+                      key: token
+                - name: GOOGLE_APPLICATION_CREDENTIALS
+                  value: /var/secret/cloud.google.com/galoyapp-31518a00082f.json
+          volumes:
+            - name: mongo-backup-configmap
+              configMap:
+                name: mongo-backup-configmap
+                defaultMode: 484
+            - name: service-account
+              secret:
+                secretName: gcs-sa-key
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-price-test-connection
+  labels:
+    helm.sh/chart: price-0.1.0
+    app.kubernetes.io/name: price
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.1.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - 'release-name-price:'
+  restartPolicy: Never

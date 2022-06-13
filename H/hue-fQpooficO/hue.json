@@ -1,0 +1,364 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "hive-config"
+    },
+    "data": {
+      "hive-site": "<?xml version=\"1.0\"?>\n<?xml-stylesheet type=\"text/xsl\" href=\"configuration.xsl\"?>\n\n<configuration>\n\n<!--\n<property>\n  <name>hive.support.concurrency</name>\n  <value>false</value>\n  <description>Whether hive supports concurrency or not. A zookeeper instance must be up and running for the default hive lock manager to support read-write locks.</description>\n</property>\n-->\n\n</configuration>\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "hue-config-extra"
+    },
+    "data": {
+      "hue-ini": "[desktop]\nsecret_key=hue123\napp_blacklist=filebrowser,search,hbase,security,jobbrowser,oozie\ndjango_debug_mode=false\ngunicorn_work_class=sync\nenable_prometheus=true\n\n[[task_server]]\nenabled=false\nbroker_url=redis://redis:6379/0\nresult_cache='{\"BACKEND\": \"django_redis.cache.RedisCache\", \"LOCATION\": \"redis://redis:6379/0\", \"OPTIONS\": {\"CLIENT_CLASS\": \"django_redis.client.DefaultClient\"},\"KEY_PREFIX\": \"queries\"}'\ncelery_result_backend=redis://redis:6379/0\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "hue-config"
+    },
+    "data": {
+      "hue-ini": "[desktop]\n\n[[database]]\nengine=postgresql_psycopg2\nhost=postgres-hue\nport=5432\nuser=hue\npassword=hue\nname=hue\n\n[aws]\n[[aws_accounts]]\n[[[default]]]\naccess_key_id=\nsecret_access_key=\nregion=\n\n[notebook]\n[[interpreters]]\n    [[[postgresql]]]\n  name = postgresql\n  interface=sqlalchemy\n  options='{\"url\": \"postgresql://hue:hue@postgres-hue:5432/hue\"}'\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "nginx-config"
+    },
+    "data": {
+      "hue": "server {\n    server_name hue;\n    charset utf-8;\n\n    listen 80;\n\n    # Or if running hue on https://\n    ## listen 8001 ssl;\n    ## ssl_certificate /path/to/ssl/cert;\n    ## ssl_certificate_key /path/to/ssl/key;\n\n    location / {\n        proxy_pass http://127.0.0.1:8888;\n\n        # Or if the upstream Hue instances are running behind https://\n        ## proxy_pass https://hue;\n    }\n\n    location /static/ {\n        alias /usr/share/nginx/html/hue/static/;\n\n        expires 30d;\n        add_header Cache-Control public;\n    }\n}\n\nupstream hue {\n    ip_hash;\n\n    # List all the Hue instances here for high availability.\n    server 127.0.0.1:8888 max_fails=3;\n    #server HUE_HOST2:8888 max_fails=3;\n}\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolume",
+    "metadata": {
+      "name": "postgres-pv",
+      "labels": {
+        "type": "local"
+      }
+    },
+    "spec": {
+      "storageClassName": "microk8s-hostpath",
+      "capacity": {
+        "storage": "2Gi"
+      },
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "hostPath": {
+        "path": "/data/postgres-pv"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "name": "postgres-pvc"
+    },
+    "spec": {
+      "storageClassName": "microk8s-hostpath",
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "2Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "hue",
+      "labels": {
+        "pod": "hue"
+      }
+    },
+    "spec": {
+      "selector": {
+        "pod": "hue"
+      },
+      "ports": [
+        {
+          "name": "hue",
+          "port": 8888
+        }
+      ],
+      "type": "NodePort"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "hue-balancer"
+    },
+    "spec": {
+      "type": "NodePort",
+      "selector": {
+        "pod": "hue"
+      },
+      "sessionAffinity": "ClientIP",
+      "sessionAffinityConfig": {
+        "clientIP": {
+          "timeoutSeconds": 86400
+        }
+      },
+      "ports": [
+        {
+          "protocol": "TCP",
+          "port": 80,
+          "targetPort": 80
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "postgres-hue"
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "pgql",
+          "port": 5432
+        }
+      ],
+      "type": "NodePort",
+      "selector": {
+        "app": "postgres-hue"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "hue",
+      "labels": {
+        "deployment": "hue"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "pod": "hue"
+        }
+      },
+      "replicas": 2,
+      "template": {
+        "metadata": {
+          "labels": {
+            "pod": "hue"
+          },
+          "annotations": {
+            "checksum/config": "923f3b2168b51e3d0b99aa441a3e8870f98c2637aa9223c8b99379485f8c6f87",
+            "checksum/config-extra": "82449ce52e26d3fb34110efeba2d1aa0bf518bb90d06f7323dfdef2a18dadc1f",
+            "checksum/config-hive": "c58fde318bb6a33b9e6a641bf274df60c32a7e64955105389950e1ad00006bb8"
+          }
+        },
+        "spec": {
+          "initContainers": [
+            {
+              "name": "hue-init",
+              "image": "gethue/hue:latest",
+              "imagePullPolicy": "Always",
+              "args": [
+                "/bin/sh",
+                "-c",
+                "set -x; while [ $(curl -s --connect-timeout 1 postgres-hue:5432 || echo $?) -ne 52 ]; do\n  sleep 1;\ndone\n"
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "hue",
+              "image": "gethue/hue:latest",
+              "imagePullPolicy": "Always",
+              "ports": [
+                {
+                  "containerPort": 8888
+                }
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "50m"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "config-volume",
+                  "mountPath": "/usr/share/hue/desktop/conf/z-hue.ini",
+                  "subPath": "hue-ini"
+                },
+                {
+                  "name": "config-volume-extra",
+                  "mountPath": "/usr/share/hue/desktop/conf/zz-hue.ini",
+                  "subPath": "hue-ini"
+                },
+                {
+                  "name": "hive-config-volume",
+                  "mountPath": "/etc/hive/conf/hive-site.xml",
+                  "subPath": "hive-site"
+                }
+              ],
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/desktop/debug/is_alive",
+                  "port": 8888
+                },
+                "initialDelaySeconds": 3,
+                "periodSeconds": 3,
+                "failureThreshold": 30
+              }
+            },
+            {
+              "name": "nginx",
+              "image": "gethue/nginx:latest",
+              "imagePullPolicy": "Always",
+              "ports": [
+                {
+                  "containerPort": 80
+                }
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "20m"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "nginx-config",
+                  "mountPath": "/etc/nginx/sites-available/hue",
+                  "subPath": "hue"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "hue-config"
+              }
+            },
+            {
+              "name": "config-volume-extra",
+              "configMap": {
+                "name": "hue-config-extra"
+              }
+            },
+            {
+              "name": "hive-config-volume",
+              "configMap": {
+                "name": "hive-config"
+              }
+            },
+            {
+              "name": "nginx-config",
+              "configMap": {
+                "name": "nginx-config"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "postgres-hue"
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "postgres-hue"
+        }
+      },
+      "strategy": {
+        "type": "Recreate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "postgres-hue"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "postgres-hue",
+              "image": "postgres:9.5",
+              "env": [
+                {
+                  "name": "POSTGRES_USER",
+                  "value": "hue"
+                },
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "value": "hue"
+                },
+                {
+                  "name": "POSTGRES_DB",
+                  "value": "hue"
+                },
+                {
+                  "name": "PGDATA",
+                  "value": "/var/lib/postgresql/data/pgdata"
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 5432
+                }
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "20m"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/var/lib/postgresql/data",
+                  "name": "postgres-data"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "postgres-data",
+              "persistentVolumeClaim": {
+                "claimName": "postgres-pvc"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

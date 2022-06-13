@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apimap-api-release-name-configmap
+  namespace: n7h2m
+data:
+  config.json: |
+    {"nitrite.filePath": "/var/apimap","apimap.metadata.copyright": "","apimap.metadata.faq": "","apimap.metadata.support": "","apimap.openapi.enabled": "false","logging.level.root": "INFO","management.endpoints.web.exposure.include:": ""}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: apimap-api-release-name-claim
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: null
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: apimap-api-release-name-service
+  namespace: n7h2m
+  labels:
+    app: apimap-api-release-name-api
+spec:
+  type: ClusterIP
+  ports:
+    - name: https
+      port: 8080
+      targetPort: 8080
+  selector:
+    app: apimap-api-release-name-api
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: apimap-api-release-name-statefulset
+  namespace: n7h2m
+  labels:
+    app: apimap-api-release-name-api
+    role: api
+    supplier: apimap.io
+spec:
+  serviceName: apimap-api-release-name-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: apimap-api-release-name-api
+  template:
+    metadata:
+      labels:
+        app: apimap-api-release-name-api
+    spec:
+      securityContext:
+        fsGroup: 101
+        runAsUser: 100
+      containers:
+        - name: apimap-api-release-name-api
+          image: apimap/api:1.3.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: https
+              containerPort: 8080
+          env:
+            - name: SPRING_APPLICATION_JSON
+              valueFrom:
+                configMapKeyRef:
+                  name: apimap-api-release-name-configmap
+                  key: config.json
+          volumeMounts:
+            - name: apimap-api-release-name-nitrite-path
+              mountPath: /var/apimap
+      volumes:
+        - name: apimap-api-release-name-nitrite-path
+          persistentVolumeClaim:
+            claimName: apimap-api-release-name-claim
+---
+kind: Ingress
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: apimap-api-release-name-ingress
+  namespace: n7h2m
+  labels:
+    host: null
+spec:
+  rules:
+    - host: null
+      http:
+        paths:
+          - backend:
+              service:
+                name: apimap-api-release-name-service
+                port:
+                  number: 8080
+            path: /
+            pathType: Prefix

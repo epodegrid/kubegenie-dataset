@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-languagetool
+  labels:
+    helm.sh/chart: languagetool-0.1.7
+    app.kubernetes.io/name: languagetool
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "5.7"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: languagetool
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-languagetool
+  labels:
+    helm.sh/chart: languagetool-0.1.7
+    app.kubernetes.io/name: languagetool
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "5.7"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: languagetool
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: languagetool
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      securityContext: {}
+      containers:
+        - name: languagetool
+          env:
+            - name: JAVAOPTIONS
+              value: ""
+            - name: EXTRAOPTIONS
+              value: ""
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - MKNOD
+                - SYS_CHROOT
+                - CHOWN
+                - DAC_OVERRIDE
+                - FOWNER
+            runAsNonRoot: true
+            runAsUser: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          image: ghcr.io/someone-stole-my-name/docker-languagetool:5.7
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8010
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /v2/info
+              port: http
+            initialDelaySeconds: 600
+          readinessProbe:
+            httpGet:
+              path: /v2/info
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-languagetool-test-connection
+  labels:
+    helm.sh/chart: languagetool-0.1.7
+    app.kubernetes.io/name: languagetool
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "5.7"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-languagetool:80
+  restartPolicy: Never

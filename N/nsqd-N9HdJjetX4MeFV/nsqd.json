@@ -1,0 +1,140 @@
+[
+  {
+    "apiVersion": "policy/v1",
+    "kind": "PodDisruptionBudget",
+    "metadata": {
+      "name": "drycc-nsqd"
+    },
+    "spec": {
+      "minAvailable": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "drycc-nsqd"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "drycc-nsqd",
+      "labels": {
+        "heritage": "drycc"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "drycc-nsqd",
+      "labels": {
+        "heritage": "drycc",
+        "app": "drycc-nsqd"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "port": 4150,
+          "name": "transport",
+          "targetPort": "transport"
+        },
+        {
+          "port": 4151,
+          "name": "http",
+          "targetPort": "http"
+        }
+      ],
+      "selector": {
+        "app": "drycc-nsqd"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "drycc-nsqd",
+      "labels": {
+        "heritage": "drycc"
+      },
+      "annotations": {
+        "component.drycc.cc/version": "canary"
+      }
+    },
+    "spec": {
+      "serviceName": "drycc-nsqd",
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "drycc-nsqd"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "drycc-nsqd"
+          }
+        },
+        "spec": {
+          "serviceAccount": "drycc-nsqd",
+          "containers": [
+            {
+              "name": "drycc-nsqd",
+              "image": "docker.io/drycc/nsqd:canary",
+              "imagePullPolicy": "Always",
+              "command": [
+                "/opt/nsqd/bin/start-nsqd",
+                "-http-address",
+                ":4151",
+                "-tcp-address",
+                ":4150"
+              ],
+              "ports": [
+                {
+                  "containerPort": 4151,
+                  "name": "http",
+                  "protocol": "TCP"
+                },
+                {
+                  "containerPort": 4150,
+                  "name": "transport",
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/ping",
+                  "port": 4151
+                },
+                "initialDelaySeconds": 5,
+                "timeoutSeconds": 1
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/ping",
+                  "port": 4151
+                },
+                "initialDelaySeconds": 5,
+                "timeoutSeconds": 1
+              },
+              "env": [
+                {
+                  "name": "POD_NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+]

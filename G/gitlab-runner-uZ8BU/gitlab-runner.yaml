@@ -1,0 +1,220 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-gitlab-runner
+  labels:
+    app: release-name-gitlab-runner
+    chart: gitlab-runner-0.41.0
+    release: release-name
+    heritage: Helm
+data:
+  entrypoint: |
+    #!/bin/bash
+    set -e
+
+    mkdir -p /home/gitlab-runner/.gitlab-runner/
+
+    cp /configmaps/config.toml /home/gitlab-runner/.gitlab-runner/
+
+    # Set up environment variables for cache
+    if [[ -f /secrets/accesskey && -f /secrets/secretkey ]]; then
+      export CACHE_S3_ACCESS_KEY=$(cat /secrets/accesskey)
+      export CACHE_S3_SECRET_KEY=$(cat /secrets/secretkey)
+    fi
+
+    if [[ -f /secrets/gcs-applicaton-credentials-file ]]; then
+      export GOOGLE_APPLICATION_CREDENTIALS="/secrets/gcs-applicaton-credentials-file"
+    elif [[ -f /secrets/gcs-application-credentials-file ]]; then
+      export GOOGLE_APPLICATION_CREDENTIALS="/secrets/gcs-application-credentials-file"
+    else
+      if [[ -f /secrets/gcs-access-id && -f /secrets/gcs-private-key ]]; then
+        export CACHE_GCS_ACCESS_ID=$(cat /secrets/gcs-access-id)
+        # echo -e used to make private key multiline (in google json auth key private key is oneline with \n)
+        export CACHE_GCS_PRIVATE_KEY=$(echo -e $(cat /secrets/gcs-private-key))
+      fi
+    fi
+
+    if [[ -f /secrets/azure-account-name && -f /secrets/azure-account-key ]]; then
+      export CACHE_AZURE_ACCOUNT_NAME=$(cat /secrets/azure-account-name)
+      export CACHE_AZURE_ACCOUNT_KEY=$(cat /secrets/azure-account-key)
+    fi
+
+    if [[ -f /secrets/runner-registration-token ]]; then
+      export REGISTRATION_TOKEN=$(cat /secrets/runner-registration-token)
+    fi
+
+    if [[ -f /secrets/runner-token ]]; then
+      export CI_SERVER_TOKEN=$(cat /secrets/runner-token)
+    fi
+
+    # Validate this also at runtime in case the user has set a custom secret
+    if [[ ! -z "$CI_SERVER_TOKEN" && "1" -ne "1" ]]; then
+      echo "Using a runner token with more than 1 replica is not supported."
+      exit 1
+    fi
+
+    # Register the runner
+    if ! sh /configmaps/register-the-runner; then
+      exit 1
+    fi
+
+    # Run pre-entrypoint-script
+    if ! bash /configmaps/pre-entrypoint-script; then
+      exit 1
+    fi
+
+    # Start the runner
+    exec /entrypoint run --user=gitlab-runner \
+      --working-directory=/home/gitlab-runner
+  config.toml: |
+    concurrent = 10
+    check_interval = 30
+    log_level = "info"
+  config.template.toml: |
+    [[runners]]
+      [runners.kubernetes]
+        namespace = "default"
+        image = "ubuntu:16.04"
+  register-the-runner: |
+    #!/bin/bash
+    MAX_REGISTER_ATTEMPTS=30
+
+    for i in $(seq 1 "${MAX_REGISTER_ATTEMPTS}"); do
+      echo "Registration attempt ${i} of ${MAX_REGISTER_ATTEMPTS}"
+      /entrypoint register \
+        --template-config /configmaps/config.template.toml \
+        --non-interactive
+
+      retval=$?
+
+      if [ ${retval} = 0 ]; then
+        break
+      elif [ ${i} = ${MAX_REGISTER_ATTEMPTS} ]; then
+        exit 1
+      fi
+
+      sleep 5
+    done
+
+    exit 0
+  check-live: |
+    #!/bin/bash
+    if /usr/bin/pgrep -f .*register-the-runner; then
+      exit 0
+    elif /usr/bin/pgrep gitlab.*runner; then
+      exit 0
+    else
+      exit 1
+    fi
+  pre-entrypoint-script: ""
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-gitlab-runner
+  labels:
+    app: release-name-gitlab-runner
+    chart: gitlab-runner-0.41.0
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: release-name-gitlab-runner
+  template:
+    metadata:
+      labels:
+        app: release-name-gitlab-runner
+        chart: gitlab-runner-0.41.0
+        release: release-name
+        heritage: Helm
+      annotations:
+        checksum/configmap: 36699ce6c8e3df940121dcc0c049d5937192a0d7d6923ce2de3b65a6fdb90a62
+        checksum/secrets: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+    spec:
+      securityContext:
+        runAsUser: 100
+        fsGroup: 65533
+      terminationGracePeriodSeconds: 3600
+      serviceAccountName: ""
+      containers:
+        - name: release-name-gitlab-runner
+          image: registry.gitlab.cn/jihulab/gitlab-runner:alpine-v15.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          command:
+            - /usr/bin/dumb-init
+            - --
+            - /bin/bash
+            - /configmaps/entrypoint
+          env:
+            - name: CI_SERVER_URL
+              value: null
+            - name: CLONE_URL
+              value: ""
+            - name: RUNNER_EXECUTOR
+              value: kubernetes
+            - name: REGISTER_LOCKED
+              value: "true"
+            - name: RUNNER_TAG_LIST
+              value: ""
+          livenessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - /configmaps/check-live
+            initialDelaySeconds: 60
+            timeoutSeconds: 1
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - /usr/bin/pgrep
+                - gitlab.*runner
+            initialDelaySeconds: 10
+            timeoutSeconds: 1
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          ports:
+            - name: metrics
+              containerPort: 9252
+          volumeMounts:
+            - name: projected-secrets
+              mountPath: /secrets
+            - name: etc-gitlab-runner
+              mountPath: /home/gitlab-runner/.gitlab-runner
+            - name: configmaps
+              mountPath: /configmaps
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: runner-secrets
+          emptyDir:
+            medium: Memory
+        - name: etc-gitlab-runner
+          emptyDir:
+            medium: Memory
+        - name: projected-secrets
+          projected:
+            sources:
+              - secret:
+                  name: release-name-gitlab-runner
+                  items:
+                    - key: runner-registration-token
+                      path: runner-registration-token
+                    - key: runner-token
+                      path: runner-token
+        - name: configmaps
+          configMap:
+            name: release-name-gitlab-runner

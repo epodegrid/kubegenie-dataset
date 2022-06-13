@@ -1,0 +1,189 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "ngicdp-config"
+    },
+    "data": {
+      "adc_rules.cfg": "[GLOBAL]\nNUM_ADC_RULES = 5\n\n;FORMAT ::\n;ADC_TYPE : [ DOMAIN = 0 | IP = 1 | IP PREFIX =2 ]\n;\n;if ADC_TYPE = 0\n;   DOMAIN\n;elseif ADC_TYPE = 1\n;   IP\n;elseif ADC_TYPE = 2\n;   IP\n;   PREFIX\n;else\n;   NONE\n;\n;NOTE :\n;Rules defined first have a higher priority, unless DROP is specified\n;(i.e. multiple rules for the same IP).\n;When specifying DROP with an IP address, use a prefix of 32 to prevent DNS\n;results from overwriting rule.\n\n\n[ADC_RULE_1]\nADC_TYPE = 2\nIP = 0.0.0.0\nPREFIX = 0\n\n[ADC_RULE_2]\nADC_TYPE = 2\nIP = 13.1.1.0\nPREFIX = 24\n\n[ADC_RULE_3]\nADC_TYPE = 1\nIP = 13.1.1.254\n\n[ADC_RULE_4]\nADC_TYPE = 0\nDOMAIN = www.example.gov\n\n[ADC_RULE_5]\nADC_TYPE = 0\nDOMAIN = www.drop_example.com\n",
+      "cdr.cfg": "CDR_PATH=./cdr\nMASTER_CDR=./cdr/master.csv\n",
+      "cp_config.cfg": "if [ ! -d \"/dev/hugepages\" ]; then\n    MEMORY=\"--no-huge -m $((MEM_LIMIT-1024))\"\nfi\n\nSGW_S1U_IP=$(netstat -ie | grep -A1 s1u-net | tail -1 | awk '{print $2}' | tr -d addr:)\nSHARED_DIR=\"/opt/ngic/config/shared\"\nif [ -d ${SHARED_DIR} ]; then\n    while [ ! -f ${SHARED_DIR}/SGW_S1U_IP ]; do echo \"Waiting for SGW_S1U_IP\"; sleep 2; done\n    SGW_S1U_IP=$(cat ${SHARED_DIR}/SGW_S1U_IP)\nfi\n\nSGW_S11_IP=$(hostname)\nMGMT_INFO=\"-s ${SGW_S11_IP} -m ${MME_S11_IP} -w ${SGW_S1U_IP}\"\nAPN_INFO=\"-i ${IP_POOL_IP} -p ${IP_POOL_MASK} -a ${APN}\"\nSPGW_CFG=\"-d 03 -l 2 -r 7.7.7.7 -g 6.6.6.6 -v 4.4.4.4  -u 5.5.5.5\"\n\nTEID_INFO=\"-t ${S11_TEID_POOL_START} -e ${S11_TEID_POOL_STOP} -q ${S1U_TEID_POOL_START} -o ${S1U_TEID_POOL_STOP}\"\nAPP_ARGS=\"${MGMT_INFO} ${APN_INFO} ${SPGW_CFG} ${TEID_INFO}\"\n\nCORES=\"-c $(taskset -p $$ | awk '{print $NF}')\"\nDEVICES=\"--no-pci\"\nEAL_ARGS=\"${CORES} ${MEMORY} ${DEVICES}\"\n",
+      "dp_config.cfg": "get_pcimac_addr () {\n    ifname=$1\n    cid=\"$(sed -ne '/hostname/p' /proc/1/task/1/mountinfo | awk -F '/' '{print $6}' |tr -d \" \" )\"\n    cid=\"$cid-$ifname\"\n    eval \"export $2=$(awk -F '\"' '{print $4}' /sriov-cni/$cid)\"\n    eval \"export $3=$(awk -F '\"' '{print $8}' /sriov-cni/$cid)\"\n    eval \"export $4=$(awk -F '\"' '{print $12}' /sriov-cni/$cid)\"\n}\n\nif [ -d \"/sriov-cni\" ]; then\n    echo \"================== SR-IOV FOUND ============\"\n    get_pcimac_addr s1u-net SGW_S1U_PCI S1U_MAC SGW_S1U_IP\n    get_pcimac_addr sgi-net SGW_SGI_PCI SGI_MAC SGW_SGI_IP\n    DEVICES=\"-w $SGW_S1U_PCI -w $SGW_SGI_PCI\"\n    SHARED_DIR=\"/opt/ngic/config/shared\"\n    echo $SGW_S1U_IP > ${SHARED_DIR}/SGW_S1U_IP\nelse #dev --vdev af_packt\n    echo \"vdev (AF_PACKET)\"\n    # set the variables we provide\n    SGW_S1U_IP=$(netstat -ie | grep -A1 s1u-net | tail -1 | awk '{print $2}' | tr -d addr:)\n    SGW_SGI_IP=$(netstat -ie | grep -A1 sgi-net | tail -1 | awk '{print $2}' | tr -d addr:)\n    S1U_MAC=$( netstat -ie | grep -B1 $SGW_S1U_IP | head -n1 | awk '{print $5}' )\n    SGI_MAC=$( netstat -ie | grep -B1 $SGW_SGI_IP | head -n1 | awk '{print $5}' )\n\n    DEVICES=\"--no-pci --vdev eth_af_packet0,iface=s1u-net --vdev eth_af_packet1,iface=sgi-net\"\nfi\n\nif [ ! -d \"/dev/hugepages\" ]; then\n    MEMORY=\"--no-huge -m $((MEM_LIMIT-1024))\"\nfi\n\nCORES=\"-c $(taskset -p $$ | awk '{print $NF}')\"\nSPGW_CFG=\"--spgw_cfg 03\"\nEAL_ARGS=\"${CORES} ${MEMORY} ${DEVICES}\"\n\nS1U=\"--s1u_ip ${SGW_S1U_IP} --s1u_mac ${S1U_MAC}\"\nSGI=\"--sgi_ip ${SGW_SGI_IP} --sgi_mac ${SGI_MAC} --sgi_gw_ip ${RTR_SGI_IP} --sgi_mask ${SGI_MASK}\"\nWORKERS=\"--num_workers 1\"\nMISC=\"--log 1\"\nAPP_ARGS=\"${S1U} ${SGI} ${WORKERS} ${MISC} ${SPGW_CFG}\"\n",
+      "interface.cfg": "[0]\ndp_comm_ip =  127.0.0.1\ndp_comm_port = 20\ncp_comm_ip = 10.90.0.152\ncp_comm_port = 31311\n",
+      "meter_profile.cfg": "[GLOBAL]\nNUM_OF_IDX = 7\n\n[ENTRY_1]\n;Committed Information Rate (CIR). Measured in bytes per second.\n;MBR is mapped into CIR, convert MBR from bits to Bytes and set CIR.\nCIR = 2342400\n;Committed Burst Size unit = Bytes\nCBS = 5856\n;Excess Burst Size unit = Bytes\nEBS = 11712\n;Meter profile index. Refer this index in static_pcc.cfg to set AMBR/MBR\nMTR_PROFILE_IDX = 3\n\n[ENTRY_2]\n;1200 = 1756800\n;1400 = 2049600\n;1600 = 2342400\nCIR = 2342400\nCBS = 5856\nEBS = 11712\nMTR_PROFILE_IDX = 4\n\n[ENTRY_3]\n; QCI5,QCI7 15.571kbps = 1947 B\nCIR = 2342400\nCBS = 5856\nEBS = 11712\nMTR_PROFILE_IDX = 5\n\n[ENTRY_4]\n; QCI1, 44kbps = 5500 B\nCIR = 2342400\nCBS = 5856\nEBS = 11712\nMTR_PROFILE_IDX = 6\n\n[ENTRY_5]\n; QCI9, 31.143kbps = 3893 B\nCIR = 2342400\nCBS = 5856\nEBS = 11712\nMTR_PROFILE_IDX = 7\n\n[ENTRY_6]\n; 128B, 7pps\nCIR = 2342400\nCBS = 512\nEBS = 1024\nMTR_PROFILE_IDX = 8\n\n[ENTRY_7]\n; 128B, 2pps\nCIR = 2342400\nCBS = 512\nEBS = 1024\nMTR_PROFILE_IDX = 9\n",
+      "pcc_rules.cfg": "[GLOBAL]\nNUM_PCC_FILTERS = 9\n;To config AMBR/MBR values refer meter_profile.cfg. specify only the\n;meter profile index to be set here.\nUL_AMBR_MTR_PROFILE_IDX = 3\nDL_AMBR_MTR_PROFILE_IDX = 4\n\n;default filter - must be first for now (until DP doesn't install any filters)\n;associated with default adc rule\n[PCC_FILTER_1]\nRULE_NAME = DefaultRule\nRATING_GROUP = 9\nSERVICE_ID = 0\nRULE_STATUS = 0\nGATE_STATUS = 1\nSESSION_CONT = 0\nREPORT_LEVEL = 1\nCHARGING_MODE = 0\nMETERING_METHOD = 0\nMUTE_NOTIFY = 0\nMONITORING_KEY = 0\nSPONSOR_ID = 0\nREDIRECT_INFO = 0\nPRECEDENCE = 254\nDROP_PKT_COUNT = 0\n;Specify the meter profile index from meter_profile.cfg\nUL_MBR_MTR_PROFILE_IDX = 7\nDL_MBR_MTR_PROFILE_IDX = 7\n;List of ADC filter indices\nSDF_FILTER_IDX = 99998\n\n[PCC_FILTER_2]\nRULE_NAME = sdf_rule_1\nRATING_GROUP = 5\nSERVICE_ID = 0\nRULE_STATUS = 0\nGATE_STATUS = 1\nSESSION_CONT = 0\nREPORT_LEVEL = 2\nCHARGING_MODE = 0\nMETERING_METHOD = 0\nMUTE_NOTIFY = 0\nMONITORING_KEY = 0\nSPONSOR_ID = 0\nREDIRECT_INFO = 0\nPRECEDENCE = 1\nDROP_PKT_COUNT = 0\nUL_MBR_MTR_PROFILE_IDX = 5\nDL_MBR_MTR_PROFILE_IDX = 5\n;List of SDF filter indices\nSDF_FILTER_IDX = 1\n\n[PCC_FILTER_3]\nRULE_NAME = sdf_rule_2\nRATING_GROUP = 1\nSERVICE_ID = 0\nRULE_STATUS = 0\nGATE_STATUS = 1\nSESSION_CONT = 0\nREPORT_LEVEL = 3\nCHARGING_MODE = 0\nMETERING_METHOD = 0\nMUTE_NOTIFY = 0\nMONITORING_KEY = 0\nSPONSOR_ID = 0\nREDIRECT_INFO = 0\nPRECEDENCE = 18\nDROP_PKT_COUNT = 0\nUL_MBR_MTR_PROFILE_IDX = 6\nDL_MBR_MTR_PROFILE_IDX = 6\n;List of SDF filter indices\nSDF_FILTER_IDX = 2\n\n[PCC_FILTER_4]\nRULE_NAME = adc_rule_1\nRATING_GROUP = Zero-Rate\nSERVICE_ID = Internet\nRULE_STATUS = 0\nGATE_STATUS = 1\nSESSION_CONT = 0\nREPORT_LEVEL = 8\nCHARGING_MODE = 0\nMETERING_METHOD = 0\nMUTE_NOTIFY = 0\nMONITORING_KEY = 0\nREDIRECT_INFO = 0\nSPONSOR_ID = Example\nPRECEDENCE = 15\nDROP_PKT_COUNT = 0\nUL_MBR_MTR_PROFILE_IDX = 7\nDL_MBR_MTR_PROFILE_IDX = 7\n;List of SDF filter indices\nADC_FILTER_IDX = 1\n\n[PCC_FILTER_5]\nRULE_NAME = adc_rule_2\nRATING_GROUP = 0\nSERVICE_ID = CIPA\nRULE_STATUS = 0\nGATE_STATUS = 1\nSESSION_CONT = 0\nREPORT_LEVEL = 9\nCHARGING_MODE = 0\nMETERING_METHOD = 0\nMUTE_NOTIFY = 0\nMONITORING_KEY = 0\nSPONSOR_ID = Example\nREDIRECT_INFO = 0\nSPONSOR_ID = Example\nREDIRECT_INFO = 0\nPRECEDENCE = 4\nDROP_PKT_COUNT = 0\nUL_MBR_MTR_PROFILE_IDX = 0\nDL_MBR_MTR_PROFILE_IDX = 0\n;List of SDF filter indices\nADC_FILTER_IDX = 2\n\n[PCC_FILTER_6]\nRULE_NAME = sdf_rule_3\nRATING_GROUP = 7\nSERVICE_ID = 0\nRULE_STATUS = 0\nGATE_STATUS = 1\nSESSION_CONT = 0\nREPORT_LEVEL = 4\nCHARGING_MODE = 0\nMETERING_METHOD = 0\nMUTE_NOTIFY = 0\nMONITORING_KEY = 0\nSPONSOR_ID = 0\nREDIRECT_INFO = 0\nPRECEDENCE = 17\nDROP_PKT_COUNT = 0\nUL_MBR_MTR_PROFILE_IDX = 5\nDL_MBR_MTR_PROFILE_IDX = 5\n;List of SDF filter indices\nSDF_FILTER_IDX = 3\n\n[PCC_FILTER_7]\nRULE_NAME = adc_rule_3\nRATING_GROUP = Zero-Rate\nSERVICE_ID = Internet\nRULE_STATUS = 0\nGATE_STATUS = 1\nSESSION_CONT = 0\nREPORT_LEVEL = 5\nCHARGING_MODE = 0\nMETERING_METHOD = 0\nMUTE_NOTIFY = 0\nMONITORING_KEY = 0\nSPONSOR_ID = Example\nREDIRECT_INFO = 0\nPRECEDENCE = 210\nDROP_PKT_COUNT = 0\nUL_MBR_MTR_PROFILE_IDX = 7\nDL_MBR_MTR_PROFILE_IDX = 7\n;List of SDF filter indices\nADC_FILTER_IDX = 4\n\n[PCC_FILTER_8]\nRULE_NAME = adc_rule_4\nRATING_GROUP = Zero-Rate\nSERVICE_ID = Management\nRULE_STATUS = 0\nGATE_STATUS = 1\nSESSION_CONT = 0\nREPORT_LEVEL = 6\nCHARGING_MODE = 0\nMETERING_METHOD = 0\nMUTE_NOTIFY = 0\nMONITORING_KEY = 0\nSPONSOR_ID = Example\nREDIRECT_INFO = 0\nPRECEDENCE = 200\nDROP_PKT_COUNT = 0\nUL_MBR_MTR_PROFILE_IDX = 7\nDL_MBR_MTR_PROFILE_IDX = 7\n;List of SDF filter indices\nADC_FILTER_IDX = 12\n\n[PCC_FILTER_9]\nRULE_NAME = adc_rule_5\nRATING_GROUP = Zero-Rate\nSERVICE_ID = Provisioning\nRULE_STATUS = 0\nGATE_STATUS = 1\nSESSION_CONT = 0\nREPORT_LEVEL = 7\nCHARGING_MODE = 0\nMETERING_METHOD = 0\nMUTE_NOTIFY = 0\nMONITORING_KEY = 0\nSPONSOR_ID = Example\nREDIRECT_INFO = 0\nPRECEDENCE = 220\nDROP_PKT_COUNT = 0\nUL_MBR_MTR_PROFILE_IDX = 7\nDL_MBR_MTR_PROFILE_IDX = 7\n;List of SDF filter indices\nADC_FILTER_IDX = 3\n",
+      "sdf_rules.cfg": "[GLOBAL]\nNUM_SDF_FILTERS = 4\n\n[SDF_FILTER_1]\nDIRECTION = downlink_only\nIPV4_REMOTE = 13.2.1.113\nIPV4_REMOTE_MASK = 255.255.255.0\nPROTOCOL = 17\nLOCAL_LOW_LIMIT_PORT = 0\nLOCAL_HIGH_LIMIT_PORT = 65535\nREMOTE_LOW_LIMIT_PORT = 0\nREMOTE_HIGH_LIMIT_PORT = 65535\n\n[SDF_FILTER_2]\nDIRECTION = uplink_only\nIPV4_LOCAL = 16.255.255.0\nIPV4_LOCAL_MASK = 255.255.255.0\nPROTOCOL = 17\nLOCAL_LOW_LIMIT_PORT = 0\nLOCAL_HIGH_LIMIT_PORT = 65535\nREMOTE_LOW_LIMIT_PORT = 0\nREMOTE_HIGH_LIMIT_PORT = 65535\n\n[SDF_FILTER_3]\nDIRECTION = downlink_only\nIPV4_REMOTE = 130.10.0.0\nIPV4_REMOTE_MASK = 255.255.0.0\nPROTOCOL = 17\nREMOTE_LOW_LIMIT_PORT = 5060\nREMOTE_HIGH_LIMIT_PORT = 5060\n\n[SDF_FILTER_4]\nDIRECTION = uplink_only\nIPV4_REMOTE = 103.1.0.0\nIPV4_REMOTE_MASK = 255.255.0.0\nPROTOCOL = 17\nLOCAL_LOW_LIMIT_PORT = 17000\nLOCAL_HIGH_LIMIT_PORT = 17010\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "ngic-dp"
+    },
+    "spec": {
+      "selector": {
+        "app": "ngic-dp"
+      },
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "sx",
+          "port": 20,
+          "protocol": "UDP"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "ngic-dp-external"
+    },
+    "spec": {
+      "selector": {
+        "app": "ngic-dp"
+      },
+      "type": "NodePort",
+      "ports": [
+        {
+          "port": 20,
+          "nodePort": 31310,
+          "protocol": "UDP"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "ngic-dp",
+      "labels": {
+        "app": "ngic-dp"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "ngic-dp"
+        }
+      },
+      "serviceName": "ngic-dp",
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "ngic-dp"
+          },
+          "annotations": {
+            "k8s.v1.cni.cncf.io/networks": "[ { \"name\": \"s1u-net\", \"interface\": \"s1u-net\", \"namespace\": \"default\" }, { \"name\": \"sgi-net\", \"interface\": \"sgi-net\", \"namespace\": \"default\" } ]"
+          }
+        },
+        "spec": {
+          "nodeSelector": {
+            "kubernetes.io/hostname": "node3"
+          },
+          "initContainers": [
+            {
+              "name": "init-iptables",
+              "image": "node1:30500/ngick8stesting/c3po-mmeinit",
+              "command": [
+                "sh",
+                "-c"
+              ],
+              "securityContext": {
+                "capabilities": {
+                  "add": [
+                    "NET_ADMIN"
+                  ]
+                }
+              },
+              "args": [
+                "iptables -I OUTPUT -p icmp --icmp-type destination-unreachable -j DROP;"
+              ]
+            }
+          ],
+          "terminationGracePeriodSeconds": 1,
+          "containers": [
+            {
+              "name": "ngic",
+              "image": "node1:30500/ngick8stesting/ngic-dp:690f418",
+              "imagePullPolicy": "IfNotPresent",
+              "stdin": true,
+              "tty": true,
+              "env": [
+                {
+                  "name": "RTR_SGI_IP",
+                  "value": "13.1.1.254"
+                },
+                {
+                  "name": "SGI_MASK",
+                  "value": "255.255.255.0"
+                },
+                {
+                  "name": "MEM_LIMIT",
+                  "valueFrom": {
+                    "resourceFieldRef": {
+                      "containerName": "ngic",
+                      "resource": "limits.memory",
+                      "divisor": "1Mi"
+                    }
+                  }
+                }
+              ],
+              "command": [
+                "bash",
+                "-xc"
+              ],
+              "args": [
+                "ip addr show; ifconfig; . /opt/ngic/config/dp_config.cfg; ./ngic_dataplane $EAL_ARGS -- $APP_ARGS"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config-volume",
+                  "mountPath": "/opt/ngic/config"
+                },
+                {
+                  "name": "shared-data",
+                  "mountPath": "/opt/ngic/config/shared"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": 8,
+                  "memory": "8Gi",
+                  "intel.com/sriov": "2"
+                }
+              },
+              "securityContext": {
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "ngicdp-config"
+              }
+            },
+            {
+              "name": "shared-data",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  null
+]

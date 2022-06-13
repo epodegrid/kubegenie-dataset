@@ -1,0 +1,234 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-gitlab-config
+  labels:
+    helm.sh/chart: gitlab-0.2.7
+    app.kubernetes.io/name: gitlab
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 15.0.2-ce.0
+    app.kubernetes.io/managed-by: Helm
+data:
+  gitlab.rb: |
+    # external_url 'https://gitlab.example.com'
+
+    # ensure kubelet probes are whitelisted
+    gitlab_rails['monitoring_whitelist'] = [
+      '127.0.0.1',
+    ]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: release-name-gitlab-secrets
+  labels:
+    helm.sh/chart: gitlab-0.2.7
+    app.kubernetes.io/name: gitlab
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 15.0.2-ce.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 128Mi
+  volumeMode: Filesystem
+  storageClassName: local-path
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: release-name-gitlab-storage
+  labels:
+    helm.sh/chart: gitlab-0.2.7
+    app.kubernetes.io/name: gitlab
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 15.0.2-ce.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 30Gi
+  volumeMode: Filesystem
+  storageClassName: local-path
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-gitlab
+  labels:
+    helm.sh/chart: gitlab-0.2.7
+    app.kubernetes.io/name: gitlab
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 15.0.2-ce.0
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - ""
+    verbs:
+      - list
+    resources:
+      - pods
+  - apiGroups:
+      - apps
+    verbs:
+      - get
+    resources:
+      - deployments
+  - apiGroups:
+      - ""
+    verbs:
+      - create
+    resources:
+      - pods/exec
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-gitlab
+  labels:
+    helm.sh/chart: gitlab-0.2.7
+    app.kubernetes.io/name: gitlab
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 15.0.2-ce.0
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-gitlab
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-gitlab
+  labels:
+    helm.sh/chart: gitlab-0.2.7
+    app.kubernetes.io/name: gitlab
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 15.0.2-ce.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+    - name: registry
+      port: 5005
+      targetPort: registry
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: gitlab
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-gitlab
+  labels:
+    helm.sh/chart: gitlab-0.2.7
+    app.kubernetes.io/name: gitlab
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 15.0.2-ce.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gitlab
+      app.kubernetes.io/instance: release-name
+  strategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gitlab
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      containers:
+        - name: gitlab
+          image: gitlab/gitlab-ce:15.0.2-ce.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+            - name: registry
+              containerPort: 5005
+              protocol: TCP
+          env:
+            - name: GITLAB_OMNIBUS_CONFIG
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-gitlab-config
+                  key: gitlab.rb
+            - name: TZ
+              value: UTC
+          volumeMounts:
+            - name: secrets-volume
+              mountPath: /etc/gitlab
+            - name: storage-volume
+              mountPath: /var/opt/gitlab
+          startupProbe:
+            httpGet:
+              path: /-/health
+              port: http
+            failureThreshold: 60
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /-/liveness
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /-/readiness
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: secrets-volume
+          persistentVolumeClaim:
+            claimName: release-name-gitlab-secrets
+        - name: storage-volume
+          persistentVolumeClaim:
+            claimName: release-name-gitlab-storage
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-gitlab-test-connection
+  labels:
+    helm.sh/chart: gitlab-0.2.7
+    app.kubernetes.io/name: gitlab
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 15.0.2-ce.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-gitlab:80
+  restartPolicy: Never

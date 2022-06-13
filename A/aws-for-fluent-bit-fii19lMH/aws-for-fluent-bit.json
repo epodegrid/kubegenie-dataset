@@ -1,0 +1,242 @@
+[
+  {
+    "apiVersion": "policy/v1beta1",
+    "kind": "PodSecurityPolicy",
+    "metadata": {
+      "name": "release-name-aws-for-fluent-bit"
+    },
+    "spec": {
+      "privileged": false,
+      "allowPrivilegeEscalation": false,
+      "requiredDropCapabilities": [
+        "ALL"
+      ],
+      "volumes": [
+        "configMap",
+        "secret",
+        "hostPath",
+        "projected"
+      ],
+      "allowedHostPaths": [
+        {
+          "pathPrefix": "/var/log"
+        },
+        {
+          "pathPrefix": "/var/lib/docker/containers",
+          "readOnly": true
+        }
+      ],
+      "hostIPC": false,
+      "hostPID": false,
+      "runAsUser": {
+        "rule": "RunAsAny"
+      },
+      "seLinux": {
+        "rule": "RunAsAny"
+      },
+      "supplementalGroups": {
+        "rule": "MustRunAs",
+        "ranges": [
+          {
+            "min": 1,
+            "max": 65535
+          }
+        ]
+      },
+      "fsGroup": {
+        "rule": "MustRunAs",
+        "ranges": [
+          {
+            "min": 1,
+            "max": 65535
+          }
+        ]
+      },
+      "readOnlyRootFilesystem": false,
+      "rule": "MustRunAsNonRoot"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-aws-for-fluent-bit",
+      "namespace": "fii19lMH",
+      "labels": {
+        "helm.sh/chart": "aws-for-fluent-bit-0.1.17",
+        "app.kubernetes.io/name": "aws-for-fluent-bit",
+        "app.kubernetes.io/instance": "release-name-aws-for-fluent-bit",
+        "app.kubernetes.io/version": "2.21.5",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-aws-for-fluent-bit",
+      "namespace": "fii19lMH",
+      "labels": {
+        "helm.sh/chart": "aws-for-fluent-bit-0.1.17",
+        "app.kubernetes.io/name": "aws-for-fluent-bit",
+        "app.kubernetes.io/instance": "release-name-aws-for-fluent-bit",
+        "app.kubernetes.io/version": "2.21.5",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "fluent-bit.conf": "[SERVICE]\n    Parsers_File /fluent-bit/parsers/parsers.conf\n\n[INPUT]\n    Name              tail\n    Tag               kube.*\n    Path              /var/log/containers/*.log\n    DB                /var/log/flb_kube.db\n    Parser            docker\n    Docker_Mode       On\n    Mem_Buf_Limit     5MB\n    Skip_Long_Lines   On\n    Refresh_Interval  10\n\n[FILTER]\n    Name                kubernetes\n    Match               kube.*\n    Kube_URL            https://kubernetes.default.svc.cluster.local:443\n    Merge_Log           On\n    Merge_Log_Key       data\n    Keep_Log            On\n    K8S-Logging.Parser  On\n    K8S-Logging.Exclude On\n[OUTPUT]\n    Name                  cloudwatch\n    Match                 *\n    region                us-east-1\n    log_group_name        /aws/eks/fluentbit-cloudwatch/logs\n    log_stream_prefix     fluentbit-\n    auto_create_group     true\n[OUTPUT]\n    Name            firehose\n    Match           *\n    region          us-east-1\n    delivery_stream my-stream\n[OUTPUT]\n    Name            kinesis\n    Match           *\n    region          us-east-1\n    stream          my-kinesis-stream-name\n    partition_key   container_id\n[OUTPUT]\n    Name            es\n    Match           *\n    AWS_Region      us-east-1\n    AWS_Auth        On\n    Port            443\n    TLS             On\n    Retry_Limit     6\n    Replace_Dots    On\n"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "name": "release-name-aws-for-fluent-bit"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "namespaces",
+          "pods"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch"
+        ]
+      },
+      {
+        "apiGroups": [
+          "policy"
+        ],
+        "resources": [
+          "podsecuritypolicies"
+        ],
+        "verbs": [
+          "use"
+        ],
+        "resourceNames": [
+          "release-name-aws-for-fluent-bit"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "release-name-aws-for-fluent-bit"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "release-name-aws-for-fluent-bit"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-aws-for-fluent-bit",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "DaemonSet",
+    "metadata": {
+      "name": "release-name-aws-for-fluent-bit",
+      "namespace": "fii19lMH",
+      "labels": {
+        "helm.sh/chart": "aws-for-fluent-bit-0.1.17",
+        "app.kubernetes.io/name": "aws-for-fluent-bit",
+        "app.kubernetes.io/instance": "release-name-aws-for-fluent-bit",
+        "app.kubernetes.io/version": "2.21.5",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "checksum/config": "c59c1d16bb600c445bd4a9c2b9cc3ddb54a9a4302a2037aecdb1e7b3c369ad7b"
+      }
+    },
+    "spec": {
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "aws-for-fluent-bit",
+          "app.kubernetes.io/instance": "release-name-aws-for-fluent-bit"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "aws-for-fluent-bit",
+            "app.kubernetes.io/instance": "release-name-aws-for-fluent-bit"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-aws-for-fluent-bit",
+          "containers": [
+            {
+              "name": "aws-for-fluent-bit",
+              "imagePullPolicy": "IfNotPresent",
+              "image": "public.ecr.aws/aws-observability/aws-for-fluent-bit:2.21.5",
+              "volumeMounts": [
+                {
+                  "name": "fluentbit-config",
+                  "mountPath": "/fluent-bit/etc/"
+                },
+                {
+                  "mountPath": "/var/log",
+                  "name": "varlog"
+                },
+                {
+                  "mountPath": "/var/lib/docker/containers",
+                  "name": "varlibdockercontainers",
+                  "readOnly": true
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "memory": "250Mi"
+                },
+                "requests": {
+                  "cpu": "50m",
+                  "memory": "50Mi"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "fluentbit-config",
+              "configMap": {
+                "name": "release-name-aws-for-fluent-bit"
+              }
+            },
+            {
+              "hostPath": {
+                "path": "/var/log"
+              },
+              "name": "varlog"
+            },
+            {
+              "hostPath": {
+                "path": "/var/lib/docker/containers"
+              },
+              "name": "varlibdockercontainers"
+            }
+          ]
+        }
+      }
+    }
+  }
+]

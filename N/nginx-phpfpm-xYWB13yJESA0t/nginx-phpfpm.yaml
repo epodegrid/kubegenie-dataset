@@ -1,0 +1,263 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-nginx-phpfpm
+  labels:
+    helm.sh/chart: nginx-phpfpm-0.0.4
+    app.kubernetes.io/name: nginx-phpfpm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 8-fpm-alpine
+    app.kubernetes.io/managed-by: Helm
+imagePullSecrets: null
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-nginx-phpfpm-nginx
+  namespace: xYWB13yJESA0t
+  labels:
+    helm.sh/chart: nginx-phpfpm-0.0.4
+    app.kubernetes.io/name: nginx-phpfpm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 8-fpm-alpine
+    app.kubernetes.io/managed-by: Helm
+    component: nginx
+  annotations:
+    checksum/values: 37308a036178ce6d5243
+data:
+  nginx.conf: |
+    events {
+    }
+    http {
+      server {
+        listen 80 default_server;
+        listen [::]:80 default_server;
+
+        # Set nginx to serve files from the shared volume!
+        root /var/www/html;
+        server_name _;
+        location /health.php {
+          satisfy all;
+          allow 10.0.0.0/8;
+          deny all;
+          include fastcgi_params;
+          fastcgi_param SCRIPT_FILENAME $document_root/health.php;
+          fastcgi_pass release-name-nginx-phpfpm-phpfpm:9000;
+        }
+        location / {
+          try_files $uri $uri/ =404;
+        }
+        location ~ \.php$ {
+          include fastcgi_params;
+          fastcgi_param REQUEST_METHOD $request_method;
+          fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+          fastcgi_pass release-name-nginx-phpfpm-phpfpm:9000;
+        }
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-nginx-phpfpm-scripts
+  labels:
+    helm.sh/chart: nginx-phpfpm-0.0.4
+    app.kubernetes.io/name: nginx-phpfpm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 8-fpm-alpine
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    values/checksum: d2310b5ef94613e1a027
+data:
+  health.php: |
+    <?php phpinfo(); ?>
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-nginx-phpfpm-nginx
+  labels:
+    helm.sh/chart: nginx-phpfpm-0.0.4
+    app.kubernetes.io/name: nginx-phpfpm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 8-fpm-alpine
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: nginx-phpfpm
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-nginx-phpfpm-phpfpm
+  labels:
+    helm.sh/chart: nginx-phpfpm-0.0.4
+    app.kubernetes.io/name: nginx-phpfpm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 8-fpm-alpine
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9000
+      targetPort: phpfpm
+      protocol: TCP
+      name: phpfpm
+  selector:
+    app.kubernetes.io/name: nginx-phpfpm
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-nginx-phpfpm-nginx
+  labels:
+    helm.sh/chart: nginx-phpfpm-0.0.4
+    app.kubernetes.io/name: nginx-phpfpm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 8-fpm-alpine
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nginx-phpfpm
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nginx-phpfpm
+        app.kubernetes.io/instance: release-name
+        checksum/values: 37308a036178ce6d5243
+    spec:
+      serviceAccountName: release-name-nginx-phpfpm
+      securityContext: {}
+      containers:
+        - name: nginx-phpfpm
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: nginx:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health.php
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /health.php
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: scripts
+              mountPath: /var/www/html/
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-nginx-phpfpm-nginx
+        - name: scripts
+          configMap:
+            name: release-name-nginx-phpfpm-scripts
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-nginx-phpfpm-phpfpm
+  labels:
+    helm.sh/chart: nginx-phpfpm-0.0.4
+    app.kubernetes.io/name: nginx-phpfpm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 8-fpm-alpine
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nginx-phpfpm
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nginx-phpfpm
+        app.kubernetes.io/instance: release-name
+        checksum/values: 37308a036178ce6d5243
+    spec:
+      serviceAccountName: release-name-nginx-phpfpm
+      securityContext: {}
+      containers:
+        - name: nginx-phpfpm
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: php:8-fpm-alpine
+          imagePullPolicy: IfNotPresent
+          env: null
+          ports:
+            - name: phpfpm
+              containerPort: 9000
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: phpfpm
+          readinessProbe:
+            tcpSocket:
+              port: phpfpm
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: scripts
+              mountPath: /var/www/html/
+      volumes:
+        - name: scripts
+          configMap:
+            name: release-name-nginx-phpfpm-scripts
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-nginx-phpfpm-test-connection
+  labels:
+    helm.sh/chart: nginx-phpfpm-0.0.4
+    app.kubernetes.io/name: nginx-phpfpm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 8-fpm-alpine
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-nginx-phpfpm-nginx:80/health.php
+  restartPolicy: Never

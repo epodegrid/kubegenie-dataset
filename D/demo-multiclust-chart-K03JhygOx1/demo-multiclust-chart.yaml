@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-registrator
+spec:
+  type: NodePort
+  selector:
+    app: model-registrator
+  ports:
+    - port: 3000
+      targetPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-registry
+spec:
+  type: NodePort
+  selector:
+    app: model-registry
+  ports:
+    - port: 4000
+      targetPort: 4000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registrator-deployment
+  labels:
+    app: model-registrator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: model-registrator
+  template:
+    metadata:
+      labels:
+        app: model-registrator
+    spec:
+      containers:
+        - name: registrator
+          image: gtato/demo-multiclus-registrator:1.0.0
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - name: model-volume
+              mountPath: /opt/models/
+      initContainers:
+        - name: model
+          image: gtato/demo-multiclus-model:1.0.0
+          volumeMounts:
+            - name: model-volume
+              mountPath: /opt/models/
+      volumes:
+        - name: model-volume
+          emptyDir: {}
+      nodeSelector:
+        kubernetes.io/os: linux
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry-deployment
+  labels:
+    app: model-registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: model-registry
+  template:
+    metadata:
+      labels:
+        app: model-registry
+    spec:
+      containers:
+        - name: registry
+          image: gtato/demo-multiclus-registry:1.0.0
+          ports:
+            - containerPort: 4000
+          volumeMounts: null
+      nodeSelector:
+        kubernetes.io/os: linux

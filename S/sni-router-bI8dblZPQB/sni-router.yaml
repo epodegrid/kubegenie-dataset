@@ -1,0 +1,186 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-sni-router-router-config
+data:
+  entrypoint.sh: |
+    #!/bin/sh
+    mkdir -p /var/log/nginx /var/cache/nginx
+    exec nginx -c /etc/nginx/nginx.conf -g 'daemon off;'
+  nginx.conf: |
+    #load_module /usr/lib/nginx/modules/ngx_stream_module.so;
+
+    user www-data;
+    worker_processes  4;
+
+    error_log  /dev/stderr error;
+    pid        /var/run/nginx.pid;
+
+    events {
+        worker_connections  2048;
+    }
+
+    http {
+        access_log /dev/stdout;
+        limit_conn_zone $binary_remote_addr zone=http_addr:20m;
+        limit_conn_log_level error;
+
+        map $host $targetHttpBackend {
+            federacja-anarchistyczna.pl 185.208.164.110:80;
+        }
+        server {
+            listen 8080 default_server;
+            server_name _;
+            limit_conn http_addr 10;
+
+            location /.well-known/acme-challenge/ {
+                proxy_set_header Host $host;
+                proxy_pass       http://$targetHttpBackend;
+            }
+            location / {
+                return 301 https://$host$request_uri;
+            }
+        }
+
+        server {
+            listen 127.0.0.1:8081;
+            location /nginx_status {
+                stub_status on;
+
+                access_log off;
+                allow 127.0.0.1;
+                deny all;
+            }
+        }
+    }
+
+    stream {
+        limit_conn_zone $binary_remote_addr zone=tls_addr:20m;
+        limit_conn_log_level error;
+
+        map $ssl_preread_server_name $targetBackend {
+            federacja-anarchistyczna.pl 185.208.164.110:443;
+        }
+        server {
+            listen 4443;
+            limit_conn tls_addr 50;
+
+            proxy_connect_timeout 15s;
+            proxy_timeout 10800s;
+            preread_timeout 10800s;
+            resolver 1.1.1.1;
+
+            proxy_pass $targetBackend;
+            ssl_preread on;
+        }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-sni-router
+  labels:
+    helm.sh/chart: sni-router-v1.0.6
+    app.kubernetes.io/name: sni-router
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.0.6
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: 8081
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+    - port: 4443
+      targetPort: tls
+      protocol: TCP
+      name: tls
+  selector:
+    app.kubernetes.io/name: sni-router
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-sni-router
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sni-router
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sni-router
+        app.kubernetes.io/instance: release-name
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.19
+          command:
+            - /bin/sh
+          args:
+            - /entrypoint-router.sh
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 8081
+              name: metrics
+            - containerPort: 4443
+              name: tls
+          volumeMounts:
+            - mountPath: /etc/nginx/nginx.conf
+              name: config
+              subPath: nginx.conf
+            - mountPath: /entrypoint-router.sh
+              name: config
+              subPath: entrypoint.sh
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-sni-router-router-config
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: release-name-sni-router-http
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`federacja-anarchistyczna.pl`)
+      kind: Rule
+      services:
+        - name: release-name-sni-router
+          namespace: null
+          port: 8080
+          weight: 1
+          passHostHeader: true
+          scheme: http
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: release-name-sni-router-tcp
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.tcp: "true"
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: HostSNI(`federacja-anarchistyczna.pl`)
+      services:
+        - name: release-name-sni-router
+          namespace: null
+          port: 4443
+          weight: 1
+  tls:
+    passthrough: true

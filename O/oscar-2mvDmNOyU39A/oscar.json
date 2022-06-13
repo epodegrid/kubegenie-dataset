@@ -1,0 +1,368 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "oscar-sa"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "name": "oscar-pvc",
+      "namespace": "oscar-svc"
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteMany"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "2Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "oscar-controller",
+      "namespace": "oscar-svc"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "pods",
+          "pods/log",
+          "podtemplates",
+          "configmaps"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch",
+          "create",
+          "delete",
+          "update"
+        ]
+      },
+      {
+        "apiGroups": [
+          "batch"
+        ],
+        "resources": [
+          "jobs"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch",
+          "create",
+          "delete",
+          "deletecollection"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "oscar-controller-binding",
+      "namespace": "oscar-svc"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "oscar-controller"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "oscar-sa",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "oscar"
+    },
+    "spec": {
+      "type": "NodePort",
+      "ports": [
+        {
+          "name": "endpoint",
+          "port": 8080,
+          "protocol": "TCP",
+          "targetPort": 8080,
+          "nodePort": 30301
+        }
+      ],
+      "selector": {
+        "app": "oscar"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "oscar",
+      "labels": {
+        "app": "oscar"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "oscar"
+        }
+      },
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "oscar"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "oscar-sa",
+          "containers": [
+            {
+              "name": "oscar",
+              "image": "ghcr.io/grycap/oscar:2.4.2",
+              "imagePullPolicy": "Always",
+              "securityContext": {
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 11075,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 15,
+                "periodSeconds": 15,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 3
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 15,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 3
+              },
+              "env": [
+                {
+                  "name": "OSCAR_SERVICE_PORT",
+                  "value": "8080"
+                },
+                {
+                  "name": "OSCAR_NAME",
+                  "value": "oscar"
+                },
+                {
+                  "name": "OSCAR_NAMESPACE",
+                  "value": "default"
+                },
+                {
+                  "name": "OSCAR_SERVICES_NAMESPACE",
+                  "value": "oscar-svc"
+                },
+                {
+                  "name": "OSCAR_USERNAME",
+                  "value": "oscar"
+                },
+                {
+                  "name": "OSCAR_PASSWORD",
+                  "value": "oscar123"
+                },
+                {
+                  "name": "SERVERLESS_BACKEND",
+                  "value": ""
+                },
+                {
+                  "name": "OPENFAAS_NAMESPACE",
+                  "value": "openfaas"
+                },
+                {
+                  "name": "OPENFAAS_PORT",
+                  "value": "8080"
+                },
+                {
+                  "name": "OPENFAAS_BASIC_AUTH_SECRET",
+                  "value": "basic-auth"
+                },
+                {
+                  "name": "OPENFAAS_PROMETHEUS_PORT",
+                  "value": "9090"
+                },
+                {
+                  "name": "OPENFAAS_SCALER_ENABLE",
+                  "value": "false"
+                },
+                {
+                  "name": "OPENFAAS_SCALER_INTERVAL",
+                  "value": "2m"
+                },
+                {
+                  "name": "OPENFAAS_SCALER_INACTIVITY_DURATION",
+                  "value": "10m"
+                },
+                {
+                  "name": "MINIO_ENDPOINT",
+                  "value": "https://minio-service.minio:9000"
+                },
+                {
+                  "name": "MINIO_ACCESS_KEY",
+                  "value": "minio"
+                },
+                {
+                  "name": "MINIO_SECRET_KEY",
+                  "value": "minio123"
+                },
+                {
+                  "name": "MINIO_TLS_VERIFY",
+                  "value": "true"
+                },
+                {
+                  "name": "MINIO_REGION",
+                  "value": "us-east-1"
+                },
+                {
+                  "name": "READ_TIMEOUT",
+                  "value": "300"
+                },
+                {
+                  "name": "WRITE_TIMEOUT",
+                  "value": "300"
+                },
+                {
+                  "name": "WATCHDOG_MAX_INFLIGHT",
+                  "value": "1"
+                },
+                {
+                  "name": "WATCHDOG_WRITE_DEBUG",
+                  "value": "true"
+                },
+                {
+                  "name": "WATCHDOG_EXEC_TIMEOUT",
+                  "value": "0"
+                },
+                {
+                  "name": "WATCHDOG_READ_TIMEOUT",
+                  "value": "300"
+                },
+                {
+                  "name": "WATCHDOG_WRITE_TIMEOUT",
+                  "value": "300"
+                },
+                {
+                  "name": "WATCHDOG_HEALTHCHECK_INTERVAL",
+                  "value": "5"
+                },
+                {
+                  "name": "YUNIKORN_ENABLE",
+                  "value": "false"
+                },
+                {
+                  "name": "YUNIKORN_NAMESPACE",
+                  "value": "yunikorn"
+                },
+                {
+                  "name": "YUNIKORN_CONFIGMAP",
+                  "value": "yunikorn-configs"
+                },
+                {
+                  "name": "YUNIKORN_CONFIG_FILENAME",
+                  "value": "queues.yaml"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8080,
+                  "protocol": "TCP"
+                }
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "500m",
+                  "memory": "512Mi"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+      "name": "populate-volume-job",
+      "namespace": "oscar-svc"
+    },
+    "spec": {
+      "template": {
+        "spec": {
+          "containers": [
+            {
+              "name": "bin-downloader",
+              "image": "ghcr.io/grycap/oscar-bin-downloader:2.4.2",
+              "env": [
+                {
+                  "name": "FAAS_SUPERVISOR_VERSION",
+                  "value": "1.5.0"
+                },
+                {
+                  "name": "WATCHDOG_VERSION",
+                  "value": "0.2.0"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "oscar-vol",
+                  "mountPath": "/data"
+                }
+              ]
+            }
+          ],
+          "restartPolicy": "Never",
+          "volumes": [
+            {
+              "name": "oscar-vol",
+              "persistentVolumeClaim": {
+                "claimName": "oscar-pvc"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

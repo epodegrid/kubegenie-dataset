@@ -1,0 +1,180 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-transmission
+  labels:
+    helm.sh/chart: transmission-2.1.0
+    app.kubernetes.io/name: transmission
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.00-r0-ls60
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-transmission
+  labels:
+    helm.sh/chart: transmission-2.1.0
+    app.kubernetes.io/name: transmission
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.00-r0-ls60
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: web
+      targetPort: web
+      port: 80
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: transmission
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-transmission-peer-tcp
+  labels:
+    helm.sh/chart: transmission-2.1.0
+    app.kubernetes.io/name: transmission
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.00-r0-ls60
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: peer-tcp
+      targetPort: peer-tcp
+      port: 51413
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: transmission
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-transmission-peer-udp
+  labels:
+    helm.sh/chart: transmission-2.1.0
+    app.kubernetes.io/name: transmission
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.00-r0-ls60
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: peer-udp
+      targetPort: peer-udp
+      port: 51413
+      protocol: UDP
+  selector:
+    app.kubernetes.io/name: transmission
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-transmission
+  labels:
+    helm.sh/chart: transmission-2.1.0
+    app.kubernetes.io/name: transmission
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.00-r0-ls60
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: transmission
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: transmission
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-transmission
+      securityContext: {}
+      containers:
+        - name: transmission
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: linuxserver/transmission:3.00-r0-ls60
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PUID
+              value: "1001"
+            - name: PGID
+              value: "1001"
+          ports:
+            - name: web
+              containerPort: 9091
+              protocol: TCP
+            - name: peer-tcp
+              containerPort: 51413
+              protocol: TCP
+            - name: peer-udp
+              containerPort: 51413
+              protocol: UDP
+          livenessProbe:
+            tcpSocket:
+              port: 9091
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 9091
+            initialDelaySeconds: 5
+            periodSeconds: 2
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /config
+              name: config
+            - mountPath: /downloads
+              name: downloads
+            - mountPath: /watch
+              name: watch
+      volumes:
+        - name: config
+          emptyDir: {}
+        - name: downloads
+          emptyDir: {}
+        - name: watch
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-transmission-test-connection
+  labels:
+    helm.sh/chart: transmission-2.1.0
+    app.kubernetes.io/name: transmission
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.00-r0-ls60
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - nc
+      args:
+        - -z
+        - -v
+        - release-name-transmission
+        - "80"
+  restartPolicy: Never

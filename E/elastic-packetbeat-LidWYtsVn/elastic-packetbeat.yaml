@@ -1,0 +1,230 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-packetbeat
+  namespace: LidWYtsVn
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: packetbeat-elasticsearch-user
+type: Opaque
+data:
+  ELASTICSEARCH_USERNAME: YWRtaW4=
+  ELASTICSEARCH_PASSWORD: Y2hhbmdlbWU=
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: packetbeat-etc
+data:
+  packetbeat.yml: |
+    output:
+      elasticsearch:
+        hosts:
+        - ${ELASTICSEARCH_HOST}:${ELASTICSEARCH_PORT}
+        password: ${ELASTICSEARCH_PASSWORD}
+        username: ${ELASTICSEARCH_USERNAME}
+    packetbeat:
+      flows:
+        period: 10s
+        timeout: 30s
+      interfaces:
+        device: any
+      protocols:
+      - ports:
+        - 67
+        - 68
+        type: dhcpv4
+      - include_additionals: true
+        include_authorities: true
+        ports:
+        - 53
+        type: dns
+      - ports:
+        - 80
+        - 8080
+        - 8081
+        - 5000
+        - 8002
+        - 6666
+        - 3000
+        - 5601
+        - 9100
+        - 9090
+        - 44134
+        type: http
+    setup:
+      dashboards:
+        enabled: true
+        index: packetbeat-*
+        retry:
+          enabled: true
+          interval: 5
+      kibana:
+        host: ${KIBANA_HOST}:${KIBANA_PORT}
+        password: ${ELASTICSEARCH_PASSWORD}
+        username: ${ELASTICSEARCH_USERNAME}
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-packetbeat
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+      - nodes
+      - pods
+      - services
+      - endpoints
+      - replicationcontrollers
+      - limitranges
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+      - daemonsets
+      - deployments
+      - replicasets
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-packetbeat
+subjects:
+  - kind: ServiceAccount
+    name: release-name-packetbeat
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: release-name-packetbeat
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: packetbeat
+spec:
+  selector:
+    matchLabels:
+      release_group: release-name
+      application: packetbeat
+      component: daemon
+  minReadySeconds: 0
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        release_group: release-name
+        application: packetbeat
+        component: daemon
+      annotations:
+        openstackhelm.openstack.org/release_uuid: ""
+        configmap-etc-hash: c0705e39de6b4fc012404988416e5f2e228c71d3f1904c23419af1add91eb424
+    spec:
+      securityContext:
+        runAsUser: 0
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      serviceAccountName: release-name-packetbeat
+      initContainers:
+        - name: init
+          image: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: INTERFACE_NAME
+              value: eth0
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: DEPENDENCY_SERVICE
+              value: ""
+            - name: DEPENDENCY_DAEMONSET
+              value: ""
+            - name: DEPENDENCY_CONTAINER
+              value: ""
+            - name: DEPENDENCY_POD_JSON
+              value: ""
+            - name: DEPENDENCY_CUSTOM_RESOURCE
+              value: ""
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+      containers:
+        - name: packetbeat
+          image: docker.elastic.co/beats/packetbeat-oss:7.1.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+            capabilities:
+              drop:
+                "": NET_RAW
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          args:
+            - -c
+            - /usr/share/packetbeat/packetbeat.yml
+            - -e
+          env:
+            - name: ELASTICSEARCH_HOST
+              value: elasticsearch-logging.default
+            - name: ELASTICSEARCH_PORT
+              value: "80"
+            - name: KIBANA_HOST
+              value: kibana-dash.default
+            - name: KIBANA_PORT
+              value: "80"
+            - name: ELASTICSEARCH_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: packetbeat-elasticsearch-user
+                  key: ELASTICSEARCH_USERNAME
+            - name: ELASTICSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: packetbeat-elasticsearch-user
+                  key: ELASTICSEARCH_PASSWORD
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: packetbeat-etc
+              mountPath: /usr/share/packetbeat/packetbeat.yml
+              subPath: packetbeat.yml
+              readOnly: true
+      volumes:
+        - name: pod-tmp
+          emptyDir: {}
+        - name: packetbeat-etc
+          configMap:
+            defaultMode: 292
+            name: packetbeat-etc

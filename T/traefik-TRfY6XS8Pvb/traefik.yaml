@@ -1,0 +1,187 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-traefik
+  labels:
+    app: traefik
+    chart: traefik-1.75.1
+    release: release-name
+    heritage: Helm
+data:
+  traefik.toml: |
+    # traefik.toml
+    logLevel = "info"
+    defaultEntryPoints = ["http", "httpn"]
+    [entryPoints]
+      [entryPoints.http]
+      address = ":80"
+      compress = true
+      [entryPoints.httpn]
+      address = ":8880"
+      compress = true
+    [ping]
+    entryPoint = "http"
+    [kubernetes]
+    [traefikLog]
+      format = "json"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-traefik-test
+  labels:
+    app: release-name-traefik
+    chart: traefik-1.75.1
+    heritage: Helm
+    release: release-name
+data:
+  run.sh: |-
+    @test "Test Access" {
+      curl -D - http://release-name-traefik/
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-traefik
+  labels:
+    app: traefik
+    chart: traefik-1.75.1
+    release: release-name
+    heritage: Helm
+  annotations: null
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Cluster
+  selector:
+    app: traefik
+    release: release-name
+  ports:
+    - port: 80
+      name: http
+      targetPort: http
+    - port: 443
+      name: https
+      targetPort: httpn
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-traefik
+  labels:
+    app: traefik
+    chart: traefik-1.75.1
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: traefik
+      release: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config: 61a829392dc51facc8f291247e921a55e6b4b2b86c58f5978c510cb1a672532e
+      labels:
+        app: traefik
+        chart: traefik-1.75.1
+        release: release-name
+        heritage: Helm
+    spec:
+      serviceAccountName: default
+      terminationGracePeriodSeconds: 60
+      containers:
+        - image: traefik:1.7.12
+          name: release-name-traefik
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 80
+            failureThreshold: 1
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 80
+            failureThreshold: 3
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 2
+          volumeMounts:
+            - mountPath: /config
+              name: config
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+            - name: httpn
+              containerPort: 8880
+              protocol: TCP
+            - name: https
+              containerPort: 443
+              protocol: TCP
+          args:
+            - --configfile=/config/traefik.toml
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-traefik
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-traefik-test
+  labels:
+    app: release-name-traefik
+    chart: traefik-1.75.1
+    heritage: Helm
+    release: release-name
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  initContainers:
+    - name: test-framework
+      image: dduportal/bats:0.4.0
+      command:
+        - bash
+        - -c
+        - |
+          set -ex
+          # copy bats to tools dir
+          cp -R /usr/local/libexec/ /tools/bats/
+      volumeMounts:
+        - mountPath: /tools
+          name: tools
+  containers:
+    - name: release-name-test
+      image: dduportal/bats:0.4.0
+      command:
+        - /tools/bats/bats
+        - -t
+        - /tests/run.sh
+      volumeMounts:
+        - mountPath: /tests
+          name: tests
+          readOnly: true
+        - mountPath: /tools
+          name: tools
+  volumes:
+    - name: tests
+      configMap:
+        name: release-name-traefik-test
+    - name: tools
+      emptyDir: {}
+  restartPolicy: Never

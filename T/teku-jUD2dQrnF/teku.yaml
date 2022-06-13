@@ -1,0 +1,263 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: release-name-teku
+  labels:
+    app.kubernetes.io/name: teku
+    helm.sh/chart: teku-1.1.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: teku
+      app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-teku
+  labels:
+    app.kubernetes.io/name: teku
+    helm.sh/chart: teku-1.1.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-teku
+  labels:
+    app.kubernetes.io/name: teku
+    helm.sh/chart: teku-1.1.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-teku
+  labels:
+    app.kubernetes.io/name: teku
+    helm.sh/chart: teku-1.1.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-teku
+subjects:
+  - kind: ServiceAccount
+    name: release-name-teku
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-teku
+  labels:
+    app.kubernetes.io/name: teku
+    helm.sh/chart: teku-1.1.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-teku
+  labels:
+    app.kubernetes.io/name: teku
+    helm.sh/chart: teku-1.1.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-teku
+subjects:
+  - kind: ServiceAccount
+    name: release-name-teku
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-teku
+  labels:
+    app.kubernetes.io/name: teku
+    helm.sh/chart: teku-1.1.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 86400
+  ports:
+    - port: 5051
+      targetPort: rest-api
+      protocol: TCP
+      name: rest-api
+    - port: 8008
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    app.kubernetes.io/name: teku
+    app.kubernetes.io/instance: release-name
+---
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  name: release-name-teku
+  labels:
+    app.kubernetes.io/name: teku
+    helm.sh/chart: teku-1.1.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: teku
+      app.kubernetes.io/instance: release-name
+  serviceName: release-name-teku
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: teku
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-teku
+      priorityClassName: ""
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+      initContainers:
+        - name: init-chown
+          image: busybox:1.34
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 0
+          command:
+            - /bin/sh
+            - -c
+            - mkdir -p /data/teku && chown -R 1000:1000 /data/teku
+          volumeMounts:
+            - name: data
+              mountPath: /data/teku
+      containers:
+        - name: teku
+          image: consensys/teku:22.5
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -ac
+            - |
+              exec /opt/teku/bin/teku --network=mainnet --data-beacon-path=/data/teku/beacon --data-path=/data/teku --data-storage-archive-frequency=2048 --data-storage-mode=PRUNE --data-storage-non-canonical-blocks-enabled=false --eth1-endpoints= --p2p-enabled=true --p2p-port=9000 --p2p-advertised-ip=$(POD_IP) --p2p-advertised-port=9000 --rest-api-enabled=true --rest-api-host-allowlist=* --rest-api-interface=0.0.0.0 --rest-api-port=5051 --rest-api-cors-origins=* --rest-api-docs-enabled=false --metrics-enabled=true --metrics-categories=JVM,PROCESS,BEACON,DISCOVERY,EVENTBUS,EXECUTOR,NETWORK,STORAGE,STORAGE_HOT_DB,STORAGE_FINALIZED_DB,REMOTE_VALIDATOR,VALIDATOR,VALIDATOR_PERFORMANCE --metrics-host-allowlist=* --metrics-interface=0.0.0.0 --metrics-port=8008
+          ports:
+            - name: rest-api
+              containerPort: 5051
+              protocol: TCP
+            - name: metrics
+              containerPort: 8008
+              protocol: TCP
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          volumeMounts:
+            - name: data
+              mountPath: /data/teku
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+        - name: sidecar
+          image: europe-west4-docker.pkg.dev/stakewiselabs/public/ethnode-sidecar:v1.0.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SERVER_BINDADDR
+              value: 0.0.0.0:3000
+            - name: CLIENT_PORT
+              value: "5051"
+          ports:
+            - containerPort: 3000
+              name: sidecar
+              protocol: TCP
+          livenessProbe:
+            initialDelaySeconds: 900
+            timeoutSeconds: 3
+            periodSeconds: 30
+            failureThreshold: 3
+            successThreshold: 1
+            httpGet:
+              path: /eth2/liveness
+              port: sidecar
+              scheme: HTTP
+          readinessProbe:
+            initialDelaySeconds: 60
+            timeoutSeconds: 3
+            periodSeconds: 30
+            failureThreshold: 30
+            successThreshold: 2
+            httpGet:
+              path: /eth2/readiness
+              port: sidecar
+              scheme: HTTP
+      volumes: null
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: teku
+          helm.sh/chart: teku-1.1.2
+          app.kubernetes.io/instance: release-name
+          app.kubernetes.io/managed-by: Helm
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: null
+        resources:
+          requests:
+            storage: 300Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-teku-test-connection
+  labels:
+    app.kubernetes.io/name: teku
+    helm.sh/chart: teku-1.1.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-teku:5051
+  restartPolicy: Never

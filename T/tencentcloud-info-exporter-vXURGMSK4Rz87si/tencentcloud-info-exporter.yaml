@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-tencentcloud-info-exporter
+  labels:
+    helm.sh/chart: tencentcloud-info-exporter-0.1.2
+    app.kubernetes.io/name: tencentcloud-info-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v2.8.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9150
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: tencentcloud-info-exporter
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-tencentcloud-info-exporter
+  labels:
+    helm.sh/chart: tencentcloud-info-exporter-0.1.2
+    app.kubernetes.io/name: tencentcloud-info-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v2.8.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tencentcloud-info-exporter
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tencentcloud-info-exporter
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      securityContext: {}
+      containers:
+        - name: tencentcloud-info-exporter
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: ghcr.io/leoquote/tencentcloud-info-exporter:main
+          imagePullPolicy: IfNotPresent
+          args:
+            - --metrics.cbs
+          ports:
+            - name: http
+              containerPort: 9150
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-tencentcloud-info-exporter-test-connection
+  labels:
+    helm.sh/chart: tencentcloud-info-exporter-0.1.2
+    app.kubernetes.io/name: tencentcloud-info-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v2.8.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-tencentcloud-info-exporter:9150
+  restartPolicy: Never

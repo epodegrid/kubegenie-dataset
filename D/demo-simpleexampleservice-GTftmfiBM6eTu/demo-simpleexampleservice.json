@@ -1,0 +1,231 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "simpleexampleservice"
+    },
+    "data": {
+      "serviceConfig": "name: simpleexampleservice\ndesired_state: \"load\"\naccessor:\n  username: \"admin@opencord.org\"\n  password: \"letmein\"\n  endpoint: xos-core:50051\nevent_bus:\n  endpoint: \"cord-kafka\"\n  kind: kafka\nlogging:\n  version: 1\n  handlers:\n    console:\n      class: logging.StreamHandler\n    file:\n      class: logging.handlers.RotatingFileHandler\n      filename: /var/log/xos.log\n      maxBytes: 10485760\n      backupCount: 5\n    kafka:\n      class: kafkaloghandler.KafkaLogHandler\n      bootstrap_servers:\n        - \"cord-kafka:9092\"\n      topic: xos.log.simpleexampleservice\n  loggers:\n    '':\n      handlers:\n        - console\n        - file\n        - kafka\n      level: DEBUG\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "demo-simpleexampleservice-tosca"
+    },
+    "data": {
+      "010-simpleexampleservice-service.yaml": "tosca_definitions_version: tosca_simple_yaml_1_0\n\nimports:\n  - custom_types/image.yaml\n  - custom_types/site.yaml\n  - custom_types/simpleexampleservice.yaml\n  - custom_types/slice.yaml\n  - custom_types/trustdomain.yaml\n\ndescription: Configures the simple example service\n\ntopology_template:\n  node_templates:\n\n    default_trustdomain:\n      type: tosca.nodes.TrustDomain\n      properties:\n        name: \"default\"\n        must-exist: true\n\n    httpd_image:\n      type: tosca.nodes.Image\n      properties:\n        name: \"httpd\"\n        tag: \"2.4\"\n\n    service#simpleexampleservice:\n      type: tosca.nodes.SimpleExampleService\n      properties:\n        name: simpleexampleservice\n        service_message: hello\n    mysite:\n      type: tosca.nodes.Site\n      properties:\n        name: \"mysite\"\n        must-exist: true\n    simpleexampleservice_slice:\n      type: tosca.nodes.Slice\n      properties:\n        name: \"mysite_simpleexampleservice\"\n      requirements:\n        - site:\n            node: mysite\n            relationship: tosca.relationships.BelongsToOne\n        - trust_domain:\n            node: default_trustdomain\n            relationship: tosca.relationships.BelongsToOne\n        - default_image:\n            node: httpd_image\n            relationship: tosca.relationships.BelongsToOne\n        - service:\n            node: service#simpleexampleservice\n            relationship: tosca.relationships.BelongsToOne\n"
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta2",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-simpleexampleservice",
+      "labels": {
+        "app": "simpleexampleservice",
+        "chart": "simpleexampleservice-1.2.4",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "simpleexampleservice",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "simpleexampleservice",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "simpleexampleservice",
+              "image": "xosproject/simpleexampleservice-synchronizer:1.2.3",
+              "imagePullPolicy": "Always",
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "simpleexampleservice-config",
+                  "mountPath": "/opt/xos/synchronizers/simpleexampleservice/mounted_config.yaml",
+                  "subPath": "mounted_config.yaml"
+                },
+                {
+                  "name": "certchain-volume",
+                  "mountPath": "/usr/local/share/ca-certificates/local_certs.crt",
+                  "subPath": "config/ca_cert_chain.pem"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "simpleexampleservice-config",
+              "configMap": {
+                "name": "simpleexampleservice",
+                "items": [
+                  {
+                    "key": "serviceConfig",
+                    "path": "mounted_config.yaml"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "certchain-volume",
+              "configMap": {
+                "name": "ca-certificates",
+                "items": [
+                  {
+                    "key": "chain",
+                    "path": "config/ca_cert_chain.pem"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+      "name": "release-name-demo-simpleexampleservice-tosca-loader",
+      "labels": {
+        "app": "demo-simpleexampleservice",
+        "chart": "demo-simpleexampleservice-1.2.4",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "demo-simpleexampleservice",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "b84baace7ffeaccaa926ffca74a55f4a7cd4b2651a73eabb80295d375e6f3a2d"
+          }
+        },
+        "spec": {
+          "restartPolicy": "OnFailure",
+          "containers": [
+            {
+              "name": "demo-simpleexampleservice-tosca-loader",
+              "image": "xosproject/tosca-loader:2.0.0",
+              "imagePullPolicy": "Always",
+              "env": [
+                {
+                  "name": "XOS_USER",
+                  "value": "admin@opencord.org"
+                },
+                {
+                  "name": "XOS_PASSWD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "xos-admin-passwd-secret",
+                      "key": "password"
+                    }
+                  }
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "demo-simpleexampleservice-tosca",
+                  "mountPath": "/opt/tosca"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "demo-simpleexampleservice-tosca",
+              "configMap": {
+                "name": "demo-simpleexampleservice-tosca"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-api-test",
+      "annotations": {
+        "helm.sh/hook": "test-success"
+      }
+    },
+    "spec": {
+      "restartPolicy": "Never",
+      "containers": [
+        {
+          "name": "release-name-api-test",
+          "image": "xosproject/xos-api-tester:master",
+          "imagePullPolicy": "Always",
+          "volumeMounts": [
+            {
+              "name": "log-volume",
+              "mountPath": "/src/cord-api/Tests/Log/"
+            }
+          ],
+          "env": [
+            {
+              "name": "SERVER_IP",
+              "value": "xos-chameleon"
+            },
+            {
+              "name": "SERVER_PORT",
+              "value": "9101"
+            },
+            {
+              "name": "XOS_USER",
+              "value": "admin@opencord.org"
+            },
+            {
+              "name": "XOS_PASSWD",
+              "value": "letmein"
+            }
+          ],
+          "command": [
+            "pybot",
+            "-L",
+            "TRACE",
+            "-d",
+            "Log",
+            "-T",
+            "DemoSimpleExampleService.robot"
+          ]
+        }
+      ],
+      "volumes": [
+        {
+          "name": "log-volume",
+          "hostPath": {
+            "path": "/tmp/helm_test_demo-simpleexampleservice_logs_20220612T091026.26Z",
+            "type": "DirectoryOrCreate"
+          }
+        }
+      ]
+    }
+  }
+]

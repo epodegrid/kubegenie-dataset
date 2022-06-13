@@ -1,0 +1,137 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-config
+  labels:
+    helm.sh/chart: runtime-1.0.15
+    app.kubernetes.io/name: release-name
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "8.0"
+    app.kubernetes.io/managed-by: Helm
+data:
+  runtime: e30=
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name
+  labels:
+    helm.sh/chart: runtime-1.0.15
+    app.kubernetes.io/name: release-name
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "8.0"
+    app.kubernetes.io/managed-by: Helm
+data:
+  userPassword: null
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name
+  labels:
+    helm.sh/chart: runtime-1.0.15
+    app.kubernetes.io/name: release-name
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "8.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5G
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-web
+  labels:
+    helm.sh/chart: runtime-1.0.15
+    app.kubernetes.io/name: release-name
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "8.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: release-name
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name
+  labels:
+    helm.sh/chart: runtime-1.0.15
+    app.kubernetes.io/name: release-name
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "8.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: release-name
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        runtime.sitepilot.io/checksum: 3f40b778c5bb187e7dd4c38dc9b8a63382c711aa33be19a2ace166450f9becb9
+      labels:
+        app.kubernetes.io/name: release-name
+        app.kubernetes.io/instance: release-name
+    spec:
+      hostname: release-name
+      enableServiceLinks: false
+      containers:
+        - name: runtime
+          image: ghcr.io/sitepilot/runtime:8.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+            - name: ssh
+              containerPort: 22
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /sitepilot/ping/
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /sitepilot/ping/
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: RUNTIME_USER_NAME
+              value: release-name
+            - name: RUNTIME_USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: userPassword
+                  name: release-name
+          volumeMounts:
+            - name: data
+              mountPath: /home/runtime
+              subPath: home
+            - mountPath: /opt/runtime/config.yml
+              name: config
+              subPath: runtime
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: release-name
+        - name: secret
+          secret:
+            secretName: release-name
+        - name: config
+          secret:
+            secretName: release-name-config

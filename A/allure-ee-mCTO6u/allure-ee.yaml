@@ -1,0 +1,1362 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-rabbitmq
+  labels:
+    app: rabbitmq
+    chart: rabbitmq-6.18.2
+    release: release-name
+    heritage: Helm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: allure-ee
+  labels:
+    app: allure-ee
+    chart: allure-ee-1.9.9
+    heritage: Helm
+    release: release-name
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-postgresql
+  labels:
+    app: postgresql
+    chart: postgresql-8.4.3
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  postgresql-password: YWxsdXJl
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-rabbitmq
+  labels:
+    app: rabbitmq
+    chart: rabbitmq-6.18.2
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  rabbitmq-password: YWxsdXJl
+  rabbitmq-erlang-cookie: YVBGZkh6QVZoTXBLWU0yTXBRWHBLNWFHeGV5OEFpa1Y=
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-redis
+  labels:
+    app: redis
+    chart: redis-10.5.7
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  redis-password: YWxsdXJl
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-allure-ee
+  labels:
+    app: release-name-allure-ee
+    chart: allure-ee-1.9.9
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  username: YWRtaW4=
+  password: YWRtaW4=
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-postgresql-init-scripts
+  labels:
+    app: postgresql
+    chart: postgresql-8.4.3
+    release: release-name
+    heritage: Helm
+data:
+  init.sql: |
+    CREATE DATABASE uaa TEMPLATE template0 ENCODING 'utf8' LC_COLLATE = 'en_US.UTF-8' LC_CTYPE = 'en_US.UTF-8';
+    CREATE DATABASE report TEMPLATE template0 ENCODING 'utf8' LC_COLLATE = 'en_US.UTF-8' LC_CTYPE = 'en_US.UTF-8';
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-rabbitmq-config
+  labels:
+    app: rabbitmq
+    chart: rabbitmq-6.18.2
+    release: release-name
+    heritage: Helm
+data:
+  enabled_plugins: '[rabbitmq_management, rabbitmq_peer_discovery_k8s, rabbitmq_auth_backend_ldap].'
+  rabbitmq.conf: |-
+    ##username and password
+    default_user=allure
+    default_pass=CHANGEME
+    ## Clustering
+    cluster_formation.peer_discovery_backend  = rabbit_peer_discovery_k8s
+    cluster_formation.k8s.host = kubernetes.default.svc.cluster.local
+    cluster_formation.node_cleanup.interval = 10
+    cluster_formation.node_cleanup.only_log_warning = true
+    cluster_partition_handling = autoheal
+    # queue master locator
+    queue_master_locator=min-masters
+    # enable guest user
+    loopback_users.guest = false
+    #disk_free_limit.absolute = 50MB
+    #management.load_definitions = /app/load_definition.json
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-rabbitmq-healthchecks
+  labels:
+    app: rabbitmq
+    chart: rabbitmq-6.18.2
+    release: release-name
+    heritage: Helm
+data:
+  rabbitmq-health-check: |-
+    #!/bin/sh
+    START_FLAG=/opt/bitnami/rabbitmq/var/lib/rabbitmq/.start
+    if [ -f ${START_FLAG} ]; then
+        rabbitmqctl node_health_check
+        RESULT=$?
+        if [ $RESULT -ne 0 ]; then
+          rabbitmqctl status
+          exit $?
+        fi
+        rm -f ${START_FLAG}
+        exit ${RESULT}
+    fi
+    rabbitmq-api-check $1 $2
+  rabbitmq-api-check: |-
+    #!/bin/sh
+    set -e
+    URL=$1
+    EXPECTED=$2
+    ACTUAL=$(curl --silent --show-error --fail "${URL}")
+    echo "${ACTUAL}"
+    test "${EXPECTED}" = "${ACTUAL}"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-redis
+  labels:
+    app: redis
+    chart: redis-10.5.7
+    heritage: Helm
+    release: release-name
+data:
+  redis.conf: |-
+    # User-supplied configuration:
+    # Enable AOF https://redis.io/topics/persistence#append-only-file
+    appendonly yes
+    # Disable RDB persistence, AOF persistence already enabled.
+    save ""
+  master.conf: |-
+    dir /data
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+  replica.conf: |-
+    dir /data
+    slave-read-only yes
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-redis-health
+  labels:
+    app: redis
+    chart: redis-10.5.7
+    heritage: Helm
+    release: release-name
+data:
+  ping_readiness_local.sh: |-
+    response=$(
+      timeout -s 9 $1 \
+      redis-cli \
+        -a $REDIS_PASSWORD --no-auth-warning \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_local.sh: |-
+    response=$(
+      timeout -s 9 $1 \
+      redis-cli \
+        -a $REDIS_PASSWORD --no-auth-warning \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$response" != "PONG" ] && [ "$response" != "LOADING Redis is loading the dataset in memory" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_master.sh: |-
+    response=$(
+      timeout -s 9 $1 \
+      redis-cli \
+        -a $REDIS_MASTER_PASSWORD --no-auth-warning \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_master.sh: |-
+    response=$(
+      timeout -s 9 $1 \
+      redis-cli \
+        -a $REDIS_MASTER_PASSWORD --no-auth-warning \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$response" != "PONG" ] && [ "$response" != "LOADING Redis is loading the dataset in memory" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_readiness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_readiness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+  ping_liveness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_liveness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_liveness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-report
+  labels:
+    app: release-name-report
+    chart: allure-ee-1.9.9
+    release: release-name
+    heritage: Helm
+  finalizers:
+    - kubernetes.io/pvc-protection
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-rabbitmq-endpoint-reader
+  labels:
+    app: rabbitmq
+    chart: rabbitmq-6.18.2
+    release: release-name
+    heritage: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+    verbs:
+      - get
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: allure-ee-namespace-reader
+  labels:
+    app: allure-ee
+    chart: allure-ee-1.9.9
+    heritage: Helm
+    release: release-name
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+      - services
+      - pods
+      - configmaps
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-rabbitmq-endpoint-reader
+  labels:
+    app: rabbitmq
+    chart: rabbitmq-6.18.2
+    release: release-name
+    heritage: Helm
+subjects:
+  - kind: ServiceAccount
+    name: release-name-rabbitmq
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-rabbitmq-endpoint-reader
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: allure-ee-namespace-reader
+  labels:
+    app: allure-ee
+    chart: allure-ee-1.9.9
+    heritage: Helm
+    release: release-name
+subjects:
+  - kind: ServiceAccount
+    name: allure-ee
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: allure-ee-namespace-reader
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-postgresql-headless
+  labels:
+    app: postgresql
+    chart: postgresql-8.4.3
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    app: postgresql
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-postgresql
+  labels:
+    app: postgresql
+    chart: postgresql-8.4.3
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    app: postgresql
+    release: release-name
+    role: master
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-rabbitmq-headless
+  labels:
+    app: rabbitmq
+    chart: rabbitmq-6.18.2
+    release: release-name
+    heritage: Helm
+spec:
+  clusterIP: None
+  ports:
+    - name: epmd
+      port: 4369
+      targetPort: epmd
+    - name: amqp
+      port: 5672
+      targetPort: amqp
+    - name: dist
+      port: 25672
+      targetPort: dist
+    - name: stats
+      port: 15672
+      targetPort: stats
+  selector:
+    app: rabbitmq
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-rabbitmq
+  labels:
+    app: rabbitmq
+    chart: rabbitmq-6.18.2
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: epmd
+      port: 4369
+      targetPort: epmd
+      nodePort: null
+    - name: amqp
+      port: 5672
+      targetPort: amqp
+      nodePort: null
+    - name: dist
+      port: 25672
+      targetPort: dist
+      nodePort: null
+    - name: stats
+      port: 15672
+      targetPort: stats
+      nodePort: null
+  selector:
+    app: rabbitmq
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-redis-headless
+  labels:
+    app: redis
+    chart: redis-10.5.7
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+  selector:
+    app: redis
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-redis-master
+  labels:
+    app: redis
+    chart: redis-10.5.7
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+  selector:
+    app: redis
+    release: release-name
+    role: master
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-redis-slave
+  labels:
+    app: redis
+    chart: redis-10.5.7
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+  selector:
+    app: redis
+    release: release-name
+    role: slave
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-gateway
+  labels:
+    app: release-name-gateway
+    chart: allure-ee-1.9.9
+    release: release-name
+    heritage: Helm
+spec:
+  selector:
+    app: release-name-gateway
+  ports:
+    - name: http
+      targetPort: 8080
+      port: 8080
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-report
+  labels:
+    app: release-name-report
+    chart: allure-ee-1.9.9
+    release: release-name
+    heritage: Helm
+spec:
+  selector:
+    app: release-name-report
+  ports:
+    - name: http
+      targetPort: 8081
+      port: 8081
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-uaa
+  labels:
+    app: release-name-uaa
+    chart: allure-ee-1.9.9
+    release: release-name
+    heritage: Helm
+spec:
+  selector:
+    app: release-name-uaa
+  ports:
+    - name: http
+      targetPort: 8082
+      port: 8082
+  type: NodePort
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-gateway
+  labels:
+    app: release-name-gateway
+    chart: allure-ee-1.9.9
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  strategy: null
+  selector:
+    matchLabels:
+      app: release-name-gateway
+  template:
+    metadata:
+      labels:
+        app: release-name-gateway
+    spec:
+      serviceAccountName: allure-ee
+      tolerations: []
+      containers:
+        - name: release-name-gateway
+          image: allure/allure-gateway:3.188.3
+          imagePullPolicy: null
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: |
+                -Xss256k -Xms256m -Xmx256m -XX:+UseStringDeduplication -XX:+UseG1GC
+            - name: SPRING_PROFILES_ACTIVE
+              value: kubernetes
+            - name: SPRING_SESSION_STORE_TYPE
+              value: REDIS
+            - name: SPRING_REDIS_HOST
+              value: release-name-redis-master
+            - name: SPRING_REDIS_PASSWORD
+              value: allure
+            - name: ALLURE_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-allure-ee
+                  key: jwtSecret
+          livenessProbe:
+            httpGet:
+              path: /management/health
+              port: http
+            failureThreshold: 10
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /management/health
+              port: http
+            failureThreshold: 5
+            initialDelaySeconds: 60
+            periodSeconds: 30
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-report
+  labels:
+    app: release-name-report
+    chart: allure-ee-1.9.9
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  strategy: null
+  selector:
+    matchLabels:
+      app: release-name-report
+  template:
+    metadata:
+      labels:
+        app: release-name-report
+    spec:
+      serviceAccountName: allure-ee
+      tolerations: []
+      containers:
+        - name: release-name-report
+          image: allure/allure-report:3.188.3
+          imagePullPolicy: null
+          ports:
+            - name: http
+              containerPort: 8081
+          env:
+            - name: SPRING_RABBITMQ_HOST
+              value: release-name-rabbitmq
+            - name: SPRING_RABBITMQ_USERNAME
+              value: allure
+            - name: SPRING_RABBITMQ_PASSWORD
+              value: allure
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://release-name-postgresql/report
+            - name: SPRING_DATASOURCE_USERNAME
+              value: allure
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: allure
+            - name: SPRING_DATASOURCE_DRIVER_CLASS_NAME
+              value: org.postgresql.Driver
+            - name: SPRING_JPA_DATABASE_PLATFORM
+              value: org.hibernate.dialect.PostgreSQL9Dialect
+            - name: SPRING_JPA_PROPERTIES_HIBERNATE_GLOBALLY_QUOTED_IDENTIFIERS
+              value: "true"
+            - name: ALLURE_BLOBSTORAGE_FILESYSTEM_DIRECTORY
+              value: /opt/allure/report/storage
+            - name: ALLURE_BLOBSTORAGE_TYPE
+              value: FILE_SYSTEM
+            - name: JAVA_TOOL_OPTIONS
+              value: |
+                -Xss256k -Xms256m -Xmx1g -XX:+UseStringDeduplication -XX:+UseG1GC
+            - name: SPRING_PROFILES_ACTIVE
+              value: kubernetes
+            - name: ALLURE_CRYPTO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-allure-ee
+                  key: password
+          livenessProbe:
+            httpGet:
+              path: /rs/management/health
+              port: http
+            failureThreshold: 10
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /rs/management/health
+              port: http
+            failureThreshold: 5
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          volumeMounts:
+            - mountPath: /opt/allure/report/storage
+              name: storage-volume
+      volumes:
+        - name: storage-volume
+          persistentVolumeClaim:
+            claimName: release-name-report
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-uaa
+  labels:
+    app: release-name-uaa
+    chart: allure-ee-1.9.9
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  strategy: null
+  selector:
+    matchLabels:
+      app: release-name-uaa
+  template:
+    metadata:
+      labels:
+        app: release-name-uaa
+    spec:
+      serviceAccountName: allure-ee
+      tolerations: []
+      containers:
+        - name: release-name-uaa
+          image: allure/allure-uaa:3.188.3
+          imagePullPolicy: null
+          ports:
+            - name: http
+              containerPort: 8082
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://release-name-postgresql/uaa
+            - name: SPRING_DATASOURCE_USERNAME
+              value: allure
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: allure
+            - name: SPRING_DATASOURCE_DRIVER_CLASS_NAME
+              value: org.postgresql.Driver
+            - name: SPRING_JPA_DATABASE_PLATFORM
+              value: org.hibernate.dialect.PostgreSQL9Dialect
+            - name: SPRING_JPA_PROPERTIES_HIBERNATE_GLOBALLY_QUOTED_IDENTIFIERS
+              value: "true"
+            - name: JAVA_TOOL_OPTIONS
+              value: |
+                -Xss256k -Xms256m -Xmx256m -XX:+UseStringDeduplication -XX:+UseG1GC
+            - name: SPRING_PROFILES_ACTIVE
+              value: kubernetes
+            - name: ALLURE_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-allure-ee
+                  key: jwtSecret
+            - name: ALLURE_SECURITY_USER_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-allure-ee
+                  key: username
+            - name: ALLURE_CRYPTO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-allure-ee
+                  key: password
+            - name: ALLURE_SECURITY_USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-allure-ee
+                  key: password
+          livenessProbe:
+            httpGet:
+              path: /uaa/management/health
+              port: http
+            failureThreshold: 10
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /uaa/management/health
+              port: http
+            failureThreshold: 5
+            initialDelaySeconds: 60
+            periodSeconds: 30
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-postgresql
+  labels:
+    app: postgresql
+    chart: postgresql-8.4.3
+    release: release-name
+    heritage: Helm
+spec:
+  serviceName: release-name-postgresql-headless
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: postgresql
+      release: release-name
+      role: master
+  template:
+    metadata:
+      name: release-name-postgresql
+      labels:
+        app: postgresql
+        chart: postgresql-8.4.3
+        release: release-name
+        heritage: Helm
+        role: master
+    spec:
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: release-name-postgresql
+          image: docker.io/bitnami/postgresql:11.7.0-debian-10-r9
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            seccompProfile:
+              type: RuntimeDefault
+          securityContext:
+            runAsUser: 11662
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: POSTGRESQL_PORT_NUMBER
+              value: "5432"
+            - name: POSTGRESQL_VOLUME_DIR
+              value: /bitnami/postgresql
+            - name: PGDATA
+              value: /bitnami/postgresql/data
+            - name: POSTGRES_USER
+              value: allure
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql
+                  key: postgresql-password
+            - name: POSTGRESQL_ENABLE_LDAP
+              value: "no"
+          ports:
+            - name: tcp-postgresql
+              containerPort: 5432
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - exec pg_isready -U "allure" -h 127.0.0.1 -p 5432
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - -e
+                - |
+                  exec pg_isready -U "allure" -h 127.0.0.1 -p 5432
+                  [ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          volumeMounts:
+            - name: custom-init-scripts
+              mountPath: /docker-entrypoint-initdb.d/
+            - name: dshm
+              mountPath: /dev/shm
+            - name: data
+              mountPath: /bitnami/postgresql
+              subPath: null
+      volumes:
+        - name: custom-init-scripts
+          configMap:
+            name: release-name-postgresql-init-scripts
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 20Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-rabbitmq
+  labels:
+    app: rabbitmq
+    chart: rabbitmq-6.18.2
+    release: release-name
+    heritage: Helm
+spec:
+  serviceName: release-name-rabbitmq-headless
+  podManagementPolicy: OrderedReady
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: rabbitmq
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+        release: release-name
+        chart: rabbitmq-6.18.2
+      annotations:
+        checksum/secret: fbc3a5915efa44b51611fe6d2f2b127e6f7d8d6bc0f57941f619e1aa703f948b
+    spec:
+      serviceAccountName: release-name-rabbitmq
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: rabbitmq
+          image: docker.io/bitnami/rabbitmq:3.8.2-debian-10-r30
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -ec
+            - |
+              mkdir -p /opt/bitnami/rabbitmq/.rabbitmq/
+              mkdir -p /opt/bitnami/rabbitmq/etc/rabbitmq/
+              touch /opt/bitnami/rabbitmq/var/lib/rabbitmq/.start
+              #persist the erlang cookie in both places for server and cli tools
+              echo $RABBITMQ_ERL_COOKIE > /opt/bitnami/rabbitmq/var/lib/rabbitmq/.erlang.cookie
+              cp /opt/bitnami/rabbitmq/var/lib/rabbitmq/.erlang.cookie /opt/bitnami/rabbitmq/.rabbitmq/
+              #change permission so only the user has access to the cookie file
+              chmod 600 /opt/bitnami/rabbitmq/.rabbitmq/.erlang.cookie /opt/bitnami/rabbitmq/var/lib/rabbitmq/.erlang.cookie
+              #copy the mounted configuration to both places
+              cp  /opt/bitnami/rabbitmq/conf/* /opt/bitnami/rabbitmq/etc/rabbitmq
+              # Apply resources limits
+              ulimit -n "${RABBITMQ_ULIMIT_NOFILES}"
+              #replace the default password that is generated
+              sed -i "/CHANGEME/cdefault_pass=${RABBITMQ_PASSWORD//\\/\\\\}" /opt/bitnami/rabbitmq/etc/rabbitmq/rabbitmq.conf
+              exec rabbitmq-server
+          volumeMounts:
+            - name: config-volume
+              mountPath: /opt/bitnami/rabbitmq/conf
+            - name: healthchecks
+              mountPath: /usr/local/sbin/rabbitmq-api-check
+              subPath: rabbitmq-api-check
+            - name: healthchecks
+              mountPath: /usr/local/sbin/rabbitmq-health-check
+              subPath: rabbitmq-health-check
+            - name: data
+              mountPath: /opt/bitnami/rabbitmq/var/lib/rabbitmq
+          ports:
+            - name: epmd
+              containerPort: 4369
+            - name: amqp
+              containerPort: 5672
+            - name: dist
+              containerPort: 25672
+            - name: stats
+              containerPort: 15672
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - rabbitmq-api-check "http://allure:$RABBITMQ_PASSWORD@127.0.0.1:15672/api/healthchecks/node" '{"status":"ok"}'
+            initialDelaySeconds: 120
+            timeoutSeconds: 20
+            periodSeconds: 30
+            failureThreshold: 6
+            successThreshold: 1
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - rabbitmq-health-check "http://allure:$RABBITMQ_PASSWORD@127.0.0.1:15672/api/healthchecks/node" '{"status":"ok"}'
+            initialDelaySeconds: 10
+            timeoutSeconds: 20
+            periodSeconds: 30
+            failureThreshold: 3
+            successThreshold: 1
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: MY_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: MY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: MY_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: K8S_SERVICE_NAME
+              value: release-name-rabbitmq-headless
+            - name: K8S_ADDRESS_TYPE
+              value: hostname
+            - name: RABBITMQ_NODENAME
+              value: rabbit@$(MY_POD_NAME).$(K8S_SERVICE_NAME).$(MY_POD_NAMESPACE).svc.cluster.local
+            - name: K8S_HOSTNAME_SUFFIX
+              value: .$(K8S_SERVICE_NAME).$(MY_POD_NAMESPACE).svc.cluster.local
+            - name: RABBITMQ_LOGS
+              value: '-'
+            - name: RABBITMQ_ULIMIT_NOFILES
+              value: "65536"
+            - name: RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS
+              value: +S 2:1
+            - name: RABBITMQ_USE_LONGNAME
+              value: "true"
+            - name: RABBITMQ_ERL_COOKIE
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-rabbitmq
+                  key: rabbitmq-erlang-cookie
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-rabbitmq
+                  key: rabbitmq-password
+      securityContext:
+        fsGroup: 1001
+        runAsUser: 1001
+      volumes:
+        - name: config-volume
+          configMap:
+            name: release-name-rabbitmq-config
+            items:
+              - key: rabbitmq.conf
+                path: rabbitmq.conf
+              - key: enabled_plugins
+                path: enabled_plugins
+        - name: healthchecks
+          configMap:
+            name: release-name-rabbitmq-healthchecks
+            items:
+              - key: rabbitmq-health-check
+                path: rabbitmq-health-check
+                mode: 111
+              - key: rabbitmq-api-check
+                path: rabbitmq-api-check
+                mode: 111
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app: rabbitmq
+          release: release-name
+          heritage: Helm
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-redis-master
+  labels:
+    app: redis
+    chart: redis-10.5.7
+    release: release-name
+    heritage: Helm
+spec:
+  selector:
+    matchLabels:
+      app: redis
+      release: release-name
+      role: master
+  serviceName: release-name-redis-headless
+  template:
+    metadata:
+      labels:
+        app: redis
+        chart: redis-10.5.7
+        release: release-name
+        role: master
+      annotations:
+        checksum/health: 1957420aac30345fc7ab07ecf223f18319089ca45ac2ad5dabb6eaaac6ae1e50
+        checksum/configmap: 2a432f7bc5fe401bc1d5db0ac89f6c7d3f843b3aa24d5c9540b55b2fecb40987
+        checksum/secret: 7cf4fb63898a408d0d0da87e63baad23d230451c051ab5890096f7692b44fddb
+    spec:
+      securityContext:
+        fsGroup: 1001
+      serviceAccountName: default
+      containers:
+        - name: release-name-redis
+          image: docker.io/bitnami/redis:5.0.7-debian-10-r32
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 10212
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          command:
+            - /bin/bash
+            - -c
+            - |
+              if [[ -n $REDIS_PASSWORD_FILE ]]; then
+                password_aux=`cat ${REDIS_PASSWORD_FILE}`
+                export REDIS_PASSWORD=$password_aux
+              fi
+              if [[ ! -f /opt/bitnami/redis/etc/master.conf ]];then
+                cp /opt/bitnami/redis/mounted-etc/master.conf /opt/bitnami/redis/etc/master.conf
+              fi
+              if [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then
+                cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf
+              fi
+              ARGS=("--port" "${REDIS_PORT}")
+              ARGS+=("--requirepass" "${REDIS_PASSWORD}")
+              ARGS+=("--masterauth" "${REDIS_PASSWORD}")
+              ARGS+=("--include" "/opt/bitnami/redis/etc/redis.conf")
+              ARGS+=("--include" "/opt/bitnami/redis/etc/master.conf")
+              /run.sh ${ARGS[@]}
+          env:
+            - name: REDIS_REPLICATION_MODE
+              value: master
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+            - name: REDIS_PORT
+              value: "6379"
+          ports:
+            - name: redis
+              containerPort: 6379
+          livenessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_liveness_local.sh 5
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_readiness_local.sh 5
+          resources: null
+          volumeMounts:
+            - name: health
+              mountPath: /health
+            - name: redis-data
+              mountPath: /data
+              subPath: null
+            - name: config
+              mountPath: /opt/bitnami/redis/mounted-etc
+            - name: redis-tmp-conf
+              mountPath: /opt/bitnami/redis/etc/
+      volumes:
+        - name: health
+          configMap:
+            name: release-name-redis-health
+            defaultMode: 493
+        - name: config
+          configMap:
+            name: release-name-redis
+        - name: redis-tmp-conf
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+        labels:
+          app: redis
+          release: release-name
+          heritage: Helm
+          component: master
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi
+        selector: null
+  updateStrategy:
+    type: RollingUpdate
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-redis-slave
+  labels:
+    app: redis
+    chart: redis-10.5.7
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 2
+  serviceName: release-name-redis-headless
+  selector:
+    matchLabels:
+      app: redis
+      release: release-name
+      role: slave
+  template:
+    metadata:
+      labels:
+        app: redis
+        release: release-name
+        chart: redis-10.5.7
+        role: slave
+      annotations:
+        checksum/health: 1957420aac30345fc7ab07ecf223f18319089ca45ac2ad5dabb6eaaac6ae1e50
+        checksum/configmap: 2a432f7bc5fe401bc1d5db0ac89f6c7d3f843b3aa24d5c9540b55b2fecb40987
+        checksum/secret: 7cf4fb63898a408d0d0da87e63baad23d230451c051ab5890096f7692b44fddb
+    spec:
+      securityContext:
+        fsGroup: 1001
+      serviceAccountName: default
+      containers:
+        - name: release-name-redis
+          image: docker.io/bitnami/redis:5.0.7-debian-10-r32
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 10245
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          command:
+            - /bin/bash
+            - -c
+            - |
+              if [[ -n $REDIS_PASSWORD_FILE ]]; then
+                password_aux=`cat ${REDIS_PASSWORD_FILE}`
+                export REDIS_PASSWORD=$password_aux
+              fi
+              if [[ -n $REDIS_MASTER_PASSWORD_FILE ]]; then
+                password_aux=`cat ${REDIS_MASTER_PASSWORD_FILE}`
+                export REDIS_MASTER_PASSWORD=$password_aux
+              fi
+              if [[ ! -f /opt/bitnami/redis/etc/replica.conf ]];then
+                cp /opt/bitnami/redis/mounted-etc/replica.conf /opt/bitnami/redis/etc/replica.conf
+              fi
+              if [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then
+                cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf
+              fi
+              ARGS=("--port" "${REDIS_PORT}")
+              ARGS+=("--slaveof" "${REDIS_MASTER_HOST}" "${REDIS_MASTER_PORT_NUMBER}")
+              ARGS+=("--requirepass" "${REDIS_PASSWORD}")
+              ARGS+=("--masterauth" "${REDIS_MASTER_PASSWORD}")
+              ARGS+=("--include" "/opt/bitnami/redis/etc/redis.conf")
+              ARGS+=("--include" "/opt/bitnami/redis/etc/replica.conf")
+              /run.sh "${ARGS[@]}"
+          env:
+            - name: REDIS_REPLICATION_MODE
+              value: slave
+            - name: REDIS_MASTER_HOST
+              value: release-name-redis-master-0.release-name-redis-headless.default.svc.cluster.local
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_MASTER_PORT_NUMBER
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+            - name: REDIS_MASTER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+          ports:
+            - name: redis
+              containerPort: 6379
+          livenessProbe:
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_liveness_local_and_master.sh 5
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 10
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_readiness_local_and_master.sh 5
+          resources: null
+          volumeMounts:
+            - name: health
+              mountPath: /health
+            - name: redis-data
+              mountPath: /data
+            - name: config
+              mountPath: /opt/bitnami/redis/mounted-etc
+            - name: redis-tmp-conf
+              mountPath: /opt/bitnami/redis/etc
+      volumes:
+        - name: health
+          configMap:
+            name: release-name-redis-health
+            defaultMode: 493
+        - name: config
+          configMap:
+            name: release-name-redis
+        - name: sentinel-tmp-conf
+          emptyDir: {}
+        - name: redis-tmp-conf
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+        labels:
+          app: redis
+          release: release-name
+          heritage: Helm
+          component: slave
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi
+        selector: null
+  updateStrategy:
+    type: RollingUpdate

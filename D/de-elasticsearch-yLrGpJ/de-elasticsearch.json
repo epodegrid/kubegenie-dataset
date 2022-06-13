@@ -1,0 +1,434 @@
+[
+  {
+    "apiVersion": "policy/v1beta1",
+    "kind": "PodSecurityPolicy",
+    "metadata": {
+      "name": "oss-master",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "elasticsearch-7.10.2",
+        "app": "oss-master"
+      }
+    },
+    "spec": {
+      "fsGroup": {
+        "rule": "RunAsAny"
+      },
+      "privileged": false,
+      "runAsUser": {
+        "rule": "RunAsAny"
+      },
+      "seLinux": {
+        "rule": "RunAsAny"
+      },
+      "supplementalGroups": {
+        "rule": "RunAsAny"
+      },
+      "volumes": [
+        "secret",
+        "configMap",
+        "persistentVolumeClaim",
+        "emptyDir"
+      ],
+      "rule": "MustRunAsNonRoot"
+    }
+  },
+  {
+    "apiVersion": "policy/v1beta1",
+    "kind": "PodDisruptionBudget",
+    "metadata": {
+      "name": "oss-master-pdb"
+    },
+    "spec": {
+      "maxUnavailable": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "oss-master"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "oss-master",
+      "annotations": null,
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "elasticsearch-7.10.2",
+        "app": "oss-master"
+      }
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "oss-master",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "elasticsearch-7.10.2",
+        "app": "oss-master"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "extensions"
+        ],
+        "resources": [
+          "podsecuritypolicies"
+        ],
+        "resourceNames": [
+          "oss-master"
+        ],
+        "verbs": [
+          "use"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "oss-master",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "elasticsearch-7.10.2",
+        "app": "oss-master"
+      }
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "oss-master",
+        "namespace": "default"
+      }
+    ],
+    "roleRef": {
+      "kind": "Role",
+      "name": "oss-master",
+      "apiGroup": "rbac.authorization.k8s.io"
+    }
+  },
+  {
+    "kind": "Service",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "oss-master",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "elasticsearch",
+        "app": "oss-master"
+      },
+      "annotations": {}
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "selector": {
+        "release": "release-name",
+        "chart": "elasticsearch",
+        "app": "oss-master"
+      },
+      "ports": [
+        {
+          "name": "http",
+          "protocol": "TCP",
+          "port": 9200
+        },
+        {
+          "name": "transport",
+          "protocol": "TCP",
+          "port": 9300
+        }
+      ]
+    }
+  },
+  {
+    "kind": "Service",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "oss-master-headless",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "elasticsearch",
+        "app": "oss-master"
+      },
+      "annotations": {
+        "service.alpha.kubernetes.io/tolerate-unready-endpoints": "true"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "publishNotReadyAddresses": true,
+      "selector": {
+        "app": "oss-master"
+      },
+      "ports": [
+        {
+          "name": "http",
+          "port": 9200
+        },
+        {
+          "name": "transport",
+          "port": 9300
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "oss-master",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "elasticsearch",
+        "app": "oss-master"
+      },
+      "annotations": {
+        "esMajorVersion": "7"
+      }
+    },
+    "spec": {
+      "serviceName": "oss-master-headless",
+      "selector": {
+        "matchLabels": {
+          "app": "oss-master"
+        }
+      },
+      "replicas": 3,
+      "podManagementPolicy": "Parallel",
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "oss-master"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "30Gi"
+              }
+            }
+          }
+        }
+      ],
+      "template": {
+        "metadata": {
+          "name": "oss-master",
+          "labels": {
+            "release": "release-name",
+            "chart": "elasticsearch",
+            "app": "oss-master"
+          },
+          "annotations": null
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1000,
+            "runAsUser": 1000
+          },
+          "serviceAccountName": "oss-master",
+          "affinity": {
+            "podAntiAffinity": {
+              "requiredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "labelSelector": {
+                    "matchExpressions": [
+                      {
+                        "key": "app",
+                        "operator": "In",
+                        "values": [
+                          "oss-master"
+                        ]
+                      }
+                    ]
+                  },
+                  "topologyKey": "kubernetes.io/hostname"
+                }
+              ]
+            }
+          },
+          "terminationGracePeriodSeconds": 120,
+          "volumes": null,
+          "enableServiceLinks": true,
+          "initContainers": [
+            {
+              "name": "configure-sysctl",
+              "securityContext": {
+                "runAsUser": 10476,
+                "privileged": true,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "image": "us.gcr.io/broad-dsp-gcr-public/elasticsearch/elasticsearch-oss:7.10.2-log4j-2.17.1",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "sysctl",
+                "-w",
+                "vm.max_map_count=262144"
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "elasticsearch",
+              "securityContext": {
+                "capabilities": {
+                  "drop": [
+                    "ALL"
+                  ]
+                },
+                "runAsNonRoot": true,
+                "runAsUser": 11975,
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true
+              },
+              "image": "us.gcr.io/broad-dsp-gcr-public/elasticsearch/elasticsearch-oss:7.10.2-log4j-2.17.1",
+              "imagePullPolicy": "IfNotPresent",
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "#!/usr/bin/env bash -e\n# If the node is starting up wait for the cluster to be ready (request params: \"wait_for_status=green&timeout=1s\" )\n# Once it has started only check that the node itself is responding\nSTART_FILE=/tmp/.es_start_file\n\n# Disable nss cache to avoid filling dentry cache when calling curl\n# This is required with Elasticsearch Docker using nss < 3.52\nexport NSS_SDB_USE_CACHE=no\n\nhttp () {\n  local path=\"${1}\"\n  local args=\"${2}\"\n  set -- -XGET -s\n\n  if [ \"$args\" != \"\" ]; then\n    set -- \"$@\" $args\n  fi\n\n  if [ -n \"${ELASTIC_USERNAME}\" ] && [ -n \"${ELASTIC_PASSWORD}\" ]; then\n    set -- \"$@\" -u \"${ELASTIC_USERNAME}:${ELASTIC_PASSWORD}\"\n  fi\n\n  curl --output /dev/null -k \"$@\" \"http://127.0.0.1:9200${path}\"\n}\n\nif [ -f \"${START_FILE}\" ]; then\n  echo 'Elasticsearch is already running, lets check the node is healthy'\n  HTTP_CODE=$(http \"/\" \"-w %{http_code}\")\n  RC=$?\n  if [[ ${RC} -ne 0 ]]; then\n    echo \"curl --output /dev/null -k -XGET -s -w '%{http_code}' \\${BASIC_AUTH} http://127.0.0.1:9200/ failed with RC ${RC}\"\n    exit ${RC}\n  fi\n  # ready if HTTP code 200, 503 is tolerable if ES version is 6.x\n  if [[ ${HTTP_CODE} == \"200\" ]]; then\n    exit 0\n  elif [[ ${HTTP_CODE} == \"503\" && \"7\" == \"6\" ]]; then\n    exit 0\n  else\n    echo \"curl --output /dev/null -k -XGET -s -w '%{http_code}' \\${BASIC_AUTH} http://127.0.0.1:9200/ failed with HTTP code ${HTTP_CODE}\"\n    exit 1\n  fi\n\nelse\n  echo 'Waiting for elasticsearch cluster to become ready (request params: \"wait_for_status=green&timeout=1s\" )'\n  if http \"/_cluster/health?wait_for_status=green&timeout=1s\" \"--fail\" ; then\n    touch ${START_FILE}\n    exit 0\n  else\n    echo 'Cluster is not yet ready (request params: \"wait_for_status=green&timeout=1s\" )'\n    exit 1\n  fi\nfi\n"
+                  ]
+                },
+                "failureThreshold": 3,
+                "initialDelaySeconds": 10,
+                "periodSeconds": 10,
+                "successThreshold": 3,
+                "timeoutSeconds": 5
+              },
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 9200
+                },
+                {
+                  "name": "transport",
+                  "containerPort": 9300
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "1000m",
+                  "memory": "2Gi"
+                },
+                "requests": {
+                  "cpu": "1000m",
+                  "memory": "2Gi"
+                }
+              },
+              "env": [
+                {
+                  "name": "node.name",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "cluster.initial_master_nodes",
+                  "value": "oss-master-0,oss-master-1,oss-master-2,"
+                },
+                {
+                  "name": "discovery.seed_hosts",
+                  "value": "oss-master-headless"
+                },
+                {
+                  "name": "cluster.name",
+                  "value": "oss"
+                },
+                {
+                  "name": "network.host",
+                  "value": "0.0.0.0"
+                },
+                {
+                  "name": "ES_JAVA_OPTS",
+                  "value": "-Xmx1g -Xms1g"
+                },
+                {
+                  "name": "node.data",
+                  "value": "true"
+                },
+                {
+                  "name": "node.ingest",
+                  "value": "true"
+                },
+                {
+                  "name": "node.master",
+                  "value": "true"
+                },
+                {
+                  "name": "node.remote_cluster_client",
+                  "value": "true"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "oss-master",
+                  "mountPath": "/usr/share/elasticsearch/data"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-rouul-test",
+      "annotations": {
+        "helm.sh/hook": "test",
+        "helm.sh/hook-delete-policy": "hook-succeeded"
+      }
+    },
+    "spec": {
+      "securityContext": {
+        "fsGroup": 1000,
+        "runAsUser": 1000
+      },
+      "containers": [
+        {
+          "name": "release-name-yaivj-test",
+          "image": "us.gcr.io/broad-dsp-gcr-public/elasticsearch/elasticsearch-oss:7.10.2-log4j-2.17.1",
+          "imagePullPolicy": "IfNotPresent",
+          "command": [
+            "sh",
+            "-c",
+            "#!/usr/bin/env bash -e\ncurl -XGET --fail 'oss-master:9200/_cluster/health?wait_for_status=green&timeout=1s'\n"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

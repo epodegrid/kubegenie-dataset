@@ -1,0 +1,164 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nats-streaming-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nats-streaming-operator
+rules:
+  - apiGroups:
+      - apiextensions.k8s.io
+    resources:
+      - customresourcedefinitions
+    verbs:
+      - '*'
+  - apiGroups:
+      - nats.io
+    resources:
+      - natsclusters
+      - natsserviceroles
+    verbs:
+      - '*'
+  - apiGroups:
+      - streaming.nats.io
+    resources:
+      - natsstreamingclusters
+    verbs:
+      - '*'
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - secrets
+      - pods
+      - services
+      - serviceaccounts
+      - serviceaccounts/token
+      - endpoints
+      - events
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nats-streaming-operator-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nats-streaming-operator
+subjects:
+  - kind: ServiceAccount
+    name: nats-streaming-operator
+    namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-nats-streaming-operator
+  labels:
+    app: nats-streaming-operator
+    chart: nats-streaming-operator-1.0.0
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: null
+  strategy:
+    type: OnDelete
+    rollingUpdate: null
+  selector:
+    matchLabels:
+      app: nats-streaming-operator
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: nats-streaming-operator
+        release: release-name
+    spec:
+      serviceAccountName: nats-streaming-operator
+      containers:
+        - name: nats-streaming-operator
+          image: docker.io/synadia/nats-streaming-operator:v0.2.2-v1alpha1
+          imagePullPolicy: null
+          env:
+            - name: MY_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: MY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          ports:
+            - name: readyz
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /readyz
+              port: readyz
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: readyz
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      securityContext:
+        fsGroup: 1001
+        runAsUser: 1001
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 1
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: nats-streaming-operator
+                    release: release-name
+---
+apiVersion: streaming.nats.io/v1alpha1
+kind: NatsStreamingCluster
+metadata:
+  name: nats-streaming-cluster
+spec:
+  size: 3
+  image: nats-streaming:0.12.2
+  natsSvc: nats-cluster
+  config:
+    debug: true
+    trace: true
+    raftLogging: true
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: metrics
+    spec:
+      containers:
+        - name: nats-streaming-cluster
+        - name: metrics
+          image: synadia/prometheus-nats-exporter:0.2.0
+          args:
+            - -varz
+            - -channelz
+            - -serverz
+            - -DV
+            - http://localhost:8222
+          ports:
+            - name: metrics
+              containerPort: 7777
+              protocol: TCP

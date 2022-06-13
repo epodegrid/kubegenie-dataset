@@ -1,0 +1,105 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  labels:
+    helm.sh/chart: postgres-0.4.0
+    app-name: postgres
+    component: database-server
+    hostNetwork: null
+    internal-service: "true"
+    managed-by: chynten
+    created-by: chynten
+    version: "14.2"
+type: Opaque
+data:
+  postgres-root-password: cG9zdGdyZXNAMTIz
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 15G
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-svc
+  labels:
+    helm.sh/chart: postgres-0.4.0
+    app-name: postgres
+    component: database-server
+    hostNetwork: null
+    internal-service: "true"
+    managed-by: chynten
+    created-by: chynten
+    version: "14.2"
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: postgres
+      protocol: TCP
+      name: postgres
+  selector:
+    app-name: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-statefuleset
+  labels:
+    helm.sh/chart: postgres-0.4.0
+    app-name: postgres
+    component: database-server
+    hostNetwork: null
+    internal-service: "true"
+    managed-by: chynten
+    created-by: chynten
+    version: "14.2"
+spec:
+  replicas: 1
+  revisionHistoryLimit: null
+  selector:
+    matchLabels:
+      app-name: postgres
+  serviceName: postgres-svc
+  template:
+    metadata:
+      labels:
+        app-name: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:14.0
+          imagePullPolicy: IfNotPresent
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: postgres-root-password
+            - name: POSTGRES_USER
+              value: postgres
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+              subPath: postgres
+      securityContext: null
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgres-pvc

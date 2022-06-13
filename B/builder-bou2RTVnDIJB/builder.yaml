@@ -1,0 +1,287 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: drycc-builder
+  labels:
+    heritage: drycc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: drycc-builder
+  annotations: null
+  labels:
+    heritage: drycc
+spec:
+  ports:
+    - name: ssh
+      port: 2222
+      targetPort: 2223
+  selector:
+    app: drycc-builder
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drycc-builder
+  labels:
+    heritage: drycc
+  annotations:
+    component.drycc.cc/version: canary
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: drycc-builder
+  template:
+    metadata:
+      labels:
+        app: drycc-builder
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 2
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - drycc-builder
+                topologyKey: topology.kubernetes.io/zone
+            - weight: 1
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - drycc-builder
+                topologyKey: kubernetes.io/hostname
+      serviceAccount: drycc-builder
+      initContainers:
+        - name: drycc-builder-init
+          image: registry.drycc.cc/drycc/python-dev:latest
+          imagePullPolicy: Always
+          args:
+            - netcat
+            - -v
+            - -u
+            - $(DRYCC_MINIO_ENDPOINT)
+          env:
+            - name: HEALTH_SERVER_PORT
+              value: "8092"
+            - name: EXTERNAL_PORT
+              value: "2223"
+            - name: TTL_SECONDS_AFTER_FINISHED
+              value: ""
+            - name: GIT_LOCK_TIMEOUT
+              value: "30"
+            - name: IMAGEBUILDER_IMAGE_PULL_POLICY
+              valueFrom:
+                configMapKeyRef:
+                  name: imagebuilder-config
+                  key: imagePullPolicy
+            - name: DRYCC_DEBUG
+              value: "false"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: DRYCC_BUILDER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: builder-key-auth
+                  key: builder-key
+            - name: DRYCC_MINIO_LOOKUP
+              valueFrom:
+                secretKeyRef:
+                  name: minio-creds
+                  key: lookup
+            - name: DRYCC_MINIO_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: minio-creds
+                  key: builder-bucket
+            - name: DRYCC_MINIO_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: minio-creds
+                  key: endpoint
+            - name: DRYCC_MINIO_ACCESSKEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-creds
+                  key: accesskey
+            - name: DRYCC_MINIO_SECRETKEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-creds
+                  key: secretkey
+            - name: DRYCC_REGISTRY_LOCATION
+              value: ""
+            - name: DRYCC_REGISTRY_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: registry-secret
+                  key: host
+            - name: DRYCC_REGISTRY_ORGANIZATION
+              valueFrom:
+                secretKeyRef:
+                  name: registry-secret
+                  key: organization
+            - name: DRYCC_REGISTRY_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: registry-secret
+                  key: username
+            - name: DRYCC_REGISTRY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: registry-secret
+                  key: password
+      containers:
+        - name: drycc-builder
+          image: registry.drycc.cc/drycc/builder:canary
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 2223
+              name: ssh
+            - containerPort: 8092
+              name: healthsrv
+          env:
+            - name: HEALTH_SERVER_PORT
+              value: "8092"
+            - name: EXTERNAL_PORT
+              value: "2223"
+            - name: TTL_SECONDS_AFTER_FINISHED
+              value: ""
+            - name: GIT_LOCK_TIMEOUT
+              value: "30"
+            - name: IMAGEBUILDER_IMAGE_PULL_POLICY
+              valueFrom:
+                configMapKeyRef:
+                  name: imagebuilder-config
+                  key: imagePullPolicy
+            - name: DRYCC_DEBUG
+              value: "false"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: DRYCC_BUILDER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: builder-key-auth
+                  key: builder-key
+            - name: DRYCC_MINIO_LOOKUP
+              valueFrom:
+                secretKeyRef:
+                  name: minio-creds
+                  key: lookup
+            - name: DRYCC_MINIO_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: minio-creds
+                  key: builder-bucket
+            - name: DRYCC_MINIO_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: minio-creds
+                  key: endpoint
+            - name: DRYCC_MINIO_ACCESSKEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-creds
+                  key: accesskey
+            - name: DRYCC_MINIO_SECRETKEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-creds
+                  key: secretkey
+            - name: DRYCC_REGISTRY_LOCATION
+              value: ""
+            - name: DRYCC_REGISTRY_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: registry-secret
+                  key: host
+            - name: DRYCC_REGISTRY_ORGANIZATION
+              valueFrom:
+                secretKeyRef:
+                  name: registry-secret
+                  key: organization
+            - name: DRYCC_REGISTRY_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: registry-secret
+                  key: username
+            - name: DRYCC_REGISTRY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: registry-secret
+                  key: password
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8092
+            initialDelaySeconds: 30
+            timeoutSeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /readiness
+              port: 8092
+            initialDelaySeconds: 30
+            timeoutSeconds: 1
+          volumeMounts:
+            - name: builder-key-auth
+              mountPath: /var/run/secrets/api/auth
+              readOnly: true
+            - name: builder-ssh-private-keys
+              mountPath: /var/run/secrets/drycc/builder/ssh
+              readOnly: true
+            - name: imagebuilder-config
+              mountPath: /etc/imagebuilder
+              readOnly: true
+      volumes:
+        - name: builder-key-auth
+          secret:
+            secretName: builder-key-auth
+        - name: builder-ssh-private-keys
+          secret:
+            secretName: builder-ssh-private-keys
+        - name: imagebuilder-config
+          configMap:
+            name: imagebuilder-config
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: builder-key-auth
+  labels:
+    heritage: drycc
+  annotations:
+    helm.sh/hook: pre-install
+type: Opaque
+data:
+  builder-key: OGhoTUFuZjJnYXJZZmtEMFREYXZiVFB1RFJLMGdWYmFDclNiUWtFS2dkYmQzN1VieFY1MkpKcEJyTXF3RmNSNA==
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: builder-ssh-private-keys
+  labels:
+    heritage: drycc
+  annotations:
+    helm.sh/hook: pre-install
+type: Opaque
+data:
+  ssh-host-rsa-key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlKS2dJQkFBS0NBZ0VBNUFnbXhEa0lhYURDeTdvSE1QcjVhWTM4c2NHaUwwUmRGc2ljQ0NIRDZOeFdORkh6ClczeVg3cGtkc09xZ2NwZVlpVW9VeDBxWHoyck5xaThkeEFxZlptdkpRWVBEUEZPc0RSVVBINnk3eUhUZDgxUjkKRWxRRHpJaE5WOFJPT0F0a1d6VnAweGJpQUJVSEQ4YzFsZlJydE9nZ09vOUtpejBycnppOHp0QTF5U1dMZXp1KwpNaGQxbXJJRld4ZnUrdUl6MzZ4OW4zK2VFYUdGUkVicHV1UFNKU3Vka1RtQkZBZFVqUWJwTzEzN2RxUEZFd2lBCm40a3ZZRi9UOHhOcW9aMlF4a2I5UWFMM2hrMnU1NDlucVUyajFRUGVUbjM5OUJ1NjNDMFArcmo2YUhHWTRBSmkKVkk2ZmY5MDlJTEhMRTBsNFpXTFg1bmxMcUd1ZzROWHRhS3FoSENaUWlqWEY5NVVCR0liaDNlT2FKU1hRWEw1YwpBYUtWUit6SnROZjlNamJFcWJ5ckNXS1hxOXE1WFBPZmpiL3BxRFpnUDBVNlNYZmE3Y1lMeFRFREp5aU5qSUkxClZKd00xRy9jL3l0dmdVU1FSOXIyTVMvRE4xUnJGUjFqWnB2Rno3TmJQZlZPZk1VRlVwNHpQenJURkR0RFBpQ2oKdlAzVUNPSmprSlFvTXF2V3N2L1hCTitoZUVrY2VQcVhLNExyRG5zSGhxRDc1UjVmNU83Vk5pV1Q2UXl2RURXVwp4eElpeFFBK2NKaDM2TS9yL2xzRkpMYUZKRkVOZDhKRHlpRm12aE1IYkpFSk1lUlVaS3lWZnd4cWRSOU42blJPCm5uUmlGRjk3T0lESE5NV2UxU2NoR1JtZ2pMRUpxUEtIRmRQd0pOdkhJOG10d1VjWFQ2aC9yaGUyRkc4Q0F3RUEKQVFLQ0FnRUE0OGNnc2pFbUxoemZlQkZDemJKbElRTXJ2NFBrTmNMY0diNFozaVdjUkNhVUZYOG16K1FNLzlFQwp6NDRPNTJoMmZlejZCSGlHWERJYmJqdlNSOWswa0dKcWpuN0hycU1GNGF0L2greExSMWsxdTdKUm5OVS9WamR3CnlwTFViemN4NzhuVEE0Q0FFQVR4SU5ta3RUMkp1Uk9GM2ZqMFJWRzlLVEpMcDJwano2RXBTdGZLak03U01zeFEKZlVYUytkaXFhR3Nzc1A0Ukx4dGd1MnI2WGl6ajVTMUVINlNKUXpCdlRNL3llZExQTlJzeDZHazkwaDUrckk0TQpjV3Fid1FSYmNUUElGcUJyRUVUWXlZVjl6cWczVnJpZWYxbHJLMFBueTdkWGx1TGZmeVM1eUVtWlgwMTRGWWt4ClhrODZ3dkZJeWoySjNEYWRWSWJ1RktpY2xVaWIxRmN6QmJ1YTJCUmxUMHNlU3NmL3pBZHN3RUZZOGthcVM0NHIKbysySWtxbjBnbEtmcFUyVDJ3djBzUXFjMlhia0cxalBRclA4WEJHVHk3K3dIM0VTNi8xMlZwNEVjcSt2MDdiMgprUmVlNVlXRVZGZHR3Yjh2RmN2ZkhQbmV6VDRzRjN0YUNscFVCV2tLdGlLMmlFWjFqbzhNNlp3WFpQdjNSL09qCmxpMzg0cVp4QnRtWTdFeVRuSS9ycnlkV3ZJUVJ4dTNleFV2ZllpU2loUUhqSVViU3ZTalB6N3FkN0wxT21PQ2wKaFpBZHl5S1pvZkRad25ER21WRENXY3hLNnB5S0JPWDJUQXRRbHF1VHhhQUpwdWEyd3IrZFRYVHFQSC9tZm55cwp3Kzgyc3pZWk1JbFVnQzJMdnpESnVQMktjcDI5YURGNmQwMHc1b3hMWHQvb3gwbkVLa0VDZ2dFQkFQNi9GWnlJCkE4ckhjVWtDVTBSSy90amJkWWEvclFUQUpIQTV1ekV0bjBFTEtmc0hjS2o4bDJoM0U3QnpHRlZTMGFlaHhnNTUKd2ZFT1ZnRFRYdGh4U0RxTVZaaWxLZzU5eXNrK0NYQ01DMHVoU2hQNCtaVzRKZ1g5U0JFUUFhWEVQbGhoMkYwWQo4cSt3aEtnazdpNWkvcTVzbFBETWFaWVFkbUM3Tmt2MGZJR0dxYmNXUGl1bWRYcDVkQ0V1SzdmZDA3b1V3Nm1mCnpTZ3JZelcvbytqRisybVlaQldLVE1mYTN0WkVYVzlOZ2VSY2FDUm9pTkhweHZtU1RiRjY1ZmcwSm9oQkwxRnMKa29MWGUrOW01S0oySWlqaVlINXlYWkNBR0NiTEgwRW1wb25sajlIdFU2VVQ3NVlJUXFoWmZ5YlY0QU5WcEVqRApzOTZlbXNSbTBIWjhGdzBDZ2dFQkFPVW5hZGVXNlIvOFlsSVBvaitwcTd0REpZc0ttQUVzZ2RhaUhLZDdRd3k0CnkwZS9XSnBaSVVZT0haZVdUeHdUTDBySXdKZVVzeVVoUWtHdmlMa0tvOVQvMm5Neno5L3JzRTZ6ODVRWWo4UEcKTUhGN0VkSjZHNDVhM3VCYlFBNm5La2FLSUpodk9wSG51QnA3NU9FR0NyVXVpVDNhUXlmVlU1VUtSQUJjY1B1SApNNElCR3VZcE5xbXdZWWgwVnlEUERrVEtKR0FjNENwK2pPZlNsRHRwaFdvNXRYQTlZSy9aSU5NN1Iwb3dWVlk0CjBVUzg0YTJ5NGQxbEtWSHVmOVdHYmE4RlBQWHJRNE44QjBuMjY5QjdmNFNUZUI2Z0JvbFZobFJjb1NuZnpaaS8KQ0ZHRnN2MVBKeFZHNEEwby9UbkJ6Z2drUVArdGdLT3ZjUjNCYmRjOXVtc0NnZ0VCQUlvR2xMb1VSQ0c1d0ZxegpoTlFxNGp3elpGRlhSM0tjZk9IRmxmUkdhTlJBTFVYVE9TcUdlYTdqWGVxcjRkSlJKa0Z5ZUxKZExFVGs1SnBiCjdEYlA0amUrMDUzNlYzZzBsZ3hGcmEycVkzQmQrcG9wdTJsd3RrRm1nNGFqS3BGYmJBQk5PNEx0d29pSTFzZVkKQXVsbFArTFgrRGNrT2sxUnJDSXJMWGNvQjlIU1dlQldqK2Jzc1JoaitCVUdSQy9DWkRhZGk0bzdpRmdzY2Z1cwpVeTRMSDNhT1dDUUhwQ1JoSlgzbzJzczBycDFCcURlWjRCQUVYNGZYeW5yUVFRd2pqWUVqK0hSZ3BGMTZUYTlnCkM1OHU3TUZFTHM0MFB4Zk5IOGpkSTVrVVRRWElPUTJnVGtMU00yMFNHclBHa2d0RHRMVjUwS0tRVHNQZkliSXEKbHVhcnczMENnZ0VBSEUzOC9kc3ZHbnRUTGEydXJjeG9ZTzRQVWhoUjVEczZJbWZOd0VZeVp2emdaeEZVZ1dRbQovdjg1V29ML2JJbFdHeGVtNmxJOHVvWmNKNzdsMVcxaUJTcEJNbCtnK3BpakkyV0kzYThXK3VpZERUZFZZVGtoCjlEaDNOU0V3VFY4S2tzSDIrcjBxYitFK1ZVOGVXMGtpdzNSbkVWUEhYY0UwM01EeTIxU1B4QkhVSStlOUNkYm4KWUpoZnc3b1RGUU5lVU5MaklWZ1B2RS83V1pzaUlpQ0xrUzVsb2VLQzhkV1EvMlpnRE9MaGQ0LzNFVlYvVHJROAp2OXNCK3BQS0NIYmRUM1FITHAwTHJzOEFHM3U3YnZvQ0t6OEg1RWlCNWk3Qk0rUnBKOEgwSkR6Y2F5MW5pWEJnCmRIbFhyV2gxdHMrZ2dsTHdFR1MrOGZqMnNPVTJpeEtkMXdLQ0FRRUF5N0lWV2ZpWDlMU0JhQ3pENnMyVlZPTkcKTEZWMkEvNFp5K0tTZ1N1S1poRXQ0NXpacjd5Q2hkelpOY2ViZGlsM0xiYWpua2JxWHZnZG4rbFlIZlNCY3Q0OAowQTVMZFRMY0c2RmZTdnl4WUthekpkVlBIbTFUTkNCK1I3VFNmaGtVL0pFbTduQ1dMb2N0SGFuaVA1dlE0L0xFCkxKcWRlRHpUODFGTm92MEF0TWhBRU1ndGx1bElnUUJNbWptUnpHTnhHNGRLRk5lTmFuSUZKTXJqdklHWXlPbGMKaGFBbi9PWmZTQWlPaEZpRjFRSDRyMVVud3doemF4MHFJdzcxUDJqZEdJR0VvYU04LytXbXdDdzBDSDUzVmF3Qgo0aVI2REU0YTFDUDBIVjZoVlhmTkYwQ01IUEpNc3JGcXVxY09kOGprSzdGNS9La2QwZmpJYldaMmw3OWk2dz09Ci0tLS0tRU5EIFJTQSBQUklWQVRFIEtFWS0tLS0tCg==
+  ssh-host-ecdsa-key: LS0tLS1CRUdJTiBFQyBQUklWQVRFIEtFWS0tLS0tCk1IY0NBUUVFSUloY1diYjZLUld0K2xoRTdKR3REZCtYb3Q5Zms2RW9wOWIwOG9yWXcwVmNvQW9HQ0NxR1NNNDkKQXdFSG9VUURRZ0FFWm9tT1g3dmNtbnE2NC9PWHlOUjRTSVM3U25qdVh0blhFOVRhNEEreTRTRE5vWG04eUNPVgp1M0s5eW9GaGJUMm5LdlpVaEVTcXM1cXY3cU1VQ0FWQkdnPT0KLS0tLS1FTkQgRUMgUFJJVkFURSBLRVktLS0tLQo=

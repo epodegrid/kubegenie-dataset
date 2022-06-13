@@ -1,0 +1,265 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-nfs-provisioner
+  namespace: 64eJMfaP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nfs-bin
+data:
+  image-repo-sync.sh: |
+    #!/bin/sh
+    set -ex
+
+    IFS=','; for IMAGE in ${IMAGE_SYNC_LIST}; do
+      docker pull ${IMAGE}
+      docker tag ${IMAGE} ${LOCAL_REPO}/${IMAGE}
+      docker push ${LOCAL_REPO}/${IMAGE}
+    done
+---
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: release-name
+provisioner: nfs/release-name
+parameters:
+  mountOptions: vers=4.1
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-nfs-provisioner
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - persistentvolumes
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+  - apiGroups:
+      - storage.k8s.io
+    resources:
+      - storageclasses
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - list
+      - watch
+      - create
+      - update
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - get
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+    verbs:
+      - get
+      - create
+      - update
+      - patch
+  - apiGroups:
+      - policy
+    resources:
+      - podsecuritypolicies
+    resourceNames:
+      - nfs-provisioner
+    verbs:
+      - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-nfs-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: release-name-nfs-provisioner
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: release-name-nfs-provisioner
+  apiGroup: rbac.authorization.k8s.io
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: nfs-provisioner
+  labels:
+    release_group: release-name
+    application: nfs
+    component: provisioner
+spec:
+  ports:
+    - name: nfs
+      port: 2049
+    - name: mountd
+      port: 20048
+    - name: rpcbind
+      port: 111
+    - name: rpcbind-udp
+      port: 111
+      protocol: UDP
+  selector:
+    release_group: release-name
+    application: nfs
+    component: provisioner
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: nfs-provisioner
+  annotations:
+    openstackhelm.openstack.org/release_uuid: ""
+  labels:
+    release_group: release-name
+    application: nfs
+    component: provisioner
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      release_group: release-name
+      application: nfs
+      component: provisioner
+  template:
+    metadata:
+      labels:
+        release_group: release-name
+        application: nfs
+        component: provisioner
+      annotations:
+        openstackhelm.openstack.org/release_uuid: ""
+        configmap-bin-hash: fbd0a3ec24f5098aa6c5409f4649657b813552ebf38efe06698354468183f986
+    spec:
+      serviceAccountName: release-name-nfs-provisioner
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: release_group
+                      operator: In
+                      values:
+                        - release-name
+                    - key: application
+                      operator: In
+                      values:
+                        - nfs
+                    - key: component
+                      operator: In
+                      values:
+                        - provisioner
+                topologyKey: kubernetes.io/hostname
+              weight: 10
+      nodeSelector:
+        openstack-control-plane: enabled
+      initContainers:
+        - name: init
+          image: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: INTERFACE_NAME
+              value: eth0
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: DEPENDENCY_SERVICE
+              value: ""
+            - name: DEPENDENCY_DAEMONSET
+              value: ""
+            - name: DEPENDENCY_CONTAINER
+              value: ""
+            - name: DEPENDENCY_POD_JSON
+              value: ""
+            - name: DEPENDENCY_CUSTOM_RESOURCE
+              value: ""
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+      containers:
+        - name: nfs-provisioner
+          image: quay.io/kubernetes_incubator/nfs-provisioner:v2.2.1-k8s1.12
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            capabilities:
+              drop:
+                "": NET_RAW
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          ports:
+            - name: nfs
+              containerPort: 2049
+            - name: mountd
+              containerPort: 20048
+            - name: rpcbind
+              containerPort: 111
+            - name: rpcbind-udp
+              containerPort: 111
+              protocol: UDP
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: SERVICE_NAME
+              value: nfs-provisioner
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          args:
+            - -provisioner=nfs/release-name
+            - -grace-period=10
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: export-volume
+              mountPath: /export
+      volumes:
+        - name: pod-tmp
+          emptyDir: {}
+        - name: export-volume
+          hostPath:
+            path: /var/lib/openstack-helm/nfs

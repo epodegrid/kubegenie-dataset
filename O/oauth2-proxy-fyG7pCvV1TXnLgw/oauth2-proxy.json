@@ -1,0 +1,690 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "automountServiceAccountToken": true,
+    "metadata": {
+      "name": "release-name-redis",
+      "namespace": "fyG7pCvV1TXnLgw",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.12.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-oauth2-proxy",
+      "namespace": "fyG7pCvV1TXnLgw",
+      "labels": {
+        "app.kubernetes.io/name": "oauth2-proxy",
+        "helm.sh/chart": "oauth2-proxy-2.1.9",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "oauth2-proxy"
+      }
+    },
+    "automountServiceAccountToken": true
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-redis",
+      "namespace": "fyG7pCvV1TXnLgw",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.12.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "redis-password": "YXdXcE9jb3ROdA=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-oauth2-proxy",
+      "namespace": "fyG7pCvV1TXnLgw",
+      "labels": {
+        "app.kubernetes.io/name": "oauth2-proxy",
+        "helm.sh/chart": "oauth2-proxy-2.1.9",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "oauth2-proxy"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "cookie-secret": "WFhYWFhYWFhYWFhYWFhYWA==",
+      "client-secret": "WFhYWFhYWFg=",
+      "client-id": "WFhYWFhYWA=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-redis-configuration",
+      "namespace": "fyG7pCvV1TXnLgw",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.12.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "redis.conf": "# User-supplied common configuration:\n# Enable AOF https://redis.io/topics/persistence#append-only-file\nappendonly yes\n# Disable RDB persistence, AOF persistence already enabled.\nsave \"\"\n# End of common configuration",
+      "master.conf": "dir /data\n# User-supplied master configuration:\nrename-command FLUSHDB \"\"\nrename-command FLUSHALL \"\"\n# End of master configuration",
+      "replica.conf": "dir /data\nslave-read-only yes\n# User-supplied replica configuration:\nrename-command FLUSHDB \"\"\nrename-command FLUSHALL \"\"\n# End of replica configuration"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-redis-health",
+      "namespace": "fyG7pCvV1TXnLgw",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.12.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "ping_readiness_local.sh": "#!/bin/bash\n\n[[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD=\"$(< \"${REDIS_PASSWORD_FILE}\")\"\n[[ -n \"$REDIS_PASSWORD\" ]] && export REDISCLI_AUTH=\"$REDIS_PASSWORD\"\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -h localhost \\\n    -p $REDIS_PORT \\\n    ping\n)\nif [ \"$?\" -eq \"124\" ]; then\n  echo \"Timed out\"\n  exit 1\nfi\nif [ \"$response\" != \"PONG\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_liveness_local.sh": "#!/bin/bash\n\n[[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD=\"$(< \"${REDIS_PASSWORD_FILE}\")\"\n[[ -n \"$REDIS_PASSWORD\" ]] && export REDISCLI_AUTH=\"$REDIS_PASSWORD\"\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -h localhost \\\n    -p $REDIS_PORT \\\n    ping\n)\nif [ \"$?\" -eq \"124\" ]; then\n  echo \"Timed out\"\n  exit 1\nfi\nresponseFirstWord=$(echo $response | head -n1 | awk '{print $1;}')\nif [ \"$response\" != \"PONG\" ] && [ \"$responseFirstWord\" != \"LOADING\" ] && [ \"$responseFirstWord\" != \"MASTERDOWN\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_readiness_master.sh": "#!/bin/bash\n\n[[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD=\"$(< \"${REDIS_MASTER_PASSWORD_FILE}\")\"\n[[ -n \"$REDIS_MASTER_PASSWORD\" ]] && export REDISCLI_AUTH=\"$REDIS_MASTER_PASSWORD\"\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -h $REDIS_MASTER_HOST \\\n    -p $REDIS_MASTER_PORT_NUMBER \\\n    ping\n)\nif [ \"$?\" -eq \"124\" ]; then\n  echo \"Timed out\"\n  exit 1\nfi\nif [ \"$response\" != \"PONG\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_liveness_master.sh": "#!/bin/bash\n\n[[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD=\"$(< \"${REDIS_MASTER_PASSWORD_FILE}\")\"\n[[ -n \"$REDIS_MASTER_PASSWORD\" ]] && export REDISCLI_AUTH=\"$REDIS_MASTER_PASSWORD\"\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -h $REDIS_MASTER_HOST \\\n    -p $REDIS_MASTER_PORT_NUMBER \\\n    ping\n)\nif [ \"$?\" -eq \"124\" ]; then\n  echo \"Timed out\"\n  exit 1\nfi\nresponseFirstWord=$(echo $response | head -n1 | awk '{print $1;}')\nif [ \"$response\" != \"PONG\" ] && [ \"$responseFirstWord\" != \"LOADING\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_readiness_local_and_master.sh": "script_dir=\"$(dirname \"$0\")\"\nexit_status=0\n\"$script_dir/ping_readiness_local.sh\" $1 || exit_status=$?\n\"$script_dir/ping_readiness_master.sh\" $1 || exit_status=$?\nexit $exit_status",
+      "ping_liveness_local_and_master.sh": "script_dir=\"$(dirname \"$0\")\"\nexit_status=0\n\"$script_dir/ping_liveness_local.sh\" $1 || exit_status=$?\n\"$script_dir/ping_liveness_master.sh\" $1 || exit_status=$?\nexit $exit_status"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-redis-scripts",
+      "namespace": "fyG7pCvV1TXnLgw",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.12.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "start-master.sh": "#!/bin/bash\n\n[[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD=\"$(< \"${REDIS_PASSWORD_FILE}\")\"\nif [[ ! -f /opt/bitnami/redis/etc/master.conf ]];then\n    cp /opt/bitnami/redis/mounted-etc/master.conf /opt/bitnami/redis/etc/master.conf\nfi\nif [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then\n    cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf\nfi\nARGS=(\"--port\" \"${REDIS_PORT}\")\nARGS+=(\"--requirepass\" \"${REDIS_PASSWORD}\")\nARGS+=(\"--masterauth\" \"${REDIS_PASSWORD}\")\nARGS+=(\"--include\" \"/opt/bitnami/redis/etc/redis.conf\")\nARGS+=(\"--include\" \"/opt/bitnami/redis/etc/master.conf\")\nexec redis-server \"${ARGS[@]}\"\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-oauth2-proxy",
+      "namespace": "fyG7pCvV1TXnLgw",
+      "labels": {
+        "app.kubernetes.io/name": "oauth2-proxy",
+        "helm.sh/chart": "oauth2-proxy-2.1.9",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "oauth2-proxy"
+      }
+    },
+    "data": {
+      "oauth2_proxy.cfg": "email_domains = [ \"*\" ]\nupstreams = [ \"file:///dev/null\" ]\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-redis-headless",
+      "namespace": "fyG7pCvV1TXnLgw",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.12.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "tcp-redis",
+          "port": 6379,
+          "targetPort": "redis"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "redis",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-redis-master",
+      "namespace": "fyG7pCvV1TXnLgw",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.12.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "master"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "internalTrafficPolicy": "Cluster",
+      "sessionAffinity": "None",
+      "ports": [
+        {
+          "name": "tcp-redis",
+          "port": 6379,
+          "targetPort": "redis",
+          "nodePort": null
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "redis",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "master"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-oauth2-proxy",
+      "namespace": "fyG7pCvV1TXnLgw",
+      "labels": {
+        "app.kubernetes.io/name": "oauth2-proxy",
+        "helm.sh/chart": "oauth2-proxy-2.1.9",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "oauth2-proxy"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "sessionAffinity": "None",
+      "ports": [
+        {
+          "name": "http",
+          "port": 80,
+          "protocol": "TCP",
+          "targetPort": "http",
+          "nodePort": null
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "oauth2-proxy",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "oauth2-proxy"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-oauth2-proxy",
+      "namespace": "fyG7pCvV1TXnLgw",
+      "labels": {
+        "app.kubernetes.io/name": "oauth2-proxy",
+        "helm.sh/chart": "oauth2-proxy-2.1.9",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "oauth2-proxy"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "oauth2-proxy",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "oauth2-proxy"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config": "f62b80eb97aa2b58ed2c3ec75f4b9db6d8a800abe5107384c901a9639783bdb5"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "oauth2-proxy",
+            "helm.sh/chart": "oauth2-proxy-2.1.9",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "oauth2-proxy"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-oauth2-proxy",
+          "affinity": {
+            "podAffinity": null,
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app.kubernetes.io/name": "oauth2-proxy",
+                        "app.kubernetes.io/instance": "release-name",
+                        "app.kubernetes.io/component": "oauth2-proxy"
+                      }
+                    },
+                    "namespaces": [
+                      "default"
+                    ],
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 1
+                }
+              ]
+            },
+            "nodeAffinity": null
+          },
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "containers": [
+            {
+              "name": "oauth2-proxy",
+              "image": "docker.io/bitnami/oauth2-proxy:7.3.0-debian-11-r3",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 11751,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "args": [
+                "--http-address=0.0.0.0:4180",
+                "--config=/bitnami/oauth2-proxy/conf/oauth2_proxy.cfg"
+              ],
+              "env": [
+                {
+                  "name": "OAUTH2_PROXY_CLIENT_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-oauth2-proxy",
+                      "key": "client-id"
+                    }
+                  }
+                },
+                {
+                  "name": "OAUTH2_PROXY_CLIENT_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-oauth2-proxy",
+                      "key": "client-secret"
+                    }
+                  }
+                },
+                {
+                  "name": "OAUTH2_PROXY_COOKIE_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-oauth2-proxy",
+                      "key": "cookie-secret"
+                    }
+                  }
+                },
+                {
+                  "name": "OAUTH2_PROXY_SESSION_STORE_TYPE",
+                  "value": "redis"
+                },
+                {
+                  "name": "OAUTH2_PROXY_REDIS_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-redis",
+                      "key": "redis-password"
+                    }
+                  }
+                },
+                {
+                  "name": "OAUTH2_PROXY_REDIS_CONNECTION_URL",
+                  "value": "redis://release-name-redis-master:6379"
+                }
+              ],
+              "envFrom": null,
+              "ports": [
+                {
+                  "containerPort": 4180,
+                  "name": "http",
+                  "protocol": "TCP"
+                }
+              ],
+              "resources": {
+                "limits": {},
+                "requests": {},
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/ping",
+                  "port": "http",
+                  "scheme": "HTTP"
+                },
+                "initialDelaySeconds": 0,
+                "periodSeconds": 10,
+                "timeoutSeconds": 1,
+                "successThreshold": 1,
+                "failureThreshold": 5
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/ping",
+                  "port": "http",
+                  "scheme": "HTTP"
+                },
+                "initialDelaySeconds": 0,
+                "periodSeconds": 10,
+                "timeoutSeconds": 1,
+                "successThreshold": 1,
+                "failureThreshold": 5
+              },
+              "volumeMounts": [
+                {
+                  "name": "main-configuration",
+                  "mountPath": "/bitnami/oauth2-proxy/conf"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "main-configuration",
+              "configMap": {
+                "defaultMode": 420,
+                "name": "release-name-oauth2-proxy"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-redis-master",
+      "namespace": "fyG7pCvV1TXnLgw",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.12.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "master"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "redis",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "master"
+        }
+      },
+      "serviceName": "release-name-redis-headless",
+      "updateStrategy": {
+        "rollingUpdate": {},
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "redis",
+            "helm.sh/chart": "redis-16.12.0",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "master"
+          },
+          "annotations": {
+            "checksum/configmap": "5c9b9c078c2de0611accd102ca9e2930304e81c12636f2e3838cde4ae1042833",
+            "checksum/health": "1bb5c400ad56b71d72b97d4874dcb6ebc3cfd47ea97c8b4cb2d6552c4df71c36",
+            "checksum/scripts": "5fb0536e3a8e4ef77f334f91b752eee5f7116ad607c87647e337423448b3b239",
+            "checksum/secret": "6377f788f642adc324d6b95ef734fa51e3e76926147b70fe71df7d5e7893f30e"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "serviceAccountName": "release-name-redis",
+          "affinity": {
+            "podAffinity": null,
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app.kubernetes.io/name": "redis",
+                        "app.kubernetes.io/instance": "release-name",
+                        "app.kubernetes.io/component": "master"
+                      }
+                    },
+                    "namespaces": [
+                      "default"
+                    ],
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 1
+                }
+              ]
+            },
+            "nodeAffinity": null
+          },
+          "terminationGracePeriodSeconds": 30,
+          "containers": [
+            {
+              "name": "redis",
+              "image": "docker.io/bitnami/redis:6.2.7-debian-11-r0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 11299,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "command": [
+                "/bin/bash"
+              ],
+              "args": [
+                "-c",
+                "/opt/bitnami/scripts/start-scripts/start-master.sh"
+              ],
+              "env": [
+                {
+                  "name": "BITNAMI_DEBUG",
+                  "value": "false"
+                },
+                {
+                  "name": "REDIS_REPLICATION_MODE",
+                  "value": "master"
+                },
+                {
+                  "name": "ALLOW_EMPTY_PASSWORD",
+                  "value": "no"
+                },
+                {
+                  "name": "REDIS_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-redis",
+                      "key": "redis-password"
+                    }
+                  }
+                },
+                {
+                  "name": "REDIS_TLS_ENABLED",
+                  "value": "no"
+                },
+                {
+                  "name": "REDIS_PORT",
+                  "value": "6379"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "redis",
+                  "containerPort": 6379
+                }
+              ],
+              "livenessProbe": {
+                "initialDelaySeconds": 20,
+                "periodSeconds": 5,
+                "timeoutSeconds": 6,
+                "successThreshold": 1,
+                "failureThreshold": 5,
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "/health/ping_liveness_local.sh 5"
+                  ]
+                }
+              },
+              "readinessProbe": {
+                "initialDelaySeconds": 20,
+                "periodSeconds": 5,
+                "timeoutSeconds": 2,
+                "successThreshold": 1,
+                "failureThreshold": 5,
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "/health/ping_readiness_local.sh 1"
+                  ]
+                }
+              },
+              "resources": {
+                "limits": {},
+                "requests": {},
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "start-scripts",
+                  "mountPath": "/opt/bitnami/scripts/start-scripts"
+                },
+                {
+                  "name": "health",
+                  "mountPath": "/health"
+                },
+                {
+                  "name": "redis-data",
+                  "mountPath": "/data",
+                  "subPath": null
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/opt/bitnami/redis/mounted-etc"
+                },
+                {
+                  "name": "redis-tmp-conf",
+                  "mountPath": "/opt/bitnami/redis/etc/"
+                },
+                {
+                  "name": "tmp",
+                  "mountPath": "/tmp"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "start-scripts",
+              "configMap": {
+                "name": "release-name-redis-scripts",
+                "defaultMode": 493
+              }
+            },
+            {
+              "name": "health",
+              "configMap": {
+                "name": "release-name-redis-health",
+                "defaultMode": 493
+              }
+            },
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-redis-configuration"
+              }
+            },
+            {
+              "name": "redis-tmp-conf",
+              "emptyDir": {}
+            },
+            {
+              "name": "tmp",
+              "emptyDir": {}
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "redis-data",
+            "labels": {
+              "app.kubernetes.io/name": "redis",
+              "app.kubernetes.io/instance": "release-name",
+              "app.kubernetes.io/component": "master"
+            }
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "8Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+]

@@ -1,0 +1,2747 @@
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: release-name-pulsar-bookie
+  namespace: default
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: bookie
+spec:
+  selector:
+    matchLabels:
+      app: pulsar
+      release: release-name
+      component: bookie
+  maxUnavailable: 1
+---
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: release-name-pulsar-broker
+  namespace: default
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: broker
+spec:
+  selector:
+    matchLabels:
+      app: pulsar
+      release: release-name
+      component: broker
+  maxUnavailable: 1
+---
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: release-name-pulsar-proxy
+  namespace: default
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: proxy
+spec:
+  selector:
+    matchLabels:
+      app: pulsar
+      release: release-name
+      component: proxy
+  maxUnavailable: 1
+---
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: release-name-pulsar-zookeeper
+  namespace: default
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: zookeeper
+spec:
+  selector:
+    matchLabels:
+      app: pulsar
+      release: release-name
+      component: zookeeper
+  maxUnavailable: 1
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-minio-update-prometheus-secret
+  labels:
+    app: minio-update-prometheus-secret
+    chart: minio-8.0.11
+    release: release-name
+    heritage: Helm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-minio
+  namespace: qz4zQxgXK
+  labels:
+    app: minio
+    chart: minio-8.0.11
+    release: release-name
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-pulsar-broker-acct
+  namespace: qz4zQxgXK
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: broker
+  annotations: null
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-minio
+  labels:
+    app: minio
+    chart: minio-8.0.11
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  accesskey: bWluaW9hZG1pbg==
+  secretkey: bWluaW9hZG1pbg==
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-minio
+  labels:
+    app: minio
+    chart: minio-8.0.11
+    release: release-name
+    heritage: Helm
+data:
+  initialize: |-
+    #!/bin/sh
+    set -e ; # Have script exit in the event of a failed command.
+    MC_CONFIG_DIR="/etc/minio/mc/"
+    MC="/usr/bin/mc --insecure --config-dir ${MC_CONFIG_DIR}"
+
+    # connectToMinio
+    # Use a check-sleep-check loop to wait for Minio service to be available
+    connectToMinio() {
+      SCHEME=$1
+      ATTEMPTS=0 ; LIMIT=29 ; # Allow 30 attempts
+      set -e ; # fail if we can't read the keys.
+      ACCESS=$(cat /config/accesskey) ; SECRET=$(cat /config/secretkey) ;
+      set +e ; # The connections to minio are allowed to fail.
+      echo "Connecting to Minio server: $SCHEME://$MINIO_ENDPOINT:$MINIO_PORT" ;
+      MC_COMMAND="${MC} config host add myminio $SCHEME://$MINIO_ENDPOINT:$MINIO_PORT $ACCESS $SECRET" ;
+      $MC_COMMAND ;
+      STATUS=$? ;
+      until [ $STATUS = 0 ]
+      do
+        ATTEMPTS=`expr $ATTEMPTS + 1` ;
+        echo \"Failed attempts: $ATTEMPTS\" ;
+        if [ $ATTEMPTS -gt $LIMIT ]; then
+          exit 1 ;
+        fi ;
+        sleep 2 ; # 1 second intervals between attempts
+        $MC_COMMAND ;
+        STATUS=$? ;
+      done ;
+      set -e ; # reset `e` as active
+      return 0
+    }
+
+    # checkBucketExists ($bucket)
+    # Check if the bucket exists, by using the exit code of `mc ls`
+    checkBucketExists() {
+      BUCKET=$1
+      CMD=$(${MC} ls myminio/$BUCKET > /dev/null 2>&1)
+      return $?
+    }
+
+    # createBucket ($bucket, $policy, $purge)
+    # Ensure bucket exists, purging if asked to
+    createBucket() {
+      BUCKET=$1
+      POLICY=$2
+      PURGE=$3
+      VERSIONING=$4
+
+      # Purge the bucket, if set & exists
+      # Since PURGE is user input, check explicitly for `true`
+      if [ $PURGE = true ]; then
+        if checkBucketExists $BUCKET ; then
+          echo "Purging bucket '$BUCKET'."
+          set +e ; # don't exit if this fails
+          ${MC} rm -r --force myminio/$BUCKET
+          set -e ; # reset `e` as active
+        else
+          echo "Bucket '$BUCKET' does not exist, skipping purge."
+        fi
+      fi
+
+      # Create the bucket if it does not exist
+      if ! checkBucketExists $BUCKET ; then
+        echo "Creating bucket '$BUCKET'"
+        ${MC} mb myminio/$BUCKET
+      else
+        echo "Bucket '$BUCKET' already exists."
+      fi
+
+
+      # set versioning for bucket
+      if [ ! -z $VERSIONING ] ; then
+        if [ $VERSIONING = true ] ; then
+            echo "Enabling versioning for '$BUCKET'"
+            ${MC} version enable myminio/$BUCKET
+        elif [ $VERSIONING = false ] ; then
+            echo "Suspending versioning for '$BUCKET'"
+            ${MC} version suspend myminio/$BUCKET
+        fi
+      else
+          echo "Bucket '$BUCKET' versioning unchanged."
+      fi
+
+      # At this point, the bucket should exist, skip checking for existence
+      # Set policy on the bucket
+      echo "Setting policy of bucket '$BUCKET' to '$POLICY'."
+      ${MC} policy set $POLICY myminio/$BUCKET
+    }
+
+    # Try connecting to Minio instance
+    scheme=http
+    connectToMinio $scheme
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-pulsar-recovery
+  namespace: qz4zQxgXK
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: recovery
+data:
+  zkServers: release-name-pulsar-zookeeper:2181
+  zkLedgersRootPath: /ledgers
+  httpServerEnabled: "true"
+  httpServerPort: "8000"
+  statsProviderClass: org.apache.bookkeeper.stats.prometheus.PrometheusMetricsProvider
+  useHostNameAsBookieID: "true"
+  BOOKIE_MEM: |
+    -Xms64m -Xmx64m
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-pulsar-bookie
+  namespace: qz4zQxgXK
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: bookie
+data:
+  zkServers: release-name-pulsar-zookeeper:2181
+  zkLedgersRootPath: /ledgers
+  httpServerEnabled: "true"
+  httpServerPort: "8000"
+  statsProviderClass: org.apache.bookkeeper.stats.prometheus.PrometheusMetricsProvider
+  useHostNameAsBookieID: "true"
+  autoRecoveryDaemonEnabled: "false"
+  journalMaxBackups: "0"
+  journalDirectories: /pulsar/data/bookkeeper/journal
+  PULSAR_PREFIX_journalDirectories: /pulsar/data/bookkeeper/journal
+  ledgerDirectories: /pulsar/data/bookkeeper/ledgers
+  PULSAR_GC: |
+    -Dio.netty.leakDetectionLevel=disabled -Dio.netty.recycler.linkCapacity=1024 -XX:+UseG1GC -XX:MaxGCPauseMillis=10 -XX:+ParallelRefProcEnabled -XX:+UnlockExperimentalVMOptions -XX:+DoEscapeAnalysis -XX:ParallelGCThreads=32 -XX:ConcGCThreads=32 -XX:G1NewSizePercent=50 -XX:+DisableExplicitGC -XX:-ResizePLAB -XX:+ExitOnOutOfMemoryError -XX:+PerfDisableSharedMem -XX:+PrintGCDetails
+  PULSAR_MEM: |
+    -Xms4096m -Xmx4096m -XX:MaxDirectMemorySize=8192m
+  dbStorage_readAheadCacheMaxSizeMb: "32"
+  dbStorage_rocksDB_blockCacheSize: "8388608"
+  dbStorage_rocksDB_writeBufferSizeMB: "8"
+  dbStorage_writeCacheMaxSizeMb: "32"
+  nettyMaxFrameSizeBytes: "104867840"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-pulsar-broker
+  namespace: qz4zQxgXK
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: broker
+data:
+  zookeeperServers: release-name-pulsar-zookeeper:2181
+  configurationStoreServers: release-name-pulsar-zookeeper:2181
+  clusterName: release-name-pulsar
+  exposeTopicLevelMetricsInPrometheus: "true"
+  numHttpServerThreads: "8"
+  zooKeeperSessionTimeoutMillis: "30000"
+  statusFilePath: /pulsar/status
+  functionsWorkerEnabled: "false"
+  webServicePort: "8080"
+  brokerServicePort: "6650"
+  PULSAR_GC: |
+    -Dio.netty.leakDetectionLevel=disabled -Dio.netty.recycler.linkCapacity=1024 -XX:+ParallelRefProcEnabled -XX:+UnlockExperimentalVMOptions -XX:+DoEscapeAnalysis -XX:ParallelGCThreads=32 -XX:ConcGCThreads=32 -XX:G1NewSizePercent=50 -XX:+DisableExplicitGC -XX:-ResizePLAB -XX:+ExitOnOutOfMemoryError
+  PULSAR_MEM: |
+    -Xms4096m -Xmx4096m -XX:MaxDirectMemorySize=8192m
+  backlogQuotaDefaultLimitGB: "8"
+  backlogQuotaDefaultRetentionPolicy: producer_exception
+  defaultRetentionSizeInMB: "8192"
+  defaultRetentionTimeInMinutes: "10080"
+  managedLedgerDefaultAckQuorum: "2"
+  managedLedgerDefaultEnsembleSize: "2"
+  managedLedgerDefaultWriteQuorum: "2"
+  maxMessageSize: "104857600"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-pulsar-proxy
+  namespace: qz4zQxgXK
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: proxy
+data:
+  clusterName: release-name-pulsar
+  httpNumThreads: "100"
+  statusFilePath: /pulsar/status
+  webServicePort: "80"
+  servicePort: "6650"
+  brokerServiceURL: pulsar://release-name-pulsar-broker:6650
+  brokerWebServiceURL: http://release-name-pulsar-broker:8080
+  PULSAR_GC: |
+    -XX:MaxDirectMemorySize=2048m
+  PULSAR_MEM: |
+    -Xms2048m -Xmx2048m
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-pulsar-zookeeper
+  namespace: qz4zQxgXK
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: zookeeper
+data:
+  dataDir: /pulsar/data/zookeeper
+  PULSAR_PREFIX_serverCnxnFactory: org.apache.zookeeper.server.NIOServerCnxnFactory
+  serverCnxnFactory: org.apache.zookeeper.server.NIOServerCnxnFactory
+  PULSAR_GC: |
+    -Dcom.sun.management.jmxremote -Djute.maxbuffer=10485760 -XX:+ParallelRefProcEnabled -XX:+UnlockExperimentalVMOptions -XX:+DoEscapeAnalysis -XX:+DisableExplicitGC -XX:+PerfDisableSharedMem -Dzookeeper.forceSync=no
+  PULSAR_MEM: |
+    -Xms1024m -Xmx1024m
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-milvus
+data:
+  milvus.yaml: |
+    # Copyright (C) 2019-2021 Zilliz. All rights reserved.
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance
+    # with the License. You may obtain a copy of the License at
+    #
+    # http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software distributed under the License
+    # is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
+    # or implied. See the License for the specific language governing permissions and limitations under the License.
+
+    etcd:
+      endpoints:
+        - release-name-etcd:2379
+      rootPath: by-dev
+      metaSubPath: meta # metaRootPath = rootPath + '/' + metaSubPath
+      kvSubPath: kv # kvRootPath = rootPath + '/' + kvSubPath
+
+    minio:
+      address: release-name-minio
+      port: 9000
+      accessKeyID: minioadmin
+      secretAccessKey: minioadmin
+      useSSL: false
+      bucketName: milvus-bucket
+      rootPath: file
+
+    pulsar:
+      address: release-name-pulsar-proxy
+      port: 6650
+
+    rootCoord:
+      address: release-name-milvus-rootcoord
+      port: 53100
+
+      grpc:
+        serverMaxRecvSize: 2147483647  # math.MaxInt32
+        serverMaxSendSize: 2147483647  # math.MaxInt32
+        clientMaxRecvSize: 104857600   # 100 MB, 100 * 1024 * 1024
+        clientMaxSendSize: 104857600   # 100 MB, 100 * 1024 * 1024
+
+      dmlChannelNum: "256"  # The number of dml channels created at system startup
+      maxPartitionNum: "4096"  # Maximum number of partitions in a collection
+      minSegmentSizeToEnableIndex: "1024"  # It's a threshold. When the segment size is less than this value, the segment will not be indexed
+      timeout: 3600  # time out, 5 seconds
+      timeTickInterval: 200  # ms, the interval that proxy synchronize the time tick
+
+    proxy:
+      port: 19530
+
+      grpc:
+        serverMaxRecvSize: 2147483647  # math.MaxInt32
+        serverMaxSendSize: 2147483647  # math.MaxInt32
+        clientMaxRecvSize: 104857600   # 100 MB, 100 * 1024 * 1024
+        clientMaxSendSize: 104857600   # 100 MB, 100 * 1024 * 1024
+
+      timeTickInterval: "200"  # ms, the interval that proxy synchronize the time tick
+      msgStream:
+        insert:
+          bufSize: 1024  # msgPack chan buffer size
+        search:
+          bufSize: 512
+        searchResult:
+          recvBufSize: 1024  # msgPack chan buffer size
+          pulsarBufSize: 1024  # pulsar chan buffer size
+        timeTick:
+          bufSize: 512
+      maxNameLength: 255   # max name length of collection or alias
+      maxFieldNum: "256"     # max field number of a collection
+      maxDimension: 32768  # Maximum dimension of vector
+      maxShardNum: "256"  # Maximum number of shards in a collection
+      maxTaskNum: "1024"  # max task number of proxy task queue
+      bufFlagExpireTime: 300  # second, the time to expire bufFlag from cache in collectResultLoop
+      bufFlagCleanupInterval: 600  # second, the interval to clean bufFlag cache in collectResultLoop
+
+    queryCoord:
+      address: release-name-milvus-querycoord
+      port: 19531
+      autoHandoff: true
+      autoBalance: true
+      overloadedMemoryThresholdPercentage: 90
+      balanceIntervalSeconds: 60
+      memoryUsageMaxDifferencePercentage: 30
+
+      grpc:
+        serverMaxRecvSize: 2147483647  # math.MaxInt32
+        serverMaxSendSize: 2147483647  # math.MaxInt32
+        clientMaxRecvSize: 104857600   # 100 MB, 100 * 1024 * 1024
+        clientMaxSendSize: 104857600   # 100 MB, 100 * 1024 * 1024
+
+    queryNode:
+      gracefulTime: 0  # ms
+      port: 21123
+
+      grpc:
+        serverMaxRecvSize: 2147483647  # math.MaxInt32
+        serverMaxSendSize: 2147483647  # math.MaxInt32
+        clientMaxRecvSize: 104857600   # 100 MB, 100 * 1024 * 1024
+        clientMaxSendSize: 104857600   # 100 MB, 100 * 1024 * 1024
+
+      stats:
+        publishInterval: 1000  # Interval for querynode to report node information (milliseconds)
+      dataSync:
+        flowGraph:
+          maxQueueLength: 1024  # Maximum length of task queue in flowgraph
+          maxParallelism: 1024  # Maximum number of tasks executed in parallel in the flowgraph
+      msgStream:
+        search:
+          recvBufSize: 512    # msgPack channel buffer size
+          pulsarBufSize: 512  # pulsar channel buffer size
+        searchResult:
+          recvBufSize: 64  # msgPack channel buffer size
+      segcore:
+        chunkRows: 32768  # The number of vectors in a chunk.
+
+    indexCoord:
+      address: release-name-milvus-indexcoord
+      port: 31000
+
+      grpc:
+        serverMaxRecvSize: 2147483647  # math.MaxInt32
+        serverMaxSendSize: 2147483647  # math.MaxInt32
+        clientMaxRecvSize: 104857600   # 100 MB, 100 * 1024 * 1024
+        clientMaxSendSize: 104857600   # 100 MB, 100 * 1024 * 1024
+
+    indexNode:
+      port: 21121
+
+      grpc:
+        serverMaxRecvSize: 2147483647  # math.MaxInt32
+        serverMaxSendSize: 2147483647  # math.MaxInt32
+        clientMaxRecvSize: 104857600   # 100 MB, 100 * 1024 * 1024
+        clientMaxSendSize: 104857600   # 100 MB, 100 * 1024 * 1024
+
+    dataCoord:
+      address: release-name-milvus-datacoord
+      port: 13333
+
+      grpc:
+        serverMaxRecvSize: 2147483647  # math.MaxInt32
+        serverMaxSendSize: 2147483647  # math.MaxInt32
+        clientMaxRecvSize: 104857600   # 100 MB, 100 * 1024 * 1024
+        clientMaxSendSize: 104857600   # 100 MB, 100 * 1024 * 1024
+      enableCompaction: true
+      enableGarbageCollection: true
+
+      segment:
+        maxSize: "512"  # Maximum size of a segment in MB
+        sealProportion: 0.75  # It's the minimum proportion for a segment which can be sealed
+        assignmentExpiration: 2000  # ms
+
+      compaction:
+        enableAutoCompaction: true
+
+      gc:
+        interval: 60 # gc interval in seconds
+        missingTolerance: 3600 # file meta missing tolerance duration in seconds, 1 day
+        dropTolerance: 3600 # file belongs to dropped entity tolerance duration in seconds, 1 day
+
+    dataNode:
+      port: 21124
+
+      grpc:
+        serverMaxRecvSize: 2147483647  # math.MaxInt32
+        serverMaxSendSize: 2147483647  # math.MaxInt32
+        clientMaxRecvSize: 104857600   # 100 MB, 100 * 1024 * 1024
+        clientMaxSendSize: 104857600   # 100 MB, 100 * 1024 * 1024
+
+      dataSync:
+        flowGraph:
+          maxQueueLength: 1024  # Maximum length of task queue in flowgraph
+          maxParallelism: 1024  # Maximum number of tasks executed in parallel in the flowgraph
+      flush:
+        insertBufSize: "16777216"  # Bytes, 16 MB
+
+    log:
+      level: debug
+      file:
+        rootPath: ""
+        maxSize: 300
+        maxAge: 10
+        maxBackups: 20
+      format: text
+
+    msgChannel:
+      # channel name generation rule: ${namePrefix}-${ChannelIdx}
+      chanNamePrefix:
+        cluster: by-dev
+        rootCoordTimeTick: "rootcoord-timetick"
+        rootCoordStatistics: "rootcoord-statistics"
+        rootCoordDml: "rootcoord-dml"
+        rootCoordDelta: "rootcoord-delta"
+        search: "search"
+        searchResult: "searchResult"
+        proxyTimeTick: "proxyTimeTick"
+        queryTimeTick: "queryTimeTick"
+        queryNodeStats: "query-node-stats"
+        cmd: "cmd"
+        dataCoordInsertChannel: "insert-channel-"
+        dataCoordStatistic: "datacoord-statistics-channel"
+        dataCoordTimeTick: "datacoord-timetick-channel"
+        dataCoordSegmentInfo: "segment-info-channel"
+
+      # sub name generation rule: ${subNamePrefix}-${NodeID}
+      subNamePrefix:
+        rootCoordSubNamePrefix: "rootCoord"
+        proxySubNamePrefix: "proxy"
+        queryNodeSubNamePrefix: "queryNode"
+        dataNodeSubNamePrefix: "dataNode"
+        dataCoordSubNamePrefix: "dataCoord"
+
+    common:
+      defaultPartitionName: "_default"  # default partition name for a collection
+      defaultIndexName: "_default_idx"  # default index name
+      retentionDuration: 432000
+      security:
+        authorizationEnabled: false
+
+    knowhere:
+      simdType: auto  # default to auto
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-minio-update-prometheus-secret
+  labels:
+    app: minio-update-prometheus-secret
+    chart: minio-8.0.11
+    release: release-name
+    heritage: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - create
+      - update
+      - patch
+    resourceNames:
+      - release-name-minio-prometheus
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - create
+  - apiGroups:
+      - monitoring.coreos.com
+    resources:
+      - servicemonitors
+    verbs:
+      - get
+    resourceNames:
+      - release-name-minio
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-pulsar-broker-role
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+      - extensions
+      - apps
+    resources:
+      - pods
+      - services
+      - deployments
+      - secrets
+      - statefulsets
+    verbs:
+      - list
+      - watch
+      - get
+      - update
+      - create
+      - delete
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-minio-update-prometheus-secret
+  labels:
+    app: minio-update-prometheus-secret
+    chart: minio-8.0.11
+    release: release-name
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-minio-update-prometheus-secret
+subjects:
+  - kind: ServiceAccount
+    name: release-name-minio-update-prometheus-secret
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-pulsar-broker-rolebinding
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-pulsar-broker-role
+subjects:
+  - kind: ServiceAccount
+    name: release-name-pulsar-broker-acct
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-etcd-headless
+  namespace: qz4zQxgXK
+  labels:
+    app.kubernetes.io/name: etcd
+    helm.sh/chart: etcd-6.3.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: client
+      port: 2379
+      targetPort: client
+    - name: peer
+      port: 2380
+      targetPort: peer
+  selector:
+    app.kubernetes.io/name: etcd
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-etcd
+  namespace: qz4zQxgXK
+  labels:
+    app.kubernetes.io/name: etcd
+    helm.sh/chart: etcd-6.3.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  type: ClusterIP
+  ports:
+    - name: client
+      port: 2379
+      targetPort: client
+      nodePort: null
+    - name: peer
+      port: 2380
+      targetPort: peer
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: etcd
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-minio
+  labels:
+    app: minio
+    chart: minio-8.0.11
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 9000
+      protocol: TCP
+      targetPort: 9000
+  selector:
+    app: minio
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-minio-svc
+  labels:
+    app: minio
+    chart: minio-8.0.11
+    release: release-name
+    heritage: Helm
+spec:
+  publishNotReadyAddresses: true
+  clusterIP: None
+  ports:
+    - name: http
+      port: 9000
+      protocol: TCP
+  selector:
+    app: minio
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-pulsar-recovery
+  namespace: qz4zQxgXK
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: recovery
+spec:
+  ports:
+    - name: http
+      port: 8000
+  clusterIP: None
+  selector:
+    app: pulsar
+    release: release-name
+    component: recovery
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-pulsar-bookie
+  namespace: qz4zQxgXK
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: bookie
+spec:
+  ports:
+    - name: bookie
+      port: 3181
+    - name: http
+      port: 8000
+  clusterIP: None
+  selector:
+    app: pulsar
+    release: release-name
+    component: bookie
+  publishNotReadyAddresses: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-pulsar-broker
+  namespace: qz4zQxgXK
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: broker
+  annotations: {}
+spec:
+  ports:
+    - name: http
+      port: 8080
+    - name: pulsar
+      port: 6650
+  clusterIP: None
+  selector:
+    app: pulsar
+    release: release-name
+    component: broker
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-pulsar-proxy
+  namespace: qz4zQxgXK
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: proxy
+  annotations: null
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+    - name: pulsar
+      port: 6650
+      protocol: TCP
+  selector:
+    app: pulsar
+    release: release-name
+    component: proxy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-pulsar-zookeeper
+  namespace: qz4zQxgXK
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: zookeeper
+  annotations:
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+spec:
+  ports:
+    - name: http
+      port: 8000
+    - name: follower
+      port: 2888
+    - name: leader-election
+      port: 3888
+    - name: client
+      port: 2181
+  clusterIP: None
+  selector:
+    app: pulsar
+    release: release-name
+    component: zookeeper
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-milvus-datacoord
+  labels:
+    helm.sh/chart: milvus-3.0.23
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.0.2
+    app.kubernetes.io/managed-by: Helm
+    component: datacoord
+spec:
+  type: ClusterIP
+  ports:
+    - name: datacoord
+      port: 13333
+      protocol: TCP
+      targetPort: datacoord
+    - name: metrics
+      protocol: TCP
+      port: 9091
+      targetPort: metrics
+  selector:
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    component: datacoord
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-milvus-datanode
+  labels:
+    helm.sh/chart: milvus-3.0.23
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.0.2
+    app.kubernetes.io/managed-by: Helm
+    component: datanode
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: metrics
+      protocol: TCP
+      port: 9091
+      targetPort: metrics
+  selector:
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    component: datanode
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-milvus-indexcoord
+  labels:
+    helm.sh/chart: milvus-3.0.23
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.0.2
+    app.kubernetes.io/managed-by: Helm
+    component: indexcoord
+spec:
+  type: ClusterIP
+  ports:
+    - name: indexcoord
+      port: 31000
+      protocol: TCP
+      targetPort: indexcoord
+    - name: metrics
+      protocol: TCP
+      port: 9091
+      targetPort: metrics
+  selector:
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    component: indexcoord
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-milvus-indexnode
+  labels:
+    helm.sh/chart: milvus-3.0.23
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.0.2
+    app.kubernetes.io/managed-by: Helm
+    component: indexnode
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: metrics
+      protocol: TCP
+      port: 9091
+      targetPort: metrics
+  selector:
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    component: indexnode
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-milvus-querycoord
+  labels:
+    helm.sh/chart: milvus-3.0.23
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.0.2
+    app.kubernetes.io/managed-by: Helm
+    component: querycoord
+spec:
+  type: ClusterIP
+  ports:
+    - name: querycoord
+      port: 19531
+      protocol: TCP
+      targetPort: querycoord
+    - name: metrics
+      protocol: TCP
+      port: 9091
+      targetPort: metrics
+  selector:
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    component: querycoord
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-milvus-querynode
+  labels:
+    helm.sh/chart: milvus-3.0.23
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.0.2
+    app.kubernetes.io/managed-by: Helm
+    component: querynode
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: metrics
+      protocol: TCP
+      port: 9091
+      targetPort: metrics
+  selector:
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    component: querynode
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-milvus-rootcoord
+  labels:
+    helm.sh/chart: milvus-3.0.23
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.0.2
+    app.kubernetes.io/managed-by: Helm
+    component: rootcoord
+spec:
+  type: ClusterIP
+  ports:
+    - name: rootcoord
+      port: 53100
+      protocol: TCP
+      targetPort: rootcoord
+    - name: metrics
+      protocol: TCP
+      port: 9091
+      targetPort: metrics
+  selector:
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    component: rootcoord
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-milvus
+  labels:
+    helm.sh/chart: milvus-3.0.23
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.0.2
+    app.kubernetes.io/managed-by: Helm
+    component: proxy
+spec:
+  type: ClusterIP
+  ports:
+    - name: milvus
+      port: 19530
+      protocol: TCP
+      targetPort: milvus
+    - name: metrics
+      protocol: TCP
+      port: 9091
+      targetPort: metrics
+  selector:
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    component: proxy
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-milvus-datacoord
+  labels:
+    helm.sh/chart: milvus-3.0.23
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.0.2
+    app.kubernetes.io/managed-by: Helm
+    component: datacoord
+  annotations: null
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: milvus
+      app.kubernetes.io/instance: release-name
+      component: datacoord
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: milvus
+        app.kubernetes.io/instance: release-name
+        component: datacoord
+      annotations:
+        checksum/config: 55d18bedc3e1aa2bd7b984fbaaba81b53362c64d94a40b56ce2f1e32dd54e21e
+    spec:
+      containers:
+        - name: datacoord
+          image: milvusdb/milvus:v2.0.2
+          imagePullPolicy: IfNotPresent
+          args:
+            - milvus
+            - run
+            - datacoord
+          env:
+            - name: CACHE_SIZE
+              valueFrom:
+                resourceFieldRef:
+                  divisor: 1Gi
+                  resource: limits.memory
+            - name: GODEBUG
+              value: madvdontneed=1
+          ports:
+            - name: datacoord
+              containerPort: 13333
+              protocol: TCP
+            - name: metrics
+              containerPort: 9091
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: milvus-config
+              mountPath: /milvus/configs/milvus.yaml
+              subPath: milvus.yaml
+              readOnly: true
+      volumes:
+        - name: milvus-config
+          configMap:
+            name: release-name-milvus
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-milvus-datanode
+  labels:
+    helm.sh/chart: milvus-3.0.23
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.0.2
+    app.kubernetes.io/managed-by: Helm
+    component: datanode
+  annotations: null
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: milvus
+      app.kubernetes.io/instance: release-name
+      component: datanode
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: milvus
+        app.kubernetes.io/instance: release-name
+        component: datanode
+      annotations:
+        checksum/config: 55d18bedc3e1aa2bd7b984fbaaba81b53362c64d94a40b56ce2f1e32dd54e21e
+    spec:
+      containers:
+        - name: datanode
+          image: milvusdb/milvus:v2.0.2
+          imagePullPolicy: IfNotPresent
+          args:
+            - milvus
+            - run
+            - datanode
+          env:
+            - name: CACHE_SIZE
+              valueFrom:
+                resourceFieldRef:
+                  divisor: 1Gi
+                  resource: limits.memory
+            - name: GODEBUG
+              value: madvdontneed=1
+          ports:
+            - name: datanode
+              containerPort: 21124
+              protocol: TCP
+            - name: metrics
+              containerPort: 9091
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: milvus-config
+              mountPath: /milvus/configs/milvus.yaml
+              subPath: milvus.yaml
+              readOnly: true
+      volumes:
+        - name: milvus-config
+          configMap:
+            name: release-name-milvus
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-milvus-indexcoord
+  labels:
+    helm.sh/chart: milvus-3.0.23
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.0.2
+    app.kubernetes.io/managed-by: Helm
+    component: indexcoord
+  annotations: null
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: milvus
+      app.kubernetes.io/instance: release-name
+      component: indexcoord
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: milvus
+        app.kubernetes.io/instance: release-name
+        component: indexcoord
+      annotations:
+        checksum/config: 55d18bedc3e1aa2bd7b984fbaaba81b53362c64d94a40b56ce2f1e32dd54e21e
+    spec:
+      containers:
+        - name: indexcoord
+          image: milvusdb/milvus:v2.0.2
+          imagePullPolicy: IfNotPresent
+          args:
+            - milvus
+            - run
+            - indexcoord
+          env:
+            - name: CACHE_SIZE
+              valueFrom:
+                resourceFieldRef:
+                  divisor: 1Gi
+                  resource: limits.memory
+            - name: GODEBUG
+              value: madvdontneed=1
+          ports:
+            - name: indexcoord
+              containerPort: 31000
+              protocol: TCP
+            - name: metrics
+              containerPort: 9091
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: milvus-config
+              mountPath: /milvus/configs/milvus.yaml
+              subPath: milvus.yaml
+              readOnly: true
+      volumes:
+        - name: milvus-config
+          configMap:
+            name: release-name-milvus
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-milvus-indexnode
+  labels:
+    helm.sh/chart: milvus-3.0.23
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.0.2
+    app.kubernetes.io/managed-by: Helm
+    component: indexnode
+  annotations: null
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: milvus
+      app.kubernetes.io/instance: release-name
+      component: indexnode
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: milvus
+        app.kubernetes.io/instance: release-name
+        component: indexnode
+      annotations:
+        checksum/config: 55d18bedc3e1aa2bd7b984fbaaba81b53362c64d94a40b56ce2f1e32dd54e21e
+    spec:
+      containers:
+        - name: indexnode
+          image: milvusdb/milvus:v2.0.2
+          imagePullPolicy: IfNotPresent
+          args:
+            - milvus
+            - run
+            - indexnode
+          env:
+            - name: CACHE_SIZE
+              valueFrom:
+                resourceFieldRef:
+                  divisor: 1Gi
+                  resource: limits.memory
+            - name: GODEBUG
+              value: madvdontneed=1
+          ports:
+            - name: indexnode
+              containerPort: 21121
+              protocol: TCP
+            - name: metrics
+              containerPort: 9091
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: milvus-config
+              mountPath: /milvus/configs/milvus.yaml
+              subPath: milvus.yaml
+              readOnly: true
+      volumes:
+        - name: milvus-config
+          configMap:
+            name: release-name-milvus
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-milvus-proxy
+  labels:
+    helm.sh/chart: milvus-3.0.23
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.0.2
+    app.kubernetes.io/managed-by: Helm
+    component: proxy
+  annotations: null
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: milvus
+      app.kubernetes.io/instance: release-name
+      component: proxy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: milvus
+        app.kubernetes.io/instance: release-name
+        component: proxy
+      annotations:
+        checksum/config: 55d18bedc3e1aa2bd7b984fbaaba81b53362c64d94a40b56ce2f1e32dd54e21e
+    spec:
+      containers:
+        - name: proxy
+          image: milvusdb/milvus:v2.0.2
+          imagePullPolicy: IfNotPresent
+          args:
+            - milvus
+            - run
+            - proxy
+          env:
+            - name: CACHE_SIZE
+              valueFrom:
+                resourceFieldRef:
+                  resource: limits.memory
+                  divisor: 1Gi
+            - name: GODEBUG
+              value: madvdontneed=1
+          ports:
+            - name: milvus
+              containerPort: 19530
+              protocol: TCP
+            - name: metrics
+              containerPort: 9091
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: milvus-config
+              mountPath: /milvus/configs/milvus.yaml
+              subPath: milvus.yaml
+              readOnly: true
+      volumes:
+        - name: milvus-config
+          configMap:
+            name: release-name-milvus
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-milvus-querycoord
+  labels:
+    helm.sh/chart: milvus-3.0.23
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.0.2
+    app.kubernetes.io/managed-by: Helm
+    component: querycoord
+  annotations: null
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: milvus
+      app.kubernetes.io/instance: release-name
+      component: querycoord
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: milvus
+        app.kubernetes.io/instance: release-name
+        component: querycoord
+      annotations:
+        checksum/config: 55d18bedc3e1aa2bd7b984fbaaba81b53362c64d94a40b56ce2f1e32dd54e21e
+    spec:
+      containers:
+        - name: querycoord
+          image: milvusdb/milvus:v2.0.2
+          imagePullPolicy: IfNotPresent
+          args:
+            - milvus
+            - run
+            - querycoord
+          env:
+            - name: CACHE_SIZE
+              valueFrom:
+                resourceFieldRef:
+                  divisor: 1Gi
+                  resource: limits.memory
+            - name: GODEBUG
+              value: madvdontneed=1
+          ports:
+            - name: querycoord
+              containerPort: 19531
+              protocol: TCP
+            - name: metrics
+              containerPort: 9091
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: milvus-config
+              mountPath: /milvus/configs/milvus.yaml
+              subPath: milvus.yaml
+              readOnly: true
+      volumes:
+        - name: milvus-config
+          configMap:
+            name: release-name-milvus
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-milvus-querynode
+  labels:
+    helm.sh/chart: milvus-3.0.23
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.0.2
+    app.kubernetes.io/managed-by: Helm
+    component: querynode
+  annotations: null
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: milvus
+      app.kubernetes.io/instance: release-name
+      component: querynode
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: milvus
+        app.kubernetes.io/instance: release-name
+        component: querynode
+      annotations:
+        checksum/config: 55d18bedc3e1aa2bd7b984fbaaba81b53362c64d94a40b56ce2f1e32dd54e21e
+    spec:
+      containers:
+        - name: querynode
+          image: milvusdb/milvus:v2.0.2
+          imagePullPolicy: IfNotPresent
+          args:
+            - milvus
+            - run
+            - querynode
+          env:
+            - name: CACHE_SIZE
+              valueFrom:
+                resourceFieldRef:
+                  divisor: 1Gi
+                  resource: limits.memory
+            - name: GODEBUG
+              value: madvdontneed=1
+          ports:
+            - name: querynode
+              containerPort: 21123
+              protocol: TCP
+            - name: metrics
+              containerPort: 9091
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: milvus-config
+              mountPath: /milvus/configs/milvus.yaml
+              subPath: milvus.yaml
+              readOnly: true
+      volumes:
+        - name: milvus-config
+          configMap:
+            name: release-name-milvus
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-milvus-rootcoord
+  labels:
+    helm.sh/chart: milvus-3.0.23
+    app.kubernetes.io/name: milvus
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.0.2
+    app.kubernetes.io/managed-by: Helm
+    component: rootcoord
+  annotations: null
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: milvus
+      app.kubernetes.io/instance: release-name
+      component: rootcoord
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: milvus
+        app.kubernetes.io/instance: release-name
+        component: rootcoord
+      annotations:
+        checksum/config: 55d18bedc3e1aa2bd7b984fbaaba81b53362c64d94a40b56ce2f1e32dd54e21e
+    spec:
+      containers:
+        - name: rootcoord
+          image: milvusdb/milvus:v2.0.2
+          imagePullPolicy: IfNotPresent
+          args:
+            - milvus
+            - run
+            - rootcoord
+          env:
+            - name: CACHE_SIZE
+              valueFrom:
+                resourceFieldRef:
+                  divisor: 1Gi
+                  resource: limits.memory
+            - name: GODEBUG
+              value: madvdontneed=1
+          ports:
+            - name: rootcoord
+              containerPort: 53100
+              protocol: TCP
+            - name: metrics
+              containerPort: 9091
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: milvus-config
+              mountPath: /milvus/configs/milvus.yaml
+              subPath: milvus.yaml
+              readOnly: true
+      volumes:
+        - name: milvus-config
+          configMap:
+            name: release-name-milvus
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-etcd
+  namespace: qz4zQxgXK
+  labels:
+    app.kubernetes.io/name: etcd
+    helm.sh/chart: etcd-6.3.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: etcd
+      app.kubernetes.io/instance: release-name
+  serviceName: release-name-etcd-headless
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: etcd
+        helm.sh/chart: etcd-6.3.3
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+      annotations: null
+    spec:
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: etcd
+                    app.kubernetes.io/instance: release-name
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+      serviceAccountName: default
+      containers:
+        - name: etcd
+          image: docker.io/bitnami/etcd:3.5.0-debian-10-r24
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10591
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: MY_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: MY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: ETCDCTL_API
+              value: "3"
+            - name: ETCD_ON_K8S
+              value: "yes"
+            - name: ETCD_START_FROM_SNAPSHOT
+              value: "no"
+            - name: ETCD_DISASTER_RECOVERY
+              value: "no"
+            - name: ETCD_NAME
+              value: $(MY_POD_NAME)
+            - name: ETCD_DATA_DIR
+              value: /bitnami/etcd/data
+            - name: ETCD_LOG_LEVEL
+              value: info
+            - name: ALLOW_NONE_AUTHENTICATION
+              value: "yes"
+            - name: ETCD_ADVERTISE_CLIENT_URLS
+              value: http://$(MY_POD_NAME).release-name-etcd-headless.default.svc.cluster.local:2379
+            - name: ETCD_LISTEN_CLIENT_URLS
+              value: http://0.0.0.0:2379
+            - name: ETCD_INITIAL_ADVERTISE_PEER_URLS
+              value: http://$(MY_POD_NAME).release-name-etcd-headless.default.svc.cluster.local:2380
+            - name: ETCD_LISTEN_PEER_URLS
+              value: http://0.0.0.0:2380
+            - name: ETCD_AUTO_COMPACTION_MODE
+              value: revision
+            - name: ETCD_AUTO_COMPACTION_RETENTION
+              value: "1000"
+            - name: ETCD_INITIAL_CLUSTER_TOKEN
+              value: etcd-cluster-k8s
+            - name: ETCD_INITIAL_CLUSTER_STATE
+              value: new
+            - name: ETCD_INITIAL_CLUSTER
+              value: release-name-etcd-0=http://release-name-etcd-0.release-name-etcd-headless.default.svc.cluster.local:2380,release-name-etcd-1=http://release-name-etcd-1.release-name-etcd-headless.default.svc.cluster.local:2380,release-name-etcd-2=http://release-name-etcd-2.release-name-etcd-headless.default.svc.cluster.local:2380
+            - name: ETCD_CLUSTER_DOMAIN
+              value: release-name-etcd-headless.default.svc.cluster.local
+            - name: ETCD_QUOTA_BACKEND_BYTES
+              value: "4294967296"
+            - name: ETCD_HEARTBEAT_INTERVAL
+              value: "500"
+            - name: ETCD_ELECTION_TIMEOUT
+              value: "2500"
+          envFrom: null
+          ports:
+            - name: client
+              containerPort: 2379
+              protocol: TCP
+            - name: peer
+              containerPort: 2380
+              protocol: TCP
+          livenessProbe:
+            exec:
+              command:
+                - /opt/bitnami/scripts/etcd/healthcheck.sh
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command:
+                - /opt/bitnami/scripts/etcd/healthcheck.sh
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /opt/bitnami/scripts/etcd/prestop.sh
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/etcd
+      volumes: null
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-minio
+  labels:
+    app: minio
+    chart: minio-8.0.11
+    release: release-name
+    heritage: Helm
+spec:
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: Parallel
+  serviceName: release-name-minio-svc
+  replicas: 4
+  selector:
+    matchLabels:
+      app: minio
+      release: release-name
+  template:
+    metadata:
+      name: release-name-minio
+      labels:
+        app: minio
+        release: release-name
+      annotations:
+        checksum/secrets: 75125bfe095ea090f790eda0af8ec78261c25f65c41738b2aeb7f62e48a6addf
+        checksum/config: 255f83b97ed1d428fcde3804c0c955b500aa65bcd0d71a85730c2a1af4363515
+    spec:
+      serviceAccountName: release-name-minio
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2022-03-17T06-34-49Z
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ce
+            - /usr/bin/docker-entrypoint.sh minio -S /etc/minio/certs/ server  http://release-name-minio-{0...3}.release-name-minio-svc.default.svc.cluster.local/export
+          volumeMounts:
+            - name: export
+              mountPath: /export
+          ports:
+            - name: http
+              containerPort: 9000
+          env:
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-minio
+                  key: accesskey
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-minio
+                  key: secretkey
+          resources:
+            requests:
+              memory: 2Gi
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: minio-user
+          secret:
+            secretName: release-name-minio
+  volumeClaimTemplates:
+    - metadata:
+        name: export
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 500Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-pulsar-recovery
+  namespace: qz4zQxgXK
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: recovery
+spec:
+  serviceName: release-name-pulsar-recovery
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: pulsar
+      release: release-name
+      component: recovery
+  template:
+    metadata:
+      labels:
+        app: pulsar
+        release: release-name
+        cluster: release-name-pulsar
+        component: recovery
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+    spec:
+      affinity: null
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: pulsar-bookkeeper-verify-clusterid
+          image: apachepulsar/pulsar:2.8.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+          args:
+            - |
+              bin/apply-config-from-env.py conf/bookkeeper.conf;until bin/bookkeeper shell whatisinstanceid; do
+                sleep 3;
+              done;
+          envFrom:
+            - configMapRef:
+                name: release-name-pulsar-recovery
+          volumeMounts: null
+      containers:
+        - name: release-name-pulsar-recovery
+          image: apachepulsar/pulsar:2.8.2
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 1
+              memory: 512Mi
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - sh
+            - -c
+          args:
+            - |
+              bin/apply-config-from-env.py conf/bookkeeper.conf;
+              OPTS="${OPTS} -Dlog4j2.formatMsgNoLookups=true" exec bin/bookkeeper autorecovery
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: release-name-pulsar-recovery
+          volumeMounts: null
+      volumes: null
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-pulsar-bookie
+  namespace: qz4zQxgXK
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: bookie
+spec:
+  serviceName: release-name-pulsar-bookie
+  replicas: 3
+  selector:
+    matchLabels:
+      app: pulsar
+      release: release-name
+      component: bookie
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: Parallel
+  template:
+    metadata:
+      labels:
+        app: pulsar
+        release: release-name
+        cluster: release-name-pulsar
+        component: bookie
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+    spec:
+      affinity: null
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: pulsar-bookkeeper-verify-clusterid
+          image: apachepulsar/pulsar:2.8.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+          args:
+            - |2
+              set -e; bin/apply-config-from-env.py conf/bookkeeper.conf;until bin/bookkeeper shell whatisinstanceid; do
+                sleep 3;
+              done;
+          envFrom:
+            - configMapRef:
+                name: release-name-pulsar-bookie
+          volumeMounts: null
+      containers:
+        - name: release-name-pulsar-bookie
+          image: apachepulsar/pulsar:2.8.2
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            httpGet:
+              path: /api/v1/bookie/state
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /api/v1/bookie/is_ready
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 60
+          resources:
+            requests:
+              cpu: 1
+              memory: 2048Mi
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - sh
+            - -c
+          args:
+            - |
+              bin/apply-config-from-env.py conf/bookkeeper.conf;
+              OPTS="${OPTS} -Dlog4j2.formatMsgNoLookups=true" exec bin/pulsar bookie;
+          ports:
+            - name: bookie
+              containerPort: 3181
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: release-name-pulsar-bookie
+          volumeMounts:
+            - name: release-name-pulsar-bookie-journal
+              mountPath: /pulsar/data/bookkeeper/journal
+            - name: release-name-pulsar-bookie-ledgers
+              mountPath: /pulsar/data/bookkeeper/ledgers
+      volumes: null
+  volumeClaimTemplates:
+    - metadata:
+        name: release-name-pulsar-bookie-journal
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 100Gi
+    - metadata:
+        name: release-name-pulsar-bookie-ledgers
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 200Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-pulsar-broker
+  namespace: qz4zQxgXK
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: broker
+spec:
+  serviceName: release-name-pulsar-broker
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pulsar
+      release: release-name
+      component: broker
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: Parallel
+  template:
+    metadata:
+      labels:
+        app: pulsar
+        release: release-name
+        cluster: release-name-pulsar
+        component: broker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: release-name-pulsar-broker-acct
+      affinity: null
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: wait-zookeeper-ready
+          image: apachepulsar/pulsar:2.8.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+          args:
+            - |2-
+              until bin/bookkeeper org.apache.zookeeper.ZooKeeperMain -server release-name-pulsar-zookeeper:2181 get /admin/clusters/release-name-pulsar; do
+                echo "pulsar cluster release-name-pulsar isn't initialized yet ... check in 3 seconds ..." && sleep 3;
+              done;
+          volumeMounts: null
+        - name: wait-bookkeeper-ready
+          image: apachepulsar/pulsar:2.8.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+          args:
+            - |2
+              bin/apply-config-from-env.py conf/bookkeeper.conf; until bin/bookkeeper shell whatisinstanceid; do
+                echo "bookkeeper cluster is not initialized yet. backoff for 3 seconds ...";
+                sleep 3;
+              done; echo "bookkeeper cluster is already initialized"; bookieServiceNumber="$(nslookup -timeout=10 release-name-pulsar-bookie | grep Name | wc -l)"; until [ ${bookieServiceNumber} -ge 2 ]; do
+                echo "bookkeeper cluster release-name-pulsar isn't ready yet ... check in 10 seconds ...";
+                sleep 10;
+                bookieServiceNumber="$(nslookup -timeout=10 release-name-pulsar-bookie | grep Name | wc -l)";
+              done; echo "bookkeeper cluster is ready";
+          envFrom:
+            - configMapRef:
+                name: release-name-pulsar-bookie
+          volumeMounts: null
+      containers:
+        - name: release-name-pulsar-broker
+          image: apachepulsar/pulsar:2.8.2
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            httpGet:
+              path: /status.html
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              path: /status.html
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+          resources:
+            requests:
+              cpu: 1.5
+              memory: 4096Mi
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - sh
+            - -c
+          args:
+            - |
+              bin/apply-config-from-env.py conf/broker.conf; bin/gen-yml-from-env.py conf/functions_worker.yml; echo "OK" > status;
+              bin/pulsar zookeeper-shell -server release-name-pulsar-zookeeper:2181 get /loadbalance/brokers/${HOSTNAME}.release-name-pulsar-broker.default.svc.cluster.local:8080; while [ $? -eq 0 ]; do
+                echo "broker ${HOSTNAME}.release-name-pulsar-broker.default.svc.cluster.local znode still exists ... check in 10 seconds ...";
+                sleep 10;
+                bin/pulsar zookeeper-shell -server release-name-pulsar-zookeeper:2181 get /loadbalance/brokers/${HOSTNAME}.release-name-pulsar-broker.default.svc.cluster.local:8080;
+              done; cat conf/pulsar_env.sh; OPTS="${OPTS} -Dlog4j2.formatMsgNoLookups=true" exec bin/pulsar broker;
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: pulsar
+              containerPort: 6650
+          envFrom:
+            - configMapRef:
+                name: release-name-pulsar-broker
+          volumeMounts: null
+      volumes: null
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-pulsar-proxy
+  namespace: qz4zQxgXK
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: proxy
+spec:
+  serviceName: release-name-pulsar-proxy
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pulsar
+      release: release-name
+      component: proxy
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: Parallel
+  template:
+    metadata:
+      labels:
+        app: pulsar
+        release: release-name
+        cluster: release-name-pulsar
+        component: proxy
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "80"
+    spec:
+      affinity: null
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: wait-zookeeper-ready
+          image: apachepulsar/pulsar:2.8.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+          args:
+            - |-
+              until bin/pulsar zookeeper-shell -server release-name-pulsar-zookeeper get /admin/clusters/release-name-pulsar; do
+                sleep 3;
+              done;
+        - name: wait-broker-ready
+          image: apachepulsar/pulsar:2.8.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+          args:
+            - |-
+              set -e; brokerServiceNumber="$(nslookup -timeout=10 release-name-pulsar-broker | grep Name | wc -l)"; until [ ${brokerServiceNumber} -ge 1 ]; do
+                echo "pulsar cluster release-name-pulsar isn't initialized yet ... check in 10 seconds ...";
+                sleep 10;
+                brokerServiceNumber="$(nslookup -timeout=10 release-name-pulsar-broker | grep Name | wc -l)";
+              done;
+      containers:
+        - name: release-name-pulsar-proxy
+          image: apachepulsar/pulsar:2.8.2
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            httpGet:
+              path: /status.html
+              port: 80
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              path: /status.html
+              port: 80
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 10
+          resources:
+            requests:
+              cpu: 1
+              memory: 2048Mi
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - sh
+            - -c
+          args:
+            - |
+              bin/apply-config-from-env.py conf/proxy.conf && echo "OK" > status && OPTS="${OPTS} -Dlog4j2.formatMsgNoLookups=true" exec bin/pulsar proxy
+          ports:
+            - name: http
+              containerPort: 80
+            - name: pulsar
+              containerPort: 6650
+          envFrom:
+            - configMapRef:
+                name: release-name-pulsar-proxy
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-pulsar-zookeeper
+  namespace: qz4zQxgXK
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: zookeeper
+spec:
+  serviceName: release-name-pulsar-zookeeper
+  replicas: 3
+  selector:
+    matchLabels:
+      app: pulsar
+      release: release-name
+      component: zookeeper
+  updateStrategy:
+    type: RollingUpdate
+  podManagementPolicy: OrderedReady
+  template:
+    metadata:
+      labels:
+        app: pulsar
+        release: release-name
+        cluster: release-name-pulsar
+        component: zookeeper
+      annotations:
+        prometheus.io/port: "8000"
+        prometheus.io/scrape: "true"
+    spec:
+      affinity: null
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: release-name-pulsar-zookeeper
+          image: apachepulsar/pulsar:2.8.2
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 0.29999999999999999
+              memory: 1024Mi
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - sh
+            - -c
+          args:
+            - |
+              bin/apply-config-from-env.py conf/zookeeper.conf;
+              bin/generate-zookeeper-config.sh conf/zookeeper.conf; OPTS="${OPTS} -Dlog4j2.formatMsgNoLookups=true" exec bin/pulsar zookeeper;
+          ports:
+            - name: http
+              containerPort: 8000
+            - name: client
+              containerPort: 2181
+            - name: follower
+              containerPort: 2888
+            - name: leader-election
+              containerPort: 3888
+          env:
+            - name: ZOOKEEPER_SERVERS
+              value: release-name-pulsar-zookeeper-0,release-name-pulsar-zookeeper-1,release-name-pulsar-zookeeper-2
+          envFrom:
+            - configMapRef:
+                name: release-name-pulsar-zookeeper
+          readinessProbe:
+            exec:
+              command:
+                - bin/pulsar-zookeeper-ruok.sh
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            exec:
+              command:
+                - bin/pulsar-zookeeper-ruok.sh
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 10
+          volumeMounts:
+            - name: release-name-pulsar-zookeeper-data
+              mountPath: /pulsar/data
+      volumes: null
+  volumeClaimTemplates:
+    - metadata:
+        name: release-name-pulsar-zookeeper-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 20Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-pulsar-bookie-init
+  namespace: qz4zQxgXK
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: bookie-init
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: wait-zookeeper-ready
+          image: apachepulsar/pulsar:2.8.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+          args:
+            - |-
+              until nslookup release-name-pulsar-zookeeper-2.release-name-pulsar-zookeeper.default; do
+                sleep 3;
+              done;
+      containers:
+        - name: release-name-pulsar-bookie-init
+          image: apachepulsar/pulsar:2.8.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+          args:
+            - |
+              bin/apply-config-from-env.py conf/bookkeeper.conf;
+              if bin/bookkeeper shell whatisinstanceid; then
+                  echo "bookkeeper cluster already initialized";
+              else
+                  bin/bookkeeper shell initnewcluster;
+              fi
+          envFrom:
+            - configMapRef:
+                name: release-name-pulsar-bookie
+          volumeMounts: null
+      volumes: null
+      restartPolicy: Never
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-pulsar-pulsar-init
+  namespace: qz4zQxgXK
+  labels:
+    app: pulsar
+    chart: pulsar-2.7.8
+    release: release-name
+    heritage: Helm
+    cluster: release-name-pulsar
+    component: pulsar-init
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: wait-zookeeper-ready
+          image: apachepulsar/pulsar:2.8.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+          args:
+            - |-
+              until nslookup release-name-pulsar-zookeeper-2.release-name-pulsar-zookeeper.default; do
+                sleep 3;
+              done;
+        - name: pulsar-bookkeeper-verify-clusterid
+          image: apachepulsar/pulsar:2.8.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+          args:
+            - |
+              bin/apply-config-from-env.py conf/bookkeeper.conf;
+              until bin/bookkeeper shell whatisinstanceid; do
+                sleep 3;
+              done;
+          envFrom:
+            - configMapRef:
+                name: release-name-pulsar-bookie
+          volumeMounts: null
+      containers:
+        - name: release-name-pulsar-pulsar-init
+          image: apachepulsar/pulsar:2.8.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+          args:
+            - |2
+              bin/pulsar initialize-cluster-metadata \
+                --cluster release-name-pulsar \
+                --zookeeper release-name-pulsar-zookeeper:2181 \
+                --configuration-store release-name-pulsar-zookeeper:2181 \
+                --web-service-url http://release-name-pulsar-broker.default.svc.cluster.local:8080/ \
+                --web-service-url-tls https://release-name-pulsar-broker.default.svc.cluster.local:8443/ \
+                --broker-service-url pulsar://release-name-pulsar-broker.default.svc.cluster.local:6650/ \
+                --broker-service-url-tls pulsar+ssl://release-name-pulsar-broker.default.svc.cluster.local:6651/ ;
+          volumeMounts: null
+      volumes: null
+      restartPolicy: OnFailure
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null
+---
+null

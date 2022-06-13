@@ -1,0 +1,733 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-postgresql-credentials",
+      "labels": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "postgresql",
+        "app.kubernetes.io/version": "14.3.0",
+        "helm-revision": "1",
+        "helm.sh/chart": "postgresql-8.0.5"
+      }
+    },
+    "stringData": {
+      "postgresql-password": "testpass",
+      "postgresql-postgres-password": "testroot"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "labels": {
+        "helm.sh/chart": "home-assistant-15.0.3",
+        "app.kubernetes.io/name": "home-assistant",
+        "app.kubernetes.io/instance": "release-name",
+        "helm-revision": "1",
+        "app.kubernetes.io/version": "2022.6.5",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "name": "dbcreds"
+    },
+    "data": {
+      "postgresql-password": "SFZuSDFzZncwRUVFejRlWGU4NVE0aHVRRVZTZnVMWXgwUWg2MVVyWE5EMUVOenJpczY=",
+      "postgresql-postgres-password": "VnNKZFdWOHJ6VkxRU0dQNFFrNDdQa2tRR1ZwWXllZjQ3YzJLcEFTN0k1UGV1Z2xoUkE=",
+      "url": "cG9zdGdyZXNxbDovL2hvbWUtYXNzaXN0YW50OkhWbkgxc2Z3MEVFRXo0ZVhlODVRNGh1UUVWU2Z1TFl4MFFoNjFVclhORDFFTnpyaXM2QHJlbGVhc2UtbmFtZS1wb3N0Z3Jlc3FsOjU0MzIvaG9tZS1hc3Npc3RhbnQ=",
+      "url-noql": "cG9zdGdyZXM6Ly9ob21lLWFzc2lzdGFudDpIVm5IMXNmdzBFRUV6NGVYZTg1UTRodVFFVlNmdUxZeDBRaDYxVXJYTkQxRU56cmlzNkByZWxlYXNlLW5hbWUtcG9zdGdyZXNxbDo1NDMyL2hvbWUtYXNzaXN0YW50",
+      "urlnossl": "cG9zdGdyZXNxbDovL2hvbWUtYXNzaXN0YW50OkhWbkgxc2Z3MEVFRXo0ZVhlODVRNGh1UUVWU2Z1TFl4MFFoNjFVclhORDFFTnpyaXM2QHJlbGVhc2UtbmFtZS1wb3N0Z3Jlc3FsOjU0MzIvaG9tZS1hc3Npc3RhbnQ/c3NsbW9kZT1kaXNhYmxl",
+      "plainporthost": "cmVsZWFzZS1uYW1lLXBvc3RncmVzcWw=",
+      "plainhost": "cmVsZWFzZS1uYW1lLXBvc3RncmVzcWw=",
+      "jdbc": "amRiYzpwb3N0Z3Jlc3FsOi8vcmVsZWFzZS1uYW1lLXBvc3RncmVzcWw6NTQzMi9ob21lLWFzc2lzdGFudA=="
+    },
+    "type": "Opaque"
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-home-assistant-init",
+      "labels": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "home-assistant",
+        "app.kubernetes.io/version": "2022.6.5",
+        "helm-revision": "1",
+        "helm.sh/chart": "home-assistant-15.0.3"
+      }
+    },
+    "data": {
+      "configuration.yaml.default": "# Configure a default setup of Home Assistant (frontend, api, etc)\ndefault_config:\n\n# Text to speech\ntts:\n  - platform: google_translate\n\ngroup: !include groups.yaml\nautomation: !include automations.yaml\nscript: !include scripts.yaml\nscene: !include scenes.yaml",
+      "http.default": "\nhttp:\n  use_x_forwarded_for: true\n  trusted_proxies:\n    - 172.16.0.0/16",
+      "init.sh": "#!/bin/sh\nif test -f \"/config/configuration.yaml\"; then\n  echo \"configuration.yaml exists.\"\n  if grep -q recorder: \"/config/configuration.yaml\"; then\n  echo \"configuration.yaml already contains recorder\"\n  else\n  cat /config/init/recorder.default >> /config/configuration.yaml\n  fi\n  if grep -q http: \"/config/configuration.yaml\"; then\n  echo \"configuration.yaml already contains http section\"\n  else\n  cat /config/init/http.default >> /config/configuration.yaml\n  fi\nelse\necho \"configuration.yaml does NOT exist.\"\ncp /config/init/configuration.yaml.default /config/configuration.yaml\ncat /config/init/recorder.default >> /config/configuration.yaml\ncat /config/init/http.default >> /config/configuration.yaml\nfi\n\necho \"Creating include files...\"\nfor include_file in groups.yaml automations.yaml scripts.yaml scenes.yaml; do\n  if test -f \"/config/$include_file\"; then\n  echo \"$include_file exists.\"\n  else\n  echo \"$include_file does NOT exist.\"\n  touch \"/config/$include_file\"\n  fi\ndone\n\ncd \"/config\" || echo \"Could not change path to /config\"\necho \"Creating custom_components directory...\"\nmkdir \"/config/custom_components\" || echo \"custom_components directory already exists\"\n\necho \"Changing to the custom_components directory...\"\ncd \"/config/custom_components\" || echo \"Could not change path to /config/custom_components\"\n\necho \"Downloading HACS\"\nwget \"https://github.com/hacs/integration/releases/latest/download/hacs.zip\" || exit 0\n\nif [ -d \"/config/custom_components/hacs\" ]; then\n    echo \"HACS directory already exist, cleaning up...\"\n    rm -R \"/config/custom_components/hacs\"\nfi\n\necho \"Creating HACS directory...\"\nmkdir \"/config/custom_components/hacs\"\n\necho \"Unpacking HACS...\"\nunzip \"/config/custom_components/hacs.zip\" -d \"/config/custom_components/hacs\" >/dev/null 2>&1\n\necho \"Removing HACS zip file...\"\nrm \"/config/custom_components/hacs.zip\"\necho \"Installation complete.\"",
+      "recorder.default": "\nrecorder:\n  purge_keep_days: 30\n  commit_interval: 3\n  db_url: \"postgresql://home-assistant:HVnH1sfw0EEEz4eXe85Q4huQEVSfuLYx0Qh61UrXND1ENzris6@release-name-postgresql:5432/home-assistant?client_encoding=utf8\""
+    }
+  },
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-home-assistant-config",
+      "labels": {
+        "helm.sh/chart": "home-assistant-15.0.3",
+        "app.kubernetes.io/name": "home-assistant",
+        "app.kubernetes.io/instance": "release-name",
+        "helm-revision": "1",
+        "app.kubernetes.io/version": "2022.6.5",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "999Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "postgresql",
+        "app.kubernetes.io/version": "14.3.0",
+        "helm-revision": "1",
+        "helm.sh/chart": "postgresql-8.0.5"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ipFamilyPolicy": "SingleStack",
+      "ports": [
+        {
+          "port": 5432,
+          "targetPort": 5432,
+          "protocol": "TCP",
+          "name": "main"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "postgresql",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-home-assistant",
+      "labels": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "home-assistant",
+        "app.kubernetes.io/version": "2022.6.5",
+        "helm-revision": "1",
+        "helm.sh/chart": "home-assistant-15.0.3"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ipFamilyPolicy": "SingleStack",
+      "ports": [
+        {
+          "port": 8123,
+          "targetPort": 8123,
+          "protocol": "TCP",
+          "name": "main"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "home-assistant",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-home-assistant",
+      "labels": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "home-assistant",
+        "app.kubernetes.io/version": "2022.6.5",
+        "helm-revision": "1",
+        "helm.sh/chart": "home-assistant-15.0.3"
+      }
+    },
+    "spec": {
+      "revisionHistoryLimit": 3,
+      "replicas": 1,
+      "strategy": {
+        "type": "Recreate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "home-assistant",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": null,
+          "labels": {
+            "app.kubernetes.io/name": "home-assistant",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "securityContext": {
+            "fsGroup": 568,
+            "fsGroupChangePolicy": "OnRootMismatch",
+            "runAsGroup": 0,
+            "runAsUser": 0,
+            "supplementalGroups": [
+              568
+            ]
+          },
+          "dnsPolicy": "ClusterFirst",
+          "dnsConfig": {
+            "options": [
+              {
+                "name": "ndots",
+                "value": "1"
+              }
+            ]
+          },
+          "enableServiceLinks": false,
+          "terminationGracePeriodSeconds": 10,
+          "initContainers": [
+            {
+              "name": "autopermissions",
+              "image": "ghcr.io/truecharts/alpine:v3.15.2@sha256:29ed3480a0ee43f7af681fed5d4fc215516abf1c41eade6938b26d8c9c2c7583",
+              "securityContext": {
+                "runAsUser": 11389,
+                "privileged": true,
+                "allowPrivilegeEscalation": false
+              },
+              "resources": {
+                "limits": {
+                  "cpu": "4000m",
+                  "memory": "8Gi"
+                },
+                "requests": {
+                  "cpu": "10m",
+                  "memory": "50Mi"
+                }
+              },
+              "command": [
+                "/bin/sh",
+                "-c",
+                "/bin/bash <<'EOF'\necho \"Automatically correcting permissions...\"\necho \"increasing inotify limits...\"\n( sysctl -w fs.inotify.max_user_watches=524288 || echo \"error setting inotify\") && ( sysctl -w fs.inotify.max_user_instances=512 || echo \"error setting inotify\")\nEOF\n"
+              ],
+              "volumeMounts": null
+            },
+            {
+              "name": "postgresql-init",
+              "image": "ghcr.io/truecharts/postgresql:v14.3.0@sha256:a05700459c7d20acebb13edfe713174cccbdb63c727f8a6cd421be8592b172a4",
+              "securityContext": {
+                "capabilities": {
+                  "drop": [
+                    "ALL"
+                  ]
+                }
+              },
+              "resources": {
+                "limits": {
+                  "cpu": "4000m",
+                  "memory": "8Gi"
+                },
+                "requests": {
+                  "cpu": "10m",
+                  "memory": "50Mi"
+                }
+              },
+              "command": [
+                "sh",
+                "-c",
+                "until pg_isready -U home-assistant -h release-name-postgresql; do sleep 2 ; done"
+              ],
+              "imagePullPolicy": "IfNotPresent"
+            },
+            {
+              "command": [
+                "/config/init/init.sh"
+              ],
+              "image": "tccr.io/truecharts/home-assistant:v2022.6.5@sha256:e7f0c6d310b2522d01a7ef31ebd7564f8f2b6749e4ea38c49ff069f3d653e159",
+              "name": "init",
+              "volumeMounts": [
+                {
+                  "mountPath": "/config/init",
+                  "name": "init"
+                },
+                {
+                  "mountPath": "/config",
+                  "name": "config"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "release-name-home-assistant",
+              "image": "tccr.io/truecharts/home-assistant:v2022.6.5@sha256:e7f0c6d310b2522d01a7ef31ebd7564f8f2b6749e4ea38c49ff069f3d653e159",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "privileged": false,
+                "readOnlyRootFilesystem": true,
+                "runAsNonRoot": false
+              },
+              "env": [
+                {
+                  "name": "PUID",
+                  "value": "568"
+                },
+                {
+                  "name": "USER_ID",
+                  "value": "568"
+                },
+                {
+                  "name": "UID",
+                  "value": "568"
+                },
+                {
+                  "name": "UMASK",
+                  "value": "2"
+                },
+                {
+                  "name": "UMASK_SET",
+                  "value": "2"
+                },
+                {
+                  "name": "PGID",
+                  "value": "568"
+                },
+                {
+                  "name": "GROUP_ID",
+                  "value": "568"
+                },
+                {
+                  "name": "GID",
+                  "value": "568"
+                },
+                {
+                  "name": "NVIDIA_VISIBLE_DEVICES",
+                  "value": "void"
+                },
+                {
+                  "name": "TZ",
+                  "value": "UTC"
+                }
+              ],
+              "envFrom": null,
+              "ports": [
+                {
+                  "name": "main",
+                  "containerPort": 8123,
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/config",
+                  "name": "config"
+                },
+                {
+                  "mountPath": "/config/init",
+                  "name": "init",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/shared",
+                  "name": "shared"
+                },
+                {
+                  "mountPath": "/tmp",
+                  "name": "temp"
+                },
+                {
+                  "mountPath": "/var/logs",
+                  "name": "varlogs"
+                }
+              ],
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": 8123
+                },
+                "initialDelaySeconds": 10,
+                "failureThreshold": 5,
+                "timeoutSeconds": 5,
+                "periodSeconds": 10
+              },
+              "readinessProbe": {
+                "tcpSocket": {
+                  "port": 8123
+                },
+                "initialDelaySeconds": 10,
+                "failureThreshold": 5,
+                "timeoutSeconds": 5,
+                "periodSeconds": 10
+              },
+              "startupProbe": {
+                "tcpSocket": {
+                  "port": 8123
+                },
+                "initialDelaySeconds": 10,
+                "failureThreshold": 60,
+                "timeoutSeconds": 2,
+                "periodSeconds": 5
+              },
+              "resources": {
+                "limits": {
+                  "cpu": "4000m",
+                  "memory": "8Gi"
+                },
+                "requests": {
+                  "cpu": "10m",
+                  "memory": "50Mi"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-home-assistant-config"
+              }
+            },
+            {
+              "name": "init",
+              "configMap": {
+                "defaultMode": 511,
+                "name": "release-name-home-assistant-init"
+              }
+            },
+            {
+              "name": "shared",
+              "emptyDir": {}
+            },
+            {
+              "name": "temp",
+              "emptyDir": {
+                "medium": "Memory"
+              }
+            },
+            {
+              "name": "varlogs",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "postgresql",
+        "app.kubernetes.io/version": "14.3.0",
+        "helm-revision": "1",
+        "helm.sh/chart": "postgresql-8.0.5"
+      }
+    },
+    "spec": {
+      "revisionHistoryLimit": 3,
+      "replicas": 1,
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "postgresql",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "serviceName": "release-name-postgresql",
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "postgresql",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "securityContext": {
+            "fsGroup": 568,
+            "fsGroupChangePolicy": "OnRootMismatch",
+            "runAsGroup": 0,
+            "runAsUser": 568,
+            "supplementalGroups": [
+              568
+            ]
+          },
+          "dnsPolicy": "ClusterFirst",
+          "dnsConfig": {
+            "options": [
+              {
+                "name": "ndots",
+                "value": "1"
+              }
+            ]
+          },
+          "enableServiceLinks": false,
+          "terminationGracePeriodSeconds": 10,
+          "initContainers": [
+            {
+              "name": "autopermissions",
+              "image": "ghcr.io/truecharts/alpine:v3.15.2@sha256:29ed3480a0ee43f7af681fed5d4fc215516abf1c41eade6938b26d8c9c2c7583",
+              "securityContext": {
+                "runAsUser": 10266,
+                "privileged": true,
+                "allowPrivilegeEscalation": false
+              },
+              "resources": {
+                "limits": {
+                  "cpu": "4000m",
+                  "memory": "8Gi"
+                },
+                "requests": {
+                  "cpu": "10m",
+                  "memory": "50Mi"
+                }
+              },
+              "command": [
+                "/bin/sh",
+                "-c",
+                "/bin/bash <<'EOF'\necho \"Automatically correcting permissions...\"\necho \"increasing inotify limits...\"\n( sysctl -w fs.inotify.max_user_watches=524288 || echo \"error setting inotify\") && ( sysctl -w fs.inotify.max_user_instances=512 || echo \"error setting inotify\")\nEOF\n"
+              ],
+              "volumeMounts": null
+            }
+          ],
+          "containers": [
+            {
+              "name": "release-name-postgresql",
+              "image": "ghcr.io/truecharts/postgresql:v14.3.0@sha256:a05700459c7d20acebb13edfe713174cccbdb63c727f8a6cd421be8592b172a4",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "privileged": false,
+                "readOnlyRootFilesystem": true,
+                "runAsNonRoot": true,
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "env": [
+                {
+                  "name": "PUID",
+                  "value": "568"
+                },
+                {
+                  "name": "USER_ID",
+                  "value": "568"
+                },
+                {
+                  "name": "UID",
+                  "value": "568"
+                },
+                {
+                  "name": "UMASK",
+                  "value": "2"
+                },
+                {
+                  "name": "UMASK_SET",
+                  "value": "2"
+                },
+                {
+                  "name": "PGID",
+                  "value": "568"
+                },
+                {
+                  "name": "GROUP_ID",
+                  "value": "568"
+                },
+                {
+                  "name": "GID",
+                  "value": "568"
+                },
+                {
+                  "name": "S6_READ_ONLY_ROOT",
+                  "value": "1"
+                },
+                {
+                  "name": "NVIDIA_VISIBLE_DEVICES",
+                  "value": "void"
+                },
+                {
+                  "name": "TZ",
+                  "value": "UTC"
+                },
+                {
+                  "name": "POSTGRESQL_POSTGRES_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "postgresql-postgres-password",
+                      "name": "dbcreds"
+                    }
+                  }
+                },
+                {
+                  "name": "POSTGRES_DB",
+                  "value": "home-assistant"
+                },
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "postgresql-password",
+                      "name": "dbcreds"
+                    }
+                  }
+                },
+                {
+                  "name": "POSTGRES_USER",
+                  "value": "home-assistant"
+                }
+              ],
+              "envFrom": null,
+              "ports": [
+                {
+                  "name": "main",
+                  "containerPort": 5432,
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/shared",
+                  "name": "shared"
+                },
+                {
+                  "mountPath": "/tmp",
+                  "name": "temp"
+                },
+                {
+                  "mountPath": "/var/logs",
+                  "name": "varlogs"
+                },
+                {
+                  "mountPath": "/bitnami/postgresql",
+                  "name": "db"
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "until pg_isready -U ${POSTGRES_USER} -h localhost; do sleep 2 ; done"
+                  ]
+                },
+                "failureThreshold": 5,
+                "initialDelaySeconds": 10,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "until pg_isready -U ${POSTGRES_USER} -h localhost; do sleep 2 ; done"
+                  ]
+                },
+                "failureThreshold": 5,
+                "initialDelaySeconds": 10,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5
+              },
+              "startupProbe": {
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "until pg_isready -U ${POSTGRES_USER} -h localhost; do sleep 2 ; done"
+                  ]
+                },
+                "failureThreshold": 60,
+                "initialDelaySeconds": 10,
+                "periodSeconds": 5,
+                "timeoutSeconds": 2
+              },
+              "resources": {
+                "limits": {
+                  "cpu": "4000m",
+                  "memory": "8Gi"
+                },
+                "requests": {
+                  "cpu": "10m",
+                  "memory": "50Mi"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "shared",
+              "emptyDir": {}
+            },
+            {
+              "name": "temp",
+              "emptyDir": {
+                "medium": "Memory"
+              }
+            },
+            {
+              "name": "varlogs",
+              "emptyDir": {}
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "db"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "999Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+]

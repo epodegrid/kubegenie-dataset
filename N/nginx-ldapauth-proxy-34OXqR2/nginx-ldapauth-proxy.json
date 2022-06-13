@@ -1,0 +1,133 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-nginx-ldapauth-proxy",
+      "labels": {
+        "app": "nginx-ldapauth-proxy",
+        "chart": "nginx-ldapauth-proxy-0.2.2",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "data": {
+      "nginx.conf": "worker_processes 10;\nworker_rlimit_nofile 16384;\n\nevents {\n    worker_connections 1024;\n}\n\nhttp {\n\n    upstream backend-server {\n        server kubernetes.default.svc.cluster.local:443;\n    }\n\n    server {\n\n        listen 80;\n        server_name ldapauth-proxy;\n\n        error_log /var/log/nginx/error.log debug;\n        access_log /var/log/nginx/access.log;\n\n        client_max_body_size 0;\n\n        chunked_transfer_encoding on;\n\n        location / {\n        }\n\n        location /_ping {\n            auth_basic off;\n            root   /usr/share/nginx/html;\n            stub_status on;\n        }\n    }\n\n}"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-nginx-ldapauth-proxy",
+      "labels": {
+        "app": "nginx-ldapauth-proxy",
+        "chart": "nginx-ldapauth-proxy-0.2.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 443,
+          "targetPort": 80,
+          "protocol": "TCP",
+          "name": "nginx-ldapauth"
+        }
+      ],
+      "selector": {
+        "app": "nginx-ldapauth-proxy",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta2",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-nginx-ldapauth-proxy",
+      "labels": {
+        "app": "nginx-ldapauth-proxy",
+        "chart": "nginx-ldapauth-proxy-0.2.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "nginx-ldapauth-proxy",
+          "release": "release-name"
+        }
+      },
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "nginx-ldapauth-proxy",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "477f6d3fd657381543021ed3226a494c6fb2ef288810d563c94c130b025acf4d"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "nginx-ldapauth-proxy",
+              "image": "camptocamp/nginx-auth-ldap:1.17.1-on-alpine-3.5",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "containerPort": 80
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/_ping",
+                  "port": 80
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/_ping",
+                  "port": 80
+                }
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/var/cache/nginx",
+                  "name": "nginx-cache"
+                },
+                {
+                  "mountPath": "/etc/nginx/nginx.conf",
+                  "name": "config",
+                  "subPath": "nginx.conf"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "nginx-cache",
+              "emptyDir": {}
+            },
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-nginx-ldapauth-proxy"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

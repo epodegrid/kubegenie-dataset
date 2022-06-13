@@ -1,0 +1,87 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: volt
+data:
+  serviceConfig: |
+    name: volt
+    accessor:
+      username: "admin@opencord.org"
+      password: "letmein"
+      endpoint: "xos-core:50051"
+    event_bus:
+      endpoint: "cord-kafka"
+      kind: kafka
+    logging:
+      version: 1
+      handlers:
+        console:
+          class: logging.StreamHandler
+        file:
+          class: logging.handlers.RotatingFileHandler
+          filename: /var/log/xos.log
+          maxBytes: 10485760
+          backupCount: 5
+        kafka:
+          class: kafkaloghandler.KafkaLogHandler
+          bootstrap_servers:
+            - "cord-kafka:9092"
+          topic: xos.log.volt
+      loggers:
+        '':
+          handlers:
+            - console
+            - file
+            - kafka
+          level: DEBUG
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-volt
+  labels:
+    app: volt
+    chart: volt-3.0.1
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: volt
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: volt
+        release: release-name
+      annotations:
+        checksum/config: e24e61e4ff99c4902bc1296acb71a6e5dcb1419260dea762c8a43ae861979fc1
+    spec:
+      containers:
+        - name: volt
+          image: xosproject/volt-synchronizer:3.0.0
+          imagePullPolicy: Always
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: volt-config
+              mountPath: /opt/xos/synchronizers/volt/mounted_config.yaml
+              subPath: mounted_config.yaml
+            - name: certchain-volume
+              mountPath: /usr/local/share/ca-certificates/local_certs.crt
+              subPath: config/ca_cert_chain.pem
+      volumes:
+        - name: volt-config
+          configMap:
+            name: volt
+            items:
+              - key: serviceConfig
+                path: mounted_config.yaml
+        - name: certchain-volume
+          configMap:
+            name: ca-certificates
+            items:
+              - key: chain
+                path: config/ca_cert_chain.pem

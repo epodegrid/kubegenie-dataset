@@ -1,0 +1,428 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "drycc-passport",
+      "labels": {
+        "heritage": "drycc"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "drycc-passport",
+      "labels": {
+        "heritage": "drycc"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "http",
+          "port": 80,
+          "targetPort": 8000
+        }
+      ],
+      "selector": {
+        "app": "drycc-passport"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "drycc-passport",
+      "labels": {
+        "heritage": "drycc"
+      },
+      "annotations": {
+        "component.drycc.cc/version": "1.0.0"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "rollingUpdate": {
+          "maxSurge": 1,
+          "maxUnavailable": 0
+        },
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app": "drycc-passport"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "drycc-passport"
+          }
+        },
+        "spec": {
+          "serviceAccount": "drycc-passport",
+          "initContainers": [
+            {
+              "name": "drycc-passport-init",
+              "image": "docker.io/drycc/python-dev:latest",
+              "imagePullPolicy": "Always",
+              "command": [
+                "netcat",
+                "-v",
+                "-u",
+                "$(DRYCC_DATABASE_URL)"
+              ],
+              "env": [
+                {
+                  "name": "TZ",
+                  "value": "UTC"
+                },
+                {
+                  "name": "DRYCC_CONTROLLER_DOMAIN",
+                  "value": "https://drycc."
+                },
+                {
+                  "name": "SOCIAL_AUTH_DRYCC_CONTROLLER_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "passport-creds",
+                      "key": "social-auth-drycc-controller-key"
+                    }
+                  }
+                },
+                {
+                  "name": "SOCIAL_AUTH_DRYCC_CONTROLLER_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "passport-creds",
+                      "key": "social-auth-drycc-controller-secret"
+                    }
+                  }
+                },
+                {
+                  "name": "WORKFLOW_NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "ADMIN_USERNAME",
+                  "value": "admin"
+                },
+                {
+                  "name": "ADMIN_PASSWORD",
+                  "value": "admin"
+                },
+                {
+                  "name": "ADMIN_EMAIL",
+                  "value": "admin@email.com"
+                },
+                {
+                  "name": "DRYCC_MONITOR_GRAFANA_DOMAIN",
+                  "value": "https://drycc-monitor-grafana."
+                },
+                {
+                  "name": "GRAFANA_ON_CLUSTER",
+                  "value": "true"
+                },
+                {
+                  "name": "SOCIAL_AUTH_DRYCC_GRAFANA_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "passport-creds",
+                      "key": "social-auth-drycc-grafana-key"
+                    }
+                  }
+                },
+                {
+                  "name": "SOCIAL_AUTH_DRYCC_GRAFANA_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "passport-creds",
+                      "key": "social-auth-drycc-grafana-secret"
+                    }
+                  }
+                },
+                {
+                  "name": "DRYCC_DATABASE_USER",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "database-creds",
+                      "key": "user"
+                    }
+                  }
+                },
+                {
+                  "name": "DRYCC_DATABASE_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "database-creds",
+                      "key": "password"
+                    }
+                  }
+                },
+                {
+                  "name": "DRYCC_DATABASE_NAME",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "database-creds",
+                      "key": "passport-database-name"
+                    }
+                  }
+                },
+                {
+                  "name": "DRYCC_DATABASE_URL",
+                  "value": "postgres://$(DRYCC_DATABASE_USER):$(DRYCC_DATABASE_PASSWORD)@$(DRYCC_DATABASE_SERVICE_HOST):$(DRYCC_DATABASE_SERVICE_PORT)/$(DRYCC_DATABASE_NAME)"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "drycc-passport",
+              "image": "docker.io/drycc/passport:1.0.0",
+              "imagePullPolicy": "Always",
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": 8000
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 10
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/readiness",
+                  "port": 8000
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 10,
+                "periodSeconds": 5
+              },
+              "ports": [
+                {
+                  "containerPort": 8000,
+                  "name": "http"
+                }
+              ],
+              "env": [
+                {
+                  "name": "TZ",
+                  "value": "UTC"
+                },
+                {
+                  "name": "DRYCC_CONTROLLER_DOMAIN",
+                  "value": "https://drycc."
+                },
+                {
+                  "name": "SOCIAL_AUTH_DRYCC_CONTROLLER_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "passport-creds",
+                      "key": "social-auth-drycc-controller-key"
+                    }
+                  }
+                },
+                {
+                  "name": "SOCIAL_AUTH_DRYCC_CONTROLLER_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "passport-creds",
+                      "key": "social-auth-drycc-controller-secret"
+                    }
+                  }
+                },
+                {
+                  "name": "WORKFLOW_NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "ADMIN_USERNAME",
+                  "value": "admin"
+                },
+                {
+                  "name": "ADMIN_PASSWORD",
+                  "value": "admin"
+                },
+                {
+                  "name": "ADMIN_EMAIL",
+                  "value": "admin@email.com"
+                },
+                {
+                  "name": "DRYCC_MONITOR_GRAFANA_DOMAIN",
+                  "value": "https://drycc-monitor-grafana."
+                },
+                {
+                  "name": "GRAFANA_ON_CLUSTER",
+                  "value": "true"
+                },
+                {
+                  "name": "SOCIAL_AUTH_DRYCC_GRAFANA_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "passport-creds",
+                      "key": "social-auth-drycc-grafana-key"
+                    }
+                  }
+                },
+                {
+                  "name": "SOCIAL_AUTH_DRYCC_GRAFANA_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "passport-creds",
+                      "key": "social-auth-drycc-grafana-secret"
+                    }
+                  }
+                },
+                {
+                  "name": "DRYCC_DATABASE_USER",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "database-creds",
+                      "key": "user"
+                    }
+                  }
+                },
+                {
+                  "name": "DRYCC_DATABASE_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "database-creds",
+                      "key": "password"
+                    }
+                  }
+                },
+                {
+                  "name": "DRYCC_DATABASE_NAME",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "database-creds",
+                      "key": "passport-database-name"
+                    }
+                  }
+                },
+                {
+                  "name": "DRYCC_DATABASE_URL",
+                  "value": "postgres://$(DRYCC_DATABASE_USER):$(DRYCC_DATABASE_PASSWORD)@$(DRYCC_DATABASE_SERVICE_HOST):$(DRYCC_DATABASE_SERVICE_PORT)/$(DRYCC_DATABASE_NAME)"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "passport-creds",
+                  "mountPath": "/var/run/secrets/drycc/passport",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "passport-creds",
+              "secret": {
+                "secretName": "passport-creds"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "passport-api-server",
+      "labels": {
+        "app": "passport",
+        "chart": "passport-v1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": {
+        "kubernetes.io/tls-acme": "true"
+      }
+    },
+    "spec": {
+      "rules": [
+        {
+          "host": "drycc-passport.",
+          "http": {
+            "paths": [
+              {
+                "pathType": "Prefix",
+                "path": "/",
+                "backend": {
+                  "service": {
+                    "name": "drycc-passport",
+                    "port": {
+                      "number": 80
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "tls": [
+        {
+          "secretName": "drycc-passport-certificate-auto",
+          "hosts": [
+            "drycc-passport."
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "cert-manager.io/v1",
+    "kind": "Certificate",
+    "metadata": {
+      "name": "drycc-passport"
+    },
+    "spec": {
+      "secretName": "drycc-passport-certificate-auto",
+      "issuerRef": {
+        "name": "drycc-cluster-issuer",
+        "kind": "ClusterIssuer"
+      },
+      "dnsNames": [
+        "drycc-passport."
+      ],
+      "privateKey": {
+        "rotationPolicy": "Always"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "passport-creds",
+      "labels": {
+        "heritage": "drycc"
+      },
+      "annotations": {
+        "helm.sh/hook": "pre-install"
+      }
+    },
+    "data": {
+      "django-secret-key": "MkVLZV5ERXU1NSdhTzdSMD53SnxiO3tsOmdJWmJPdGw3cjFWTmZfPDRIfi5pd0w4JSxVdXd9XCAjTU5dcyUgZw==",
+      "social-auth-drycc-controller-key": "dGxiZk9VaHlZSmJKNUFCSU9zSmdmdzBLWXUzaHEzY3FyQjhLeHRlbA==",
+      "social-auth-drycc-controller-secret": "VXNuT2tiMUhicTgzamJ0ZUZWQnJKdnAwRVVwenMzcDFzSVVmV2pTc0VFSHVXaW51eWhXQzhyMGJqTkJ5Z1BEZg==",
+      "social-auth-drycc-grafana-key": "dDF6YmRocjNvSVFjZHpOUHFTVFIwbHdwOE5BYmhhdDgwdkFoU1UzeQ==",
+      "social-auth-drycc-grafana-secret": "ZHVYSTVkYkxsaWZOa3pRczBFYnJMM0pEMWl2N1RtcHdFcGdhM0pBdDVKZHhPdVJ0bDk0aDg5aGhGdmdSUjlNQg==",
+      "oidc-rsa-private-key": "LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlKS1FJQkFBS0NBZ0VBdytsN3VILzdiMUgvaHpvd2Mzb3gvUnBUYWRQUlFqeTZFM2VxbXRWWGIwOHhrdGVjCm1udmdJNXBMSGNPUmU3ZU1maTFJT1lwbm5rT2lRdEJSWENtQkpRNlJIK0xMUS9XTHpKckxKd0NhazZ1RXFsM2MKSXpKSUIrVEtGZS9pTEs5UHFUditEUk4zOUVTekJ2MkM4NjhlZWZTTmU1bHc0dUpRaEpRMVdYbzkraU5WanR2VQoweVNrZzlabkVLWmFuMlNTQTVEUFFrUnZoOHlZT1cvS1FSSXNIU0xZUUpCeHFLRWtBM1B3blFPZUNFRlJLaStWCkI2RkMzOGszdmZwT2FDWU90cnVzck9EZHpzd3d0d1BHSC9mUk04YW5TNFF4R3FjRHF6RjE2Sld3OGtPMEx6WXIKNGJwcU9jeXRTNytZNytNVTZoOVFJNE1WZXFraWVKYXJESUdlSmEzZFgvNk5NbDlCOCtRcitFVVdBN2ErU0FhNgpCM1ZVaytRcHo0bi9yL2dpWmZaRUxRVjlpb3p5N2JxR2dBZGY3TW5YNWNMdTlCdHUrUEhUK2liNVN6QWtkNWkrCjRHTitFWGtsdXVmdyt0TW9uRE9CUDdlNlIwWTNnL2ZabVlpaVk4akRiM2t0QXROdjYyTnJCQ0NLcXNNTUpiM00KbVBSU0E1TElYRXNKbFpBdExZb1JkWXdIZU5UNndoSXVESHQ2N2s0SlVCckhOU3ljbEJ1UitiZk5QNW5QT1pnKwppSnZqcGFoY2dvWW1DODJBUnhuT2N4UTBmeVVIUW9HeFFGdmNpMWczZFUxQXlHSktQV1p6d2RyVTdQUVVIWFdSCm9qdHVlVFplOTR4enJjL2l2Um8zT0l6Zld1NG53cU1nWVpkelJQdjVadkV5VTBSZS8xNERJdXJwTXdNQ0F3RUEKQVFLQ0FnRUFrZFFuYXVPaE5uRFVBMFcyTVE4QlRNU2UySVI2SEpMMWMyNDlDUG5MRnFqZFhzK3QyM1JnR0VCTwpyNzRXZWYvYnpVUkpvY003ZEJ3bUdSUFZyQU9kQlFkOTBUMVJUcW5sUVF6c01ZRUtqdWM2WGxKMWZhRjg2cHRNCkxkNGMvbVFVcVFWbUN6ZTFyNWEvcUhGbVc1dTcxTTNMenZnZGhsVXQyREkyTC8rRlNMK3FmU2QzbVIrS2NqUlQKRFpxMmxEVVpWeHdnbXRRMExPS0hZU0dzYkpscFN0cllHOThwSzN1ZlFnNjRTVGdiRjB2L2JhWnppWFZwUVFrWAp2QXNvOSs5MFBtTWVtcVRibG9aNXNKRlhsZzR5cEJhNENzZEFnZlZXRHNWSFhqU212UDdXamRvRitnVjM4c1EvCkxzWlV3aVBIT3FyS1RWVFMxVFkyMllwVmtuNmRSMkpjbzlOK05venRJTDFROWlITVhXaU9ZNFhZRWNxK0UvYXYKRnFORmlnL3RneVY0ZXRiSE1sNnhDdzVDaHZiallvdHhkZWs4NGdNQm11QkRrc3FycW9BR3pVd25ReGhZRjRpKwovY1kvWkNmUmYvVjdhZXNTbkxJUGlwTHIzTS9GdXQwaTY2VlNzTkdXbXlhNE8vVWlnaUNwMjJwMVA2RnNHU3BDCjZrc0F2aFZxa0FkdmhUZXdFZFJkYzNaamh5WXhEN0ppRlFHZ1NNdjhSWUFjSFhac2VNa2RtQ3FlVFFiVndmR1YKUnpUektER2wrUjBCN1NTcHdubm9pWjFFUDNYS0hCUnVlUmk5QnhTTmk2TVJxVVdVZjltVDh1V2VhTCs4QVczdwpnRWkxeE5kaS9UdzBDOFI0dEJidmlDb0YwTmRlVVFFeGxXMmlGT1p1VjV3RkR0RGdZa0VDZ2dFQkFQSmptcTltCmNWN2VvMGMvQUFDL2tnaGZtbjVkb0JSUXhYUy8vTnp4MWJOVFFNbjFqVG5scW01WGNyczM5a1dIcytLN2FTb20KRGkrdGl3a2wyeFlOUzRvTHhndkpHeExEUXNFNUM4Z2NpTzRmWVZWTnc5Y0lHZ0lqTzRicXc4M1NzazhDaGZJLwovYmZMYWtwaHNENml2Q015Z3djczY0Y3VOTmlJSHRqazBYSU05Zjd4dkVBeVNma0QrL2paU2FHVTFGeG9kQVlrCmh0b0xoTW11YTJTVlRiVC9DQ2REZWdLdFNsVFQyY0NGOGxvZmIwOVRLaHM3S2pKSEZKL3NOZjNRVnhXditLRW0KSURNRWdvT1JqaWdERzNsM1Z3UnhiSXBjMTVaZ3hGSEprenMvRVdPcHdodDN2eXFFUXdOSHFBU1pia0dGMjA5UQpkMzJXRU5rWklmUVc5bU1DZ2dFQkFNN3B3dlVmQWc2UVVqakNNWFU5R0xESGxGNWE0a2JLNnRPaEJhcVNMWGdXClF4WFJPN3J2ME83blA1NGRvM3E1dmI2bFlJdEYzeHJOc2FNRStlcUlSbTZLMnpFTVljWHlnSlg2dnNtZE1kYjgKQkhCSkU0SWhEcXhqR2IwNk52VFNkZkl3cWV4YzJvUVVwNmF5WnBWYTJ5VFpRemxhQ012WTJlTTRNKzFLdWtzSQpVN1BwWVZFaS9tRGdnalJreU8zMFhZR01hdkRxKzJEM1R5N0ltY0hONWM0aGJTK0VuM1REUW1zMTNlOSt2OVM3CnVYQXNWbUNkKzk2cGpiT0VWUW1BOWlrZ21PUzUrcCthSE01QTBtemlZaE1TREljUW9lNDdnZU1SMzJmenZMRlQKQm8rUGU3TFFzUGpnL2F3RmU4YUE1ZmNONWg0cFhId2hJVTRJK2dyd291RUNnZ0VBVVV3QkRNVmlUdnlEYlJqLwpTa0Qybk9KYjhmZzdBYlZabE4vejByTTJCdEJza1pCUFR0VHVCZFpFdi9CMEpEdndwS0pSRW5iekdTQ3UybUdkCkN0ZG90Nk5kU0lTcUZPL3l5dFgwVXFqbmNGNk1DYzFzV3duM2x6SHovRHR2Y3ZBeEovampyaTJ5VGx2bWlZNGMKUzlYUEhrc0owWFZLaGV1RWcvK2J3UWwyQ2plNHBrcXo1aUEzMlZKeHg3UXhVd1dVK0cxOFJMY3BsNlozWWlHagpHWGhPT04rMC8xNU5aT3AwWE9FMVRySmVaOFhWVXBqRkxaNzVkeVdLRUYxc2VuWFBUNUhXNVUzaFROczlYeDJKCnZYZlZWamNsczNMTGdkakQ0a2NRY1pJWFZLN0JpVmpkcHRMU0JsT1lHbGlGVFEyZEFsTUFES2tqZXJiRGJkMVYKR3dZOG13S0NBUUVBcmFyNDdzS0MrSFJiL3JYSHkwNW5qZUZGLzlncWVoN1E4S1lEV29KczFaRmg1MHNCNWtwcApSRXdtVW5Fd0NNOGptb08yUDg5NmprVzlaa1hEK2YwOW1JVEZxeXBvV2p2TGY1YkJVZm0xbm10UzBtZ1Rqckp1ClhYU2tZdlljc0dxQmdyRWp2bmJGRmYwOEppY3hBUVVNVUtabXpSbHJycVVwWkpTRXlSTml2NTJTbTd3ejZXVUUKdTQxVTIrTUgzdW12SGhBY3BtK2taR1BQTzBZMS83dnd1WTNHMWc1cnhCWXJoazdsSTZKd0luOGFDek83b0VhWgo0KzdPTjdISHFqMXEzMlF6MEM3bFU5YUhmUHBkWS9Tek9xeDRoVmtKZ1NyRFB6SitJQU10Q216VVllU2RmNTI0CkhIekRqZ0hnUE9GdG8yb3dEbnJLM0lqMktraFFqcVFoSVFLQ0FRQUtTN3lvdVFxbnJmYy9iUCtnUWdwM1J5ZEMKbi84ZXZqYUF0S2EvenFsdmRxNXp0ckJiSE5UM1NhWmNmUHBQVUpoVldmWFJFQklibUJuTHZnVmdSa3M2R0FEcApTaVpFcHk3WnIyN2J0RHoreDF2VVN4Y293UTgxZzAwbFZiQXplc2xjamNQVFFZSjlERnJzV1NPZUpNKy9oelF0Cjc1RzFZTG1ybGIycWhyK0JnTU03Y2hjOE4zdHIwTnFpcVBjRTdRdUswdzQ1MUpwbWlZYk1SMlRPNnEza3JwRlIKUDdTL3Z1bmNUU0RuWUduVHkyRHU5dm5uYW9zTExGK2dScmQrdVk0czF5Y1Q1U2RQYTdhK2RmQmlybjEwbHliZwpVTU00N3lMZ3FMQXYxUXZPRDFZVDR0RHcrWTdZamVtOGRDMWhvdTV6SHZwWUM4dUluR29qek1OTVNqMGgKLS0tLS1FTkQgUlNBIFBSSVZBVEUgS0VZLS0tLS0K"
+    }
+  }
+]

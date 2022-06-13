@@ -1,0 +1,157 @@
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: release-name-default-backend
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: default-backend
+      release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-default-backend
+  labels:
+    app: default-backend
+    app.kubernetes.io/instance: default-backend-0.5.1
+    app.kubernetes.io/name: default-backend
+    app.kubernetes.io/version: 0.5.1
+    appRevision: default-backend___1
+    chart: default-backend-0.5.1
+    helm.sh/chart: default-backend-0.5.1
+    release: release-name
+    releaseRevision: "1"
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6969
+      targetPort: default-backend
+      protocol: TCP
+      name: default-backend
+    - port: 9696
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    app: default-backend
+    release: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-default-backend
+  labels:
+    app: default-backend
+    app.kubernetes.io/instance: default-backend-0.5.1
+    app.kubernetes.io/name: default-backend
+    app.kubernetes.io/version: 0.5.1
+    appRevision: default-backend___1
+    chart: default-backend-0.5.1
+    helm.sh/chart: default-backend-0.5.1
+    release: release-name
+    releaseRevision: "1"
+    heritage: Helm
+    app.kubernetes.io/component: controller
+spec:
+  selector:
+    matchLabels:
+      app: default-backend
+      release: release-name
+  replicas: 2
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9696"
+      labels:
+        app: default-backend
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/name: default-backend
+        app.kubernetes.io/version: 0.5.1
+        appRevision: default-backend___1
+        chart: default-backend-0.5.1
+        helm.sh/chart: default-backend-0.5.1
+        release: release-name
+        releaseRevision: "1"
+        heritage: Helm
+    spec:
+      containers:
+        - name: default-backend
+          image: ghcr.io/wyrihaximusnet/default-backend:random
+          imagePullPolicy: Always
+          ports:
+            - name: default-backend
+              containerPort: 6969
+              protocol: TCP
+            - name: metrics
+              containerPort: 9696
+              protocol: TCP
+          livenessProbe:
+            failureThreshold: 6
+            httpGet:
+              path: /
+              port: metrics
+          readinessProbe:
+            failureThreshold: 6
+            httpGet:
+              path: /
+              port: metrics
+          startupProbe:
+            httpGet:
+              path: /
+              port: metrics
+            failureThreshold: 90
+            periodSeconds: 1
+          resources:
+            limits:
+              cpu: 75m
+              memory: 64Mi
+            requests:
+              cpu: 75m
+              memory: 64Mi
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: appRevision
+                    operator: In
+                    values:
+                      - default-backend___1
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-default-backend-test-default-backend-connection
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: alpine
+      command:
+        - nc
+      args:
+        - -zv
+        - release-name-default-backend:6969
+  restartPolicy: Never
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-default-backend-test-metrics-connection
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-default-backend:9696
+  restartPolicy: Never

@@ -1,0 +1,160 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ldap
+  namespace: MaLc7D4fUU40ocf
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ldap-etc
+type: Opaque
+data: null
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ldap-bin
+data: null
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ldap
+spec:
+  ports:
+    - name: ldap
+      port: 389
+  selector:
+    release_group: release-name
+    application: ldap
+    component: server
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ldap
+  annotations:
+    openstackhelm.openstack.org/release_uuid: ""
+  labels:
+    release_group: release-name
+    application: ldap
+    component: server
+spec:
+  serviceName: ldap
+  replicas: 1
+  selector:
+    matchLabels:
+      release_group: release-name
+      application: ldap
+      component: server
+  template:
+    metadata:
+      labels:
+        release_group: release-name
+        application: ldap
+        component: server
+      annotations:
+        openstackhelm.openstack.org/release_uuid: ""
+        configmap-bin-hash: bcfc6845a8f6788962d6471b502576ba689141c84d5c22119a6a6b5bf1eb0b28
+        configmap-etc-hash: 1d33fc4b480f1a725cce3f0f608fb7fd452ad77a5004c156aedcfde61fd72f5a
+    spec:
+      serviceAccountName: ldap
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: release_group
+                      operator: In
+                      values:
+                        - release-name
+                    - key: application
+                      operator: In
+                      values:
+                        - ldap
+                    - key: component
+                      operator: In
+                      values:
+                        - server
+                topologyKey: kubernetes.io/hostname
+              weight: 10
+      nodeSelector:
+        openstack-control-plane: enabled
+      initContainers:
+        - name: init
+          image: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: INTERFACE_NAME
+              value: eth0
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: DEPENDENCY_SERVICE
+              value: ""
+            - name: DEPENDENCY_DAEMONSET
+              value: ""
+            - name: DEPENDENCY_CONTAINER
+              value: ""
+            - name: DEPENDENCY_POD_JSON
+              value: ""
+            - name: DEPENDENCY_CUSTOM_RESOURCE
+              value: ""
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+      containers:
+        - name: ldap
+          image: docker.io/osixia/openldap:1.2.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: LDAP_DOMAIN
+              value: cluster.local
+            - name: LDAP_ADMIN_PASSWORD
+              value: password
+          ports:
+            - containerPort: 389
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: ldap-data
+              mountPath: /var/lib/ldap
+            - name: ldap-config
+              mountPath: /etc/ldap/slapd.d
+      volumes:
+        - name: pod-tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: ldap-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: general
+        resources:
+          requests:
+            storage: 2Gi
+    - metadata:
+        name: ldap-config
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: general
+        resources:
+          requests:
+            storage: 2Gi

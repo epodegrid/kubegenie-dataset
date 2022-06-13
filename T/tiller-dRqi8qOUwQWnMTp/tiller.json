@@ -1,0 +1,259 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-tiller",
+      "namespace": "dRqi8qOUwQWnMTp"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "tiller-bin"
+    },
+    "data": {
+      "image-repo-sync.sh": "#!/bin/sh\nset -ex\n\nIFS=','; for IMAGE in ${IMAGE_SYNC_LIST}; do\n  docker pull ${IMAGE}\n  docker tag ${IMAGE} ${LOCAL_REPO}/${IMAGE}\n  docker push ${LOCAL_REPO}/${IMAGE}\ndone\n"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "release-name-tiller"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "cluster-admin"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-tiller",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "labels": {
+        "app": "helm",
+        "name": "tiller"
+      },
+      "name": "tiller-deploy",
+      "annotations": null
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "tiller",
+          "port": 44134,
+          "protocol": "TCP",
+          "targetPort": "tiller"
+        },
+        {
+          "name": "metrics",
+          "port": 44135,
+          "protocol": "TCP",
+          "targetPort": "metrics"
+        }
+      ],
+      "selector": {
+        "app": "helm",
+        "name": "tiller"
+      },
+      "sessionAffinity": "None",
+      "type": "ClusterIP"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "annotations": {
+        "openstackhelm.openstack.org/release_uuid": ""
+      },
+      "labels": {
+        "app": "helm",
+        "name": "tiller"
+      },
+      "name": "tiller-deploy"
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "helm",
+          "name": "tiller"
+        }
+      },
+      "strategy": {
+        "rollingUpdate": {
+          "maxSurge": 1,
+          "maxUnavailable": 1
+        },
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "helm",
+            "name": "tiller"
+          },
+          "annotations": {
+            "openstackhelm.openstack.org/release_uuid": "",
+            "configmap-bin-hash": "d0f616cc20fb855b7a27dd20a2e698896f7f95917ba527162432f526cd06a959"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "runAsUser": 65534
+          },
+          "initContainers": [
+            {
+              "name": "init",
+              "image": "quay.io/airshipit/kubernetes-entrypoint:v1.0.0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 65534
+              },
+              "env": [
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "INTERFACE_NAME",
+                  "value": "eth0"
+                },
+                {
+                  "name": "PATH",
+                  "value": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/"
+                },
+                {
+                  "name": "DEPENDENCY_SERVICE",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_DAEMONSET",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CONTAINER",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_POD_JSON",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CUSTOM_RESOURCE",
+                  "value": ""
+                }
+              ],
+              "command": [
+                "kubernetes-entrypoint"
+              ],
+              "volumeMounts": []
+            }
+          ],
+          "containers": [
+            {
+              "env": [
+                {
+                  "name": "TILLER_NAMESPACE",
+                  "value": "default"
+                },
+                {
+                  "name": "TILLER_HISTORY_MAX",
+                  "value": "0"
+                }
+              ],
+              "image": "gcr.io/kubernetes-helm/tiller:v2.16.9",
+              "imagePullPolicy": "IfNotPresent",
+              "livenessProbe": {
+                "failureThreshold": 3,
+                "httpGet": {
+                  "path": "/liveness",
+                  "port": 44135,
+                  "scheme": "HTTP"
+                },
+                "initialDelaySeconds": 1,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 1
+              },
+              "name": "tiller",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "ports": [
+                {
+                  "containerPort": 44134,
+                  "name": "tiller",
+                  "protocol": "TCP"
+                },
+                {
+                  "containerPort": 44135,
+                  "name": "metrics",
+                  "protocol": "TCP"
+                }
+              ],
+              "readinessProbe": {
+                "failureThreshold": 3,
+                "httpGet": {
+                  "path": "/readiness",
+                  "port": 44135,
+                  "scheme": "HTTP"
+                },
+                "initialDelaySeconds": 1,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 1
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "terminationMessagePath": "/dev/termination-log",
+              "terminationMessagePolicy": "File"
+            }
+          ],
+          "dnsPolicy": "ClusterFirst",
+          "restartPolicy": "Always",
+          "schedulerName": "default-scheduler",
+          "serviceAccount": "release-name-tiller",
+          "serviceAccountName": "release-name-tiller",
+          "terminationGracePeriodSeconds": 30
+        }
+      }
+    }
+  }
+]

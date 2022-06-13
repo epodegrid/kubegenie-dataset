@@ -1,0 +1,260 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "labels": {
+        "app": "cosbench",
+        "chart": "cosbench-1.0.1",
+        "component": "controller",
+        "heritage": "Helm",
+        "release": "release-name"
+      },
+      "name": "release-name-cosbench-controller"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "labels": {
+        "app": "cosbench",
+        "chart": "cosbench-1.0.1",
+        "component": "driver",
+        "heritage": "Helm",
+        "release": "release-name"
+      },
+      "name": "release-name-cosbench-driver"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-cosbench-controller",
+      "labels": {
+        "app": "cosbench",
+        "chart": "cosbench-1.0.1",
+        "component": "controller",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "spec": {
+      "type": null,
+      "ports": [
+        {
+          "name": "controller",
+          "port": 19088,
+          "targetPort": "controller",
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app": "cosbench",
+        "component": "controller",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-cosbench-driver",
+      "labels": {
+        "app": "cosbench",
+        "chart": "cosbench-1.0.1",
+        "component": "driver",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "driver",
+          "port": 18088,
+          "targetPort": "driver",
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app": "cosbench",
+        "component": "driver",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-cosbench-controller",
+      "labels": {
+        "app": "cosbench",
+        "chart": "cosbench-1.0.1",
+        "component": "controller",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "cosbench",
+          "release": "release-name",
+          "component": "controller"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "cosbench",
+            "release": "release-name",
+            "component": "controller"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-cosbench-controller",
+          "containers": [
+            {
+              "name": "cosbench",
+              "image": "zenko/zenko-cosbench:0.0.6",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "controller",
+                  "containerPort": 19088,
+                  "protocol": "TCP"
+                }
+              ],
+              "env": [
+                {
+                  "name": "LOG_LEVEL",
+                  "value": "DEBUG"
+                },
+                {
+                  "name": "DRIVERS",
+                  "value": "release-name-cosbench-driver-0.release-name-cosbench-driver"
+                }
+              ],
+              "args": [
+                "java",
+                "-Dcosbench.tomcat.config=conf/controller-tomcat-server.xml",
+                "-server",
+                "-cp",
+                "main/*",
+                "org.eclipse.equinox.launcher.Main",
+                "-configuration",
+                "conf/.controller",
+                "-console",
+                "19089"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-cosbench-driver",
+      "labels": {
+        "app": "cosbench",
+        "chart": "cosbench-1.0.1",
+        "component": "driver",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "spec": {
+      "serviceName": "release-name-cosbench-driver",
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "cosbench",
+          "component": "driver",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "cosbench",
+            "component": "driver",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-cosbench-driver",
+          "containers": [
+            {
+              "name": "release-name-cosbench-driver",
+              "image": "zenko/zenko-cosbench:0.0.6",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "driver",
+                  "containerPort": 18088,
+                  "protocol": "TCP"
+                }
+              ],
+              "env": [
+                {
+                  "name": "LOG_LEVEL",
+                  "value": "DEBUG"
+                }
+              ],
+              "args": [
+                "java",
+                "-Dcosbench.tomcat.config=conf/driver-tomcat-server.xml",
+                "-server",
+                "-cp",
+                "main/*",
+                "org.eclipse.equinox.launcher.Main",
+                "-configuration",
+                "conf/.driver",
+                "-console",
+                "18089"
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": 1,
+                  "memory": "4Gi"
+                },
+                "requests": {
+                  "cpu": "500m",
+                  "memory": "2Gi"
+                }
+              }
+            }
+          ],
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "weight": 5,
+                  "podAffinityTerm": {
+                    "topologyKey": "kubernetes.io/hostname",
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app": "cosbench",
+                        "component": "driver",
+                        "release": "release-name"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+]

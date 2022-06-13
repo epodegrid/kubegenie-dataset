@@ -1,0 +1,1124 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-cluster-wait",
+      "namespace": "vnW4VcKXxuMsI4"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-test",
+      "namespace": "vnW4VcKXxuMsI4"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-rabbitmq",
+      "namespace": "vnW4VcKXxuMsI4"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-erlang-cookie"
+    },
+    "type": "Opaque",
+    "data": {
+      "erlang_cookie": "b3BlbnN0YWNrLWNvb2tpZQ=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-admin-user"
+    },
+    "type": "Opaque",
+    "data": {
+      "RABBITMQ_ADMIN_USERNAME": "cmFiYml0bXE=",
+      "RABBITMQ_ADMIN_PASSWORD": "cGFzc3dvcmQ="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-rabbitmq-bin"
+    },
+    "data": {
+      "rabbitmq-test.sh": "#!/bin/bash\n\n\n\nset -ex\n\n# Extract connection details\nRABBIT_HOSTNAME=`echo $RABBITMQ_ADMIN_CONNECTION | awk -F'[@]' '{print $2}' \\\n  | awk -F'[:/]' '{print $1}'`\nRABBIT_PORT=`echo $RABBITMQ_ADMIN_CONNECTION | awk -F'[@]' '{print $2}' \\\n  | awk -F'[:/]' '{print $2}'`\n\nset +x\n# Extract Admin User creadential\nRABBITMQ_ADMIN_USERNAME=`echo $RABBITMQ_ADMIN_CONNECTION | awk -F'[@]' '{print $1}' \\\n  | awk -F'[//:]' '{print $4}'`\nRABBITMQ_ADMIN_PASSWORD=`echo $RABBITMQ_ADMIN_CONNECTION | awk -F'[@]' '{print $1}' \\\n  | awk -F'[//:]' '{print $5}'`\nset -x\n\nfunction rabbitmqadmin_authed () {\n  set +x\n  rabbitmqadmin \\\n    --host=\"${RABBIT_HOSTNAME}\" \\\n    --port=\"${RABBIT_PORT}\" \\\n    --username=\"${RABBITMQ_ADMIN_USERNAME}\" \\\n    --password=\"${RABBITMQ_ADMIN_PASSWORD}\" \\\n    $@\n  set -x\n}\n\nfunction rabbit_check_node_count () {\n  echo \"Checking node count \"\n  NODES_IN_CLUSTER=$(rabbitmqadmin_authed list nodes -f bash | wc -w)\n  if [ \"$NODES_IN_CLUSTER\" -eq \"$RABBIT_REPLICA_COUNT\" ]; then\n    echo \"Number of nodes in cluster ($NODES_IN_CLUSTER) match number of desired pods ($NODES_IN_CLUSTER)\"\n  else\n    echo \"Number of nodes in cluster ($NODES_IN_CLUSTER) does not match number of desired pods ($RABBIT_REPLICA_COUNT)\"\n    exit 1\n  fi\n}\n# Check node count\nrabbit_check_node_count\n\nfunction rabbit_find_partitions () {\n  NODE_INFO=$(mktemp)\n  rabbitmqadmin_authed list nodes -f pretty_json | tee \"${NODE_INFO}\"\n  cat \"${NODE_INFO}\" | python -c \"\nimport json, sys, traceback\nprint('Checking cluster partitions')\nobj=json.load(sys.stdin)\nfor num, node in enumerate(obj):\n  try:\n    partition = node['partitions']\n    if partition:\n      raise Exception('cluster partition found: %s' % partition)\n  except KeyError:\n    print('Error: partition key not found for node %s' % node)\nprint('No cluster partitions found')\n  \"\n  rm -vf \"${NODE_INFO}\"\n}\nrabbit_find_partitions\n\nfunction rabbit_check_users_match () {\n  echo \"Checking users match on all nodes\"\n  NODES=$(rabbitmqadmin_authed list nodes -f bash)\n  USER_LIST=$(mktemp --directory)\n  echo \"Found the following nodes: ${NODES}\"\n  for NODE in ${NODES}; do\n    echo \"Checking Node: ${NODE#*@}\"\n    rabbitmqadmin_authed list users -f bash > ${USER_LIST}/${NODE#*@}\n  done\n  cd ${USER_LIST}; diff -q --from-file $(ls ${USER_LIST})\n  echo \"User lists match for all nodes\"\n}\n# Check users match on all nodes\nrabbit_check_users_match\n",
+      "rabbitmq-liveness.sh": "#!/usr/bin/env bash\n\n\n\nset -e\n\nif [ -f /tmp/rabbit-disable-liveness-probe ]; then\n   exit 0\nelse\n   timeout 5 bash -c \"true &>/dev/null </dev/tcp/${MY_POD_IP}/${PORT_AMPQ}\"\n   exec rabbitmqctl status\nfi\n",
+      "rabbitmq-readiness.sh": "#!/usr/bin/env bash\n\n\n\nset -e\n\nif [ -f /tmp/rabbit-disable-readiness ]; then\n   exit 1\nelse\n   exec rabbitmqctl status\nfi\n",
+      "rabbitmq-start.sh": "#!/bin/bash\n\n\n\nset -ex\n\nfunction check_if_open () {\n  HOST=$1\n  PORT=$2\n  timeout 10 bash -c \"true &>/dev/null </dev/tcp/${HOST}/${PORT}\"\n}\n\nfunction check_rabbit_node_health () {\n  CLUSTER_SEED_NAME=$1\n  rabbitmq-diagnostics node_health_check -n \"${CLUSTER_SEED_NAME}\" -t 10 &>/dev/null\n}\n\nget_node_name () {\n  TARGET_POD=$1\n  POD_NAME_PREFIX=\"$(echo \"${MY_POD_NAME}\" | awk 'BEGIN{FS=OFS=\"-\"}{NF--; print}')\"\n  echo \"${RABBITMQ_NODENAME}\" | awk -F \"@${MY_POD_NAME}.\" \"{ print \\$1 \\\"@${POD_NAME_PREFIX}-${TARGET_POD}.\\\" \\$2 }\"\n}\n\nfunction check_rabbit_node_ready () {\n  TARGET_POD=$1\n  CLUSTER_SEED_NAME=\"$(get_node_name ${TARGET_POD})\"\n  CLUSTER_SEED_HOST=\"$(echo \"${CLUSTER_SEED_NAME}\" | awk -F '@' '{ print $NF }')\"\n  check_rabbit_node_health \"${CLUSTER_SEED_NAME}\" && \\\n  check_if_open \"${CLUSTER_SEED_HOST}\" \"${PORT_HTTP}\" && \\\n  check_if_open \"${CLUSTER_SEED_HOST}\" \"${PORT_AMPQ}\" && \\\n  check_if_open \"${CLUSTER_SEED_HOST}\" \"${PORT_CLUSTERING}\"\n}\n\nPOD_INCREMENT=$(echo \"${MY_POD_NAME}\" | awk -F '-' '{print $NF}')\nif ! [ \"${POD_INCREMENT}\" -eq \"0\" ] && ! [ -d \"/var/lib/rabbitmq/mnesia\" ] ; then\n  echo 'This is not the 1st rabbit pod & has not been initialised'\n  # disable liveness probe as it may take some time for the pod to come online.\n  touch /tmp/rabbit-disable-liveness-probe\n  POD_NAME_PREFIX=\"$(echo \"${MY_POD_NAME}\" | awk 'BEGIN{FS=OFS=\"-\"}{NF--; print}')\"\n  for TARGET_POD in $(seq 0 +1 $((POD_INCREMENT - 1 ))); do\n    END=$(($(date +%s) + 900))\n    while ! check_rabbit_node_ready \"${TARGET_POD}\"; do\n      sleep 5\n      if [ \"$(date +%s)\" -gt \"$END\" ]; then\n        echo \"RabbitMQ pod ${TARGET_POD} not ready in time\"\n        exit 1\n      fi\n    done\n  done\n\n  function reset_rabbit () {\n    rabbitmqctl shutdown || true\n    find /var/lib/rabbitmq/* ! -name 'definitions.json' ! -name '.erlang.cookie' -exec rm -rf {} +\n    exit 1\n  }\n\n  # Start RabbitMQ, but disable readiness from being reported so the pod is not\n  # marked as up prematurely.\n  touch /tmp/rabbit-disable-readiness\n  rabbitmq-server &\n\n  # Wait for server to start, and reset if it does not\n  END=$(($(date +%s) + 180))\n  while ! rabbitmqctl -q cluster_status; do\n      sleep 5\n      NOW=$(date +%s)\n      [ $NOW -gt $END ] && reset_rabbit\n  done\n\n  # Wait for server to join cluster, reset if it does not\n  POD_INCREMENT=$(echo \"${MY_POD_NAME}\" | awk -F '-' '{print $NF}')\n  END=$(($(date +%s) + 180))\n  while ! rabbitmqctl -l --node $(get_node_name 0) -q cluster_status | grep -q \"$(get_node_name ${POD_INCREMENT})\"; do\n    sleep 5\n    NOW=$(date +%s)\n    [ $NOW -gt $END ] && reset_rabbit\n  done\n\n  # Shutdown the inital server\n  rabbitmqctl shutdown\n\n  rm -fv /tmp/rabbit-disable-readiness /tmp/rabbit-disable-liveness-probe\nfi\n\nexec rabbitmq-server\n",
+      "rabbitmq-cookie.sh": "#!/bin/bash\n\n\n\nset -ex\n\ncp -vf /run/lib/rabbitmq/.erlang.cookie /var/lib/rabbitmq/.erlang.cookie\nchown \"rabbitmq\" /var/lib/rabbitmq/.erlang.cookie\nchmod 0600 /var/lib/rabbitmq/.erlang.cookie\n",
+      "rabbitmq-password-hash.py": "#!/usr/bin/env python\n\n\n\nfrom __future__ import print_function\nimport base64\nimport json\nimport os\nimport hashlib\nimport struct\n\nuser = os.environ['RABBITMQ_ADMIN_USERNAME']\npassword = os.environ['RABBITMQ_ADMIN_PASSWORD']\noutput_file = os.environ['RABBITMQ_DEFINITION_FILE']\n\nsalt = os.urandom(4)\n\ntmp0 = salt + password.encode('utf-8')\n\ntmp1 = hashlib.sha512(tmp0).digest()\n\nsalted_hash = salt + tmp1\n\npass_hash = base64.b64encode(salted_hash)\n\noutput = {\n    \"users\": [{\n        \"name\": user,\n        \"password_hash\": pass_hash.decode(\"utf-8\"),\n        \"hashing_algorithm\": \"rabbit_password_hashing_sha512\",\n        \"tags\": \"administrator\"\n    }]\n}\nwith open(output_file, 'w') as f:\n    f.write(json.dumps(output))\n    f.close()\n",
+      "rabbitmq-wait-for-cluster.sh": "#!/bin/bash\n\n\n\nset -e\n\n# Extract connection details\nRABBIT_HOSTNAME=`echo $RABBITMQ_ADMIN_CONNECTION | awk -F'[@]' '{print $2}' \\\n  | awk -F'[:/]' '{print $1}'`\nRABBIT_PORT=`echo $RABBITMQ_ADMIN_CONNECTION | awk -F'[@]' '{print $2}' \\\n  | awk -F'[:/]' '{print $2}'`\n\n# Extract Admin User creadential\nRABBITMQ_ADMIN_USERNAME=`echo $RABBITMQ_ADMIN_CONNECTION | awk -F'[@]' '{print $1}' \\\n  | awk -F'[//:]' '{print $4}'`\nRABBITMQ_ADMIN_PASSWORD=`echo $RABBITMQ_ADMIN_CONNECTION | awk -F'[@]' '{print $1}' \\\n  | awk -F'[//:]' '{print $5}'`\n\nset -ex\n\nfunction rabbitmqadmin_authed () {\n  set +x\n  rabbitmqadmin \\\n    --host=\"${RABBIT_HOSTNAME}\" \\\n    --port=\"${RABBIT_PORT}\" \\\n    --username=\"${RABBITMQ_ADMIN_USERNAME}\" \\\n    --password=\"${RABBITMQ_ADMIN_PASSWORD}\" \\\n    $@\n  set -x\n}\n\nfunction active_rabbit_nodes () {\n  rabbitmqadmin_authed list nodes -f bash | wc -w\n}\n\nuntil test \"$(active_rabbit_nodes)\" -ge \"$RABBIT_REPLICA_COUNT\"; do\n    echo \"Waiting for number of nodes in cluster to meet or exceed number of desired pods ($RABBIT_REPLICA_COUNT)\"\n    sleep 10\ndone\n\nfunction sorted_node_list () {\n  rabbitmqadmin_authed list nodes -f bash | tr ' ' '\\n' | sort | tr '\\n' ' '\n}\n\nif test \"$(active_rabbit_nodes)\" -gt \"$RABBIT_REPLICA_COUNT\"; then\n    echo \"There are more nodes registed in the cluster than desired, pruning the cluster\"\n    PRIMARY_NODE=\"$(sorted_node_list | awk '{ print $1; exit }')\"\n    until rabbitmqctl -l -n \"${PRIMARY_NODE}\" cluster_status >/dev/null 2>&1 ; do\n      echo \"Waiting for primary node to return cluster status\"\n      sleep 10\n    done\n    echo \"Current cluster:\"\n    rabbitmqctl -l -n \"${PRIMARY_NODE}\" cluster_status\n    NODES_TO_REMOVE=\"$(sorted_node_list | awk \"{print substr(\\$0, index(\\$0,\\$$((RABBIT_REPLICA_COUNT+1))))}\")\"\n    for NODE in ${NODES_TO_REMOVE}; do\n      rabbitmqctl -l -n \"${NODE}\" stop_app || true\n      rabbitmqctl -l -n \"${PRIMARY_NODE}\" forget_cluster_node \"${NODE}\"\n    done\n    echo \"Updated cluster:\"\n    rabbitmqctl -l -n \"${PRIMARY_NODE}\" cluster_status\nfi\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-rabbitmq-etc"
+    },
+    "data": {
+      "enabled_plugins": "\n\n[rabbitmq_management,rabbitmq_peer_discovery_k8s].\n",
+      "rabbitmq.conf": "cluster_formation.k8s.address_type = hostname\ncluster_formation.k8s.host = kubernetes.default.svc.cluster.local\ncluster_formation.node_cleanup.interval = 10\ncluster_formation.node_cleanup.only_log_warning = true\ncluster_formation.peer_discovery_backend = rabbit_peer_discovery_k8s\ncluster_partition_handling = autoheal\nlisteners.tcp.1 = 0.0.0.0:5672\nloopback_users.guest = false\nmanagement.load_definitions = /var/lib/rabbitmq/definitions.json\nqueue_master_locator = min-masters\n"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1beta1",
+    "kind": "Role",
+    "metadata": {
+      "name": "release-name-default-release-name-cluster-wait",
+      "namespace": "vnW4VcKXxuMsI4"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "",
+          "extensions",
+          "batch",
+          "apps"
+        ],
+        "verbs": [
+          "get",
+          "list"
+        ],
+        "resources": [
+          "services",
+          "endpoints"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1beta1",
+    "kind": "Role",
+    "metadata": {
+      "name": "release-name-default-release-name-test",
+      "namespace": "vnW4VcKXxuMsI4"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "",
+          "extensions",
+          "batch",
+          "apps"
+        ],
+        "verbs": [
+          "get",
+          "list"
+        ],
+        "resources": [
+          "services",
+          "endpoints",
+          "jobs",
+          "pods"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1beta1",
+    "kind": "Role",
+    "metadata": {
+      "name": "release-name-rabbitmq",
+      "namespace": "vnW4VcKXxuMsI4"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "",
+          "extensions",
+          "batch",
+          "apps"
+        ],
+        "verbs": [
+          "get",
+          "list"
+        ],
+        "resources": [
+          "services",
+          "endpoints"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1beta1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "release-name-release-name-cluster-wait",
+      "namespace": "vnW4VcKXxuMsI4"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "release-name-default-release-name-cluster-wait"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-cluster-wait",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1beta1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "release-name-release-name-test",
+      "namespace": "vnW4VcKXxuMsI4"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "release-name-default-release-name-test"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-test",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1beta1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "release-name-rabbitmq",
+      "namespace": "vnW4VcKXxuMsI4"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "release-name-rabbitmq"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-rabbitmq",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-mgr-90b19a"
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "http",
+          "port": 80
+        },
+        {
+          "name": "https",
+          "port": 443
+        }
+      ],
+      "selector": {
+        "app": "ingress-api"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "rabbitmq"
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "port": 5672,
+          "name": "amqp"
+        },
+        {
+          "port": 25672,
+          "name": "clustering"
+        },
+        {
+          "port": 15672,
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "release_group": "release-name",
+        "application": "rabbitmq",
+        "component": "server"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-rabbitmq",
+      "annotations": {
+        "openstackhelm.openstack.org/release_uuid": ""
+      },
+      "labels": {
+        "release_group": "release-name",
+        "application": "rabbitmq",
+        "component": "server"
+      }
+    },
+    "spec": {
+      "serviceName": "rabbitmq",
+      "replicas": 2,
+      "podManagementPolicy": "Parallel",
+      "selector": {
+        "matchLabels": {
+          "release_group": "release-name",
+          "application": "rabbitmq",
+          "component": "server"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "release_group": "release-name",
+            "application": "rabbitmq",
+            "component": "server"
+          },
+          "annotations": {
+            "openstackhelm.openstack.org/release_uuid": "",
+            "configmap-bin-hash": "0d07c5311e14b81dd7fd33a45c19fb10e839b05b47d9527cbf7b8bffce05cea0",
+            "configmap-etc-hash": "2f325879f2f3dc45297630f246c3e1cc362a602e991221a7582365bdd82b27f7",
+            "secret-rabbit-admin-hash": "e665593b36b9c35863a8a89e4e289b70718aef283e03121a782dce38e8d3345a",
+            "secret-erlang-cookie-hash": "66f510c3557ef83206715e1e9fa19076de38ad2a530a6bcb02a0eb310ce723ea"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "runAsUser": 999
+          },
+          "serviceAccountName": "release-name-rabbitmq",
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "release_group",
+                          "operator": "In",
+                          "values": [
+                            "release-name"
+                          ]
+                        },
+                        {
+                          "key": "application",
+                          "operator": "In",
+                          "values": [
+                            "rabbitmq"
+                          ]
+                        },
+                        {
+                          "key": "component",
+                          "operator": "In",
+                          "values": [
+                            "server"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 10
+                }
+              ]
+            }
+          },
+          "nodeSelector": {
+            "openstack-control-plane": "enabled"
+          },
+          "initContainers": [
+            {
+              "name": "init",
+              "image": "quay.io/airshipit/kubernetes-entrypoint:v1.0.0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 65534
+              },
+              "env": [
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "INTERFACE_NAME",
+                  "value": "eth0"
+                },
+                {
+                  "name": "PATH",
+                  "value": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/"
+                },
+                {
+                  "name": "DEPENDENCY_SERVICE",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_DAEMONSET",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CONTAINER",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_POD_JSON",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CUSTOM_RESOURCE",
+                  "value": ""
+                }
+              ],
+              "command": [
+                "kubernetes-entrypoint"
+              ],
+              "volumeMounts": []
+            },
+            {
+              "name": "rabbitmq-password",
+              "image": "docker.io/openstackhelm/heat:ocata-ubuntu_xenial",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 0
+              },
+              "command": [
+                "/tmp/rabbitmq-password-hash.py"
+              ],
+              "env": [
+                {
+                  "name": "RABBITMQ_ADMIN_USERNAME",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-admin-user",
+                      "key": "RABBITMQ_ADMIN_USERNAME"
+                    }
+                  }
+                },
+                {
+                  "name": "RABBITMQ_ADMIN_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-admin-user",
+                      "key": "RABBITMQ_ADMIN_PASSWORD"
+                    }
+                  }
+                },
+                {
+                  "name": "RABBITMQ_DEFINITION_FILE",
+                  "value": "/var/lib/rabbitmq/definitions.json"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "pod-tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "rabbitmq-data",
+                  "mountPath": "/var/lib/rabbitmq"
+                },
+                {
+                  "name": "rabbitmq-bin",
+                  "mountPath": "/tmp/rabbitmq-password-hash.py",
+                  "subPath": "rabbitmq-password-hash.py",
+                  "readOnly": true
+                }
+              ]
+            },
+            {
+              "name": "rabbitmq-cookie",
+              "image": "docker.io/rabbitmq:3.7.13",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 0
+              },
+              "command": [
+                "/tmp/rabbitmq-cookie.sh"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "pod-tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "rabbitmq-bin",
+                  "mountPath": "/tmp/rabbitmq-cookie.sh",
+                  "subPath": "rabbitmq-cookie.sh",
+                  "readOnly": true
+                },
+                {
+                  "name": "rabbitmq-data",
+                  "mountPath": "/var/lib/rabbitmq"
+                },
+                {
+                  "name": "rabbitmq-erlang-cookie",
+                  "mountPath": "/var/run/lib/rabbitmq/.erlang.cookie",
+                  "subPath": "erlang_cookie",
+                  "readOnly": true
+                }
+              ]
+            },
+            {
+              "name": "rabbitmq-perms",
+              "image": "docker.io/rabbitmq:3.7.13",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 0
+              },
+              "command": [
+                "chown",
+                "-R",
+                "rabbitmq:",
+                "/var/lib/rabbitmq"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "pod-tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "rabbitmq-data",
+                  "mountPath": "/var/lib/rabbitmq"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "rabbitmq",
+              "image": "docker.io/rabbitmq:3.7.13",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 10005,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "command": [
+                "/tmp/rabbitmq-start.sh"
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "protocol": "TCP",
+                  "containerPort": 15672
+                },
+                {
+                  "name": "amqp",
+                  "protocol": "TCP",
+                  "containerPort": 5672
+                },
+                {
+                  "name": "clustering",
+                  "protocol": "TCP",
+                  "containerPort": 25672
+                }
+              ],
+              "env": [
+                {
+                  "name": "MY_POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "MY_POD_IP",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "status.podIP"
+                    }
+                  }
+                },
+                {
+                  "name": "RABBITMQ_USE_LONGNAME",
+                  "value": "true"
+                },
+                {
+                  "name": "RABBITMQ_NODENAME",
+                  "value": "rabbit@$(MY_POD_NAME).rabbitmq.default.svc.cluster.local"
+                },
+                {
+                  "name": "K8S_SERVICE_NAME",
+                  "value": "rabbitmq"
+                },
+                {
+                  "name": "K8S_HOSTNAME_SUFFIX",
+                  "value": ".rabbitmq.default.svc.cluster.local"
+                },
+                {
+                  "name": "RABBITMQ_ERLANG_COOKIE",
+                  "value": "openstack-cookie"
+                },
+                {
+                  "name": "PORT_HTTP",
+                  "value": "15672"
+                },
+                {
+                  "name": "PORT_AMPQ",
+                  "value": "5672"
+                },
+                {
+                  "name": "PORT_CLUSTERING",
+                  "value": "25672"
+                }
+              ],
+              "readinessProbe": {
+                "initialDelaySeconds": 10,
+                "timeoutSeconds": 10,
+                "exec": {
+                  "command": [
+                    "/tmp/rabbitmq-readiness.sh"
+                  ]
+                }
+              },
+              "livenessProbe": {
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 10,
+                "exec": {
+                  "command": [
+                    "/tmp/rabbitmq-liveness.sh"
+                  ]
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "pod-tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "rabbitmq-data",
+                  "mountPath": "/var/lib/rabbitmq"
+                },
+                {
+                  "name": "rabbitmq-bin",
+                  "mountPath": "/tmp/rabbitmq-start.sh",
+                  "subPath": "rabbitmq-start.sh",
+                  "readOnly": true
+                },
+                {
+                  "name": "rabbitmq-bin",
+                  "mountPath": "/tmp/rabbitmq-readiness.sh",
+                  "subPath": "rabbitmq-readiness.sh",
+                  "readOnly": true
+                },
+                {
+                  "name": "rabbitmq-bin",
+                  "mountPath": "/tmp/rabbitmq-liveness.sh",
+                  "subPath": "rabbitmq-liveness.sh",
+                  "readOnly": true
+                },
+                {
+                  "name": "rabbitmq-etc",
+                  "mountPath": "/etc/rabbitmq/enabled_plugins",
+                  "subPath": "enabled_plugins",
+                  "readOnly": true
+                },
+                {
+                  "name": "rabbitmq-etc",
+                  "mountPath": "/etc/rabbitmq/rabbitmq.conf",
+                  "subPath": "rabbitmq.conf",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "pod-tmp",
+              "emptyDir": {}
+            },
+            {
+              "name": "rabbitmq-bin",
+              "configMap": {
+                "name": "release-name-rabbitmq-bin",
+                "defaultMode": 365
+              }
+            },
+            {
+              "name": "rabbitmq-etc",
+              "configMap": {
+                "name": "release-name-rabbitmq-etc",
+                "defaultMode": 292
+              }
+            },
+            {
+              "name": "rabbitmq-erlang-cookie",
+              "secret": {
+                "secretName": "release-name-erlang-cookie",
+                "defaultMode": 292
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "rabbitmq-data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "256Mi"
+              }
+            },
+            "storageClassName": "general"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+      "name": "release-name-cluster-wait",
+      "labels": {
+        "release_group": "release-name",
+        "application": "rabbitmq",
+        "component": "cluster-wait"
+      },
+      "annotations": {
+        "openstackhelm.openstack.org/release_uuid": ""
+      }
+    },
+    "spec": {
+      "template": {
+        "metadata": {
+          "labels": {
+            "release_group": "release-name",
+            "application": "rabbitmq",
+            "component": "cluster-wait"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "runAsUser": 999
+          },
+          "serviceAccountName": "release-name-cluster-wait",
+          "restartPolicy": "OnFailure",
+          "nodeSelector": {
+            "openstack-control-plane": "enabled"
+          },
+          "initContainers": [
+            {
+              "name": "init",
+              "image": "quay.io/airshipit/kubernetes-entrypoint:v1.0.0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 65534
+              },
+              "env": [
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "INTERFACE_NAME",
+                  "value": "eth0"
+                },
+                {
+                  "name": "PATH",
+                  "value": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/"
+                },
+                {
+                  "name": "DEPENDENCY_SERVICE",
+                  "value": "default:rabbitmq"
+                },
+                {
+                  "name": "DEPENDENCY_DAEMONSET",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CONTAINER",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_POD_JSON",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CUSTOM_RESOURCE",
+                  "value": ""
+                }
+              ],
+              "command": [
+                "kubernetes-entrypoint"
+              ],
+              "volumeMounts": []
+            },
+            {
+              "name": "rabbitmq-cookie",
+              "image": "docker.io/rabbitmq:3.7.13-management",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true
+              },
+              "command": [
+                "/tmp/rabbitmq-cookie.sh"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "pod-tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "rabbitmq-bin",
+                  "mountPath": "/tmp/rabbitmq-cookie.sh",
+                  "subPath": "rabbitmq-cookie.sh",
+                  "readOnly": true
+                },
+                {
+                  "name": "rabbitmq-data",
+                  "mountPath": "/var/lib/rabbitmq"
+                },
+                {
+                  "name": "rabbitmq-erlang-cookie",
+                  "mountPath": "/var/run/lib/rabbitmq/.erlang.cookie",
+                  "subPath": "erlang_cookie",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "release-name-rabbitmq-cluster-wait",
+              "image": "docker.io/rabbitmq:3.7.13-management",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "env": [
+                {
+                  "name": "RABBITMQ_ADMIN_CONNECTION",
+                  "value": "rabbit://rabbitmq:password@rabbitmq.default.svc.cluster.local:15672/"
+                },
+                {
+                  "name": "RABBIT_REPLICA_COUNT",
+                  "value": "2"
+                }
+              ],
+              "command": [
+                "/tmp/rabbitmq-wait-for-cluster.sh"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "pod-tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "rabbitmq-bin",
+                  "mountPath": "/tmp/rabbitmq-wait-for-cluster.sh",
+                  "subPath": "rabbitmq-wait-for-cluster.sh",
+                  "readOnly": true
+                },
+                {
+                  "name": "rabbitmq-data",
+                  "mountPath": "/var/lib/rabbitmq"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "pod-tmp",
+              "emptyDir": {}
+            },
+            {
+              "name": "rabbitmq-data",
+              "emptyDir": {}
+            },
+            {
+              "name": "rabbitmq-bin",
+              "configMap": {
+                "name": "release-name-rabbitmq-bin",
+                "defaultMode": 365
+              }
+            },
+            {
+              "name": "rabbitmq-erlang-cookie",
+              "secret": {
+                "secretName": "release-name-erlang-cookie",
+                "defaultMode": 292
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "extensions/v1beta1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "release-name-mgr-90b19a",
+      "annotations": {
+        "kubernetes.io/ingress.class": "nginx",
+        "nginx.ingress.kubernetes.io/rewrite-target": "/"
+      }
+    },
+    "spec": {
+      "rules": [
+        {
+          "host": "release-name-mgr-90b19a",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "backend": {
+                  "serviceName": "rabbitmq",
+                  "servicePort": "http"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "host": "release-name-mgr-90b19a.default",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "backend": {
+                  "serviceName": "rabbitmq",
+                  "servicePort": "http"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "host": "release-name-mgr-90b19a.default.svc.cluster.local",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "backend": {
+                  "serviceName": "rabbitmq",
+                  "servicePort": "http"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-test",
+      "labels": {
+        "release_group": "release-name",
+        "application": "rabbitmq",
+        "component": "test"
+      },
+      "annotations": {
+        "openstackhelm.openstack.org/release_uuid": "",
+        "helm.sh/hook": "test-success"
+      }
+    },
+    "spec": {
+      "securityContext": {
+        "runAsUser": 999
+      },
+      "serviceAccountName": "release-name-test",
+      "nodeSelector": {
+        "openstack-control-plane": "enabled"
+      },
+      "restartPolicy": "Never",
+      "initContainers": [
+        {
+          "name": "init",
+          "image": "quay.io/airshipit/kubernetes-entrypoint:v1.0.0",
+          "imagePullPolicy": "IfNotPresent",
+          "securityContext": {
+            "allowPrivilegeEscalation": false,
+            "readOnlyRootFilesystem": true,
+            "runAsUser": 65534
+          },
+          "env": [
+            {
+              "name": "POD_NAME",
+              "valueFrom": {
+                "fieldRef": {
+                  "apiVersion": "v1",
+                  "fieldPath": "metadata.name"
+                }
+              }
+            },
+            {
+              "name": "NAMESPACE",
+              "valueFrom": {
+                "fieldRef": {
+                  "apiVersion": "v1",
+                  "fieldPath": "metadata.namespace"
+                }
+              }
+            },
+            {
+              "name": "INTERFACE_NAME",
+              "value": "eth0"
+            },
+            {
+              "name": "PATH",
+              "value": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/"
+            },
+            {
+              "name": "DEPENDENCY_SERVICE",
+              "value": "default:rabbitmq"
+            },
+            {
+              "name": "DEPENDENCY_JOBS",
+              "value": "release-name-cluster-wait"
+            },
+            {
+              "name": "DEPENDENCY_DAEMONSET",
+              "value": ""
+            },
+            {
+              "name": "DEPENDENCY_CONTAINER",
+              "value": ""
+            },
+            {
+              "name": "DEPENDENCY_POD_JSON",
+              "value": ""
+            },
+            {
+              "name": "DEPENDENCY_CUSTOM_RESOURCE",
+              "value": ""
+            }
+          ],
+          "command": [
+            "kubernetes-entrypoint"
+          ],
+          "volumeMounts": []
+        }
+      ],
+      "containers": [
+        {
+          "name": "release-name-rabbitmq-test",
+          "image": "docker.io/rabbitmq:3.7.13-management",
+          "imagePullPolicy": "IfNotPresent",
+          "securityContext": {
+            "allowPrivilegeEscalation": false,
+            "readOnlyRootFilesystem": true
+          },
+          "env": [
+            {
+              "name": "RABBITMQ_ADMIN_CONNECTION",
+              "value": "rabbit://rabbitmq:password@rabbitmq.default.svc.cluster.local:15672/"
+            },
+            {
+              "name": "RABBIT_REPLICA_COUNT",
+              "value": "2"
+            }
+          ],
+          "command": [
+            "/tmp/rabbitmq-test.sh"
+          ],
+          "volumeMounts": [
+            {
+              "name": "pod-tmp",
+              "mountPath": "/tmp"
+            },
+            {
+              "name": "rabbitmq-bin",
+              "mountPath": "/tmp/rabbitmq-test.sh",
+              "subPath": "rabbitmq-test.sh",
+              "readOnly": true
+            }
+          ]
+        }
+      ],
+      "volumes": [
+        {
+          "name": "pod-tmp",
+          "emptyDir": {}
+        },
+        {
+          "name": "rabbitmq-bin",
+          "configMap": {
+            "name": "release-name-rabbitmq-bin",
+            "defaultMode": 365
+          }
+        }
+      ]
+    }
+  }
+]

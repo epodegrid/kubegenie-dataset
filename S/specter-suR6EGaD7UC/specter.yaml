@@ -1,0 +1,156 @@
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: allow-nginx-ingress
+spec:
+  podSelector:
+    matchLabels:
+      network/allow-nginx-ingress: "true"
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+          namespaceSelector:
+            matchLabels:
+              type: ingress-nginx
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-specter
+  labels:
+    helm.sh/chart: specter-0.1.1
+    app.kubernetes.io/name: specter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.7.2
+    app.kubernetes.io/managed-by: Helm
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-specter
+  annotations:
+    helm.sh/resource-policy: keep
+  labels:
+    app: specter
+    chart: specter-0.1.1
+    release: release-name
+    heritage: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-specter
+  labels:
+    helm.sh/chart: specter-0.1.1
+    app.kubernetes.io/name: specter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.7.2
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 25441
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: specter
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-specter
+  labels:
+    helm.sh/chart: specter-0.1.1
+    app.kubernetes.io/name: specter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.7.2
+    app.kubernetes.io/managed-by: Helm
+spec:
+  serviceName: release-name-specter
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: specter
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: specter
+        app.kubernetes.io/instance: release-name
+        allow-to-bitcoind: "true"
+        network/allow-nginx-ingress: "true"
+        network/allow-dns: "true"
+    spec:
+      serviceAccountName: release-name-specter
+      securityContext:
+        fsGroup: 2000
+      containers:
+        - name: specter
+          securityContext: null
+          image: lncm/specter-desktop:v1.7.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - /usr/local/bin/python3
+            - -m
+            - cryptoadvance.specter
+            - server
+            - --host=0.0.0.0
+            - --specter-data-folder=/data
+          ports:
+            - name: http
+              containerPort: 25441
+              protocol: TCP
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          env:
+            - name: BTC_RPC_USER
+              value: rpc_user
+            - name: BTC_RPC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bitcoind-rpcpassword
+                  key: password
+            - name: BTC_RPC_HOST
+              value: bitcoind
+            - name: BTC_RPC_PORT
+              value: "18443"
+            - name: BTC_RPC_PROTOCOL
+              value: http
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: release-name-specter
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-specter-test-connection
+  labels:
+    helm.sh/chart: specter-0.1.1
+    app.kubernetes.io/name: specter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.7.2
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-specter:25441
+  restartPolicy: Never

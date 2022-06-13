@@ -1,0 +1,197 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-smartctl-exporter",
+      "labels": {
+        "app": "smartctl-exporter",
+        "chart": "smartctl-exporter-0.1.6",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-smartctl-exporter",
+      "labels": {
+        "app": "smartctl-exporter",
+        "chart": "smartctl-exporter-0.1.6",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "smartctl_exporter.yaml": "smartctl_exporter:\n  bind_to: 0.0.0.0:9633\n  collect_not_more_than_period: 120s\n  devices:\n  - /dev/sda\n  smartctl_location: /usr/sbin/smartctl\n  url_path: /metrics\n"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "release-name-smartctl-exporter",
+      "labels": {
+        "app": "smartctl-exporter",
+        "chart": "smartctl-exporter-0.1.6",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "unrestricted-psp"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-smartctl-exporter",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-smartctl-exporter",
+      "labels": {
+        "app": "smartctl-exporter",
+        "chart": "smartctl-exporter-0.1.6",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "externalIPs": null,
+      "selector": {
+        "app": "smartctl-exporter",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "DaemonSet",
+    "metadata": {
+      "name": "release-name-smartctl-exporter",
+      "labels": {
+        "app": "smartctl-exporter",
+        "chart": "smartctl-exporter-0.1.6",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "updateStrategy": {
+        "rollingUpdate": {
+          "maxUnavailable": 1
+        },
+        "type": "RollingUpdate"
+      },
+      "replicas": null,
+      "selector": {
+        "matchLabels": {
+          "app": "smartctl-exporter",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "smartctl-exporter",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "5ae1500061b1906021570e6a558ce1f090c68544a8c3405596cad8b255d29955"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "image": "docker.io/pnnlmiscscripts/smartctl-exporter:0.5-6",
+              "imagePullPolicy": "IfNotPresent",
+              "name": "main",
+              "securityContext": {
+                "privileged": true,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 9633,
+                  "protocol": "TCP"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/hostdev",
+                  "name": "dev"
+                },
+                {
+                  "mountPath": "/etc/smartctl_exporter.yaml",
+                  "subPath": "smartctl_exporter.yaml",
+                  "name": "config"
+                }
+              ]
+            }
+          ],
+          "dnsPolicy": "ClusterFirst",
+          "hostNetwork": true,
+          "restartPolicy": "Always",
+          "serviceAccountName": "release-name-smartctl-exporter",
+          "volumes": [
+            {
+              "configMap": {
+                "name": "release-name-smartctl-exporter"
+              },
+              "name": "config"
+            },
+            {
+              "hostPath": {
+                "path": "/dev"
+              },
+              "name": "dev"
+            }
+          ],
+          "tolerations": [
+            {
+              "key": "CriticalAddonsOnly",
+              "operator": "Exists"
+            },
+            {
+              "operator": "Exists"
+            },
+            {
+              "effect": "NoSchedule",
+              "key": "node-role.kubernetes.io/master"
+            }
+          ]
+        }
+      }
+    }
+  }
+]

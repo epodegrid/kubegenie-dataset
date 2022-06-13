@@ -1,0 +1,97 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "openstack"
+    },
+    "data": {
+      "serviceConfig": "name: openstack\naccessor:\n  username: \"admin@opencord.org\"\n  password: \"letmein\"\n  endpoint: xos-core:50051\nlogging:\n  version: 1\n  handlers:\n    console:\n      class: logging.StreamHandler\n    file:\n      class: logging.handlers.RotatingFileHandler\n      filename: /var/log/xos.log\n      maxBytes: 10485760\n      backupCount: 5\n    kafka:\n      class: kafkaloghandler.KafkaLogHandler\n      bootstrap_servers:\n        - \"cord-kafka:9092\"\n      topic: xos.log.openstack\n  loggers:\n    '':\n      handlers:\n        - console\n        - file\n        - kafka\n      level: DEBUG\nnova:\n  ca_ssl_cert: \"/etc/ssl/certs/ca-certificates.crt\"\n  enabled: True\n"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-openstack",
+      "labels": {
+        "app": "openstack",
+        "chart": "openstack-1.1.8",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "openstack",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "openstack",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "0618d8d8d7220ec9ba5989535fd4116afa018a92040de729c5165491e2db5967"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "openstack",
+              "image": "xosproject/openstack-synchronizer:1.1.5",
+              "imagePullPolicy": "Always",
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "openstack-config",
+                  "mountPath": "/opt/xos/synchronizers/openstack/mounted_config.yaml",
+                  "subPath": "mounted_config.yaml"
+                },
+                {
+                  "name": "certchain-volume",
+                  "mountPath": "/usr/local/share/ca-certificates/local_certs.crt",
+                  "subPath": "config/ca_cert_chain.pem"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "openstack-config",
+              "configMap": {
+                "name": "openstack",
+                "items": [
+                  {
+                    "key": "serviceConfig",
+                    "path": "mounted_config.yaml"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "certchain-volume",
+              "configMap": {
+                "name": "ca-certificates",
+                "items": [
+                  {
+                    "key": "chain",
+                    "path": "config/ca_cert_chain.pem"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

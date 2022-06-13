@@ -1,0 +1,290 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "test-collector",
+      "namespace": "i1KOwlwY1PGgu3C"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/name": "release-name-wavefront",
+        "helm.sh/chart": "wavefront-1.11.0",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io.instance": "release-name",
+        "app.kubernetes.io/component": "collector"
+      },
+      "name": "release-name-wavefront"
+    },
+    "type": "Opaque",
+    "data": {
+      "api-token": "WU9VUl9BUElfVE9LRU4="
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "test-collector",
+      "namespace": "i1KOwlwY1PGgu3C"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "apps"
+        ],
+        "resources": [
+          "daemonsets"
+        ],
+        "verbs": [
+          "get",
+          "watch",
+          "list"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "test-collector",
+      "namespace": "i1KOwlwY1PGgu3C"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "test-collector",
+        "namespace": "default"
+      }
+    ],
+    "roleRef": {
+      "kind": "Role",
+      "name": "test-collector",
+      "apiGroup": "rbac.authorization.k8s.io"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/name": "release-name-wavefront",
+        "helm.sh/chart": "wavefront-1.11.0",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io.instance": "release-name",
+        "app.kubernetes.io/component": "proxy"
+      },
+      "name": "release-name-wavefront-proxy"
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "wavefront",
+          "port": 2878,
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "release-name-wavefront",
+        "app.kubernetes.io/component": "proxy"
+      },
+      "type": "ClusterIP"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-prometheus-storage-adapter",
+      "labels": {
+        "app.kubernetes.io/name": "release-name-prometheus-storage-adapter",
+        "helm.sh/chart": "prometheus-storage-adapter-0.1.3",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io.instance": "release-name",
+        "app.kubernetes.io/component": "prometheus-storage-adapter"
+      }
+    },
+    "spec": {
+      "selector": {
+        "app.kubernetes.io/name": "release-name-prometheus-storage-adapter",
+        "app.kubernetes.io/component": "prometheus-storage-adapter"
+      },
+      "ports": [
+        {
+          "name": "adapter-port",
+          "protocol": "TCP",
+          "port": 80,
+          "targetPort": 1234
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/name": "release-name-wavefront",
+        "helm.sh/chart": "wavefront-1.11.0",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io.instance": "release-name",
+        "app.kubernetes.io/component": "proxy"
+      },
+      "name": "release-name-wavefront-proxy"
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "release-name-wavefront",
+          "app.kubernetes.io/component": "proxy"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "release-name-wavefront",
+            "app.kubernetes.io/component": "proxy"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "wavefront-proxy",
+              "image": "projects.registry.vmware.com/tanzu_observability/proxy:11.0",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "WAVEFRONT_URL",
+                  "value": "https://YOUR_CLUSTER.wavefront.com/api"
+                },
+                {
+                  "name": "WAVEFRONT_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-wavefront",
+                      "key": "api-token"
+                    }
+                  }
+                },
+                {
+                  "name": "WAVEFRONT_PROXY_ARGS",
+                  "value": null
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 2878,
+                  "protocol": "TCP"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "1000m",
+                  "memory": "4Gi"
+                },
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "1Gi"
+                }
+              },
+              "securityContext": {
+                "privileged": false,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true,
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": null
+            }
+          ],
+          "volumes": null
+        }
+      }
+    }
+  },
+  {
+    "kind": "Deployment",
+    "apiVersion": "apps/v1",
+    "metadata": {
+      "name": "release-name-prometheus-storage-adapter",
+      "labels": {
+        "app.kubernetes.io/name": "release-name-prometheus-storage-adapter",
+        "helm.sh/chart": "prometheus-storage-adapter-0.1.3",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io.instance": "release-name",
+        "app.kubernetes.io/component": "prometheus-storage-adapter"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "release-name-prometheus-storage-adapter",
+          "app.kubernetes.io/component": "prometheus-storage-adapter"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "release-name-prometheus-storage-adapter",
+            "app.kubernetes.io/component": "prometheus-storage-adapter"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "prometheus-storage-adapter",
+              "image": "wavefronthq/prometheus-storage-adapter:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/bin/adapter",
+                "-listen=1234",
+                "-proxy=release-name-wavefront-proxy.default.svc.cluster.local"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "test-collector",
+      "namespace": "i1KOwlwY1PGgu3C",
+      "annotations": {
+        "helm.sh/hook": "test",
+        "helm.sh/hook-delete-policy": "hook-succeeded,hook-failed"
+      }
+    },
+    "spec": {
+      "serviceAccountName": "test-collector",
+      "containers": [
+        {
+          "name": "test-collector",
+          "image": "bitnami/kubectl:latest",
+          "imagePullPolicy": "IfNotPresent",
+          "command": [
+            "/bin/bash",
+            "-ec",
+            "kubectl --namespace default get daemonsets --selector=\"app.kubernetes.io/component=collector\"\n"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

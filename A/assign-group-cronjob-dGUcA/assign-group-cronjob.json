@@ -1,0 +1,174 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-assign-group-cronjob",
+      "labels": {
+        "helm.sh/chart": "assign-group-cronjob-0.2.1",
+        "app.kubernetes.io/name": "assign-group-cronjob",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v0.1.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-assign-group-cronjob",
+      "labels": {
+        "helm.sh/chart": "assign-group-cronjob-0.2.1",
+        "app.kubernetes.io/name": "assign-group-cronjob",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v0.1.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "reconcile-users-in-group.sh": "#!/bin/bash\n\nif [[ -z \"${GROUP_NAMES}\" ]]; then\n  echo \"GROUP_NAMES not set\"\n  exit 1\nfi\n\nif [[ -n \"${NAMESPACE}}\" ]] && [[ -n \"${JOB_NAME}\" ]]; then\n  MANAGED_BY=\"${NAMESPACE}_cronjob_${JOB_NAME}\"\nelse\n  MANAGED_BY=\"unknown\"\nfi\n\n# list all routes and configmaps with console-link.cloud-native-toolkit.dev/enabled label\nUSERS=$(kubectl get users -o json | jq -c '[.items[].metadata.name] | {\"users\": .}')\n\nif [[ -z \"${USERS}\" ]]; then\n  echo \"No users found\"\n  exit 0\nfi\n\necho \"${GROUP_NAMES}\" | jq -r '.[]' | while read group_name; do\n  echo \"Processing group: ${group_name}\"\n  kubectl get group \"${group_name}\" -o json > /tmp/group.json\n\n  GROUP_USERS=$(cat /tmp/group.json | jq -c '.users | {\"users\": .}')\n  cat /tmp/group.json | jq --arg MANAGED_BY $MANAGED_BY 'del(.users) | .metadata.labels[\"app.kubernetes.io/managed-by\"] = $MANAGED_BY' > /tmp/group-nousers.json\n\n  if [[ \"${USERS}\" != \"${GROUP_USERS}\" ]]; then\n    echo \"Reconciling users to group\"\n    echo \"${USERS}\" | jq -s '.[0] * .[1]' /tmp/group-nousers.json - | kubectl apply -f -\n  fi\ndone\n"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "name": "release-name-assign-group-cronjob",
+      "labels": {
+        "helm.sh/chart": "assign-group-cronjob-0.2.1",
+        "app.kubernetes.io/name": "assign-group-cronjob",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v0.1.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "user.openshift.io"
+        ],
+        "resources": [
+          "groups"
+        ],
+        "verbs": [
+          "*"
+        ]
+      },
+      {
+        "apiGroups": [
+          "user.openshift.io"
+        ],
+        "resources": [
+          "users"
+        ],
+        "verbs": [
+          "list",
+          "get"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "release-name-assign-group-cronjob",
+      "labels": {
+        "helm.sh/chart": "assign-group-cronjob-0.2.1",
+        "app.kubernetes.io/name": "assign-group-cronjob",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v0.1.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "release-name-assign-group-cronjob"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-assign-group-cronjob",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "release-name-assign-group-cronjob",
+      "labels": {
+        "helm.sh/chart": "assign-group-cronjob-0.2.1",
+        "app.kubernetes.io/name": "assign-group-cronjob",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v0.1.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "checksum/config": "898d1b8eb33e5dc548cbcdb7b673b2179ef8bad6d83b05502b6b04f296983cb1"
+      }
+    },
+    "spec": {
+      "schedule": "*/1 * * * *",
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "spec": {
+              "restartPolicy": "OnFailure",
+              "volumes": [
+                {
+                  "name": "scripts",
+                  "configMap": {
+                    "name": "release-name-assign-group-cronjob",
+                    "defaultMode": 511
+                  }
+                }
+              ],
+              "serviceAccountName": "release-name-assign-group-cronjob",
+              "containers": [
+                {
+                  "name": "job",
+                  "image": "quay.io/cloudnativetoolkit/console-link-cronjob:v0.1.0",
+                  "volumeMounts": [
+                    {
+                      "mountPath": "/scripts",
+                      "name": "scripts"
+                    }
+                  ],
+                  "env": [
+                    {
+                      "name": "GROUP_NAMES",
+                      "value": "[]"
+                    },
+                    {
+                      "name": "JOB_NAME",
+                      "value": "release-name-assign-group-cronjob"
+                    },
+                    {
+                      "name": "NAMESPACE",
+                      "valueFrom": {
+                        "fieldRef": {
+                          "fieldPath": "metadata.namespace"
+                        }
+                      }
+                    }
+                  ],
+                  "command": [
+                    "/bin/sh"
+                  ],
+                  "args": [
+                    "-c",
+                    "/scripts/reconcile-users-in-group.sh"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+]

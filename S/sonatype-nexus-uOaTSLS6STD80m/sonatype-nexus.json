@@ -1,0 +1,217 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-sonatype-nexus",
+      "namespace": "uOaTSLS6STD80m"
+    }
+  },
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-sonatype-nexus-data",
+      "namespace": "default",
+      "labels": {
+        "app": "sonatype-nexus",
+        "fullname": "release-name-sonatype-nexus",
+        "chart": "sonatype-nexus",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "8Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-sonatype-nexus",
+      "namespace": "uOaTSLS6STD80m",
+      "labels": {
+        "app": "sonatype-nexus",
+        "fullname": "release-name-sonatype-nexus",
+        "chart": "sonatype-nexus",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "port": 8080,
+          "name": "release-name-sonatype-nexus",
+          "protocol": "TCP",
+          "targetPort": 8080
+        }
+      ],
+      "selector": {
+        "app": "sonatype-nexus",
+        "release": "release-name"
+      },
+      "type": "NodePort"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-sonatype-nexus",
+      "namespace": "uOaTSLS6STD80m",
+      "labels": {
+        "app": "sonatype-nexus",
+        "fullname": "release-name-sonatype-nexus",
+        "chart": "sonatype-nexus",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "sonatype-nexus",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "sonatype-nexus",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-sonatype-nexus",
+          "containers": [
+            {
+              "name": "nexus",
+              "image": "registry.cn-shanghai.aliyuncs.com/c7n/docker-nexus:3.25.1",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "INSTALL4J_ADD_VM_PARAMS",
+                  "value": "-Xms1200M -Xmx1200M -XX:MaxDirectMemorySize=2G -XX:ActiveProcessorCount=4 -Dnexus.scripts.allowCreation=true"
+                },
+                {
+                  "name": "NEXUS_SECURITY_RANDOMPASSWORD",
+                  "value": "false"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "ports": [
+                {
+                  "containerPort": 5003,
+                  "name": "nexus-docker-g"
+                },
+                {
+                  "containerPort": 8081,
+                  "name": "nexus-http"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": 8081
+                },
+                "initialDelaySeconds": 300,
+                "periodSeconds": 30,
+                "failureThreshold": 6
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": 8081
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 30,
+                "failureThreshold": 6
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/nexus-data",
+                  "name": "release-name-sonatype-nexus-data"
+                }
+              ]
+            },
+            {
+              "name": "nexus-proxy",
+              "image": "registry.cn-shanghai.aliyuncs.com/c7n/docker-nexus-proxy:2.6.0",
+              "resources": {},
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "ALLOWED_USER_AGENTS_ON_ROOT_REGEX",
+                  "value": "GoogleHC"
+                },
+                {
+                  "name": "CLOUD_IAM_AUTH_ENABLED",
+                  "value": "false"
+                },
+                {
+                  "name": "BIND_PORT",
+                  "value": "8080"
+                },
+                {
+                  "name": "ENFORCE_HTTPS",
+                  "value": "false"
+                },
+                {
+                  "name": "NEXUS_DOCKER_HOST",
+                  "value": null
+                },
+                {
+                  "name": "NEXUS_HTTP_HOST",
+                  "value": null
+                },
+                {
+                  "name": "UPSTREAM_DOCKER_PORT",
+                  "value": "5003"
+                },
+                {
+                  "name": "UPSTREAM_HTTP_PORT",
+                  "value": "8081"
+                },
+                {
+                  "name": "UPSTREAM_HOST",
+                  "value": "localhost"
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 8080,
+                  "name": "nexus-proxy"
+                }
+              ]
+            }
+          ],
+          "securityContext": {
+            "fsGroup": 200
+          },
+          "volumes": [
+            {
+              "name": "release-name-sonatype-nexus-data",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-sonatype-nexus-data"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,93 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-adminer
+  labels:
+    app.kubernetes.io/name: adminer
+    helm.sh/chart: adminer-0.2.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: NodePort
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: adminer
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-adminer
+  labels:
+    app.kubernetes.io/name: adminer
+    helm.sh/chart: adminer-0.2.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adminer
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adminer
+        app.kubernetes.io/instance: release-name
+    spec:
+      containers:
+        - name: adminer
+          image: adminer:4.7.5-standalone
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: ADMINER_PLUGINS
+              value: null
+            - name: ADMINER_DESIGN
+              value: null
+            - name: ADMINER_DEFAULT_SERVER
+              value: null
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-adminer-test-connection
+  labels:
+    app.kubernetes.io/name: adminer
+    helm.sh/chart: adminer-0.2.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-adminer:80
+  restartPolicy: Never

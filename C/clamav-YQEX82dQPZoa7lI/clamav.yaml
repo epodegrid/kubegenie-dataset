@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-clamav
+  labels:
+    app.kubernetes.io/name: clamav
+    helm.sh/chart: clamav-2.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3310
+      targetPort: 3310
+      protocol: TCP
+      name: clamavport
+  selector:
+    app.kubernetes.io/name: clamav
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: autoscaling/v2beta1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: release-name-clamav
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: release-name-clamav
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        targetAverageUtilization: 80
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-clamav
+  labels:
+    app.kubernetes.io/name: clamav
+    helm.sh/chart: clamav-2.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "1.9"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  serviceName: release-name-clamav
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: clamav
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: clamav
+        app.kubernetes.io/instance: release-name
+    spec:
+      containers:
+        - name: clamav
+          image: mailu/clamav:1.9
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: clamav-data
+              mountPath: /data
+          ports:
+            - name: clamavport
+              containerPort: 3310
+              protocol: TCP
+          livenessProbe:
+            initialDelaySeconds: 300
+            failureThreshold: 3
+            periodSeconds: 10
+            tcpSocket:
+              port: clamavport
+            timeoutSeconds: 1
+          readinessProbe:
+            initialDelaySeconds: 90
+            failureThreshold: 3
+            periodSeconds: 10
+            tcpSocket:
+              port: clamavport
+            timeoutSeconds: 1
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: clamav-data
+          emptyDir: {}

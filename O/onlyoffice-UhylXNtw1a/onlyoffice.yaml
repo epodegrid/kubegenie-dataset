@@ -1,0 +1,171 @@
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: release-name-onlyoffice-psp
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  fsGroup:
+    rule: RunAsAny
+  runAsUser:
+    rule: RunAsAny
+  seLinux:
+    rule: RunAsAny
+  supplementalGroups:
+    rule: RunAsAny
+  volumes:
+    - emptyDir
+    - projected
+    - secret
+    - configMap
+    - downwardAPI
+    - persistentVolumeClaim
+  hostNetwork: false
+  hostPID: false
+  hostIPC: false
+  allowedCapabilities:
+    - MKNOD
+  rule: MustRunAsNonRoot
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-onlyoffice-clusterrole
+rules:
+  - apiGroups:
+      - policy
+    resources:
+      - podsecuritypolicies
+    resourceNames:
+      - release-name-onlyoffice-psp
+    verbs:
+      - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-onlyoffice-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-onlyoffice-clusterrole
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: system:serviceaccounts
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-onlyoffice
+  labels:
+    app.kubernetes.io/name: onlyoffice
+    helm.sh/chart: onlyoffice-1.2.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: onlyoffice
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-onlyoffice
+  labels:
+    app.kubernetes.io/name: onlyoffice
+    helm.sh/chart: onlyoffice-1.2.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: onlyoffice
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: onlyoffice
+        app.kubernetes.io/instance: release-name
+        app: onlyoffice
+        version: 7.0.1.37
+    spec:
+      terminationGracePeriodSeconds: 10
+      automountServiceAccountToken: true
+      containers:
+        - name: onlyoffice
+          image: onlyoffice/documentserver:7.0.1.37
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: JWT_ENABLED
+              value: "true"
+            - name: JWT_SECRET
+              value: someverysecurepassword
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /healthcheck
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 2
+            successThreshold: 1
+            failureThreshold: 3
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-onlyoffice-test-connection
+  labels:
+    app.kubernetes.io/name: onlyoffice
+    helm.sh/chart: onlyoffice-1.2.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-onlyoffice:80
+  restartPolicy: Never

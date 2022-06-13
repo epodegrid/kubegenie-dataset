@@ -1,0 +1,160 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-command-source-connector
+  labels:
+    helm.sh/chart: command-source-connector-0.1.4
+    app.kubernetes.io/name: command-source-connector
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.9.6
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-command-source-connector
+  labels:
+    helm.sh/chart: command-source-connector-0.1.4
+    app.kubernetes.io/name: command-source-connector
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.9.6
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: command-source-connector
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-command-source-connector
+  labels:
+    helm.sh/chart: command-source-connector-0.1.4
+    app.kubernetes.io/name: command-source-connector
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.9.6
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: command-source-connector
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: command-source-connector
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-command-source-connector
+      securityContext: {}
+      containers:
+        - name: command-source-connector
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: command-source-connector:0.9.6
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CONNECTOR_RMDB_APISECRET
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-command-source-connector-rmdb
+                  key: secret
+            - name: CONNECTOR_RMDB_APICLIENTID
+              value: client
+            - name: CONNECTOR_RMDB_OAUTHPROVIDERISSUERURI
+              value: http://localhost
+            - name: CONNECTOR_RMDB_APIURL
+              value: https://some-urel
+            - name: OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-command-source-connector-streaming
+                  key: secret
+            - name: OAUTH_CLIENT_ID
+              value: ""
+            - name: OAUTH_TOKEN_ENDPOINT_URI
+              value: http://localhost/token-endpoint
+            - name: OAUTH_USERNAME_CLAIM
+              value: preferred_username
+            - name: CONNECTOR_STREAMING_KAFKABOOTSTRAPSERVERS
+              value: http://server1, http://server2
+            - name: CONNECTOR_STREAMING_SCHEMAREGISTRYURL
+              value: http://localhost:8888
+            - name: CONNECTOR_STREAMING_TOPICNAMELOCATION
+              value: location
+            - name: CONNECTOR_STREAMING_TOPICCREATELOCATION
+              value: "false"
+            - name: CONNECTOR_STREAMING_TOPICREPLICASLOCATION
+              value: "2"
+            - name: CONNECTOR_STREAMING_TOPICPARTITIONSLOCATION
+              value: "1"
+            - name: CONNECTOR_STREAMING_TOPICNAMEEQUIPMENT
+              value: equipment
+            - name: CONNECTOR_STREAMING_TOPICCREATEEQUIPMENT
+              value: "false"
+            - name: CONNECTOR_STREAMING_TOPICREPLICASEQUIPMENT
+              value: "2"
+            - name: CONNECTOR_STREAMING_TOPICPARTITIONSEQUIPMENT
+              value: "1"
+            - name: CONNECTOR_CIPROCESSOR_DEFAULTSCHEDULE
+              value: 0 0 0/4 * * ?
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /health/liveness
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /health/readiness
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-command-source-connector-test-connection
+  labels:
+    helm.sh/chart: command-source-connector-0.1.4
+    app.kubernetes.io/name: command-source-connector
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.9.6
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-command-source-connector:8080
+  restartPolicy: Never

@@ -1,0 +1,197 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fencing-controller
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fencing-switcher
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: fencing-controller
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - list
+      - watch
+      - get
+      - delete
+      - update
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - nodes/status
+    verbs:
+      - update
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - deletecollection
+  - apiGroups:
+      - storage.k8s.io
+    resources:
+      - volumeattachments
+    verbs:
+      - list
+      - watch
+      - deletecollection
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: fencing-switcher
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - patch
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: fencing-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fencing-controller
+subjects:
+  - kind: ServiceAccount
+    name: fencing-controller
+    namespace: default
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: fencing-switcher
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fencing-switcher
+subjects:
+  - kind: ServiceAccount
+    name: fencing-switcher
+    namespace: default
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: fencing-controller
+rules:
+  - apiGroups:
+      - batch
+      - extensions
+    resources:
+      - jobs
+    verbs:
+      - list
+      - watch
+      - get
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - update
+      - patch
+      - create
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+  - apiGroups:
+      - ""
+    resources:
+      - podtemplates
+    verbs:
+      - list
+      - watch
+      - get
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: fencing-controller
+subjects:
+  - kind: ServiceAccount
+    name: fencing-controller
+    namespace: default
+roleRef:
+  kind: Role
+  name: fencing-controller
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fencing-switcher
+spec:
+  selector:
+    matchLabels:
+      app: fencing-switcher
+  template:
+    metadata:
+      labels:
+        app: fencing-switcher
+    spec:
+      serviceAccountName: fencing-switcher
+      hostNetwork: true
+      imagePullSecrets:
+        - name: regsecret
+      containers:
+        - name: switcher
+          image: ghcr.io/kvaps/kube-fencing-switcher:v2.3.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fencing-controller
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: fencing-controller
+  template:
+    metadata:
+      labels:
+        app: fencing-controller
+    spec:
+      serviceAccountName: fencing-controller
+      hostNetwork: true
+      imagePullSecrets:
+        - name: regsecret
+      containers:
+        - name: controller
+          image: ghcr.io/kvaps/kube-fencing-controller:v2.3.0
+          imagePullPolicy: IfNotPresent

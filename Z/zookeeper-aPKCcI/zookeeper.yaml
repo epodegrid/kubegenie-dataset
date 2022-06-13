@@ -1,0 +1,449 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-zookeeper
+  namespace: aPKCcI
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: zookeeper-etc
+type: Opaque
+data:
+  zoo.cfg: dGlja1RpbWU9MjAwMApkYXRhRGlyPS92YXIvbGliL3pvb2tlZXBlci9kYXRhCmRhdGFMb2dEaXI9L3Zhci9saWIvem9va2VlcGVyL2RhdGEvZGF0YWxvZwpsb2dEaXI9L3Zhci9saWIvem9va2VlcGVyL2RhdGEvbG9ncwplbGVjdGlvblBvcnQ9Mzg4OApzZXJ2ZXJQb3J0PTI4ODgKbWF4Q2xpZW50Q254bnM9MTAKaW5pdExpbWl0PTE1CnN5bmNMaW1pdD01CnNlcnZlci4xPXpvb2tlZXBlci0wLnpvb2tlZXBlci1kaXNjb3ZlcnkuZGVmYXVsdC5zdmMuY2x1c3Rlci5sb2NhbDoyODg4OjM4ODg6cGFydGljaXBhbnQ7MjE4MQpzZXJ2ZXIuMj16b29rZWVwZXItMS56b29rZWVwZXItZGlzY292ZXJ5LmRlZmF1bHQuc3ZjLmNsdXN0ZXIubG9jYWw6Mjg4ODozODg4OnBhcnRpY2lwYW50OzIxODEKc2VydmVyLjM9em9va2VlcGVyLTIuem9va2VlcGVyLWRpc2NvdmVyeS5kZWZhdWx0LnN2Yy5jbHVzdGVyLmxvY2FsOjI4ODg6Mzg4ODpwYXJ0aWNpcGFudDsyMTgxCmF1dGhQcm92aWRlci4xPW9yZy5hcGFjaGUuem9va2VlcGVyLnNlcnZlci5hdXRoLlNBU0xBdXRoZW50aWNhdGlvblByb3ZpZGVyCmphYXNMb2dpblJlbmV3PTM2MDAwMDAKcmVxdWlyZUNsaWVudEF1dGhTY2hlbWU9c2FzbA==
+  jaas.conf: U2VydmVyIHsKICBvcmcuYXBhY2hlLnpvb2tlZXBlci5zZXJ2ZXIuYXV0aC5EaWdlc3RMb2dpbk1vZHVsZSByZXF1aXJlZAogIHVzZXJfYWRtaW49ImNoYW5nZW1lIjsKfTsKQ2xpZW50IHsKICBvcmcuYXBhY2hlLnpvb2tlZXBlci5zZXJ2ZXIuYXV0aC5EaWdlc3RMb2dpbk1vZHVsZSByZXF1aXJlZAogIHVzZXJuYW1lPSJhZG1pbiIKICBwYXNzd29yZD0iY2hhbmdlbWUiOwp9Ow==
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: zookeeper-admin-creds
+type: Opaque
+data:
+  ZOOKEEPER_ADMIN_USERNAME: YWRtaW4=
+  ZOOKEEPER_ADMIN_PASSWORD: Y2hhbmdlbWU=
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zookeeper-bin
+data:
+  zookeeper.sh: |
+    #!/bin/bash
+
+
+
+    COMMAND="${@:-start}"
+
+    function stop () {
+      kill -TERM 1
+    }
+
+    $COMMAND
+  generate-myid.sh: |
+    #!/bin/bash
+
+
+
+    HOST=$(hostname)
+    ID_FILE="$ZOO_DATA_DIR/myid"
+
+    if [[ $HOST =~ (.*)-([0-9]+)$ ]]; then
+        NAME=${BASH_REMATCH[1]}
+        ORD=${BASH_REMATCH[2]}
+        MY_ID=$((ORD+1))
+        echo $MY_ID > $ID_FILE
+    else
+        echo "Failed to extract ordinal from hostname $HOST"
+        exit 1
+    fi
+  zookeeper-liveness.sh: |
+    #!/bin/sh
+
+
+
+    set -ex
+
+    echo ruok | nc 127.0.0.1 ${ZOO_CLIENT_PORT}
+  zookeeper-readiness.sh: |
+    #!/bin/sh
+
+
+
+    set -ex
+
+    echo ruok | nc 127.0.0.1 ${ZOO_CLIENT_PORT}
+  image-repo-sync.sh: |
+    #!/bin/sh
+    set -ex
+
+    IFS=','; for IMAGE in ${IMAGE_SYNC_LIST}; do
+      docker pull ${IMAGE}
+      docker tag ${IMAGE} ${LOCAL_REPO}/${IMAGE}
+      docker push ${LOCAL_REPO}/${IMAGE}
+    done
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-zookeeper
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+      - nodes/proxy
+      - services
+      - endpoints
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+  - nonResourceURLs:
+      - /metrics
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-zookeeper
+subjects:
+  - kind: ServiceAccount
+    name: release-name-zookeeper
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: release-name-zookeeper
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper-discovery
+  labels:
+    release_group: release-name
+    application: zookeeper
+    component: server
+spec:
+  ports:
+    - name: client
+      targetPort: client
+      port: 2181
+    - name: election
+      targetPort: election
+      port: 3888
+    - name: server
+      targetPort: server
+      port: 2888
+  clusterIP: None
+  selector:
+    release_group: release-name
+    application: zookeeper
+    component: server
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper
+spec:
+  ports:
+    - name: http
+      port: 80
+    - name: https
+      port: 443
+  selector:
+    app: ingress-api
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper-int
+  labels:
+    release_group: release-name
+    application: zookeeper
+    component: server
+spec:
+  ports:
+    - name: client
+      port: 2181
+    - name: zoo-exporter
+      port: 9141
+    - name: jmx-exporter
+      port: 9404
+  selector:
+    release_group: release-name
+    application: zookeeper
+    component: server
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: zookeeper
+  annotations:
+    openstackhelm.openstack.org/release_uuid: ""
+  labels:
+    release_group: release-name
+    application: zookeeper
+    component: server
+spec:
+  serviceName: zookeeper-discovery
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      release_group: release-name
+      application: zookeeper
+      component: server
+  template:
+    metadata:
+      labels:
+        release_group: release-name
+        application: zookeeper
+        component: server
+      annotations:
+        openstackhelm.openstack.org/release_uuid: ""
+        configmap-bin-hash: d1da232a64d6961556434f31b4ea2e9fe06ddf7f7a35ade1f3cddc9d54bd75c2
+        configmap-etc-hash: 9d34b9bd996d0e2c094477592e0ba4844c6cfa725344c96bf65bd0db677c60ff
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+      serviceAccountName: release-name-zookeeper
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: release_group
+                      operator: In
+                      values:
+                        - release-name
+                    - key: application
+                      operator: In
+                      values:
+                        - zookeeper
+                    - key: component
+                      operator: In
+                      values:
+                        - zookeeper
+                topologyKey: kubernetes.io/hostname
+              weight: 10
+      nodeSelector:
+        openstack-control-plane: enabled
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: init
+          image: quay.io/stackanetes/kubernetes-entrypoint:v0.3.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: INTERFACE_NAME
+              value: eth0
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: DEPENDENCY_SERVICE
+              value: ""
+            - name: DEPENDENCY_DAEMONSET
+              value: ""
+            - name: DEPENDENCY_CONTAINER
+              value: ""
+            - name: DEPENDENCY_POD_JSON
+              value: ""
+            - name: DEPENDENCY_CUSTOM_RESOURCE
+              value: ""
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+        - name: zookeeper-perms
+          image: docker.io/zookeeper:3.5.5
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            fsGroup: 1000
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+          command:
+            - chown
+            - -R
+            - 'zookeeper:'
+            - /var/lib/zookeeper/data
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: data
+              mountPath: /var/lib/zookeeper/data
+        - name: zookeeper-id
+          image: docker.io/zookeeper:3.5.5
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            fsGroup: 1000
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+          command:
+            - /tmp/generate-myid.sh
+          env:
+            - name: ZOO_DATA_DIR
+              value: /var/lib/zookeeper/data
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: zookeeper-bin
+              mountPath: /tmp/generate-myid.sh
+              subPath: generate-myid.sh
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/zookeeper/data
+      containers:
+        - name: zookeeper
+          image: docker.io/zookeeper:3.5.5
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            fsGroup: 1000
+            runAsUser: 11299
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /tmp/zookeeper.sh
+                  - stop
+          ports:
+            - name: client
+              containerPort: 2181
+            - name: election
+              containerPort: 3888
+            - name: server
+              containerPort: 2888
+          env:
+            - name: ZOO_DATA_DIR
+              value: /var/lib/zookeeper/data
+            - name: ZOO_CLIENT_PORT
+              value: "2181"
+            - name: SERVER_JVMFLAGS
+              value: -Djava.security.auth.login.config=/conf/jaas.conf
+          readinessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 2
+            successThreshold: 1
+            exec:
+              command:
+                - /tmp/zookeeper-readiness.sh
+          livenessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 2
+            successThreshold: 1
+            exec:
+              command:
+                - /tmp/zookeeper-liveness.sh
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: etczookeeper
+              mountPath: /etc/zookeeper
+            - name: zookeeper-etc
+              mountPath: /conf/zoo.cfg
+              subPath: zoo.cfg
+            - name: zookeeper-etc
+              mountPath: /conf/jaas.conf
+              subPath: jaas.conf
+            - name: zookeeper-bin
+              mountPath: /tmp/zookeeper.sh
+              subPath: zookeeper.sh
+              readOnly: true
+            - name: zookeeper-bin
+              mountPath: /tmp/zookeeper-liveness.sh
+              subPath: zookeeper-liveness.sh
+              readOnly: true
+            - name: zookeeper-bin
+              mountPath: /tmp/zookeeper-readiness.sh
+              subPath: zookeeper-readiness.sh
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/zookeeper/data
+      volumes:
+        - name: pod-tmp
+          emptyDir: {}
+        - name: etczookeeper
+          emptyDir: {}
+        - name: zookeeper-etc
+          secret:
+            secretName: zookeeper-etc
+            defaultMode: 292
+        - name: zookeeper-bin
+          configMap:
+            name: zookeeper-bin
+            defaultMode: 365
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+        storageClassName: general
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: zookeeper
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/affinity: cookie
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/session-cookie-expires: "600"
+    nginx.ingress.kubernetes.io/session-cookie-hash: sha1
+    nginx.ingress.kubernetes.io/session-cookie-max-age: "600"
+    nginx.ingress.kubernetes.io/session-cookie-name: kube-ingress-session-zookeeper
+spec:
+  rules:
+    - host: zookeeper
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: zookeeper-int
+              servicePort: client
+    - host: zookeeper.default
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: zookeeper-int
+              servicePort: client
+    - host: zookeeper.default.svc.cluster.local
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: zookeeper-int
+              servicePort: client

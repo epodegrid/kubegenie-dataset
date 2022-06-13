@@ -1,0 +1,211 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-backstage-app
+  labels:
+    helm.sh/chart: backstage-0.6.0
+    app.kubernetes.io/name: backstage
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: main
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: app
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-backstage-backend
+  labels:
+    helm.sh/chart: backstage-0.6.0
+    app.kubernetes.io/name: backstage
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: main
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-backstage-backend-app-config
+  labels:
+    helm.sh/chart: backstage-0.6.0
+    app.kubernetes.io/name: backstage
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: main
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: backend
+data:
+  app-config.yaml: |
+    app:
+      baseUrl: http://localhost:8080
+      title: Scaffoled Backstage App
+    backend:
+      baseUrl: http://localhost:8080
+      cors:
+        credentials: true
+        methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        origin: http://localhost:8080
+      database:
+        client: pg
+        connection:
+          host: ${POSTGRES_HOST}
+          password: ${POSTGRES_PASSWORD}
+          port: ${POSTGRES_PORT}
+          user: ${POSTGRES_USER}
+      listen:
+        port: 7007
+    organization: {}
+    techdocs:
+      builder: external
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-backstage-app
+  labels:
+    helm.sh/chart: backstage-0.6.0
+    app.kubernetes.io/name: backstage
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: main
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: app
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: backstage
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: app
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-backstage-backend
+  labels:
+    helm.sh/chart: backstage-0.6.0
+    app.kubernetes.io/name: backstage
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: main
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: backend
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: backstage
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: backend
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-backstage-app
+  labels:
+    helm.sh/chart: backstage-0.6.0
+    app.kubernetes.io/name: backstage
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: main
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backstage
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: app
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: backstage
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/component: app
+    spec:
+      serviceAccountName: release-name-backstage-app
+      containers:
+        - name: backstage
+          image: ghcr.io/mcwarman/backstage-sample-app/app:main
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: APP_CONFIG_app_title
+              value: Scaffoled Backstage App
+            - name: APP_CONFIG_app_baseUrl
+              value: http://localhost:8080
+            - name: APP_CONFIG_backend_baseUrl
+              value: http://localhost:8080
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /healthcheck
+              port: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-backstage-backend
+  labels:
+    helm.sh/chart: backstage-0.6.0
+    app.kubernetes.io/name: backstage
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: main
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backstage
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: backend
+  template:
+    metadata:
+      annotations:
+        checksum/config: 850f57fe40bd9b1d7d954e050ade2787b4cf70ac883e8b63f85ec6e96f2c5c8a
+      labels:
+        app.kubernetes.io/name: backstage
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/component: backend
+    spec:
+      serviceAccountName: release-name-backstage-backend
+      containers:
+        - name: backstage
+          image: ghcr.io/mcwarman/backstage-sample-app/backend:main
+          imagePullPolicy: IfNotPresent
+          env: null
+          ports:
+            - name: http
+              containerPort: 7007
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /healthcheck
+              port: http
+          volumeMounts:
+            - mountPath: /app/app-config.yaml
+              name: config
+              subPath: app-config.yaml
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-backstage-backend-app-config

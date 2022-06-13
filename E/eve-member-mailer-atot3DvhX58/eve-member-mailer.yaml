@@ -1,0 +1,286 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-eve-member-mailer
+  labels:
+    helm.sh/chart: eve-member-mailer-1.0.0
+    app.kubernetes.io/name: eve-member-mailer
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.0.0
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-eve-member-mailer-web
+  labels:
+    helm.sh/chart: eve-member-mailer-1.0.0
+    app.kubernetes.io/name: eve-member-mailer
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.0.0
+    app.kubernetes.io/managed-by: Helm
+    app: release-name-eve-member-mailer-web
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: release-name-eve-member-mailer-web
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-eve-member-mailer-web
+  labels:
+    helm.sh/chart: eve-member-mailer-1.0.0
+    app.kubernetes.io/name: eve-member-mailer
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.0.0
+    app.kubernetes.io/managed-by: Helm
+    app: release-name-eve-member-mailer-web
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: release-name-eve-member-mailer-web
+  template:
+    metadata:
+      labels:
+        app: release-name-eve-member-mailer-web
+    spec:
+      serviceAccountName: release-name-eve-member-mailer
+      securityContext: {}
+      containers:
+        - name: release-name-eve-member-mailer-web
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: bokoboshahni/eve-member-mailer:edge
+          imagePullPolicy: IfNotPresent
+          command:
+            - bundle
+            - exec
+            - puma
+            - -C
+            - config/puma.rb
+          env:
+            - name: RAILS_LOG_TO_STDOUT
+              value: "true"
+            - name: RAILS_ENV
+              value: null
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      initContainers:
+        - name: release-name-eve-member-mailer-web-init
+          securityContext: {}
+          image: bokoboshahni/eve-member-mailer:edge
+          imagePullPolicy: IfNotPresent
+          command:
+            - bundle
+            - exec
+            - rails
+            - db:abort_if_pending_migrations
+          env:
+            - name: RAILS_LOG_TO_STDOUT
+              value: "true"
+            - name: RAILS_ENV
+              value: null
+          resources: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-eve-member-mailer-worker
+  labels:
+    helm.sh/chart: eve-member-mailer-1.0.0
+    app.kubernetes.io/name: eve-member-mailer
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.0.0
+    app.kubernetes.io/managed-by: Helm
+    app: release-name-eve-member-mailer-worker
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: release-name-eve-member-mailer-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: eve-member-mailer
+        app.kubernetes.io/instance: release-name
+        app: release-name-eve-member-mailer-worker
+    spec:
+      serviceAccountName: release-name-eve-member-mailer
+      securityContext: {}
+      containers:
+        - name: release-name-eve-member-mailer-worker
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: bokoboshahni/eve-member-mailer:edge
+          imagePullPolicy: IfNotPresent
+          command:
+            - bundle
+            - exec
+            - sidekiq
+          env:
+            - name: RAILS_LOG_TO_STDOUT
+              value: "true"
+            - name: RAILS_ENV
+              value: null
+          ports:
+            - name: http
+              containerPort: 7433
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 60
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 60
+            timeoutSeconds: 5
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - bin/sidekiq_quiet
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+      initContainers:
+        - name: release-name-eve-member-mailer-worker-init
+          securityContext: {}
+          image: bokoboshahni/eve-member-mailer:edge
+          imagePullPolicy: IfNotPresent
+          command:
+            - bundle
+            - exec
+            - rails
+            - db:abort_if_pending_migrations
+          env:
+            - name: RAILS_LOG_TO_STDOUT
+              value: "true"
+            - name: RAILS_ENV
+              value: null
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          resources: {}
+      terminationGracePeriodSeconds: 60
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-eve-member-mailer-test-connection
+  labels:
+    helm.sh/chart: eve-member-mailer-1.0.0
+    app.kubernetes.io/name: eve-member-mailer
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.0.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-eve-member-mailer:80
+  restartPolicy: Never
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-eve-member-mailer-migrate
+  labels:
+    helm.sh/chart: eve-member-mailer-1.0.0
+    app.kubernetes.io/name: eve-member-mailer
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.0.0
+    app.kubernetes.io/managed-by: Helm
+    app: release-name-eve-member-mailer-migrate
+  annotations:
+    helm.sh/hook: pre-install
+    helm.sh/hook-weight: "1"
+    helm.sh/hook-delete-policy: hook-succeeded
+spec:
+  template:
+    metadata:
+      labels:
+        app: release-name-eve-member-mailer-migrate
+    spec:
+      serviceAccountName: release-name-eve-member-mailer
+      securityContext: {}
+      containers:
+        - name: eve-member-mailer
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: bokoboshahni/eve-member-mailer:edge
+          imagePullPolicy: IfNotPresent
+          command:
+            - bundle
+            - exec
+            - rails
+            - db:migrate
+          env:
+            - name: RAILS_LOG_TO_STDOUT
+              value: "true"
+            - name: RAILS_ENV
+              value: null
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      restartPolicy: OnFailure

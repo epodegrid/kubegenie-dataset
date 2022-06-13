@@ -1,0 +1,401 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-gitea",
+      "labels": {
+        "helm.sh/chart": "gitea-0.5.13",
+        "app.kubernetes.io/name": "gitea",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.16.8",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "stringData": {
+      "app.ini": "APP_NAME = Gitea: Git with a cup of tea\nRUN_MODE = prod\n[database]\nDB_TYPE = sqlite3\nPATH = /data/gitea/gitea.db\n[log]\nACCESS = console\nENABLE_ACCESS_LOG = false\nLEVEL = info\nMODE = console\nROOT_PATH = /data/log\n[mailer]\nENABLED = false\n[oauth2]\nJWT_SECRET = \n[openid]\nENABLE_OPENID_SIGNIN = false\nENABLE_OPENID_SIGNUP = false\n[picture]\nDISABLE_GRAVATAR = false\nENABLE_FEDERATED_AVATAR = true\n[repository]\nROOT = /data/git/gitea-repositories\n[security]\nINSTALL_LOCK = true\nINTERNAL_TOKEN = \nSECRET_KEY = \n[server]\nAPP_DATA_PATH = /data/gitea\nDISABLE_SSH = false\nHTTP_PORT = 8000\nLFS_CONTENT_PATH = /data/gitea/lfs\nLFS_JWT_SECRET = \nLFS_START_SERVER = true\nOFFLINE_MODE = false\nPROTOCOL = http\nROOT_URL = http://%!s(<nil>)\nSSH_DOMAIN = \nSSH_LISTEN_PORT = 8022\nSSH_PORT = 22\nSSH_ROOT_PATH = /data/ssh\nSTART_SSH_SERVER = true\n[service]\nALLOW_ONLY_EXTERNAL_REGISTRATION = false\nDEFAULT_ALLOW_CREATE_ORGANIZATION = true\nDEFAULT_ENABLE_TIMETRACKING = true\nDEFAULT_KEEP_EMAIL_PRIVATE = true\nDISABLE_REGISTRATION = true\nENABLE_CAPTCHA = false\nENABLE_NOTIFY_MAIL = false\nNO_REPLY_ADDRESS = noreply.dev.k8.local\nREGISTER_EMAIL_CONFIRM = false\nREQUIRE_SIGNIN_VIEW = false"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-gitea-scripts",
+      "labels": {
+        "helm.sh/chart": "gitea-0.5.13",
+        "app.kubernetes.io/name": "gitea",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.16.8",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "init.sh": "#!/bin/bash\necho \"Initializing Gitea...\"\nif [ ! -d /data/gitea/conf ]; then\n  echo \"Gitea configuration directory doesn't exist. Creating directory structure...\"\n  mkdir -p /data/gitea/conf\n  mkdir -p /data/gitea/lfs\n  mkdir -p /data/git\n  mkdir -p /data/git/gitea-repositories\n  mkdir -p /data/log\n  echo \"Gitea directory structure created.\"\nelse\n  echo \"Gitea directory structure already exists.\"\nfi\necho \"Copy app.ini\"\ncp /config/app.ini /data/gitea/conf/app.ini\necho \"Setting permissions on app.ini\"\nchmod 600 /data/gitea/conf/app.ini\necho \"Finished.\"\n",
+      "createdefaultadmin.sh": "#!/bin/bash\necho \"Post installation...\"\nif [ ! -f /data/gitea/conf/.post-install-done ]; then\n  echo \"Post-install didn't run before - Sleeping for 60 seconds...\"\n  sleep 60\n  echo \"Creating first admin user\"\n  /app/gitea/gitea admin user create --username root --password admin --email root@admin.local --admin --must-change-password\n  touch /data/gitea/conf/.post-install-done\n  echo \"Post-install ready.\"\nelse\n  echo \"Nothing to do.\"\nfi\necho \"Finished.\"\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-gitea-http",
+      "labels": {
+        "helm.sh/chart": "gitea-0.5.13",
+        "app.kubernetes.io/name": "gitea",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.16.8",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "gitea",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-gitea-ssh",
+      "labels": {
+        "helm.sh/chart": "gitea-0.5.13",
+        "app.kubernetes.io/name": "gitea",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.16.8",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 22,
+          "targetPort": "ssh",
+          "protocol": "TCP",
+          "name": "ssh"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "gitea",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-gitea",
+      "labels": {
+        "helm.sh/chart": "gitea-0.5.13",
+        "app.kubernetes.io/name": "gitea",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.16.8",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "gitea",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "strategy": {
+        "type": "Recreate"
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/secureconfig": "7f1f4c689c00db9d4e76af5369828dc581ac4aa08bdf7099f6d77e68b8dd0db8",
+            "checksum/scripts": "8ab9c8d52dfd4a868fbb9739760863f4d863bd9de8d719e3936f48fac4cea1c4"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "gitea",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "securityContext": {
+            "fsGroup": 1000
+          },
+          "initContainers": [
+            {
+              "name": "init",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "privileged": false,
+                "readOnlyRootFilesystem": true,
+                "runAsGroup": 1000,
+                "runAsNonRoot": true,
+                "runAsUser": 1000
+              },
+              "image": "gitea/gitea:1.16.8",
+              "command": [
+                "/scripts/init.sh"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "scripts",
+                  "mountPath": "/scripts"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/config"
+                },
+                {
+                  "name": "gitea-vol",
+                  "mountPath": "/data"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "gitea",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "privileged": false,
+                "readOnlyRootFilesystem": true,
+                "runAsGroup": 1000,
+                "runAsNonRoot": true,
+                "runAsUser": 10824,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "image": "gitea/gitea:1.16.8",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/app/gitea/gitea"
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8000,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "ssh",
+                  "containerPort": 8022,
+                  "protocol": "TCP"
+                }
+              ],
+              "startupProbe": {
+                "tcpSocket": {
+                  "port": "http"
+                },
+                "initialDelaySeconds": 10,
+                "timeoutSeconds": 5,
+                "failureThreshold": 30,
+                "successThreshold": 1,
+                "periodSeconds": 10
+              },
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": "http"
+                },
+                "initialDelaySeconds": 10,
+                "timeoutSeconds": 10,
+                "failureThreshold": 5,
+                "successThreshold": 1,
+                "periodSeconds": 30
+              },
+              "readinessProbe": {
+                "tcpSocket": {
+                  "port": "http"
+                },
+                "initialDelaySeconds": 10,
+                "timeoutSeconds": 10,
+                "failureThreshold": 5,
+                "successThreshold": 1,
+                "periodSeconds": 10
+              },
+              "volumeMounts": [
+                {
+                  "name": "run",
+                  "mountPath": "/var/run"
+                },
+                {
+                  "name": "gitea-vol",
+                  "mountPath": "/data"
+                },
+                {
+                  "name": "tmp",
+                  "mountPath": "/tmp"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "run",
+              "emptyDir": {}
+            },
+            {
+              "name": "tmp",
+              "emptyDir": {}
+            },
+            {
+              "name": "scripts",
+              "configMap": {
+                "name": "release-name-gitea-scripts",
+                "defaultMode": 365
+              }
+            },
+            {
+              "name": "config",
+              "secret": {
+                "secretName": "release-name-gitea"
+              }
+            },
+            {
+              "name": "gitea-vol",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-gitea-test-connection",
+      "labels": {
+        "helm.sh/chart": "gitea-0.5.13",
+        "app.kubernetes.io/name": "gitea",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.16.8",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test-success"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "wget",
+          "image": "busybox",
+          "command": [
+            "wget"
+          ],
+          "args": [
+            "release-name-gitea:80"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+      "name": "release-name-gitea-postinstall",
+      "labels": {
+        "helm.sh/chart": "gitea-0.5.13",
+        "app.kubernetes.io/name": "gitea",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.16.8",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "post-install",
+        "helm.sh/hook-delete-policy": "hook-succeeded"
+      }
+    },
+    "spec": {
+      "template": {
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1000
+          },
+          "restartPolicy": "OnFailure",
+          "containers": [
+            {
+              "name": "gitea-postinstall",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "privileged": false,
+                "readOnlyRootFilesystem": true,
+                "runAsGroup": 1000,
+                "runAsNonRoot": true,
+                "runAsUser": 11754,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "image": "gitea/gitea:1.16.8",
+              "imagePullPolicy": "IfNotPresent",
+              "envFrom": [
+                {
+                  "secretRef": {
+                    "name": "release-name-gitea"
+                  }
+                }
+              ],
+              "args": [
+                "/bin/sh",
+                "-c",
+                "/scripts/createdefaultadmin.sh"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "gitea-vol",
+                  "mountPath": "/data"
+                },
+                {
+                  "name": "scripts",
+                  "mountPath": "/scripts"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "run",
+              "emptyDir": {}
+            },
+            {
+              "name": "scripts",
+              "configMap": {
+                "name": "release-name-gitea-scripts",
+                "defaultMode": 365
+              }
+            },
+            {
+              "name": "config",
+              "secret": {
+                "secretName": "release-name-gitea"
+              }
+            },
+            {
+              "name": "gitea-vol",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,179 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-openethereum
+  labels:
+    helm.sh/chart: openethereum-0.2.0
+    app.kubernetes.io/name: openethereum
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-openethereum-configmap
+data:
+  config.custom.toml: |
+    [parity]
+    chain = "mainnet"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-openethereum
+  labels:
+    helm.sh/chart: openethereum-0.2.0
+    app.kubernetes.io/name: openethereum
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8545
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: 8546
+      targetPort: ws
+      protocol: TCP
+      name: ws
+    - port: 3000
+      targetPort: prometheus
+      protocol: TCP
+      name: prometheus
+  selector:
+    app.kubernetes.io/name: openethereum
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-openethereum-p2p
+  labels:
+    helm.sh/chart: openethereum-0.2.0
+    app.kubernetes.io/name: openethereum
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: NodePort
+  ports:
+    - port: 30303
+      targetPort: listener
+      protocol: TCP
+      name: listener
+      nodePort: 30303
+    - port: 30303
+      targetPort: discovery
+      protocol: UDP
+      name: discovery
+      nodePort: 30303
+  selector:
+    app.kubernetes.io/name: openethereum
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-openethereum
+  labels:
+    helm.sh/chart: openethereum-0.2.0
+    app.kubernetes.io/name: openethereum
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openethereum
+      app.kubernetes.io/instance: release-name
+  serviceName: release-name-openethereum
+  template:
+    metadata:
+      annotations:
+        checksum/configmap: e5ff3077e63fb65a1ed04cf02c96c222cc166cd7198c5c469a808d7d1ba77fc2
+      labels:
+        app.kubernetes.io/name: openethereum
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-openethereum
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsUser: 1000
+      containers:
+        - name: openethereum
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: openethereum/openethereum:v3.1.0
+          imagePullPolicy: IfNotPresent
+          command: null
+          args:
+            - --config
+            - /home/openethereum/config/config.custom.toml
+          ports:
+            - name: http
+              containerPort: 8545
+              protocol: TCP
+            - name: ws
+              containerPort: 8546
+              protocol: TCP
+            - name: prometheus
+              containerPort: 3000
+              protocol: TCP
+            - name: listener
+              containerPort: 30303
+              protocol: TCP
+            - name: discovery
+              containerPort: 30303
+              protocol: UDP
+          volumeMounts:
+            - name: data
+              mountPath: /home/openethereum/.local/share/io.parity.ethereum
+            - name: config
+              mountPath: /home/openethereum/config
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-openethereum-configmap
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 20Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-openethereum-test-connection
+  labels:
+    helm.sh/chart: openethereum-0.2.0
+    app.kubernetes.io/name: openethereum
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - 'release-name-openethereum:'
+  restartPolicy: Never

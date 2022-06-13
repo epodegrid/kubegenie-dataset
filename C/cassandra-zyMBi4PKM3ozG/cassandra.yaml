@@ -1,0 +1,344 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-cassandra-entrypoint
+  namespace: zyMBi4PKM3ozG
+  labels:
+    app: cassandra
+    chart: cassandra-6.0.0
+    release: release
+    heritage: Helm
+data:
+  docker-entrypoint.sh: |
+    #!/bin/bash
+    set -e
+
+    # first arg is `-f` or `--some-option`
+    # or there are no args
+    if [ "$#" -eq 0 ] || [ "${1#-}" != "$1" ]; then
+            set -- cassandra -f "$@"
+    fi
+
+    # allow the container to be started with `--user`
+    if [ "$1" = 'cassandra' -a "$(id -u)" = '0' ]; then
+            find /var/lib/cassandra /var/log/cassandra "$CASSANDRA_CONFIG" \
+                    \! -user cassandra -exec chown cassandra '{}' +
+            exec gosu cassandra "$BASH_SOURCE" "$@"
+    fi
+
+    _ip_address() {
+            # scrape the first non-localhost IP address of the container
+            # in Swarm Mode, we often get two IPs -- the container IP, and the (shared) VIP, and the container IP should always be first
+            ip address | awk '
+                    $1 == "inet" && $NF != "lo" {
+                            gsub(/\/.+$/, "", $2)
+                            print $2
+                            exit
+                    }
+            '
+    }
+
+    # "sed -i", but without "mv" (which doesn't work on a bind-mounted file, for example)
+    _sed-in-place() {
+            local filename="$1"; shift
+            local tempFile
+            tempFile="$(mktemp)"
+            sed "$@" "$filename" > "$tempFile"
+            cat "$tempFile" > "$filename"
+            rm "$tempFile"
+    }
+
+    if [ "$1" = 'cassandra' ]; then
+            : ${CASSANDRA_RPC_ADDRESS='0.0.0.0'}
+
+            : ${CASSANDRA_LISTEN_ADDRESS='auto'}
+            if [ "$CASSANDRA_LISTEN_ADDRESS" = 'auto' ]; then
+                    CASSANDRA_LISTEN_ADDRESS="$(_ip_address)"
+            fi
+
+            : ${CASSANDRA_BROADCAST_ADDRESS="$CASSANDRA_LISTEN_ADDRESS"}
+
+            if [ "$CASSANDRA_BROADCAST_ADDRESS" = 'auto' ]; then
+                    CASSANDRA_BROADCAST_ADDRESS="$(_ip_address)"
+            fi
+            : ${CASSANDRA_BROADCAST_RPC_ADDRESS:=$CASSANDRA_BROADCAST_ADDRESS}
+
+            if [ -n "${CASSANDRA_NAME:+1}" ]; then
+                    : ${CASSANDRA_SEEDS:="cassandra"}
+            fi
+            : ${CASSANDRA_SEEDS:="$CASSANDRA_BROADCAST_ADDRESS"}
+
+            _sed-in-place "$CASSANDRA_CONFIG/cassandra.yaml" \
+                    -r 's/(- seeds:).*/\1 "'"$CASSANDRA_SEEDS"'"/'
+
+            for yaml in \
+                    broadcast_address \
+                    broadcast_rpc_address \
+                    cluster_name \
+                    endpoint_snitch \
+                    listen_address \
+                    num_tokens \
+                    rpc_address \
+                    start_rpc \
+                    authenticator \
+            ; do
+                    var="CASSANDRA_${yaml^^}"
+                    val="${!var}"
+                    if [ "$val" ]; then
+                            _sed-in-place "$CASSANDRA_CONFIG/cassandra.yaml" \
+                                    -r 's/^(# )?('"$yaml"':).*/\2 '"$val"'/'
+                    fi
+            done
+
+            for rackdc in dc rack; do
+                    var="CASSANDRA_${rackdc^^}"
+                    val="${!var}"
+                    if [ "$val" ]; then
+                            _sed-in-place "$CASSANDRA_CONFIG/cassandra-rackdc.properties" \
+                                    -r 's/^('"$rackdc"'=).*/\1 '"$val"'/'
+                    fi
+            done
+    fi
+
+    exec "$@"
+---
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: release-cassandra--0
+  namespace: default
+  labels:
+    app.kubernetes.io/name: cassandra
+    helm.sh/chart: cassandra-6.0.0
+    app.kubernetes.io/instance: release
+    app.kubernetes.io/managed-by: Helm
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: release-cassandra-data
+  hostPath:
+    path: /dockerdata-nfs/release/cassandra-0
+---
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: release-cassandra--1
+  namespace: default
+  labels:
+    app.kubernetes.io/name: cassandra
+    helm.sh/chart: cassandra-6.0.0
+    app.kubernetes.io/instance: release
+    app.kubernetes.io/managed-by: Helm
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: release-cassandra-data
+  hostPath:
+    path: /dockerdata-nfs/release/cassandra-1
+---
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: release-cassandra--2
+  namespace: default
+  labels:
+    app.kubernetes.io/name: cassandra
+    helm.sh/chart: cassandra-6.0.0
+    app.kubernetes.io/instance: release
+    app.kubernetes.io/managed-by: Helm
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: release-cassandra-data
+  hostPath:
+    path: /dockerdata-nfs/release/cassandra-2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+  name: cassandra
+  namespace: zyMBi4PKM3ozG
+  labels:
+    app.kubernetes.io/name: cassandra
+    helm.sh/chart: cassandra-6.0.0
+    app.kubernetes.io/instance: release
+    app.kubernetes.io/managed-by: Helm
+spec:
+  clusterIP: None
+  ports:
+    - port: 7000
+      targetPort: tcp-intra
+      name: tcp-intra
+    - port: 7001
+      targetPort: tls
+      name: tls
+    - port: 7199
+      targetPort: tcp-jmx
+      name: tcp-jmx
+    - port: 9042
+      targetPort: tcp-cql
+      name: tcp-cql
+    - port: 9160
+      targetPort: tcp-thrift
+      name: tcp-thrift
+    - port: 61621
+      targetPort: tcp-agent
+      name: tcp-agent
+  publishNotReadyAddresses: true
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: cassandra
+    app.kubernetes.io/instance: release
+  sessionAffinity: None
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-cassandra
+  namespace: zyMBi4PKM3ozG
+  labels:
+    app.kubernetes.io/name: cassandra
+    helm.sh/chart: cassandra-6.0.0
+    app.kubernetes.io/instance: release
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cassandra
+      app.kubernetes.io/instance: release
+  serviceName: cassandra
+  replicas: 3
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cassandra
+        helm.sh/chart: cassandra-6.0.0
+        app.kubernetes.io/instance: release
+        app.kubernetes.io/managed-by: Helm
+      name: cassandra
+    spec:
+      hostNetwork: false
+      containers:
+        - name: cassandra
+          image: nexus3.onap.org:10001/library/cassandra:3.11.4
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 7000
+              name: tcp-intra
+            - containerPort: 7001
+              name: tls
+            - containerPort: 7199
+              name: tcp-jmx
+            - containerPort: 9042
+              name: tcp-cql
+            - containerPort: 9160
+              name: tcp-thrift
+            - containerPort: 61621
+              name: tcp-agent
+          volumeMounts:
+            - name: release-cassandra-data
+              mountPath: /var/lib/cassandra
+            - name: localtime
+              mountPath: /etc/localtime
+              readOnly: true
+            - name: cassandra-entrypoint
+              mountPath: /docker-entrypoint.sh
+              subPath: docker-entrypoint.sh
+          livenessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - nodetool status | grep $POD_IP | awk '$1!="UN" { exit 1; }'
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - nodetool status | grep $POD_IP | awk '$1!="UN" { exit 1; }'
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 3
+          env:
+            - name: CASSANDRA_SEEDS
+              value: release-cassandra-0.cassandra.default.svc.cluster.local,release-cassandra-1.cassandra.default.svc.cluster.local,release-cassandra-2.cassandra.default.svc.cluster.local
+            - name: MAX_HEAP_SIZE
+              value: 2048M
+            - name: HEAP_NEWSIZE
+              value: 100M
+            - name: JVM_OPTS
+              value: -Dcassandra.consistent.rangemovement=false
+            - name: CASSANDRA_CLUSTER_NAME
+              value: cassandra
+            - name: CASSANDRA_DC
+              value: Pod
+            - name: CASSANDRA_RACK
+              value: Rack
+            - name: CASSANDRA_AUTO_BOOTSTRAP
+              value: "true"
+            - name: CASSANDRA_START_RPC
+              value: "true"
+            - name: CASSANDRA_ENDPOINT_SNITCH
+              value: GossipingPropertyFileSnitch
+            - name: CASSANDRA_AUTHENTICATOR
+              value: PasswordAuthenticator
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - PID=$(pidof java) && kill $PID && while ps -p $PID > /dev/null; do sleep 1; done
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: localtime
+          hostPath:
+            path: /etc/localtime
+        - name: cassandra-entrypoint
+          configMap:
+            name: release-cassandra-entrypoint
+            defaultMode: 493
+  volumeClaimTemplates:
+    - metadata:
+        name: release-cassandra-data
+        labels:
+          name: release-cassandra
+          chart: cassandra-6.0.0
+          release: release
+          heritage: Helm
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: release-cassandra-data
+        resources:
+          requests:
+            storage: 2Gi
+---
+null

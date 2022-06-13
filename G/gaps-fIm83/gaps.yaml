@@ -1,0 +1,198 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-gaps-data
+  labels:
+    helm.sh/chart: gaps-11.0.3
+    app.kubernetes.io/name: gaps
+    app.kubernetes.io/instance: release-name
+    helm-revision: "1"
+    app.kubernetes.io/version: 0.9.12
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 999Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-gaps
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: gaps
+    app.kubernetes.io/version: 0.9.12
+    helm-revision: "1"
+    helm.sh/chart: gaps-11.0.3
+  annotations: null
+spec:
+  type: ClusterIP
+  ipFamilyPolicy: SingleStack
+  ports:
+    - port: 8484
+      targetPort: 8484
+      protocol: TCP
+      name: main
+  selector:
+    app.kubernetes.io/name: gaps
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-gaps
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: gaps
+    app.kubernetes.io/version: 0.9.12
+    helm-revision: "1"
+    helm.sh/chart: gaps-11.0.3
+spec:
+  revisionHistoryLimit: 3
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gaps
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations: null
+      labels:
+        app.kubernetes.io/name: gaps
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      securityContext:
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 568
+        runAsUser: 568
+        supplementalGroups:
+          - 568
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 10
+      initContainers:
+        - name: autopermissions
+          image: ghcr.io/truecharts/alpine:v3.15.2@sha256:29ed3480a0ee43f7af681fed5d4fc215516abf1c41eade6938b26d8c9c2c7583
+          securityContext:
+            runAsUser: 10624
+            privileged: true
+            allowPrivilegeEscalation: false
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+          command:
+            - /bin/sh
+            - -c
+            - |
+              /bin/bash <<'EOF'
+              echo "Automatically correcting permissions..."
+              echo "increasing inotify limits..."
+              ( sysctl -w fs.inotify.max_user_watches=524288 || echo "error setting inotify") && ( sysctl -w fs.inotify.max_user_instances=512 || echo "error setting inotify")
+              EOF
+          volumeMounts: null
+      containers:
+        - name: release-name-gaps
+          image: tccr.io/truecharts/gaps:v0.9.12@sha256:ccd1d53b06dcae58927b338845bac060c6346cf01542c039c630201df328b51f
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: PUID
+              value: "568"
+            - name: USER_ID
+              value: "568"
+            - name: UID
+              value: "568"
+            - name: UMASK
+              value: "2"
+            - name: UMASK_SET
+              value: "2"
+            - name: PGID
+              value: "568"
+            - name: GROUP_ID
+              value: "568"
+            - name: GID
+              value: "568"
+            - name: S6_READ_ONLY_ROOT
+              value: "1"
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: void
+            - name: TZ
+              value: UTC
+          envFrom: null
+          ports:
+            - name: main
+              containerPort: 8484
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /usr/data
+              name: data
+            - mountPath: /shared
+              name: shared
+            - mountPath: /tmp
+              name: temp
+            - mountPath: /var/logs
+              name: varlogs
+          livenessProbe:
+            tcpSocket:
+              port: 8484
+            initialDelaySeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 8484
+            initialDelaySeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 5
+            periodSeconds: 10
+          startupProbe:
+            tcpSocket:
+              port: 8484
+            initialDelaySeconds: 10
+            failureThreshold: 60
+            timeoutSeconds: 2
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: release-name-gaps-data
+        - name: shared
+          emptyDir: {}
+        - name: temp
+          emptyDir:
+            medium: Memory
+        - name: varlogs
+          emptyDir: {}

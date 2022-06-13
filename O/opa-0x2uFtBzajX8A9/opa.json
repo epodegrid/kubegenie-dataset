@@ -1,0 +1,503 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "opa-ca-updater"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-opa",
+      "labels": {
+        "app.kubernetes.io/name": "opa",
+        "helm.sh/chart": "opa-0.1.3",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "kind": "ConfigMap",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-opa"
+    },
+    "data": {
+      "main": "package system\n\nimport data.kubernetes.admission\n\nmain = {\n  \"apiVersion\": \"admission.k8s.io/v1beta1\",\n  \"kind\": \"AdmissionReview\",\n  \"response\": response,\n}\n\ndefault response = {\"allowed\": true}\n\nresponse = {\n    \"allowed\": false,\n    \"status\": {\n        \"reason\": reason,\n    },\n} {\n    reason = concat(\", \", admission.deny)\n    reason != \"\"\n}\n"
+    }
+  },
+  {
+    "kind": "ConfigMap",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-opa-default-policies"
+    },
+    "data": {
+      "image-whitelist.rego": "package kubernetes.admission\n\nimport data.kubernetes.namespaces\n\ndeny[msg] {\n    input.request.kind.kind = \"Deployment\"\n    input.request.operation = \"CREATE\"\n    image = input.request.object.spec.template.spec.containers[_].image\n    not valid_name(image, valid_image_regexes)\n    msg = sprintf(\"invalid image name %q\", [image])\n}\n\nvalid_image_regexes = {regex|\n    whitelist = namespaces[input.request.namespace].metadata.annotations[\"image-whitelist\"]\n    regexes = split(whitelist, \",\")\n    regex = regexes[_]\n}\n\nvalid_name(str, patterns) {\n    re_match(patterns[_], str)\n}\n",
+      "ingress-conflicts.rego": "package kubernetes.admission\n\nimport data.kubernetes.ingresses\n\ndeny[msg] {\n    input.request.kind.kind = \"Ingress\"\n    input.request.operation = \"CREATE\"\n    host = input.request.object.spec.rules[_].host\n    ingress = ingresses[other_ns][other_ingress]\n    ingress.spec.rules[_].host = host\n    msg = sprintf(\"invalid ingress host %q (conflicts with %v/%v)\", [host, other_ns, other_ingress])\n}\n"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1beta1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "name": "opa-ca-updater",
+      "labels": {
+        "app.kubernetes.io/name": "opa",
+        "helm.sh/chart": "opa-0.1.3",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "secrets"
+        ],
+        "verbs": [
+          "get"
+        ]
+      },
+      {
+        "apiGroups": [
+          "admissionregistration.k8s.io"
+        ],
+        "resources": [
+          "validatingwebhookconfigurations"
+        ],
+        "verbs": [
+          "get",
+          "update",
+          "patch"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1beta1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "opa-ca-updater",
+      "labels": {
+        "app.kubernetes.io/name": "opa",
+        "helm.sh/chart": "opa-0.1.3",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "opa-ca-updater"
+    },
+    "subjects": [
+      {
+        "name": "opa-ca-updater",
+        "namespace": "default",
+        "kind": "ServiceAccount"
+      }
+    ]
+  },
+  {
+    "kind": "ClusterRoleBinding",
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "metadata": {
+      "name": "release-name-opa-viewer",
+      "labels": {
+        "app.kubernetes.io/name": "opa",
+        "helm.sh/chart": "opa-0.1.3",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "roleRef": {
+      "kind": "ClusterRole",
+      "name": "view",
+      "apiGroup": "rbac.authorization.k8s.io"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-opa",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "kind": "Role",
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "metadata": {
+      "name": "release-name-opa-configmap-modifier",
+      "labels": {
+        "app.kubernetes.io/name": "opa",
+        "helm.sh/chart": "opa-0.1.3",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "configmaps"
+        ],
+        "verbs": [
+          "update",
+          "patch"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "cronjobs"
+        ],
+        "verbs": [
+          "get",
+          "list"
+        ]
+      },
+      {
+        "apiGroups": [
+          "batch"
+        ],
+        "resources": [
+          "jobs"
+        ],
+        "verbs": [
+          "create",
+          "delete"
+        ]
+      }
+    ]
+  },
+  {
+    "kind": "RoleBinding",
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "metadata": {
+      "name": "release-name-opa-configmap-modifier",
+      "labels": {
+        "app.kubernetes.io/name": "opa",
+        "helm.sh/chart": "opa-0.1.3",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "roleRef": {
+      "kind": "Role",
+      "name": "release-name-opa-configmap-modifier",
+      "apiGroup": "rbac.authorization.k8s.io"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-opa",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-opa",
+      "labels": {
+        "app.kubernetes.io/name": "opa",
+        "helm.sh/chart": "opa-0.1.3",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 443,
+          "targetPort": "https",
+          "protocol": "TCP",
+          "name": "https"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "opa",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-opa",
+      "labels": {
+        "app.kubernetes.io/name": "opa",
+        "helm.sh/chart": "opa-0.1.3",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "opa",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "opa",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-opa",
+          "containers": [
+            {
+              "name": "opa",
+              "image": "openpolicyagent/opa:0.10.5",
+              "imagePullPolicy": "Always",
+              "args": [
+                "run",
+                "--server",
+                "--tls-cert-file=/certs/tls.crt",
+                "--tls-private-key-file=/certs/tls.key",
+                "--addr=0.0.0.0:443",
+                "--addr=http://127.0.0.1:8181"
+              ],
+              "ports": [
+                {
+                  "name": "https",
+                  "containerPort": 443,
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "readOnly": true,
+                  "mountPath": "/certs",
+                  "name": "opa-server"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            },
+            {
+              "name": "kube-mgmt",
+              "image": "openpolicyagent/kube-mgmt:0.6",
+              "args": [
+                "--replicate-cluster=v1/namespaces",
+                "--replicate=extensions/v1beta1/ingresses"
+              ],
+              "resources": {}
+            }
+          ],
+          "volumes": [
+            {
+              "name": "opa-server",
+              "secret": {
+                "secretName": "release-name-opa-server-certificate"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "release-name-opa-ca-updater",
+      "labels": {
+        "app.kubernetes.io/name": "opa-ca-updater",
+        "helm.sh/chart": "opa-0.1.3",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "schedule": "42 */1 * * *",
+      "jobTemplate": {
+        "metadata": {
+          "name": "release-name-opa",
+          "labels": {
+            "app.kubernetes.io/name": "opa-ca-updater",
+            "helm.sh/chart": "opa-0.1.3",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm"
+          }
+        },
+        "spec": {
+          "template": {
+            "spec": {
+              "restartPolicy": "Never",
+              "serviceAccountName": "opa-ca-updater",
+              "containers": [
+                {
+                  "name": "fix-validating-cabundle",
+                  "image": "quay.io/reactiveops/ci-images:v8-alpine",
+                  "command": [
+                    "bash"
+                  ],
+                  "args": [
+                    "-c",
+                    "echo \"Constructing patch.\"\ncaBundle=$(kubectl -n default get secret release-name-opa-server-certificate -ojsonpath='{.data.ca\\.crt}' | tr -d '\\n')\n\nif [[ -z \"$caBundle\" ]]; then\n  echo \"Error getting caBundle. Exiting\"\n  exit 1\nfi\n\ncat > patch <<EOF\nwebhooks:\n  - name: validating-webhook.openpolicyagent.org\n    clientConfig:\n      caBundle: \"$caBundle\"\nEOF\n\necho \"Patching with $(cat patch)\"\nkubectl patch validatingwebhookconfiguration release-name-opa --patch \"$(cat patch)\"\necho \"Final configuration:\"\nkubectl get validatingwebhookconfiguration release-name-opa -oyaml\nrm patch\n"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "cert-manager.io/v1alpha2",
+    "kind": "Certificate",
+    "metadata": {
+      "name": "release-name-opa-ca-certificate"
+    },
+    "spec": {
+      "secretName": "release-name-opa-ca-certificate",
+      "isCA": true,
+      "commonName": "opa-ca",
+      "issuerRef": {
+        "name": "release-name-opa-selfsigning-issuer"
+      }
+    }
+  },
+  {
+    "apiVersion": "cert-manager.io/v1alpha2",
+    "kind": "Certificate",
+    "metadata": {
+      "name": "release-name-opa-server"
+    },
+    "spec": {
+      "secretName": "release-name-opa-server-certificate",
+      "commonName": "release-name-opa.default.svc",
+      "issuerRef": {
+        "name": "release-name-opa-ca-issuer",
+        "kind": "Issuer"
+      }
+    }
+  },
+  {
+    "apiVersion": "cert-manager.io/v1alpha2",
+    "kind": "Issuer",
+    "metadata": {
+      "name": "release-name-opa-ca-issuer"
+    },
+    "spec": {
+      "ca": {
+        "secretName": "release-name-opa-ca-certificate"
+      }
+    }
+  },
+  {
+    "apiVersion": "cert-manager.io/v1alpha2",
+    "kind": "Issuer",
+    "metadata": {
+      "name": "release-name-opa-selfsigning-issuer"
+    },
+    "spec": {
+      "selfSigned": {}
+    }
+  },
+  {
+    "kind": "ValidatingWebhookConfiguration",
+    "apiVersion": "admissionregistration.k8s.io/v1beta1",
+    "metadata": {
+      "name": "release-name-opa"
+    },
+    "webhooks": [
+      {
+        "name": "validating-webhook.openpolicyagent.org",
+        "failurePolicy": "Ignore",
+        "rules": [
+          {
+            "operations": [
+              "CREATE",
+              "UPDATE"
+            ],
+            "apiGroups": [
+              "*"
+            ],
+            "apiVersions": [
+              "*"
+            ],
+            "resources": [
+              "*"
+            ]
+          }
+        ],
+        "clientConfig": {
+          "service": {
+            "namespace": "default",
+            "name": "release-name-opa"
+          }
+        }
+      }
+    ]
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+      "name": "release-name-opa-ca-updater-hook",
+      "labels": {
+        "app.kubernetes.io/name": "opa-ca-updater",
+        "helm.sh/chart": "opa-0.1.3",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "post-install,post-upgrade",
+        "helm.sh/hook-delete-policy": "before-hook-creation"
+      }
+    },
+    "spec": {
+      "template": {
+        "metadata": {
+          "name": "release-name-opa",
+          "labels": {
+            "app.kubernetes.io/name": "opa-ca-updater",
+            "helm.sh/chart": "opa-0.1.3",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm"
+          }
+        },
+        "spec": {
+          "restartPolicy": "Never",
+          "serviceAccountName": "release-name-opa",
+          "containers": [
+            {
+              "name": "start-job-from-cronjob",
+              "image": "quay.io/reactiveops/ci-images:v8-alpine",
+              "command": [
+                "bash"
+              ],
+              "args": [
+                "-c",
+                "kubectl -n default delete job release-name-opa-ca-updater-init || true\nkubectl -n default create job --from=cronjob/release-name-opa-ca-updater release-name-opa-ca-updater-init\n"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+]

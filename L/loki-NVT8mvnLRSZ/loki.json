@@ -1,0 +1,181 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-loki",
+      "labels": {
+        "app.kubernetes.io/name": "loki",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "helm.sh/chart": "loki-1.0.0"
+      }
+    },
+    "data": {
+      "loki.yaml": "auth_enabled: false\nchunk_store_config:\n  max_look_back_period: 0s\ningester:\n  chunk_block_size: 262144\n  chunk_idle_period: 3m\n  chunk_retain_period: 1m\n  lifecycler:\n    ring:\n      kvstore:\n        store: inmemory\n      replication_factor: 1\nlimits_config:\n  enforce_metric_name: false\n  reject_old_samples: true\n  reject_old_samples_max_age: 168h\nschema_config:\n  configs:\n  - from: \"2018-04-15\"\n    index:\n      period: 168h\n      prefix: index_\n    object_store: filesystem\n    schema: v9\n    store: boltdb\nserver:\n  http_listen_port: 3100\nstorage_config:\n  boltdb:\n    directory: /data/loki/index\n  filesystem:\n    directory: /data/loki/chunks\ntable_manager:\n  retention_deletes_enabled: false\n  retention_period: 0s"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-loki",
+      "labels": {
+        "app.kubernetes.io/name": "loki",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "helm.sh/chart": "loki-1.0.0"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 3100,
+          "targetPort": "http-metrics",
+          "name": "http-metrics"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "loki",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-loki",
+      "labels": {
+        "app.kubernetes.io/name": "loki",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "helm.sh/chart": "loki-1.0.0"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "loki",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "serviceName": "release-name-loki-headless",
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "loki",
+            "app.kubernetes.io/instance": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "947cab7f911a7b296268c7d1acb34a66660dd98d69a3e6391763407b587ba768"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 10001,
+            "runAsGroup": 10001,
+            "runAsNonRoot": true,
+            "runAsUser": 10001
+          },
+          "containers": [
+            {
+              "name": "loki",
+              "image": "grafana/loki:1.5.0",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "-config.file=/etc/loki/loki.yaml"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/etc/loki",
+                  "readOnly": true
+                },
+                {
+                  "name": "data",
+                  "mountPath": "/data"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http-metrics",
+                  "containerPort": 3100
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/ready",
+                  "port": "http-metrics"
+                },
+                "initialDelaySeconds": 45
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/ready",
+                  "port": "http-metrics"
+                },
+                "initialDelaySeconds": 45
+              },
+              "securityContext": {
+                "readOnlyRootFilesystem": true,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              }
+            }
+          ],
+          "terminationGracePeriodSeconds": 30,
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-loki"
+              }
+            }
+          ],
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "weight": 1,
+                  "podAffinityTerm": {
+                    "topologyKey": "kubernetes.io/hostname",
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app": "loki",
+                        "release": "release-name"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "1Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+]

@@ -1,0 +1,124 @@
+[
+  {
+    "kind": "ConfigMap",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "sriov-config"
+    },
+    "data": {
+      "config.json": "{\n  \"resourceList\": [{\"resourceName\":\"sriov_vfio\",\"selectors\":{\"drivers\":[\"vfio-pci\"],\"pfNames\":[\"eno1\"]}},{\"resourceName\":\"sriov_netdevice\",\"selectors\":{\"drivers\":[\"ixgbevf\"],\"pfNames\":[\"eno1\"]}}]\n}\n"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "DaemonSet",
+    "metadata": {
+      "name": "sriov-device-plugin"
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "name": "sriov-device-plugin"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "name": "sriov-device-plugin"
+          }
+        },
+        "spec": {
+          "hostNetwork": true,
+          "hostPID": true,
+          "initContainers": [
+            {
+              "name": "init-sriov-cni",
+              "image": "docker.io/omecproject/omec-cni:0.0.1",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "bash",
+                "-c"
+              ],
+              "args": [
+                "cp /tmp/cni/bin/{sriov,vfioveth,centralip,jq} /host/opt/cni/bin/"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "cni-bin",
+                  "mountPath": "/host/opt/cni/bin"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "sriov-device-plugin",
+              "image": "docker.io/nfvpe/sriov-device-plugin:v3.0.0",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/bin/sh",
+                "-c",
+                "--"
+              ],
+              "args": [
+                "sriovdp --logtostderr 10;"
+              ],
+              "securityContext": {
+                "privileged": true,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/var/lib/kubelet/",
+                  "name": "devicesock",
+                  "readOnly": false
+                },
+                {
+                  "mountPath": "/sys",
+                  "name": "net",
+                  "readOnly": true
+                },
+                {
+                  "name": "sriov-config",
+                  "mountPath": "/etc/pcidp"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "devicesock",
+              "hostPath": {
+                "path": "/var/lib/kubelet/"
+              }
+            },
+            {
+              "name": "net",
+              "hostPath": {
+                "path": "/sys"
+              }
+            },
+            {
+              "name": "sriov-config",
+              "configMap": {
+                "name": "sriov-config"
+              }
+            },
+            {
+              "name": "cni-bin",
+              "hostPath": {
+                "path": "/opt/cni/bin"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,177 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "hz-config",
+      "namespace": "7mK4Zvf7yL3FSV"
+    },
+    "data": {
+      "hazelcast.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<hazelcast xsi:schemaLocation=\"http://www.hazelcast.com/schema/config hazelcast-config-3.10.xsd\"\n               xmlns=\"http://www.hazelcast.com/schema/config\"\n               xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n  <properties>\n    <property name=\"hazelcast.discovery.enabled\">true</property>\n  </properties>\n  <network>\n    <rest-api enabled=\"true\">\n      <endpoint-group name=\"HEALTH_CHECK\" enabled=\"true\"/>\n    </rest-api>\n    <join>\n      <multicast enabled=\"false\"/>\n      <kubernetes enabled=\"true\">\n        <service-name>hazelcast</service-name>\n        <namespace>default</namespace>\n        <resolve-not-ready-addresses>true</resolve-not-ready-addresses>\n      </kubernetes>\n    </join>\n  </network>\n</hazelcast>"
+    }
+  },
+  {
+    "kind": "Role",
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "metadata": {
+      "namespace": "7mK4Zvf7yL3FSV",
+      "name": "endpoint-read"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "endpoints"
+        ],
+        "verbs": [
+          "get",
+          "watch",
+          "list"
+        ]
+      }
+    ]
+  },
+  {
+    "kind": "RoleBinding",
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "metadata": {
+      "name": "hazel-read-endpoints",
+      "namespace": "7mK4Zvf7yL3FSV"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "namespace": "default",
+        "name": "default"
+      }
+    ],
+    "roleRef": {
+      "kind": "Role",
+      "name": "endpoint-read",
+      "apiGroup": "rbac.authorization.k8s.io"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "hazelcast",
+      "namespace": "7mK4Zvf7yL3FSV",
+      "labels": {
+        "app": "hazelcast"
+      }
+    },
+    "spec": {
+      "type": "NodePort",
+      "selector": {
+        "app": "hazelcast"
+      },
+      "ports": [
+        {
+          "protocol": "TCP",
+          "port": 5701,
+          "name": "hzport",
+          "nodePort": 30571
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ReplicationController",
+    "metadata": {
+      "name": "hazelcast",
+      "namespace": "7mK4Zvf7yL3FSV",
+      "labels": {
+        "k8s-app": "hazelcast"
+      }
+    },
+    "spec": {
+      "replicas": 3,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "hazelcast"
+          }
+        },
+        "spec": {
+          "terminationGracePeriodSeconds": 600,
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "weight": 100,
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "app",
+                          "operator": "In",
+                          "values": [
+                            "hazelcast"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  }
+                }
+              ]
+            }
+          },
+          "containers": [
+            {
+              "name": "hazelcast-node",
+              "image": "hazelcast/hazelcast:3.11.2",
+              "ports": [
+                {
+                  "containerPort": 5701
+                }
+              ],
+              "env": [
+                {
+                  "name": "JAVA_OPTS",
+                  "value": "-Dhazelcast.rest.enabled=true -Dhazelcast.config=/data/hazelcast/hazelcast.xml"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/hazelcast/health/node-state",
+                  "port": 5701
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 5,
+                "periodSeconds": 10
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/hazelcast/health/node-state",
+                  "port": 5701
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 5,
+                "periodSeconds": 10
+              },
+              "volumeMounts": [
+                {
+                  "name": "hazelcast-storage",
+                  "mountPath": "/data/hazelcast"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "hazelcast-storage",
+              "configMap": {
+                "name": "hz-config"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

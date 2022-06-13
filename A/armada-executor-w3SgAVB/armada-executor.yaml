@@ -1,0 +1,184 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: armada-executor
+  namespace: w3SgAVB
+  labels:
+    app: armada-executor
+    chart: armada-executor-v0.1.43
+    release: release-name
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: armada-executor-config
+  namespace: w3SgAVB
+  labels:
+    app: armada-executor
+    chart: armada-executor-v0.1.43
+    release: release-name
+type: Opaque
+data:
+  armada-executor-config.yaml: |
+    YXBpQ29ubmVjdGlvbjoKICBhcm1hZGFVcmw6ICIi
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: armada-executor
+  labels:
+    app: armada-executor
+    chart: armada-executor-v0.1.43
+    release: release-name
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - delete
+      - deletecollection
+      - patch
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - delete
+      - deletecollection
+  - apiGroups:
+      - ""
+    resources:
+      - events
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - users
+      - groups
+    verbs:
+      - impersonate
+  - apiGroups:
+      - ""
+    resources:
+      - nodes/proxy
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: armada-executor
+  labels:
+    app: armada-executor
+    chart: armada-executor-v0.1.43
+    release: release-name
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: armada-executor
+subjects:
+  - kind: ServiceAccount
+    name: armada-executor
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: armada-executor
+  namespace: w3SgAVB
+  labels:
+    app: armada-executor
+    chart: armada-executor-v0.1.43
+    release: release-name
+spec:
+  selector:
+    app: armada-executor
+  ports:
+    - name: metrics
+      protocol: TCP
+      port: 9001
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: armada-executor
+  namespace: w3SgAVB
+  labels:
+    app: armada-executor
+    chart: armada-executor-v0.1.43
+    release: release-name
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: armada-executor
+  template:
+    metadata:
+      name: armada-executor
+      annotations:
+        checksum/config: ab850c7f60ead30a69dcf466b4a47f018d436f46f48662e35782a4a137d253a6
+      labels:
+        app: armada-executor
+        chart: armada-executor-v0.1.43
+        release: release-name
+    spec:
+      terminationGracePeriodSeconds: 5
+      serviceAccountName: armada-executor
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 2000
+      containers:
+        - name: executor
+          imagePullPolicy: IfNotPresent
+          image: gresearchdev/armada-executor:v0.1.43
+          args:
+            - --config
+            - /config/application_config.yaml
+          resources:
+            limits:
+              cpu: 300m
+              memory: 1Gi
+            requests:
+              cpu: 200m
+              memory: 512Mi
+          ports:
+            - containerPort: 9001
+              protocol: TCP
+              name: metrics
+          volumeMounts:
+            - name: user-config
+              mountPath: /config/application_config.yaml
+              subPath: armada-executor-config.yaml
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+      nodeSelector:
+        node-role.kubernetes.io/master: ""
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+          operator: Exists
+      volumes:
+        - name: user-config
+          secret:
+            secretName: armada-executor-config

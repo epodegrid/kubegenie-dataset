@@ -1,0 +1,210 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-wiremock-mappings-configs",
+      "namespace": "dcWwZQBBfzhA3",
+      "labels": {
+        "app.kubernetes.io/name": "wiremock",
+        "helm.sh/chart": "wiremock-0.1.3",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "mapping_1.json": "{\n  \"request\": {\n      \"method\": \"POST\",\n      \"url\": \"/v1/hello\"\n  },\n  \"response\":{\n    \"status\":200,\n    \"bodyFileName\":\"responses/response_1.json\",\n    \"headers\":{\n       \"Content-Type\":\"application/json\"\n    }\n }\n}"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-wiremock-responses-configs",
+      "namespace": "dcWwZQBBfzhA3",
+      "labels": {
+        "app.kubernetes.io/name": "wiremock",
+        "helm.sh/chart": "wiremock-0.1.3",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "response_1.json": "{\n  \"Id\": \"001\",\n  \"message\": \"hello\"\n}\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-wiremock",
+      "labels": {
+        "app.kubernetes.io/name": "wiremock",
+        "helm.sh/chart": "wiremock-0.1.3",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 9021,
+          "targetPort": 9021,
+          "protocol": "TCP",
+          "name": "wiremock"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "wiremock",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-wiremock",
+      "labels": {
+        "app.kubernetes.io/name": "wiremock",
+        "helm.sh/chart": "wiremock-0.1.3",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "wiremock",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/configMappings": "f383f610d8859e39a62e327e51702c378b52dc34b02c5a5f3f1f56864b47447b",
+            "checksum/configResponses": "04628ba60bea96e2adf5ea44e4c1e1414bb8751a08dd3ae4f435970fa4b1985d"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "wiremock",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "wiremock",
+              "image": "holomekc/wiremock-gui:2.32.0.2",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "WIREMOCK_OPTIONS",
+                  "value": "--port=9021,--max-request-journal=1000,--local-response-templating,--root-dir=/home/wiremock/storage"
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 9021,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/__admin/webapp",
+                  "port": 9021
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/__admin/webapp",
+                  "port": 9021
+                }
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/home/wiremock/storage/mappings",
+                  "name": "mappings-data"
+                },
+                {
+                  "mountPath": "/home/wiremock/storage/__files",
+                  "name": "responses-data"
+                }
+              ]
+            }
+          ],
+          "initContainers": [
+            {
+              "name": "copy-mappings",
+              "image": "bash:5",
+              "imagePullPolicy": "Always",
+              "command": [
+                "bash",
+                "-c",
+                "cp  -rf /data/mappings /home/wiremock/storage/mappings"
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/data/mappings",
+                  "name": "mappings-volume"
+                },
+                {
+                  "mountPath": "/home/wiremock/storage/mappings",
+                  "name": "mappings-data"
+                }
+              ]
+            },
+            {
+              "name": "copy-responses",
+              "image": "bash:5",
+              "imagePullPolicy": "Always",
+              "command": [
+                "bash",
+                "-c",
+                "cp  -rf /data/responses /home/wiremock/storage/__files"
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/data/responses",
+                  "name": "responses-volume"
+                },
+                {
+                  "mountPath": "/home/wiremock/storage/__files",
+                  "name": "responses-data"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "mappings-data",
+              "emptyDir": {}
+            },
+            {
+              "name": "responses-data",
+              "emptyDir": {}
+            },
+            {
+              "name": "mappings-volume",
+              "configMap": {
+                "name": "release-name-wiremock-mappings-configs"
+              }
+            },
+            {
+              "name": "responses-volume",
+              "configMap": {
+                "name": "release-name-wiremock-responses-configs"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

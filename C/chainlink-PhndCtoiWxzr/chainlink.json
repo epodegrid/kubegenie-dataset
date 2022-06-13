@@ -1,0 +1,210 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-chainlink",
+      "labels": {
+        "helm.sh/chart": "chainlink-0.2.10",
+        "app.kubernetes.io/name": "chainlink",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.10.9",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-chainlink-configmap"
+    },
+    "data": {
+      "ALLOW_ORIGINS": "*",
+      "API_LOGIN": "API_EMAIL\nAPI_LOGIN\n",
+      "CHAINLINK_PORT": "6688",
+      "CHAINLINK_TLS_PORT": "0",
+      "DATABASE_TIMEOUT": "0",
+      "DATABASE_URL": "postgresql://postgres@postgresql:5432/chainlink?sslmode=disable",
+      "ETH_CHAIN_ID": "1",
+      "ETH_URL": "ws://geth:8546",
+      "LINK_CONTRACT_ADDRESS": "0x514910771af9ca656af840dff83e8264ecf986ca",
+      "ROOT": "/chainlink",
+      "SECURE_COOKIES": "false",
+      "WALLET_PASSWORD": ""
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-chainlink",
+      "labels": {
+        "helm.sh/chart": "chainlink-0.2.10",
+        "app.kubernetes.io/name": "chainlink",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.10.9",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 6688,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "chainlink",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-chainlink",
+      "labels": {
+        "helm.sh/chart": "chainlink-0.2.10",
+        "app.kubernetes.io/name": "chainlink",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.10.9",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "chainlink",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "serviceName": "release-name-chainlink",
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/configmap": "bcdaffa5ffa447c46c8868075c03af34cedcb7e800cd68c2f63d6598efbc42ae"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "chainlink",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-chainlink",
+          "securityContext": {},
+          "containers": [
+            {
+              "name": "chainlink",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "smartcontract/chainlink:0.10.9",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "chainlink",
+                "local",
+                "node"
+              ],
+              "args": [
+                "-a",
+                "/etc/chainlink/api",
+                "-p",
+                "/etc/chainlink/password"
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 6688,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "listener",
+                  "containerPort": 30668,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "http"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "http"
+                }
+              },
+              "env": [
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "POD_NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                }
+              ],
+              "envFrom": [
+                {
+                  "configMapRef": {
+                    "name": "release-name-chainlink-configmap"
+                  }
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/etc/chainlink"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-chainlink-configmap",
+                "items": [
+                  {
+                    "key": "API_LOGIN",
+                    "path": "api"
+                  },
+                  {
+                    "key": "WALLET_PASSWORD",
+                    "path": "password"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

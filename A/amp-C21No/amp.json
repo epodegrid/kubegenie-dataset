@@ -1,0 +1,795 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "rabbitmq-configuration",
+      "labels": {
+        "helm.sh/chart": "rabbitmq-0.9.0",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/version": "3",
+        "app.kubernetes.io/name": "release-name-rabbitmq",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    },
+    "data": {
+      "rabbitmq.conf": "default_pass = guest\ndefault_user = guest\nloopback_users.guest = false"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "name": "release-name-postgres",
+      "labels": {
+        "helm.sh/chart": "postgres-0.9.0",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/version": "12.4",
+        "app.kubernetes.io/name": "release-name-postgres",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "30Gi"
+        }
+      },
+      "storageClassName": "amp-standard"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "name": "release-name-rabbitmq",
+      "labels": {
+        "helm.sh/chart": "rabbitmq-0.9.0",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/version": "3",
+        "app.kubernetes.io/name": "release-name-rabbitmq",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "30Gi"
+        }
+      },
+      "storageClassName": "amp-standard"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "release-name-postgres",
+        "app.kubernetes.io/version": "12.4",
+        "helm.sh/chart": "postgres-0.9.0"
+      },
+      "name": "postgres"
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "postgres-main",
+          "port": 5432
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/name": "release-name-postgres"
+      },
+      "type": "ClusterIP"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "release-name-rabbitmq",
+        "app.kubernetes.io/version": "3",
+        "helm.sh/chart": "rabbitmq-0.9.0"
+      },
+      "name": "rabbitmq"
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "rabbitmq-main",
+          "port": 5672
+        },
+        {
+          "name": "rabbitmq-epmd",
+          "port": 4369
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/name": "release-name-rabbitmq"
+      },
+      "type": "ClusterIP"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "release-name-server",
+        "app.kubernetes.io/version": "2.10.0",
+        "helm.sh/chart": "server-0.9.0"
+      },
+      "name": "release-name-server"
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "amp-svc-port",
+          "port": 443,
+          "targetPort": "amp-server-port"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/name": "release-name-server"
+      },
+      "type": "ClusterIP"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "release-name-agent",
+        "app.kubernetes.io/version": "2.10.0",
+        "helm.sh/chart": "agent-0.9.0"
+      },
+      "name": "release-name-agent"
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/name": "release-name-agent"
+        }
+      },
+      "strategy": {
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/name": "release-name-agent"
+          }
+        },
+        "spec": {
+          "affinity": {},
+          "containers": [
+            {
+              "env": [
+                {
+                  "name": "AMP_DATABASE__HOST",
+                  "value": "postgres"
+                },
+                {
+                  "name": "AMP_DATABASE__PORT",
+                  "value": "5432"
+                },
+                {
+                  "name": "AMP_MESSAGE_BROKER__HOST",
+                  "value": "rabbitmq"
+                },
+                {
+                  "name": "AMP_MESSAGE_BROKER__PORT",
+                  "value": "5672"
+                }
+              ],
+              "envFrom": [
+                {
+                  "secretRef": {
+                    "name": "amp-secrets"
+                  }
+                }
+              ],
+              "image": "registry.linguamatics.com/amp/release/amp-agent:2.10.0",
+              "imagePullPolicy": "IfNotPresent",
+              "lifecycle": {
+                "postStart": {
+                  "exec": {
+                    "command": [
+                      "/bin/bash",
+                      "-c",
+                      "ln -sf /postStart/* /opt/linguamatics/i2e/bin/i2elicense.xml"
+                    ]
+                  }
+                },
+                "preStop": {
+                  "exec": {
+                    "command": [
+                      "/bin/bash",
+                      "-c",
+                      "agent_pidfile=\"/run/linguamatics/amp-agent/amp_agent.pid\";\npkill --signal TERM --pidfile $agent_pidfile;\nfor (( i = 0 ; i < 125 ; i++ )) ; do\n  if pgrep --pidfile $agent_pidfile ; then\n    sleep 1;\n  else\n    break;\n  fi;\ndone\npkill --signal KILL --pidfile $agent_pidfile;"
+                    ]
+                  }
+                }
+              },
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/bash",
+                    "-c",
+                    "amp-agent-manager health"
+                  ]
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10,
+                "timeoutSeconds": 10
+              },
+              "name": "agent",
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/bash",
+                    "-c",
+                    "amp-agent-manager status"
+                  ]
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 5,
+                "timeoutSeconds": 5
+              },
+              "resources": {
+                "limits": {
+                  "cpu": "4",
+                  "memory": "7Gi"
+                },
+                "requests": {
+                  "cpu": "2",
+                  "memory": "4Gi"
+                }
+              },
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true,
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "startupProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/bash",
+                    "-c",
+                    "amp-agent-manager status"
+                  ]
+                },
+                "failureThreshold": 50,
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/postStart",
+                  "name": "i2elicense",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "nodeSelector": {},
+          "securityContext": {},
+          "terminationGracePeriodSeconds": 125,
+          "tolerations": [],
+          "volumes": [
+            {
+              "name": "i2elicense",
+              "secret": {
+                "secretName": "i2elicense"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "release-name-postgres",
+        "app.kubernetes.io/version": "12.4",
+        "helm.sh/chart": "postgres-0.9.0"
+      },
+      "name": "release-name-postgres"
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/name": "release-name-postgres"
+        }
+      },
+      "strategy": {
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/name": "release-name-postgres"
+          }
+        },
+        "spec": {
+          "affinity": {},
+          "containers": [
+            {
+              "env": [
+                {
+                  "name": "POSTGRES_DB",
+                  "value": "linguamatics_amp"
+                },
+                {
+                  "name": "POSTGRES_USER",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "AMP_DATABASE__USER",
+                      "name": "amp-secrets"
+                    }
+                  }
+                },
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "AMP_DATABASE__PASSWORD",
+                      "name": "amp-secrets"
+                    }
+                  }
+                },
+                {
+                  "name": "PGDATA",
+                  "value": "/postgres/data"
+                },
+                {
+                  "name": "PGPASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "AMP_DATABASE__PASSWORD",
+                      "name": "amp-secrets"
+                    }
+                  }
+                }
+              ],
+              "image": "postgres:12.4-alpine",
+              "imagePullPolicy": "IfNotPresent",
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/bash",
+                    "-c",
+                    "psql -w -U ${POSTGRES_USER} -d postgres -c SELECT 1"
+                  ]
+                },
+                "initialDelaySeconds": 45,
+                "timeoutSeconds": 2
+              },
+              "name": "postgres",
+              "ports": [
+                {
+                  "containerPort": 5432,
+                  "name": "postgres-main"
+                }
+              ],
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/bash",
+                    "-c",
+                    "psql -w -U ${POSTGRES_USER} -d postgres -c SELECT 1"
+                  ]
+                },
+                "initialDelaySeconds": 15,
+                "timeoutSeconds": 2
+              },
+              "resources": {
+                "limits": {
+                  "cpu": "0.3",
+                  "memory": "1Gi"
+                },
+                "requests": {
+                  "cpu": "0.1",
+                  "memory": "256Mi"
+                }
+              },
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true,
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/postgres",
+                  "name": "release-name-postgres"
+                }
+              ]
+            }
+          ],
+          "nodeSelector": {},
+          "securityContext": {},
+          "tolerations": [],
+          "volumes": [
+            {
+              "name": "release-name-postgres",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-postgres"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "release-name-rabbitmq",
+        "app.kubernetes.io/version": "3",
+        "helm.sh/chart": "rabbitmq-0.9.0"
+      },
+      "name": "release-name-rabbitmq"
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/name": "release-name-rabbitmq"
+        }
+      },
+      "strategy": {
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/name": "release-name-rabbitmq"
+          }
+        },
+        "spec": {
+          "affinity": {},
+          "containers": [
+            {
+              "image": "rabbitmq:3-management-alpine",
+              "imagePullPolicy": "IfNotPresent",
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "rabbitmq-diagnostics",
+                    "-q",
+                    "check_port_connectivity"
+                  ]
+                },
+                "failureThreshold": 30,
+                "initialDelaySeconds": 10,
+                "periodSeconds": 1,
+                "timeoutSeconds": 5
+              },
+              "name": "rabbitmq",
+              "ports": [
+                {
+                  "containerPort": 5672,
+                  "name": "rabbitmq-main"
+                },
+                {
+                  "containerPort": 4369,
+                  "name": "epmd"
+                }
+              ],
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "rabbitmq-diagnostics",
+                    "-q",
+                    "check_port_connectivity"
+                  ]
+                },
+                "failureThreshold": 10,
+                "initialDelaySeconds": 10,
+                "periodSeconds": 1,
+                "timeoutSeconds": 5
+              },
+              "resources": {
+                "limits": {
+                  "cpu": "2000m",
+                  "memory": "1Gi"
+                },
+                "requests": {
+                  "cpu": "1000m",
+                  "memory": "1Gi"
+                }
+              },
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true,
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/var/lib/rabbitmq/",
+                  "name": "release-name-rabbitmq"
+                },
+                {
+                  "mountPath": "/etc/rabbitmq/",
+                  "name": "rabbitmq-configuration-volume"
+                }
+              ]
+            }
+          ],
+          "nodeSelector": {},
+          "securityContext": {},
+          "tolerations": [],
+          "volumes": [
+            {
+              "name": "release-name-rabbitmq",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-rabbitmq"
+              }
+            },
+            {
+              "configMap": {
+                "items": [
+                  {
+                    "key": "rabbitmq.conf",
+                    "path": "rabbitmq.conf"
+                  }
+                ],
+                "name": "rabbitmq-configuration"
+              },
+              "name": "rabbitmq-configuration-volume"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "release-name-server",
+        "app.kubernetes.io/version": "2.10.0",
+        "helm.sh/chart": "server-0.9.0"
+      },
+      "name": "release-name-server"
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/name": "release-name-server"
+        }
+      },
+      "strategy": {
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/name": "release-name-server"
+          }
+        },
+        "spec": {
+          "affinity": {},
+          "containers": [
+            {
+              "env": [
+                {
+                  "name": "AMP_DATABASE__HOST",
+                  "value": "postgres"
+                },
+                {
+                  "name": "AMP_DATABASE__PORT",
+                  "value": "5432"
+                },
+                {
+                  "name": "AMP_MESSAGE_BROKER__HOST",
+                  "value": "rabbitmq"
+                },
+                {
+                  "name": "AMP_MESSAGE_BROKER__PORT",
+                  "value": "5672"
+                },
+                {
+                  "name": "AMP_WEBSERVER__URI",
+                  "value": "https://<FQDN or IP address>"
+                },
+                {
+                  "name": "AMP_SECURITY__HTTPS",
+                  "value": "no"
+                }
+              ],
+              "envFrom": [
+                {
+                  "secretRef": {
+                    "name": "amp-secrets"
+                  }
+                }
+              ],
+              "image": "registry.linguamatics.com/amp/release/amp-server:2.10.0",
+              "imagePullPolicy": "IfNotPresent",
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/bash",
+                    "-c",
+                    "amp-manager health --skip-agents -v 3"
+                  ]
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 15,
+                "timeoutSeconds": 20
+              },
+              "name": "server",
+              "ports": [
+                {
+                  "containerPort": 8884,
+                  "name": "amp-server-port"
+                }
+              ],
+              "readinessProbe": {
+                "initialDelaySeconds": 5,
+                "periodSeconds": 5,
+                "tcpSocket": {
+                  "port": 8884
+                }
+              },
+              "resources": {
+                "limits": {
+                  "cpu": "0.3",
+                  "memory": "1.5Gi"
+                },
+                "requests": {
+                  "cpu": "0.1",
+                  "memory": "0.8Gi"
+                }
+              },
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true,
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "startupProbe": {
+                "failureThreshold": 30,
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10,
+                "tcpSocket": {
+                  "port": 8884
+                }
+              }
+            }
+          ],
+          "nodeSelector": {},
+          "securityContext": {},
+          "tolerations": []
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1beta1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "release-name-server",
+      "labels": {
+        "helm.sh/chart": "server-0.9.0",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/version": "2.10.0",
+        "app.kubernetes.io/name": "release-name-server",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    },
+    "spec": {
+      "rules": [
+        {
+          "http": {
+            "paths": [
+              {
+                "path": "/*",
+                "pathType": "Prefix",
+                "backend": {
+                  "serviceName": "release-name-server",
+                  "servicePort": 443
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "amp-secrets",
+      "labels": {
+        "helm.sh/chart": "config-0.9.0",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/version": "",
+        "app.kubernetes.io/name": "release-name-config",
+        "app.kubernetes.io/instance": "release-name"
+      },
+      "annotations": {
+        "helm.sh/hook": "pre-install"
+      }
+    },
+    "data": {
+      "AMP_ADMIN_PASSWORD": "TGluZ3VhbWF0aWNzMTIzIQ==",
+      "AMP_DATABASE__PASSWORD": "YW1w",
+      "AMP_DATABASE__USER": "YW1w"
+    }
+  }
+]

@@ -1,0 +1,190 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-octobox
+  labels:
+    app.kubernetes.io/name: octobox
+    helm.sh/chart: octobox-0.1.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: octobox
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-octobox
+  labels:
+    app.kubernetes.io/name: octobox
+    helm.sh/chart: octobox-0.1.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: octobox
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: octobox
+        app.kubernetes.io/instance: release-name
+    spec:
+      containers:
+        - name: octobox
+          image: octoboxio/octobox:latest
+          imagePullPolicy: Always
+          env:
+            - name: GITHUB_CLIENT_ID
+              value: null
+            - name: GITHUB_CLIENT_SECRET
+              value: null
+            - name: FETCH_SUBJECT
+              value: "true"
+            - name: RAILS_SERVE_STATIC_FILES
+              value: "true"
+            - name: RAILS_LOG_TO_STDOUT
+              value: "true"
+            - name: OCTOBOX_SIDEKIQ_SCHEDULE_ENABLED
+              value: "true"
+            - name: RAILS_ENV
+              value: production
+            - name: SECRET_KEY_BASE
+              value: null
+            - name: OCTOBOX_DATABASE_USERNAME
+              value: null
+            - name: OCTOBOX_DATABASE_PASSWORD
+              value: null
+            - name: OCTOBOX_DATABASE_NAME
+              value: null
+            - name: OCTOBOX_DATABASE_HOST
+              value: null
+            - name: REDIS_URL
+              value: redis://redis-master:6379
+            - name: PERSONAL_ACCESS_TOKENS_ENABLED
+              value: "1"
+            - name: MINIMUM_REFRESH_INTERVAL
+              value: "1"
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - mountPath: /etc/localtime
+              name: etc-timezone
+      volumes:
+        - name: etc-timezone
+          hostPath:
+            path: /etc/localtime
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: release-name-octobox
+  labels:
+    app.kubernetes.io/name: octobox
+    helm.sh/chart: octobox-0.1.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  schedule: '@daily'
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: octobox
+      app.kubernetes.io/instance: release-name
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: octobox
+            app.kubernetes.io/instance: release-name
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: octobox
+              image: octoboxio/octobox:latest
+              imagePullPolicy: Always
+              command:
+                - /usr/local/bin/rake
+              args:
+                - tasks:sync_notifications
+              env:
+                - name: GITHUB_CLIENT_ID
+                  value: null
+                - name: GITHUB_CLIENT_SECRET
+                  value: null
+                - name: FETCH_SUBJECT
+                  value: "true"
+                - name: RAILS_SERVE_STATIC_FILES
+                  value: "true"
+                - name: RAILS_LOG_TO_STDOUT
+                  value: "true"
+                - name: OCTOBOX_SIDEKIQ_SCHEDULE_ENABLED
+                  value: "true"
+                - name: RAILS_ENV
+                  value: production
+                - name: SECRET_KEY_BASE
+                  value: null
+                - name: OCTOBOX_DATABASE_USERNAME
+                  value: null
+                - name: OCTOBOX_DATABASE_PASSWORD
+                  value: null
+                - name: OCTOBOX_DATABASE_NAME
+                  value: null
+                - name: OCTOBOX_DATABASE_HOST
+                  value: null
+                - name: REDIS_URL
+                  value: redis://redis-master:6379
+                - name: PERSONAL_ACCESS_TOKENS_ENABLED
+                  value: "1"
+                - name: MINIMUM_REFRESH_INTERVAL
+                  value: "1"
+              volumeMounts:
+                - mountPath: /etc/localtime
+                  name: etc-timezone
+          volumes:
+            - name: etc-timezone
+              hostPath:
+                path: /etc/localtime
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-octobox-test-connection
+  labels:
+    app.kubernetes.io/name: octobox
+    helm.sh/chart: octobox-0.1.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-octobox:80
+  restartPolicy: Never

@@ -1,0 +1,616 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app": "postgresql",
+        "chart": "postgresql-8.6.4",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "postgresql-password": "c29uYXJQYXNz"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-sonarqube-config",
+      "labels": {
+        "app": "sonarqube",
+        "chart": "sonarqube-6.7.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": null
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-sonarqube-copy-plugins",
+      "labels": {
+        "app": "sonarqube",
+        "chart": "sonarqube-6.7.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "copy_plugins.sh": "#!/bin/bash\nfor f in /opt/sonarqube/extensions/plugins/tmp/*.jar\ndo\n  file=${f##*/} && file=${file%-[0-9]*}\n  for original in /opt/sonarqube/extensions/plugins/*.jar\n  do\n    originalfile=${original##*/} && originalfile=${originalfile%-[0-9]*}\n    if [ \"$originalfile\" == \"$file\" ]; then\n      rm -f \"$original\"\n    fi\n  done\ndone\ncp /opt/sonarqube/extensions/plugins/tmp/*.jar /opt/sonarqube/extensions/plugins/\nexec /opt/sonarqube/bin/run.sh"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-sonarqube-install-plugins",
+      "labels": {
+        "app": "sonarqube",
+        "chart": "sonarqube-6.7.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "install_plugins.sh": "cd /opt/sonarqube/extensions/plugins/tmp"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-sonarqube-postgres-config",
+      "labels": {
+        "app": "sonarqube",
+        "chart": "sonarqube-6.7.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "SONARQUBE_JDBC_USERNAME": "sonarUser",
+      "SONARQUBE_JDBC_URL": "jdbc:postgresql://release-name-postgresql:5432/sonarDB"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-sonarqube-tests",
+      "labels": {
+        "app": "sonarqube",
+        "chart": "sonarqube-6.7.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "run.sh": "@test \"Testing Sonarqube UI is accessible\" {\n  curl --connect-timeout 5 --retry 12 --retry-delay 1 --retry-max-time 60 release-name-sonarqube:9000/sessions/new\n}"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-postgresql-headless",
+      "labels": {
+        "app": "postgresql",
+        "chart": "postgresql-8.6.4",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "tcp-postgresql",
+          "port": 5432,
+          "targetPort": "tcp-postgresql"
+        }
+      ],
+      "selector": {
+        "app": "postgresql",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app": "postgresql",
+        "chart": "postgresql-8.6.4",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "tcp-postgresql",
+          "port": 5432,
+          "targetPort": "tcp-postgresql"
+        }
+      ],
+      "selector": {
+        "app": "postgresql",
+        "release": "release-name",
+        "role": "master"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-sonarqube",
+      "labels": {
+        "app": "sonarqube",
+        "chart": "sonarqube-6.7.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 9000,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app": "sonarqube",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-sonarqube",
+      "labels": {
+        "app": "sonarqube",
+        "chart": "sonarqube-6.7.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "sonarqube",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "sonarqube",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/plugins": "f780579d79ab14f48d704c27a8228a33516bc475740db03f5b1b518b3bb58a95",
+            "checksum/config": "45fe05649cfdebd03f2f4e1fd1c0b5286e4e20b10128ff23b33e1082aebbaf20",
+            "checksum/secret": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 999
+          },
+          "initContainers": [
+            {
+              "name": "init-sysctl",
+              "image": "busybox:1.31",
+              "securityContext": {
+                "privileged": true
+              },
+              "command": [
+                "/bin/sh",
+                "-c",
+                "if [[ \"$(sysctl -n vm.max_map_count)\" -lt 262144 ]]; then sysctl -w vm.max_map_count=262144; fi"
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "sonarqube",
+              "image": "sonarqube:8.9-community",
+              "imagePullPolicy": null,
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 9000,
+                  "protocol": "TCP"
+                }
+              ],
+              "env": [
+                {
+                  "name": "SONARQUBE_WEB_JVM_OPTS",
+                  "value": ""
+                },
+                {
+                  "name": "SONARQUBE_JDBC_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-postgresql",
+                      "key": "postgresql-password"
+                    }
+                  }
+                }
+              ],
+              "envFrom": [
+                {
+                  "configMapRef": {
+                    "name": "release-name-sonarqube-postgres-config"
+                  }
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/sessions/new",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 60,
+                "periodSeconds": 30
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/sessions/new",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 60,
+                "periodSeconds": 30,
+                "failureThreshold": 6
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/opt/sonarqube/data",
+                  "name": "sonarqube",
+                  "subPath": "data"
+                },
+                {
+                  "mountPath": "/opt/sonarqube/extensions/plugins/tmp",
+                  "name": "sonarqube",
+                  "subPath": "tmp"
+                },
+                {
+                  "mountPath": "/opt/sonarqube/extensions/downloads",
+                  "name": "sonarqube",
+                  "subPath": "downloads"
+                },
+                {
+                  "mountPath": "/opt/sonarqube/temp",
+                  "name": "sonarqube",
+                  "subPath": "temp"
+                },
+                {
+                  "mountPath": "/opt/sonarqube/logs",
+                  "name": "sonarqube",
+                  "subPath": "logs"
+                },
+                {
+                  "mountPath": "/tmp",
+                  "name": "tmp-dir"
+                },
+                {
+                  "name": "copy-plugins",
+                  "mountPath": "/tmp/scripts"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "install-plugins",
+              "configMap": {
+                "name": "release-name-sonarqube-install-plugins",
+                "items": [
+                  {
+                    "key": "install_plugins.sh",
+                    "path": "install_plugins.sh"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "copy-plugins",
+              "configMap": {
+                "name": "release-name-sonarqube-copy-plugins",
+                "defaultMode": 493,
+                "items": [
+                  {
+                    "key": "copy_plugins.sh",
+                    "path": "copy_plugins.sh"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "sonarqube",
+              "emptyDir": {}
+            },
+            {
+              "name": "tmp-dir",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app": "postgresql",
+        "chart": "postgresql-8.6.4",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "serviceName": "release-name-postgresql-headless",
+      "replicas": 1,
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app": "postgresql",
+          "release": "release-name",
+          "role": "master"
+        }
+      },
+      "template": {
+        "metadata": {
+          "name": "release-name-postgresql",
+          "labels": {
+            "app": "postgresql",
+            "chart": "postgresql-8.6.4",
+            "release": "release-name",
+            "heritage": "Helm",
+            "role": "master"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "initContainers": null,
+          "containers": [
+            {
+              "name": "release-name-postgresql",
+              "image": "docker.io/bitnami/postgresql:11.7.0-debian-10-r26",
+              "imagePullPolicy": "IfNotPresent",
+              "resources": {
+                "requests": {
+                  "cpu": "250m",
+                  "memory": "256Mi"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "securityContext": {
+                "runAsUser": 10972,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "env": [
+                {
+                  "name": "BITNAMI_DEBUG",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_PORT_NUMBER",
+                  "value": "5432"
+                },
+                {
+                  "name": "POSTGRESQL_VOLUME_DIR",
+                  "value": "/bitnami/postgresql"
+                },
+                {
+                  "name": "PGDATA",
+                  "value": "/bitnami/postgresql/data"
+                },
+                {
+                  "name": "POSTGRES_USER",
+                  "value": "sonarUser"
+                },
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-postgresql",
+                      "key": "postgresql-password"
+                    }
+                  }
+                },
+                {
+                  "name": "POSTGRES_DB",
+                  "value": "sonarDB"
+                },
+                {
+                  "name": "POSTGRESQL_ENABLE_LDAP",
+                  "value": "no"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "tcp-postgresql",
+                  "containerPort": 5432
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/sh",
+                    "-c",
+                    "exec pg_isready -U \"sonarUser\" -d \"sonarDB\" -h 127.0.0.1 -p 5432"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/sh",
+                    "-c",
+                    "-e",
+                    "exec pg_isready -U \"sonarUser\" -d \"sonarDB\" -h 127.0.0.1 -p 5432\n[ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]\n"
+                  ]
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "volumeMounts": [
+                {
+                  "name": "dshm",
+                  "mountPath": "/dev/shm"
+                },
+                {
+                  "name": "data",
+                  "mountPath": "/bitnami/postgresql",
+                  "subPath": null
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "dshm",
+              "emptyDir": {
+                "medium": "Memory",
+                "sizeLimit": "1Gi"
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "8Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-ui-test",
+      "annotations": {
+        "helm.sh/hook": "test-success"
+      },
+      "labels": {
+        "app": "sonarqube",
+        "chart": "sonarqube-6.7.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "initContainers": [
+        {
+          "name": "test-framework",
+          "image": "dduportal/bats:0.4.0",
+          "command": [
+            "bash",
+            "-c",
+            "set -ex\n# copy bats to tools dir\ncp -R /usr/local/libexec/ /tools/bats/\n"
+          ],
+          "volumeMounts": [
+            {
+              "mountPath": "/tools",
+              "name": "tools"
+            }
+          ]
+        }
+      ],
+      "containers": [
+        {
+          "name": "release-name-ui-test",
+          "image": "sonarqube:8.9-community",
+          "command": [
+            "/tools/bats/bats",
+            "-t",
+            "/tests/run.sh"
+          ],
+          "volumeMounts": [
+            {
+              "mountPath": "/tests",
+              "name": "tests",
+              "readOnly": true
+            },
+            {
+              "mountPath": "/tools",
+              "name": "tools"
+            }
+          ]
+        }
+      ],
+      "volumes": [
+        {
+          "name": "tests",
+          "configMap": {
+            "name": "release-name-sonarqube-tests"
+          }
+        },
+        {
+          "name": "tools",
+          "emptyDir": {}
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

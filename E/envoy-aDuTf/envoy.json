@@ -1,0 +1,177 @@
+[
+  {
+    "apiVersion": "policy/v1beta1",
+    "kind": "PodDisruptionBudget",
+    "metadata": {
+      "name": "release-name-envoy",
+      "labels": {
+        "app": "envoy",
+        "chart": "envoy-1.5.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "envoy",
+          "release": "release-name"
+        }
+      },
+      "maxUnavailable": 1
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-envoy",
+      "labels": {
+        "app": "envoy",
+        "chart": "envoy-1.5.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "envoy.yaml": "## refs:\n## - https://www.envoyproxy.io/docs/envoy/latest/start/start#quick-start-to-run-simple-example\n## - https://raw.githubusercontent.com/envoyproxy/envoy/master/configs/google_com_proxy.v2.yaml\nadmin:\n  access_log_path: /dev/stdout\n  address:\n    socket_address:\n      address: 0.0.0.0\n      port_value: 9901\n\nstatic_resources:\n  listeners:\n  - name: listener_0\n    address:\n      socket_address:\n        address: 0.0.0.0\n        port_value: 10000\n    filter_chains:\n    - filters:\n      - name: envoy.http_connection_manager\n        config:\n          access_log:\n          - name: envoy.file_access_log\n            config:\n              path: /dev/stdout\n          stat_prefix: ingress_http\n          route_config:\n            name: local_route\n            virtual_hosts:\n            - name: local_service\n              domains: [\"*\"]\n              routes:\n              - match:\n                  prefix: \"/\"\n                route:\n                  host_rewrite: www.google.com\n                  cluster: service_google\n          http_filters:\n          - name: envoy.router\n  clusters:\n  - name: service_google\n    connect_timeout: 0.25s\n    type: LOGICAL_DNS\n    dns_lookup_family: V4_ONLY\n    lb_policy: ROUND_ROBIN\n    hosts:\n      - socket_address:\n          address: google.com\n          port_value: 443\n    tls_context:\n      sni: www.google.com"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "envoy",
+      "labels": {
+        "app": "envoy",
+        "chart": "envoy-1.5.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "n0",
+          "port": 10000,
+          "protocol": "TCP",
+          "targetPort": "n0"
+        }
+      ],
+      "selector": {
+        "app": "envoy",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-envoy",
+      "labels": {
+        "app": "envoy",
+        "chart": "envoy-1.5.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 2,
+      "selector": {
+        "matchLabels": {
+          "app": "envoy",
+          "release": "release-name"
+        }
+      },
+      "strategy": {
+        "type": "RollingUpdate",
+        "rollingUpdate": {
+          "maxSurge": 2,
+          "maxUnavailable": 1
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "envoy",
+            "release": "release-name",
+            "component": "controller"
+          },
+          "annotations": {
+            "checksum/config": "6c0848cb0aaf23149eef6fed4d248c802027acb1052183a57b3247a7b9821e31"
+          }
+        },
+        "spec": {
+          "securityContext": {},
+          "terminationGracePeriodSeconds": 30,
+          "containers": [
+            {
+              "name": "envoy",
+              "image": "envoyproxy/envoy-alpine:d920944aed67425f91fc203774aebce9609e5d9a",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/usr/bin/dumb-init",
+                "--"
+              ],
+              "args": [
+                "/usr/local/bin/envoy",
+                "--v2-config-only",
+                "-l",
+                "$loglevel",
+                "-c",
+                "/config/envoy.yaml"
+              ],
+              "ports": [
+                {
+                  "name": "admin",
+                  "containerPort": 9901,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "n0",
+                  "containerPort": 10000,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "initialDelaySeconds": 30,
+                "tcpSocket": {
+                  "port": "admin"
+                }
+              },
+              "readinessProbe": {
+                "initialDelaySeconds": 30,
+                "tcpSocket": {
+                  "port": "admin"
+                }
+              },
+              "env": null,
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/config"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-envoy"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

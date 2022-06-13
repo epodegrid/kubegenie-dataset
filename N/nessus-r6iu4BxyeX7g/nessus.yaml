@@ -1,0 +1,148 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: release-name-nessus
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-nessus
+  labels:
+    helm.sh/chart: nessus-0.1.0
+    app.kubernetes.io/name: nessus
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.16.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8834
+      targetPort: https
+      protocol: TCP
+      name: https
+  selector:
+    app.kubernetes.io/name: nessus
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-nessus
+  labels:
+    helm.sh/chart: nessus-0.1.0
+    app.kubernetes.io/name: nessus
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.16.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  strategy:
+    type: Recreate
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nessus
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nessus
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      securityContext: {}
+      containers:
+        - name: nessus
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: XXX:latest
+          imagePullPolicy: Always
+          volumeMounts:
+            - mountPath: /opt/nessus
+              name: release-name-nessus
+          ports:
+            - name: https
+              containerPort: 8834
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8834
+              scheme: HTTPS
+            initialDelaySeconds: 300
+          readinessProbe:
+            httpGet:
+              path: /
+              port: https
+              scheme: HTTPS
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: release-name-nessus
+          persistentVolumeClaim:
+            claimName: release-name-nessus
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: release-name-nessus
+  labels:
+    helm.sh/chart: nessus-0.1.0
+    app.kubernetes.io/name: nessus
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.16.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+spec:
+  tls:
+    - hosts:
+        - XXX
+      secretName: internal
+  rules:
+    - host: xxx
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: release-name-nessus
+              servicePort: 8834
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-nessus-test-connection
+  labels:
+    helm.sh/chart: nessus-0.1.0
+    app.kubernetes.io/name: nessus
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.16.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-nessus:8834
+  restartPolicy: Never

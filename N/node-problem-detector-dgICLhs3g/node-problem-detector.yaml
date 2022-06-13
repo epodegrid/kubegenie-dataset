@@ -1,0 +1,249 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-node-problem-detector
+  labels:
+    helm.sh/chart: node-problem-detector-0.1.0
+    app.kubernetes.io/name: node-problem-detector
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.8.1
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-node-problem-detector
+  labels:
+    helm.sh/chart: node-problem-detector-0.1.0
+    app.kubernetes.io/name: node-problem-detector
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.8.1
+    app.kubernetes.io/managed-by: Helm
+data:
+  docker-monitor.json: |
+    {
+        "plugin": "journald",
+        "pluginConfig": {
+            "source": "dockerd"
+        },
+        "logPath": "/var/log/journal",
+        "lookback": "5m",
+        "bufferSize": 10,
+        "source": "docker-monitor",
+        "conditions": [],
+        "rules": [
+            {
+                "type": "temporary",
+                "reason": "CorruptDockerImage",
+                "pattern": "Error trying v2 registry: failed to register layer: rename /var/lib/docker/image/(.+) /var/lib/docker/image/(.+): directory not empty.*"
+            }
+        ]
+    }
+  kernel-monitor.json: |
+    {
+        "plugin": "kmsg",
+        "logPath": "/dev/kmsg",
+        "lookback": "5m",
+        "bufferSize": 10,
+        "source": "kernel-monitor",
+        "conditions": [
+            {
+                "type": "KernelDeadlock",
+                "reason": "KernelHasNoDeadlock",
+                "message": "kernel has no deadlock"
+            },
+            {
+                "type": "ReadonlyFilesystem",
+                "reason": "FilesystemIsNotReadOnly",
+                "message": "Filesystem is not read-only"
+            }
+        ],
+        "rules": [
+            {
+                "type": "temporary",
+                "reason": "OOMKilling",
+                "pattern": "Kill process \\d+ (.+) score \\d+ or sacrifice child\\nKilled process \\d+ (.+) total-vm:\\d+kB, anon-rss:\\d+kB, file-rss:\\d+kB.*"
+            },
+            {
+                "type": "temporary",
+                "reason": "TaskHung",
+                "pattern": "task \\S+:\\w+ blocked for more than \\w+ seconds\\."
+            },
+            {
+                "type": "temporary",
+                "reason": "UnregisterNetDevice",
+                "pattern": "unregister_netdevice: waiting for \\w+ to become free. Usage count = \\d+"
+            },
+            {
+                "type": "temporary",
+                "reason": "KernelOops",
+                "pattern": "BUG: unable to handle kernel NULL pointer dereference at .*"
+            },
+            {
+                "type": "temporary",
+                "reason": "KernelOops",
+                "pattern": "divide error: 0000 \\[#\\d+\\] SMP"
+            },
+            {
+                "type": "permanent",
+                "condition": "KernelDeadlock",
+                "reason": "AUFSUmountHung",
+                "pattern": "task umount\\.aufs:\\w+ blocked for more than \\w+ seconds\\."
+            },
+            {
+                "type": "permanent",
+                "condition": "KernelDeadlock",
+                "reason": "DockerHung",
+                "pattern": "task docker:\\w+ blocked for more than \\w+ seconds\\."
+            },
+            {
+                "type": "permanent",
+                "condition": "ReadonlyFilesystem",
+                "reason": "FilesystemIsReadOnly",
+                "pattern": "Remounting filesystem read-only"
+            }
+        ]
+    }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-node-problem-detector
+  labels:
+    helm.sh/chart: node-problem-detector-0.1.0
+    app.kubernetes.io/name: node-problem-detector
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.8.1
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+  - apiGroups:
+      - ""
+    resources:
+      - nodes/status
+    verbs:
+      - patch
+  - apiGroups:
+      - ""
+      - events.k8s.io
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-node-problem-detector
+  labels:
+    helm.sh/chart: node-problem-detector-0.1.0
+    app.kubernetes.io/name: node-problem-detector
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.8.1
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-node-problem-detector
+subjects:
+  - kind: ServiceAccount
+    name: release-name-node-problem-detector
+    namespace: default
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: release-name-node-problem-detector
+  labels:
+    helm.sh/chart: node-problem-detector-0.1.0
+    app.kubernetes.io/name: node-problem-detector
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.8.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: node-problem-detector
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: node-problem-detector
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-node-problem-detector
+      securityContext: {}
+      containers:
+        - name: node-problem-detector
+          command:
+            - /node-problem-detector
+            - --logtostderr
+            - --config.system-log-monitor=/config/docker-monitor.json,/config/kernel-monitor.json
+          image: k8s.gcr.io/node-problem-detector:v0.8.1
+          resources:
+            limits:
+              cpu: 10m
+              memory: 80Mi
+            requests:
+              cpu: 10m
+              memory: 80Mi
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: log
+              mountPath: /var/log
+              readOnly: true
+            - name: kmsg
+              mountPath: /dev/kmsg
+              readOnly: true
+            - name: localtime
+              mountPath: /etc/localtime
+              readOnly: true
+            - name: config
+              mountPath: /config
+              readOnly: true
+      volumes:
+        - name: log
+          hostPath:
+            path: /var/log/
+        - name: kmsg
+          hostPath:
+            path: /dev/kmsg
+        - name: localtime
+          hostPath:
+            path: /etc/localtime
+        - name: config
+          configMap:
+            name: release-name-node-problem-detector
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/os
+                    operator: In
+                    values:
+                      - linux
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists

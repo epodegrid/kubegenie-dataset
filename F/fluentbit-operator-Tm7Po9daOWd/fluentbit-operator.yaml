@@ -1,0 +1,224 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-fluentbit-ope-operator
+  namespace: Tm7Po9daOWd
+  labels:
+    app: fluentbit-operator-operator
+    chart: fluentbit-operator-1.2.2
+    release: release-name
+    heritage: Helm
+imagePullSecrets: []
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluentbit-operator-bin
+  namespace: Tm7Po9daOWd
+  labels:
+    app: fluentbit-operator-operator
+    chart: fluentbit-operator-1.2.2
+    release: release-name
+    heritage: Helm
+data:
+  init-fluent-bit-env.sh: |-
+    #!/bin/sh
+    set -ev
+    echo DOCKER_ROOT_DIR=$(docker info -f '') > /fluentbit-operator/fluent-bit.env
+  pre-stop-hook-script.sh: ""
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-fluentbit-ope-operator
+  labels:
+    app: fluentbit-operator-operator
+    chart: fluentbit-operator-1.2.2
+    release: release-name
+    heritage: Helm
+rules:
+  - apiGroups:
+      - apiextensions.k8s.io
+    resources:
+      - customresourcedefinitions
+    verbs:
+      - '*'
+  - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+      - configmaps
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - serviceaccounts
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - logging.kubesphere.io
+    resources:
+      - filters
+      - fluentbitconfigs
+      - fluentbits
+      - inputs
+      - outputs
+      - parsers
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - logging.kubesphere.io
+    resources:
+      - filters
+      - inputs
+      - outputs
+    verbs:
+      - list
+  - apiGroups:
+      - logging.kubesphere.io
+    resources:
+      - fluentbitconfigs
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - clusterrolebindings
+    verbs:
+      - create
+  - apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - clusterroles
+    verbs:
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-fluentbit-ope-operator
+  namespace: default
+  labels:
+    app: fluentbit-operator-operator
+    chart: fluentbit-operator-1.2.2
+    release: release-name
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-fluentbit-ope-operator
+subjects:
+  - kind: ServiceAccount
+    name: release-name-fluentbit-ope-operator
+    namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-fluentbit-ope-operator
+  namespace: Tm7Po9daOWd
+  labels:
+    app: fluentbit-operator-operator
+    chart: fluentbit-operator-1.2.2
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fluentbit-operator-operator
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: fluentbit-operator-operator
+        chart: fluentbit-operator-1.2.2
+        release: release-name
+        heritage: Helm
+    spec:
+      initContainers:
+        - name: setenv
+          image: docker:19.03
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - /tmp/init-fluent-bit.env.sh
+          volumeMounts:
+            - name: env
+              mountPath: /fluentbit-operator
+            - name: dockersock
+              readOnly: true
+              mountPath: /var/run/docker.sock
+            - name: fluentbit-operator-bin
+              readOnly: true
+              mountPath: /tmp/init-fluent-bit.env.sh
+              subPath: init-fluent-bit-env.sh
+      containers:
+        - name: fluentbit-operator
+          image: ghcr.io/openinfradev/fluentbit-operator:25bc31cd4333f7f77435561ec70bc68e0c73a194
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 30Mi
+            requests:
+              cpu: 100m
+              memory: 20Mi
+          volumeMounts:
+            - name: env
+              mountPath: /fluentbit-operator
+      volumes:
+        - name: env
+          emptyDir: {}
+        - name: dockersock
+          hostPath:
+            path: /var/run/docker.sock
+        - name: fluentbit-operator-bin
+          configMap:
+            name: fluentbit-operator-bin
+            defaultMode: 365
+      serviceAccountName: release-name-fluentbit-ope-operator

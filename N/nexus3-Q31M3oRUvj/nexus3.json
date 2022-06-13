@@ -1,0 +1,168 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-nexus3",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "nexus3",
+        "app": "nexus3"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "http",
+          "port": 80,
+          "targetPort": 8081
+        }
+      ],
+      "selector": {
+        "release": "release-name",
+        "app": "nexus3"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-nexus3",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "nexus3",
+        "app": "nexus3"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "rollingUpdate": {
+          "maxUnavailable": 0
+        },
+        "type": "RollingUpdate"
+      },
+      "revisionHistoryLimit": 3,
+      "selector": {
+        "matchLabels": {
+          "release": "release-name",
+          "app": "nexus3"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "heritage": "Helm",
+            "release": "release-name",
+            "chart": "nexus3",
+            "app": "nexus3"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "nexus3",
+              "image": "dockerhub.azk8s.cn/sonatype/nexus3:3.18.1",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "INSTALL4J_ADD_VM_PARAMS",
+                  "value": "-Xms2g -Xmx2g -XX:MaxDirectMemorySize=3g -XX:+UnlockExperimentalVMOptions -XX:+UseCGroupMemoryLimitForHeap"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "scheme": "HTTP",
+                  "port": 8081
+                },
+                "initialDelaySeconds": 180,
+                "periodSeconds": 15,
+                "timeoutSeconds": 5
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "scheme": "HTTP",
+                  "port": 8081
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 5,
+                "timeoutSeconds": 1
+              },
+              "resources": {
+                "limits": {
+                  "cpu": 1,
+                  "memory": "3Gi"
+                },
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "3Gi"
+                }
+              },
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8081
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/nexus-data"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "data",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "extensions/v1beta1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "release-name-nexus3",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "nexus3",
+        "app": "nexus3"
+      },
+      "annotations": {
+        "ingress.kubernetes.io/proxy-body-size": "0",
+        "ingress.kubernetes.io/ssl-redirect": "true",
+        "nginx.ingress.kubernetes.io/proxy-body-size": "0",
+        "nginx.ingress.kubernetes.io/ssl-redirect": "true"
+      }
+    },
+    "spec": {
+      "rules": [
+        {
+          "host": "nexus3.cluster.local",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "backend": {
+                  "serviceName": "release-name-nexus3",
+                  "servicePort": "http"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

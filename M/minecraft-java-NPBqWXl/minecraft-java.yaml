@@ -1,0 +1,290 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-minecraft-java
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: minecraft-java
+    app.kubernetes.io/version: 2022.8.0
+    helm-revision: "1"
+    helm.sh/chart: minecraft-java-1.0.4
+stringData:
+  RCON_PASSWORD: secretrconpass
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-minecraft-java-data
+  labels:
+    helm.sh/chart: minecraft-java-1.0.4
+    app.kubernetes.io/name: minecraft-java
+    app.kubernetes.io/instance: release-name
+    helm-revision: "1"
+    app.kubernetes.io/version: 2022.8.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 999Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-minecraft-java
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: minecraft-java
+    app.kubernetes.io/version: 2022.8.0
+    helm-revision: "1"
+    helm.sh/chart: minecraft-java-1.0.4
+  annotations: null
+spec:
+  type: ClusterIP
+  ipFamilyPolicy: SingleStack
+  ports:
+    - port: 25565
+      targetPort: 25565
+      protocol: TCP
+      name: main
+  selector:
+    app.kubernetes.io/name: minecraft-java
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-minecraft-java-rcon
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: minecraft-java
+    app.kubernetes.io/version: 2022.8.0
+    helm-revision: "1"
+    helm.sh/chart: minecraft-java-1.0.4
+  annotations: null
+spec:
+  type: ClusterIP
+  ports:
+    - port: 25575
+      targetPort: 25575
+      protocol: TCP
+      name: rcon
+  selector:
+    app.kubernetes.io/name: minecraft-java
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-minecraft-java
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: minecraft-java
+    app.kubernetes.io/version: 2022.8.0
+    helm-revision: "1"
+    helm.sh/chart: minecraft-java-1.0.4
+spec:
+  revisionHistoryLimit: 3
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: minecraft-java
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations: null
+      labels:
+        app.kubernetes.io/name: minecraft-java
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      securityContext:
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 0
+        runAsUser: 0
+        supplementalGroups:
+          - 568
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 10
+      initContainers:
+        - name: autopermissions
+          image: ghcr.io/truecharts/alpine:v3.15.2@sha256:29ed3480a0ee43f7af681fed5d4fc215516abf1c41eade6938b26d8c9c2c7583
+          securityContext:
+            runAsUser: 10062
+            privileged: true
+            allowPrivilegeEscalation: false
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+          command:
+            - /bin/sh
+            - -c
+            - |
+              /bin/bash <<'EOF'
+              echo "Automatically correcting permissions..."
+              echo "increasing inotify limits..."
+              ( sysctl -w fs.inotify.max_user_watches=524288 || echo "error setting inotify") && ( sysctl -w fs.inotify.max_user_instances=512 || echo "error setting inotify")
+              EOF
+          volumeMounts: null
+      containers:
+        - name: release-name-minecraft-java
+          image: tccr.io/truecharts/minecraft-java:v2022.8.0@sha256:070107ba8dc5b7c6f4d58858b22f7b4ad47768e570a828c6834e2a7772cc7c36
+          imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: false
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: PUID
+              value: "568"
+            - name: USER_ID
+              value: "568"
+            - name: UID
+              value: "568"
+            - name: UMASK
+              value: "2"
+            - name: UMASK_SET
+              value: "2"
+            - name: PGID
+              value: "568"
+            - name: GROUP_ID
+              value: "568"
+            - name: GID
+              value: "568"
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: void
+            - name: TZ
+              value: UTC
+            - name: ALLOW_NETHER
+              value: "true"
+            - name: ANNOUNCE_PLAYER_ACHIEVEMENTS
+              value: "true"
+            - name: DIFFICULTY
+              value: easy
+            - name: ENABLE_COMMAND_BLOCK
+              value: "false"
+            - name: EULA
+              value: "TRUE"
+            - name: FORCE_GAMEMODE
+              value: "false"
+            - name: GENERATE_STRUCTURES
+              value: "true"
+            - name: HARDCORE
+              value: "false"
+            - name: LEVEL
+              value: world
+            - name: LEVEL_TYPE
+              value: DEFAULT
+            - name: MAX_BUILD_HEIGHT
+              value: "256"
+            - name: MAX_PLAYERS
+              value: "20"
+            - name: MAX_TICK_TIME
+              value: "60000"
+            - name: MAX_WORLD_SIZE
+              value: "10000"
+            - name: MEMORY
+              value: 2048M
+            - name: MODE
+              value: survival
+            - name: MOTD
+              value: Welcome to Minecraft on TrueNAS Scale!
+            - name: ONLINE_MODE
+              value: "true"
+            - name: OVERRIDE_SERVER_PROPERTIES
+              value: "true"
+            - name: PVP
+              value: "false"
+            - name: SPAWN_ANIMALS
+              value: "true"
+            - name: SPAWN_MONSTERS
+              value: "true"
+            - name: SPAWN_NPCS
+              value: "true"
+            - name: TYPE
+              value: VANILLA
+            - name: VERSION
+              value: LATEST
+            - name: VIEW_DISTANCE
+              value: "16"
+          envFrom:
+            - secretRef:
+                name: release-name-minecraft-java
+          ports:
+            - name: main
+              containerPort: 25565
+              protocol: TCP
+            - name: rcon
+              containerPort: 25575
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /data
+              name: data
+            - mountPath: /shared
+              name: shared
+            - mountPath: /tmp
+              name: temp
+            - mountPath: /var/logs
+              name: varlogs
+          livenessProbe:
+            tcpSocket:
+              port: 25565
+            initialDelaySeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 25565
+            initialDelaySeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 5
+            periodSeconds: 10
+          startupProbe:
+            tcpSocket:
+              port: 25565
+            initialDelaySeconds: 10
+            failureThreshold: 60
+            timeoutSeconds: 2
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: release-name-minecraft-java-data
+        - name: shared
+          emptyDir: {}
+        - name: temp
+          emptyDir:
+            medium: Memory
+        - name: varlogs
+          emptyDir: {}

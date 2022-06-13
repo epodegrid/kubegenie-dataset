@@ -1,0 +1,634 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mongodb
+  namespace: JU55T8R
+  labels:
+    app.kubernetes.io/name: mongodb
+    helm.sh/chart: mongodb-10.31.5
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+secrets:
+  - name: mongodb
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mongodb
+  namespace: JU55T8R
+  labels:
+    app.kubernetes.io/name: mongodb
+    helm.sh/chart: mongodb-10.31.5
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: mongodb
+type: Opaque
+data:
+  mongodb-root-password: YWRtaW4xMjM0NTY=
+  mongodb-passwords: ZGl0dG8xMjM0
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: demo-link-digital-twin
+  labels:
+    demo: ""
+    app.kubernetes.io/name: demo-link-digital-twin
+    app.kubernetes.io/component: digital-twin
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.9.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: drogue-iot
+data:
+  href: http://ditto.my-cluster.dns
+  label: Digital Twin
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: mongodb
+  namespace: default
+  labels:
+    app.kubernetes.io/name: mongodb
+    helm.sh/chart: mongodb-10.31.5
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: mongodb
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 8Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb
+  namespace: JU55T8R
+  labels:
+    app.kubernetes.io/name: mongodb
+    helm.sh/chart: mongodb-10.31.5
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: mongodb
+spec:
+  type: ClusterIP
+  ports:
+    - name: mongodb
+      port: 27017
+      targetPort: mongodb
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: mongodb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: mongodb
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb
+  namespace: JU55T8R
+  labels:
+    app.kubernetes.io/name: mongodb
+    helm.sh/chart: mongodb-10.31.5
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: mongodb
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mongodb
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: mongodb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mongodb
+        helm.sh/chart: mongodb-10.31.5
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: mongodb
+    spec:
+      serviceAccountName: mongodb
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: mongodb
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: mongodb
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+        sysctls: []
+      containers:
+        - name: mongodb
+          image: docker.io/bitnami/mongodb:4.4.11-debian-10-r12
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 11264
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: MONGODB_EXTRA_USERNAMES
+              value: ditto
+            - name: MONGODB_EXTRA_DATABASES
+              value: ditto
+            - name: MONGODB_EXTRA_PASSWORDS
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb
+                  key: mongodb-passwords
+            - name: MONGODB_ROOT_USER
+              value: root
+            - name: MONGODB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb
+                  key: mongodb-root-password
+            - name: ALLOW_EMPTY_PASSWORD
+              value: "no"
+            - name: MONGODB_SYSTEM_LOG_VERBOSITY
+              value: "0"
+            - name: MONGODB_DISABLE_SYSTEM_LOG
+              value: "no"
+            - name: MONGODB_DISABLE_JAVASCRIPT
+              value: "no"
+            - name: MONGODB_ENABLE_JOURNAL
+              value: "yes"
+            - name: MONGODB_ENABLE_IPV6
+              value: "no"
+            - name: MONGODB_ENABLE_DIRECTORY_PER_DB
+              value: "no"
+          ports:
+            - name: mongodb
+              containerPort: 27017
+          livenessProbe:
+            exec:
+              command:
+                - mongo
+                - --disableImplicitSessions
+                - --eval
+                - db.adminCommand('ping')
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - bash
+                - -ec
+                - |
+                  # Run the proper check depending on the version
+                  [[ $(mongo --version | grep "MongoDB shell") =~ ([0-9]+\.[0-9]+\.[0-9]+) ]] && VERSION=${BASH_REMATCH[1]}
+                  . /opt/bitnami/scripts/libversion.sh
+                  VERSION_MAJOR="$(get_sematic_version "$VERSION" 1)"
+                  VERSION_MINOR="$(get_sematic_version "$VERSION" 2)"
+                  VERSION_PATCH="$(get_sematic_version "$VERSION" 3)"
+                  if [[ "$VERSION_MAJOR" -ge 4 ]] && [[ "$VERSION_MINOR" -ge 4 ]] && [[ "$VERSION_PATCH" -ge 2 ]]; then
+                      mongo --disableImplicitSessions $TLS_OPTIONS --eval 'db.hello().isWritablePrimary || db.hello().secondary' | grep -q 'true'
+                  else
+                      mongo --disableImplicitSessions $TLS_OPTIONS --eval 'db.isMaster().ismaster || db.isMaster().secondary' | grep -q 'true'
+                  fi
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: datadir
+              mountPath: /bitnami/mongodb
+              subPath: null
+      volumes:
+        - name: datadir
+          persistentVolumeClaim:
+            claimName: mongodb
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: ditto-registry-operator
+  annotations:
+    app.openshift.io/connects-to: |
+      [
+        {"apiVersion":"apps/v1","kind":"Deployment","name":"device-management-service"},
+        {"apiVersion":"apps/v1","kind":"Deployment","name":"ditto-gateway"},
+      ]
+  labels:
+    app.kubernetes.io/name: ditto-registry-operator
+    app.kubernetes.io/component: digital-twin
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.9.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: drogue-iot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ditto-registry-operator
+      app.kubernetes.io/component: digital-twin
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ditto-registry-operator
+        app.kubernetes.io/component: digital-twin
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/version: 0.9.0
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/part-of: drogue-iot
+    spec:
+      initContainers:
+        - name: wait-for-client-secret-services
+          image: registry.access.redhat.com/ubi8-minimal:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -c
+            - |
+              echo "Waiting for client secret to be populated (/etc/client-secret/CLIENT_SECRET)..."
+              while test -z "$(cat /etc/client-secret/CLIENT_SECRET)"; do
+                sleep 1
+              done
+          volumeMounts:
+            - mountPath: /etc/client-secret
+              name: client-secret-services
+              readOnly: true
+        - name: wait-for-client-secret-ditto-infra
+          image: registry.access.redhat.com/ubi8-minimal:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -c
+            - |
+              echo "Waiting for client secret to be populated (/etc/client-secret/CLIENT_SECRET)..."
+              while test -z "$(cat /etc/client-secret/CLIENT_SECRET)"; do
+                sleep 1
+              done
+          volumeMounts:
+            - mountPath: /etc/client-secret
+              name: client-secret-ditto-infra
+              readOnly: true
+      containers:
+        - name: service
+          image: ghcr.io/drogue-iot/ditto-registry-operator:0.9.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RUST_LOG
+              value: info
+            - name: HEALTH__BIND_ADDR
+              value: 0.0.0.0:9090
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: CONTROLLER__DITTO_DEVOPS__URL
+              value: http://ditto-gateway:8080
+            - name: CONTROLLER__DITTO_DEVOPS__USERNAME
+              value: devops
+            - name: CONTROLLER__DITTO_DEVOPS__PASSWORD
+              value: devops123456
+            - name: CONTROLLER__DITTO_ADMIN__SSO_URL
+              value: http://sso.my-cluster.dns
+            - name: CONTROLLER__DITTO_ADMIN__CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-client-secret-ditto-infra
+                  key: CLIENT_ID
+            - name: CONTROLLER__DITTO_ADMIN__CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-client-secret-ditto-infra
+                  key: CLIENT_SECRET
+            - name: CONTROLLER__KAFKA__BOOTSTRAP_SERVERS
+              value: drogue-iot-kafka-bootstrap.default.svc.cluster.local.:9092
+            - name: CONTROLLER__KAFKA__PROPERTIES__SECURITY_PROTOCOL
+              value: sasl_plaintext
+            - name: CONTROLLER__KAFKA__PROPERTIES__SASL_MECHANISM
+              value: SCRAM-SHA-512
+            - name: CONTROLLER__KAFKA__PROPERTIES__SASL_USERNAME
+              value: drogue-iot
+            - name: CONTROLLER__KAFKA__PROPERTIES__SASL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: drogue-iot
+                  key: password
+            - name: REGISTRY__CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-client-secret-services
+                  key: CLIENT_ID
+            - name: REGISTRY__CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-client-secret-services
+                  key: CLIENT_SECRET
+            - name: REGISTRY__SSO_URL
+              value: http://sso.my-cluster.dns
+            - name: WORK_QUEUE__INSTANCE
+              value: topic-operator
+            - name: WORK_QUEUE__PG__HOST
+              value: postgres
+            - name: WORK_QUEUE__PG__DBNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: postgres-config
+                  key: databaseName
+            - name: WORK_QUEUE__PG__USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: admin.username
+            - name: WORK_QUEUE__PG__PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: admin.password
+            - name: KAFKA_SOURCE__TOPIC
+              value: registry
+            - name: KAFKA_SOURCE__CONSUMER_GROUP
+              value: ditto-operator
+            - name: KAFKA_SOURCE__BOOTSTRAP_SERVERS
+              value: drogue-iot-kafka-bootstrap.default.svc.cluster.local.:9092
+            - name: KAFKA_SOURCE__PROPERTIES__SECURITY_PROTOCOL
+              value: sasl_plaintext
+            - name: KAFKA_SOURCE__PROPERTIES__SASL_MECHANISM
+              value: SCRAM-SHA-512
+            - name: KAFKA_SOURCE__PROPERTIES__SASL_USERNAME
+              value: drogue-iot
+            - name: KAFKA_SOURCE__PROPERTIES__SASL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: drogue-iot
+                  key: password
+            - name: KAFKA_ADMIN__BOOTSTRAP_SERVERS
+              value: drogue-iot-kafka-bootstrap.default.svc.cluster.local.:9092
+            - name: KAFKA_ADMIN__PROPERTIES__SECURITY_PROTOCOL
+              value: sasl_plaintext
+            - name: KAFKA_ADMIN__PROPERTIES__SASL_MECHANISM
+              value: SCRAM-SHA-512
+            - name: KAFKA_ADMIN__PROPERTIES__SASL_USERNAME
+              value: drogue-iot
+            - name: KAFKA_ADMIN__PROPERTIES__SASL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: drogue-iot
+                  key: password
+          readinessProbe:
+            initialDelaySeconds: 2
+            periodSeconds: 1
+            timeoutSeconds: 1
+            failureThreshold: 3
+            httpGet:
+              port: 9090
+              path: /readiness
+          livenessProbe:
+            initialDelaySeconds: 2
+            periodSeconds: 1
+            timeoutSeconds: 1
+            failureThreshold: 3
+            httpGet:
+              port: 9090
+              path: /liveness
+          resources:
+            limits:
+              memory: 128Mi
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: client-secret-services
+          secret:
+            secretName: keycloak-client-secret-services
+        - name: client-secret-ditto-infra
+          secret:
+            secretName: keycloak-client-secret-ditto-infra
+---
+kind: Ditto
+apiVersion: iot.eclipse.org/v1alpha1
+metadata:
+  name: ditto
+  labels:
+    app.kubernetes.io/name: ditto
+    app.kubernetes.io/component: digital-twin
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.9.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: drogue-iot
+spec:
+  disableInfraProxy: true
+  metrics:
+    enabled: false
+  services:
+    connectivity:
+      replicas: 1
+      logLevel: info
+    concierge:
+      replicas: 1
+      logLevel: info
+      additionalProperties:
+        ditto.concierge.enforcement.restrict-creation.grant.0.auth-subjects.0: keycloak:drogue-admin
+    gateway:
+      replicas: 1
+      logLevel: info
+    policies:
+      replicas: 1
+      logLevel: info
+    things:
+      replicas: 1
+      logLevel: info
+    thingsSearch:
+      replicas: 1
+      logLevel: info
+  devops:
+    password:
+      value: devops123456
+  mongoDb:
+    host: mongodb
+    username:
+      value: ditto
+    password:
+      value: ditto1234
+    database:
+      value: ditto
+  ingress:
+    host: ditto.my-cluster.dns
+  keycloak:
+    url: http://sso.my-cluster.dns
+    redirectUrl: http://ditto.my-cluster.dns/oauth2/callback
+    realm: drogue
+    label: Drogue Cloud
+    description: Log in using Drogue Cloud
+    disableProxy: true
+    clientId:
+      secret:
+        name: keycloak-client-secret-ditto
+        key: CLIENT_ID
+    clientSecret:
+      secret:
+        name: keycloak-client-secret-ditto
+        key: CLIENT_SECRET
+---
+apiVersion: keycloak.org/v1alpha1
+kind: KeycloakClient
+metadata:
+  name: client-ditto-infra
+  labels:
+    app.kubernetes.io/name: client-ditto-infra
+    app.kubernetes.io/component: digital-twin
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.9.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: drogue-iot
+spec:
+  realmSelector:
+    matchLabels:
+      app.kubernetes.io/name: drogue
+      app.kubernetes.io/component: sso
+      app.kubernetes.io/instance: release-name
+  client:
+    clientId: ditto-infra
+    clientAuthenticatorType: client-secret
+    enabled: true
+    publicClient: false
+    implicitFlowEnabled: false
+    standardFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: true
+    fullScopeAllowed: true
+    defaultClientScopes:
+      - email
+      - profile
+      - roles
+      - web-origins
+    optionalClientScopes:
+      - address
+      - microprofile-jwt
+      - offline_access
+      - phone
+    defaultRoles:
+      - drogue-user
+      - drogue-admin
+---
+apiVersion: keycloak.org/v1alpha1
+kind: KeycloakClient
+metadata:
+  name: client-ditto
+  labels:
+    app.kubernetes.io/name: client-ditto
+    app.kubernetes.io/component: digital-twin
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.9.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: drogue-iot
+spec:
+  realmSelector:
+    matchLabels:
+      app.kubernetes.io/name: drogue
+      app.kubernetes.io/component: sso
+      app.kubernetes.io/instance: release-name
+  client:
+    clientId: ditto
+    clientAuthenticatorType: client-secret
+    enabled: true
+    rootUrl: ""
+    publicClient: false
+    implicitFlowEnabled: true
+    standardFlowEnabled: true
+    serviceAccountsEnabled: false
+    fullScopeAllowed: true
+    redirectUris:
+      - http://ditto.my-cluster.dns/oauth2/callback
+      - http://ditto.my-cluster.dns/oauth2-redirect.html
+    defaultClientScopes:
+      - email
+      - profile
+      - roles
+      - web-origins
+    optionalClientScopes:
+      - address
+      - microprofile-jwt
+      - offline_access
+      - phone
+---
+kind: Job
+apiVersion: batch/v1
+metadata:
+  name: post-install-keycloak-ditto
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+  labels:
+    app.kubernetes.io/name: post-install-keycloak-ditto
+    app.kubernetes.io/component: digital-twin
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.9.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: drogue-iot
+spec:
+  backoffLimit: 1000
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: post-install
+          image: quay.io/keycloak/keycloak:15.0.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: credential-sso
+                  key: ADMIN_USERNAME
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: credential-sso
+                  key: ADMIN_PASSWORD
+            - name: KEYCLOAK_URL
+              value: http://sso.my-cluster.dns
+          command:
+            - bash
+            - -exc
+            - |
+              # log in to keycloak
+              /opt/jboss/keycloak/bin/kcadm.sh config credentials config --config /tmp/kcadm.config --server "$KEYCLOAK_URL/auth" --realm master --user "$ADMIN_USERNAME" --password "$ADMIN_PASSWORD"
+
+              # add drogue-admin to service account roles
+
+              # get all client (we don't know the ID)
+              /opt/jboss/keycloak/bin/kcadm.sh get --config /tmp/kcadm.config -r drogue clients
+              # get client roles
+              /opt/jboss/keycloak/bin/kcadm.sh get-roles --config /tmp/kcadm.config -r drogue --uusername service-account-ditto-infra
+              # add drogue-admin to service account roles
+              /opt/jboss/keycloak/bin/kcadm.sh add-roles --config /tmp/kcadm.config -r drogue --uusername service-account-ditto-infra --rolename drogue-admin
+              # list again
+              /opt/jboss/keycloak/bin/kcadm.sh get-roles --config /tmp/kcadm.config -r drogue --uusername service-account-ditto-infra

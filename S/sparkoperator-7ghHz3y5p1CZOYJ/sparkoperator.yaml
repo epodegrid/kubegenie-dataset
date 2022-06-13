@@ -1,0 +1,196 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-sparkoperator
+  labels:
+    app.kubernetes.io/name: sparkoperator
+    helm.sh/chart: sparkoperator-0.2.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-spark
+  namespace: null
+  labels:
+    app.kubernetes.io/name: sparkoperator
+    helm.sh/chart: sparkoperator-0.2.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-sparkoperator-cr
+  labels:
+    app.kubernetes.io/name: sparkoperator
+    helm.sh/chart: sparkoperator-0.2.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - '*'
+  - apiGroups:
+      - ""
+    resources:
+      - services
+      - configmaps
+      - secrets
+    verbs:
+      - create
+      - get
+      - delete
+      - update
+  - apiGroups:
+      - extensions
+    resources:
+      - ingresses
+    verbs:
+      - create
+      - get
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - update
+      - patch
+  - apiGroups:
+      - apiextensions.k8s.io
+    resources:
+      - customresourcedefinitions
+    verbs:
+      - create
+      - get
+      - update
+      - delete
+  - apiGroups:
+      - admissionregistration.k8s.io
+    resources:
+      - mutatingwebhookconfigurations
+    verbs:
+      - create
+      - get
+      - update
+      - delete
+  - apiGroups:
+      - sparkoperator.k8s.io
+    resources:
+      - sparkapplications
+      - scheduledsparkapplications
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-sparkoperator-crb
+  labels:
+    app.kubernetes.io/name: sparkoperator
+    helm.sh/chart: sparkoperator-0.2.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+subjects:
+  - kind: ServiceAccount
+    name: release-name-sparkoperator
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: release-name-sparkoperator-cr
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-sparkoperator
+  labels:
+    app.kubernetes.io/name: sparkoperator
+    helm.sh/chart: sparkoperator-0.2.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sparkoperator
+      app.kubernetes.io/version: v2.4.0-v1beta1-0.8.2
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "10254"
+        prometheus.io/path: /metrics
+      labels:
+        app.kubernetes.io/name: sparkoperator
+        app.kubernetes.io/version: v2.4.0-v1beta1-0.8.2
+      initializers:
+        pending: []
+    spec:
+      serviceAccountName: release-name-sparkoperator
+      containers:
+        - name: sparkoperator
+          image: registry.cn-hangzhou.aliyuncs.com/kubeapps/gcr-spark-operator:v2.4.0-v1beta1-0.8.2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 10254
+          args:
+            - -v=2
+            - -namespace=
+            - -ingress-url-format=
+            - -install-crds=true
+            - -controller-threads=10
+            - -resync-interval=30
+            - -logtostderr
+            - -enable-metrics=true
+            - -metrics-labels=app_type
+            - -metrics-port=10254
+            - -metrics-endpoint=/metrics
+            - -metrics-prefix=
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-sparkoperator-crd-cleanup
+  annotations:
+    helm.sh/hook: pre-delete
+    helm.sh/hook-delete-policy: hook-succeeded
+  labels:
+    app.kubernetes.io/name: sparkoperator
+    helm.sh/chart: sparkoperator-0.2.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  template:
+    spec:
+      serviceAccountName: release-name-sparkoperator
+      restartPolicy: OnFailure
+      containers:
+        - name: delete-sparkapp-crd
+          image: registry.cn-hangzhou.aliyuncs.com/kubeapps/gcr-spark-operator:v2.4.0-v1beta1-0.8.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - 'curl -ik -X DELETE -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" -H "Accept: application/json" -H "Content-Type: application/json" https://kubernetes.default.svc/apis/apiextensions.k8s.io/v1beta1/customresourcedefinitions/sparkapplications.sparkoperator.k8s.io'
+        - name: delete-scheduledsparkapp-crd
+          image: registry.cn-hangzhou.aliyuncs.com/kubeapps/gcr-spark-operator:v2.4.0-v1beta1-0.8.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - 'curl -ik -X DELETE -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" -H "Accept: application/json" -H "Content-Type: application/json" https://kubernetes.default.svc/apis/apiextensions.k8s.io/v1beta1/customresourcedefinitions/scheduledsparkapplications.sparkoperator.k8s.io'

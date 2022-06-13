@@ -1,0 +1,216 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-terracotta",
+      "labels": {
+        "app": "terracotta",
+        "chart": "terracotta-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-terracotta-configuration",
+      "labels": {
+        "app": "terracotta",
+        "chart": "terracotta-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "tc-config.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<tc-config xmlns=\"http://www.terracotta.org/config\">\n    <plugins>\n        <config>\n            <ohr:offheap-resources xmlns:ohr=\"http://www.terracotta.org/config/offheap-resource\">\n                <ohr:resource name=\"offheap-1\" unit=\"MB\">512</ohr:resource>\n                <ohr:resource name=\"offheap-2\" unit=\"MB\">256</ohr:resource>\n            </ohr:offheap-resources>\n        </config>\n    </plugins>\n    <servers>\n    \n        <server host=\"release-name-terracotta-0.release-name-terracotta\" name=\"release-name-terracotta-0\" bind=\"0.0.0.0\">\n            <logs>stdout:</logs>\n            <tsa-port bind=\"0.0.0.0\">9410</tsa-port>\n            <tsa-group-port bind=\"0.0.0.0\">9430</tsa-group-port>\n        </server>\n    \n        <server host=\"release-name-terracotta-1.release-name-terracotta\" name=\"release-name-terracotta-1\" bind=\"0.0.0.0\">\n            <logs>stdout:</logs>\n            <tsa-port bind=\"0.0.0.0\">9410</tsa-port>\n            <tsa-group-port bind=\"0.0.0.0\">9430</tsa-group-port>\n        </server>\n    \n    </servers>\n</tc-config>\n"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "release-name-terracotta",
+      "labels": {
+        "app": "terracotta",
+        "chart": "terracotta-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "endpoints"
+        ],
+        "verbs": [
+          "get",
+          "list"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "release-name-terracotta",
+      "labels": {
+        "app": "terracotta",
+        "chart": "terracotta-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "release-name-terracotta"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-terracotta",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-terracotta",
+      "labels": {
+        "app": "terracotta",
+        "chart": "terracotta-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": {
+        "service.alpha.kubernetes.io/tolerate-unready-endpoints": "true"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "terracotta-port",
+          "port": 9410
+        },
+        {
+          "name": "sync-port",
+          "port": 9430
+        }
+      ],
+      "selector": {
+        "app": "terracotta",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-terracotta",
+      "labels": {
+        "app": "terracotta",
+        "chart": "terracotta-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 2,
+      "selector": {
+        "matchLabels": {
+          "app": "terracotta",
+          "release": "release-name"
+        }
+      },
+      "serviceName": "release-name-terracotta",
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "terracotta",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "initContainers": [
+            {
+              "name": "init-release-name-terracotta",
+              "image": "busybox:1.28",
+              "command": [
+                "sh",
+                "-c",
+                "until nslookup release-name-terracotta; do echo \"waiting for release-name-terracotta to resolve\"; sleep 2; done;"
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "release-name-terracotta",
+              "image": "terracotta/terracotta-server-oss:5.5.1",
+              "imagePullPolicy": "Always",
+              "command": [
+                "bin/start-tc-server.sh"
+              ],
+              "args": [
+                "-f",
+                "/config/tc-config.xml",
+                "-n",
+                "$(POD_NAME)"
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "ports": [
+                {
+                  "name": "terracotta-port",
+                  "containerPort": 9410
+                },
+                {
+                  "name": "sync-port",
+                  "containerPort": 9430
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config-volume",
+                  "mountPath": "/config"
+                }
+              ],
+              "env": [
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "release-name-terracotta-configuration"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

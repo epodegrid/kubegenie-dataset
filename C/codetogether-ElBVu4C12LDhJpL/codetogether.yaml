@@ -1,0 +1,197 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: codetogether
+  labels:
+    helm.sh/chart: codetogether-1.4.3
+    app.kubernetes.io/name: codetogether
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.1.5
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-codetogether-coturn
+  labels:
+    helm.sh/chart: codetogether-1.4.3
+    app.kubernetes.io/name: codetogether
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.1.5
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+  secret: bXktc2VjcmV0
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-codetogether-license
+  labels:
+    helm.sh/chart: codetogether-1.4.3
+    app.kubernetes.io/name: codetogether
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.1.5
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+  licensee: RXhhbXBsZQ==
+  max_connections: MA==
+  expiration: MTk3MC8wMS8wMQ==
+  signature: MTIzNDU2Nzg5YWJjZGVm
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-codetogether-pull-secret
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: eyJhdXRocyI6eyJodWIuZWRnZS5jb2RldG9nZXRoZXIuY29tIjp7InVzZXJuYW1lIjoibXktY3VzdG9tZXItdXNlcm5hbWUiLCJwYXNzd29yZCI6Im15LWN1c3RvbWVyLXBhc3N3b3JkIiwiZW1haWwiOiJ1bnVzZWQiLCJhdXRoIjoiYlhrdFkzVnpkRzl0WlhJdGRYTmxjbTVoYldVNmJYa3RZM1Z6ZEc5dFpYSXRjR0Z6YzNkdmNtUT0ifX19
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-codetogether-ssl
+  labels:
+    helm.sh/chart: codetogether-1.4.3
+    app.kubernetes.io/name: codetogether
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.1.5
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data: null
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-codetogether
+  labels:
+    helm.sh/chart: codetogether-1.4.3
+    app.kubernetes.io/name: codetogether
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.1.5
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 443
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: codetogether
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-codetogether
+  labels:
+    helm.sh/chart: codetogether-1.4.3
+    app.kubernetes.io/name: codetogether
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.1.5
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: codetogether
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: codetogether
+        app.kubernetes.io/instance: release-name
+    spec:
+      imagePullSecrets:
+        - name: release-name-codetogether-pull-secret
+      serviceAccountName: codetogether
+      containers:
+        - name: codetogether
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: hub.edge.codetogether.com/releases/codetogether:latest
+          imagePullPolicy: Always
+          env:
+            - name: CT_SERVER_URL
+              value: https://codetogether.local
+            - name: CT_TRUST_ALL_CERTS
+              value: "true"
+            - name: CT_LOCATOR
+              value: none
+            - name: CT_PROMETHEUS_ENABLED
+              value: "false"
+            - name: CT_AV_ENABLED
+              value: "false"
+            - name: CT_LICENSEE
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-codetogether-license
+                  key: licensee
+            - name: CT_MAXCONNECTIONS
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-codetogether-license
+                  key: max_connections
+            - name: CT_EXPIRATION
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-codetogether-license
+                  key: expiration
+            - name: CT_SIGNATURE
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-codetogether-license
+                  key: signature
+          ports:
+            - name: http
+              containerPort: 1080
+              protocol: TCP
+          livenessProbe:
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 15
+            successThreshold: 1
+            failureThreshold: 1
+            httpGet:
+              path: /clients/
+              port: http
+          readinessProbe:
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 15
+            successThreshold: 1
+            failureThreshold: 1
+            httpGet:
+              path: /clients/
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-codetogether-test-connection
+  labels:
+    helm.sh/chart: codetogether-1.4.3
+    app.kubernetes.io/name: codetogether
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.1.5
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-codetogether:443
+  restartPolicy: Never

@@ -1,0 +1,418 @@
+[
+  {
+    "apiVersion": "policy/v1beta1",
+    "kind": "PodDisruptionBudget",
+    "metadata": {
+      "name": "elasticsearch-master-pdb"
+    },
+    "spec": {
+      "maxUnavailable": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "elasticsearch-master"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "elasticsearch-master-credentials",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "elasticsearch",
+        "app": "elasticsearch-master"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "username": "ZWxhc3RpYw==",
+      "password": "bFJ0MkVzTjRHTjZOM2hUSg=="
+    }
+  },
+  {
+    "kind": "Service",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "elasticsearch-master",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "elasticsearch",
+        "app": "elasticsearch-master"
+      },
+      "annotations": {}
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "selector": {
+        "release": "release-name",
+        "chart": "elasticsearch",
+        "app": "elasticsearch-master"
+      },
+      "publishNotReadyAddresses": false,
+      "ports": [
+        {
+          "name": "http",
+          "protocol": "TCP",
+          "port": 9200
+        },
+        {
+          "name": "transport",
+          "protocol": "TCP",
+          "port": 9300
+        }
+      ]
+    }
+  },
+  {
+    "kind": "Service",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "elasticsearch-master-headless",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "elasticsearch",
+        "app": "elasticsearch-master"
+      },
+      "annotations": {
+        "service.alpha.kubernetes.io/tolerate-unready-endpoints": "true"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "publishNotReadyAddresses": true,
+      "selector": {
+        "app": "elasticsearch-master"
+      },
+      "ports": [
+        {
+          "name": "http",
+          "port": 9200
+        },
+        {
+          "name": "transport",
+          "port": 9300
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "elasticsearch-master",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "elasticsearch",
+        "app": "elasticsearch-master"
+      },
+      "annotations": {
+        "esMajorVersion": "8"
+      }
+    },
+    "spec": {
+      "serviceName": "elasticsearch-master-headless",
+      "selector": {
+        "matchLabels": {
+          "app": "elasticsearch-master"
+        }
+      },
+      "replicas": 3,
+      "podManagementPolicy": "Parallel",
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "elasticsearch-master"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "30Gi"
+              }
+            }
+          }
+        }
+      ],
+      "template": {
+        "metadata": {
+          "name": "elasticsearch-master",
+          "labels": {
+            "release": "release-name",
+            "chart": "elasticsearch",
+            "app": "elasticsearch-master"
+          },
+          "annotations": null
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1000,
+            "runAsUser": 1000
+          },
+          "automountServiceAccountToken": true,
+          "affinity": {
+            "podAntiAffinity": {
+              "requiredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "labelSelector": {
+                    "matchExpressions": [
+                      {
+                        "key": "app",
+                        "operator": "In",
+                        "values": [
+                          "elasticsearch-master"
+                        ]
+                      }
+                    ]
+                  },
+                  "topologyKey": "kubernetes.io/hostname"
+                }
+              ]
+            }
+          },
+          "terminationGracePeriodSeconds": 120,
+          "volumes": [
+            {
+              "name": "elasticsearch-certs",
+              "secret": {
+                "secretName": "elasticsearch-master-certs"
+              }
+            }
+          ],
+          "enableServiceLinks": true,
+          "initContainers": [
+            {
+              "name": "configure-sysctl",
+              "securityContext": {
+                "runAsUser": 10202,
+                "privileged": true,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "image": "docker.elastic.co/elasticsearch/elasticsearch:8.0.0",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "sysctl",
+                "-w",
+                "vm.max_map_count=262144"
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "elasticsearch",
+              "securityContext": {
+                "capabilities": {
+                  "drop": [
+                    "ALL"
+                  ]
+                },
+                "runAsNonRoot": true,
+                "runAsUser": 11551,
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true
+              },
+              "image": "docker.elastic.co/elasticsearch/elasticsearch:8.0.0",
+              "imagePullPolicy": "IfNotPresent",
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "bash",
+                    "-c",
+                    "set -e\n\n# Exit if ELASTIC_PASSWORD in unset\nif [ -z \"${ELASTIC_PASSWORD}\" ]; then\n  echo \"ELASTIC_PASSWORD variable is missing, exiting\"\n  exit 1\nfi\n\n# If the node is starting up wait for the cluster to be ready (request params: \"wait_for_status=green&timeout=1s\" )\n# Once it has started only check that the node itself is responding\nSTART_FILE=/tmp/.es_start_file\n\n# Disable nss cache to avoid filling dentry cache when calling curl\n# This is required with Elasticsearch Docker using nss < 3.52\nexport NSS_SDB_USE_CACHE=no\n\nhttp () {\n  local path=\"${1}\"\n  local args=\"${2}\"\n  set -- -XGET -s\n\n  if [ \"$args\" != \"\" ]; then\n    set -- \"$@\" $args\n  fi\n\n  set -- \"$@\" -u \"elastic:${ELASTIC_PASSWORD}\"\n\n  curl --output /dev/null -k \"$@\" \"https://127.0.0.1:9200${path}\"\n}\n\nif [ -f \"${START_FILE}\" ]; then\n  echo 'Elasticsearch is already running, lets check the node is healthy'\n  HTTP_CODE=$(http \"/\" \"-w %{http_code}\")\n  RC=$?\n  if [[ ${RC} -ne 0 ]]; then\n    echo \"curl --output /dev/null -k -XGET -s -w '%{http_code}' \\${BASIC_AUTH} https://127.0.0.1:9200/ failed with RC ${RC}\"\n    exit ${RC}\n  fi\n  # ready if HTTP code 200, 503 is tolerable if ES version is 6.x\n  if [[ ${HTTP_CODE} == \"200\" ]]; then\n    exit 0\n  elif [[ ${HTTP_CODE} == \"503\" && \"8\" == \"6\" ]]; then\n    exit 0\n  else\n    echo \"curl --output /dev/null -k -XGET -s -w '%{http_code}' \\${BASIC_AUTH} https://127.0.0.1:9200/ failed with HTTP code ${HTTP_CODE}\"\n    exit 1\n  fi\n\nelse\n  echo 'Waiting for elasticsearch cluster to become ready (request params: \"wait_for_status=green&timeout=1s\" )'\n  if http \"/_cluster/health?wait_for_status=green&timeout=1s\" \"--fail\" ; then\n    touch ${START_FILE}\n    exit 0\n  else\n    echo 'Cluster is not yet ready (request params: \"wait_for_status=green&timeout=1s\" )'\n    exit 1\n  fi\nfi\n"
+                  ]
+                },
+                "failureThreshold": 3,
+                "initialDelaySeconds": 10,
+                "periodSeconds": 10,
+                "successThreshold": 3,
+                "timeoutSeconds": 5
+              },
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 9200
+                },
+                {
+                  "name": "transport",
+                  "containerPort": 9300
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "1000m",
+                  "memory": "2Gi"
+                },
+                "requests": {
+                  "cpu": "1000m",
+                  "memory": "2Gi"
+                }
+              },
+              "env": [
+                {
+                  "name": "node.name",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "cluster.initial_master_nodes",
+                  "value": "elasticsearch-master-0,elasticsearch-master-1,elasticsearch-master-2,"
+                },
+                {
+                  "name": "node.roles",
+                  "value": "master,data,data_content,data_hot,data_warm,data_cold,ingest,ml,remote_cluster_client,transform,"
+                },
+                {
+                  "name": "discovery.seed_hosts",
+                  "value": "elasticsearch-master-headless"
+                },
+                {
+                  "name": "cluster.name",
+                  "value": "elasticsearch"
+                },
+                {
+                  "name": "network.host",
+                  "value": "0.0.0.0"
+                },
+                {
+                  "name": "ELASTIC_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "elasticsearch-master-credentials",
+                      "key": "password"
+                    }
+                  }
+                },
+                {
+                  "name": "xpack.security.enabled",
+                  "value": "true"
+                },
+                {
+                  "name": "xpack.security.transport.ssl.enabled",
+                  "value": "true"
+                },
+                {
+                  "name": "xpack.security.http.ssl.enabled",
+                  "value": "true"
+                },
+                {
+                  "name": "xpack.security.transport.ssl.verification_mode",
+                  "value": "certificate"
+                },
+                {
+                  "name": "xpack.security.transport.ssl.key",
+                  "value": "/usr/share/elasticsearch/config/certs/tls.key"
+                },
+                {
+                  "name": "xpack.security.transport.ssl.certificate",
+                  "value": "/usr/share/elasticsearch/config/certs/tls.crt"
+                },
+                {
+                  "name": "xpack.security.transport.ssl.certificate_authorities",
+                  "value": "/usr/share/elasticsearch/config/certs/ca.crt"
+                },
+                {
+                  "name": "xpack.security.http.ssl.key",
+                  "value": "/usr/share/elasticsearch/config/certs/tls.key"
+                },
+                {
+                  "name": "xpack.security.http.ssl.certificate",
+                  "value": "/usr/share/elasticsearch/config/certs/tls.crt"
+                },
+                {
+                  "name": "xpack.security.http.ssl.certificate_authorities",
+                  "value": "/usr/share/elasticsearch/config/certs/ca.crt"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "elasticsearch-master",
+                  "mountPath": "/usr/share/elasticsearch/data"
+                },
+                {
+                  "name": "elasticsearch-certs",
+                  "mountPath": "/usr/share/elasticsearch/config/certs",
+                  "readOnly": true
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "type": "kubernetes.io/tls",
+    "metadata": {
+      "name": "elasticsearch-master-certs",
+      "labels": {
+        "app": "elasticsearch-master",
+        "chart": "elasticsearch",
+        "heritage": "Helm",
+        "release": "release-name"
+      },
+      "annotations": {
+        "helm.sh/hook": "pre-install,pre-upgrade",
+        "helm.sh/hook-delete-policy": "before-hook-creation"
+      }
+    },
+    "data": {
+      "tls.crt": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURYRENDQWtTZ0F3SUJBZ0lRQnNjbFJ3dU9EL2I3U3pEVVVFMEp3REFOQmdrcWhraUc5dzBCQVFzRkFEQWIKTVJrd0Z3WURWUVFERXhCbGJHRnpkR2xqYzJWaGNtTm9MV05oTUI0WERUSXlNRFl4TWpBNU5ETXdOMW9YRFRJegpNRFl4TWpBNU5ETXdOMW93R0RFV01CUUdBMVVFQXhNTlpXeGhjM1JwWTNObFlYSmphRENDQVNJd0RRWUpLb1pJCmh2Y05BUUVCQlFBRGdnRVBBRENDQVFvQ2dnRUJBTXk5M3JKVjFUUjZ1SXkwVFdFdVhidC9XOW9OQTRmUEx0VFQKT0pnb24yQnF0K29oVzJFL0xuc080TjJpLzdSSk1XSjNqcW83dVVYbll0Q2xMN0dKMTBLOEVSWnMvbzRVVFRxagpXbjNVVFFXU25yR3JFeFVIZ0hhUktoQlkwWENFaFhoVG5CUnBPRlV6d1c2Z2hYN3JSQm42cHdldTNteVBFeUt4CnJPUzc1clBNYzJOWEZBWEY1Y3JSa0lCcWxnUC9FVFNnczJscy9KcDd2SzJScEhLTTlyME1Ocno3Nys3WnhMNkkKRHZhWE55MjBET2FidE51dDZ6YjNtdDNTem42SGZYZXk3bU9tM0lDbnhoOXdZYUFmdnE4NkJxK293QmlRRWdyVApNdldXR3dyTG1DL2JUUzIyTEdRbUpNUEVWZ0hDTkFCQmZ6Y1VDcG9VaEE4SmxpZi8wYWtDQXdFQUFhT0JuakNCCm16QU9CZ05WSFE4QkFmOEVCQU1DQmFBd0hRWURWUjBsQkJZd0ZBWUlLd1lCQlFVSEF3RUdDQ3NHQVFVRkJ3TUMKTUF3R0ExVWRFd0VCL3dRQ01BQXdId1lEVlIwakJCZ3dGb0FVamlvNHAxWWY0bzBuK05FRjFDZDc1SjEreHJrdwpPd1lEVlIwUkJEUXdNb0lWWld4aGMzUnBZM05sWVhKamFDNWtaV1poZFd4MGdobGxiR0Z6ZEdsamMyVmhjbU5vCkxtUmxabUYxYkhRdWMzWmpNQTBHQ1NxR1NJYjNEUUVCQ3dVQUE0SUJBUUE5YlJzTTkrbEVlendqTkZWUkpJMHgKNjFKTysycGQ1SDVwOENqdW1iVnh2QzFPYW10eVpQZzcxekFsd3BQSnprbTR1V01vZUtqYnN6S09LQzlrN1NsRwphVHBWRmozVHdnOEc0cU1Pd0c4UE1MVVNlSEdXZUFjNWI0V2xIbVRQV3pTSnFGOHJ6K0hiZDNXM3lETVR5Ym80CklyZWRMZW5iU1l6ZEdqNmg4TS9TMW1RWmZkcVVyb2d4dVRrMFYyc3FBOGlOdXpISCtHN1phTjR2YmxubEI3bUUKWTYvTmpxcEhTQnVvT3EzSUlqWHhuOC9TdUtCWDc3dWdHSzg5VmJCcjQ3ZFdBUDBFMnVKQ0tYRXhrcEpacnUrQwpxWWhDRXJObjcxWEZLYUxLcEJmdEpZbGJQbTIyejFIY2l4d1ZBanFkSHJCZEtsd3ZxZWdWRGdaWDZSY3RxNG15Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K",
+      "tls.key": "LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFcFFJQkFBS0NBUUVBekwzZXNsWFZOSHE0akxSTllTNWR1MzliMmcwRGg4OHUxTk00bUNpZllHcTM2aUZiCllUOHVldzdnM2FML3RFa3hZbmVPcWp1NVJlZGkwS1V2c1luWFFyd1JGbXoramhSTk9xTmFmZFJOQlpLZXNhc1QKRlFlQWRwRXFFRmpSY0lTRmVGT2NGR2s0VlRQQmJxQ0ZmdXRFR2ZxbkI2N2ViSThUSXJHczVMdm1zOHh6WTFjVQpCY1hseXRHUWdHcVdBLzhSTktDemFXejhtbnU4clpHa2NvejJ2UXcydlB2djd0bkV2b2dPOXBjM0xiUU01cHUwCjI2M3JOdmVhM2RMT2ZvZDlkN0x1WTZiY2dLZkdIM0Job0IrK3J6b0dyNmpBR0pBU0N0TXk5WlliQ3N1WUw5dE4KTGJZc1pDWWt3OFJXQWNJMEFFRi9OeFFLbWhTRUR3bVdKLy9ScVFJREFRQUJBb0lCQVFDcFd2MFV3czhEQStnWAo2eVIrbUYzTU5FTUVFUE8wcVBueDdXM0kzd0ZHUGNBM21MUC9zc1Y5NFFhOERwSTR6THBlMnNwVm9lVlZIMXFyCmY1Zjk0U2ovK0pTaDJqS056OWs2QWRsZWIvZnQvaVBxanJuUUVVNS94UC9vV2ErVXhPbXFhRzZZcTVoL1VicFYKQ2M2aTkzUnprTlFORk9iRElXNFFxcXQ2NExxcVNaemwySEYxaXAvUjdCM0Z3L245NjFKYzhUZ0lxSElWSVlXbwpUQzdCUGxRZDJaY1hCVWlDR1RBWTFqSWNoRElydkpFNTRSd1hYb2ljMVJVU1dQWDZXMFlpbU5vZi9qdHR4NGhyCnBOUnlUTXQvdnNheit4ZHRJbTQySjhDQzVmODZZMFdCUHRKZ2t4cFBHZGxSOFZnZDlxTlpmZk9zMWRSZ3dwV3QKMDN4RFhneUpBb0dCQVA1aVAvc1VHYXlUTDZ5M1F6dWo2RDdXRWdia05SNjluNnBvZERqdC9Yei8rYzEvQjRKUgo5MDJqSlFHa3dVVGt5MmhHVDhOZm5aN3lHdFV0OVFBYUVMSHArSm50YnpRY0hnSnhNOGNvNTNSclV5L3RuT0xZCmgvSjBZbkhaRDNFamlZZGVCL0xPUjZCeGExNjdFYkxmalI3UUZ2VWczVG95K1NMWHJadGZmQ1l6QW9HQkFNNEsKNE1zY0lzNHRaMjJmZm4zUUEwQTZ2cXJqRS9IYitVVlVROXJyM3hrSzEyVldwRUQvclp5THZZVFNIT2JQUzI0OQp2VFIwZ1VIYXU3QU5QeDBzb1ZUOEhRc0dYSTA5TDgvR0Zwam02Rnd3VnlBY24xczJ0ZDlFSVMzZFcyek5yZWdJCjVYcXlFUUJ0NkVSVzhjWnVrdlVZSWZCdEo4Z2dXZzJVdmxZN2xuU3pBb0dCQU0wSHQzWFJENWh1MFdBdUhYeDIKY1h3ajRrZTNxN0RwT1VXS0J4TFRqeG91M3RKb2JrNzFiWlFmeUhYNHF1V3lXdGZpdytzK3A3WXlnTG9OM29pRQplYXhNWGxrQ2JEemQ1TG9uTDRwNFI0VW44OWFQZDRIRzhGdlV2bnZ3YldmTk1zM3VWZzIzZ1RlcDh0WlpoTHhkClBrcjFnV3QxWDVuRzk5TERiMlBwcEJETkFvR0FFZGFyUTZwNThQUEpZcHBPYjBJVkpmaHdEWWQvY0k4azg3V3AKOGtnOWxvTnp4cGhMdkR6bW9Ra1FMWEdyZ3VncmxhM090YjNvZXZVZkRzejJ5K1hUU2ZKUjZXUnhtdURUUk4vWAprUUZjMks1dXZKNzl4UDNsblNEZTVvT2xxTFBkL0pyWWsxamJVL2d3QmNxcFFBN090bDJTZ3FoUXEyanhvdjlmCncwT0JjVFVDZ1lFQWxETitaVHBOdmJZTUFaY0cwamRiOVhJRjlLQ0diM0YrcE5JWnhiZ0tJKytVM0xIWitwM3MKb01hc2xacWtYeXZ1ekNTTlRURHdZcnB0dVR1YzBFUWJjaXc3WG1kVEEwa2ZkenJaUnNuM1VQallzb2RFYTJOUQpGVG5pWUZtUkRHNVhlenE4NGJ5TnE2SDNnNmpvOWp5UWw5VW1jZGU5aEhuR05acHlSMDh5N2VnPQotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo=",
+      "ca.crt": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURJakNDQWdxZ0F3SUJBZ0lSQUo2OXRuNUdpVVg0QUdqSDY1L0hQWFl3RFFZSktvWklodmNOQVFFTEJRQXcKR3pFWk1CY0dBMVVFQXhNUVpXeGhjM1JwWTNObFlYSmphQzFqWVRBZUZ3MHlNakEyTVRJd09UUXpNRGRhRncweQpNekEyTVRJd09UUXpNRGRhTUJzeEdUQVhCZ05WQkFNVEVHVnNZWE4wYVdOelpXRnlZMmd0WTJFd2dnRWlNQTBHCkNTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDY2JwVXl0emRSV0JFY0Jla3FVMFpiLzM5OXlodDUKRS9EdzlDRlZtZnJuam1Hc2FRa0ZEdlJPKzFxQlBaS2VmL2JOa2ZRVlFwMjVEQ04yWmhrQUJMaWNmSDZubDZmUwpRaGhSM1VpRlp2R1hRY1NYeVNmSHkzMVpXaHErSXdGeUFWNFBYU0FLWm5QOFliRjhaU1NNK2FiTTRwZi9iZHR2CnlsS1BoUTViWHBUdDEvbXJUSlRqTmRDWHhBc0dJVjJnTFpLL0t3ZTFCekdsc2Y5bzVnOUdLV0RVZmthR0dGTjAKUFdXWUN1Y3crV29JdVNzTU5QQlVvZVE1MmZkMnZhME9acWExV0laRXdWUjB5NDlWNU9LSit6QXJ1WEtNTkI1TgpWbnZpcHJ0Zkk5UHg0WWN6dUlhaEIrMDFPMXdwTGduSEdONW1teFhhbU5pWGNoOWJKY3FHQkZmWEFnTUJBQUdqCllUQmZNQTRHQTFVZER3RUIvd1FFQXdJQ3BEQWRCZ05WSFNVRUZqQVVCZ2dyQmdFRkJRY0RBUVlJS3dZQkJRVUgKQXdJd0R3WURWUjBUQVFIL0JBVXdBd0VCL3pBZEJnTlZIUTRFRmdRVWppbzRwMVlmNG8wbitORUYxQ2Q3NUoxKwp4cmt3RFFZSktvWklodmNOQVFFTEJRQURnZ0VCQUZMemhJaXkrSEVzc2cyKyswQlRXTzhDM01yenAzRytWa2EwCko1TDJXNS9vWHJlUGFZSlAzenNGU29Yei92ZGlLQ09BQUtpOEg5NG1iR09vTEh5aEhXVFFZQW04K0ZWM1FKZ1QKNWx4YUs0bUJlM3ZYcVIxV3ZzTTJ4bmhnWWlUVjNCNC9yeFUxQWk5Q1NxSGVmOGZjMktxUkExREtIWFRCU3BVOQpMYm13ZzBrRU5UTG9seElZcVlkRS9NVmk0Q3JrZXRqT3hETEFTUkhra2o4bHlmZm5qMS9QMnl2S0ViRUJUNytjCmdaY25nNGsxSkxoVUVBRlFuNmhZM1dja1EzOE1sN3R3d1h0QkgxKyt3TDFubVphckN3d1JlcFpLVDR1ZEtyOSsKSmZvcXl3WkNYYVR6eFRsdWFBZ0hYUnAvQmhKc0ZXVWJDc2h1bVBaaVh5NFk2RExYN0p3PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-rjtbh-test",
+      "annotations": {
+        "helm.sh/hook": "test",
+        "helm.sh/hook-delete-policy": "hook-succeeded"
+      }
+    },
+    "spec": {
+      "securityContext": {
+        "fsGroup": 1000,
+        "runAsUser": 1000
+      },
+      "containers": [
+        {
+          "name": "release-name-gfcsp-test",
+          "image": "docker.elastic.co/elasticsearch/elasticsearch:8.0.0",
+          "imagePullPolicy": "IfNotPresent",
+          "command": [
+            "sh",
+            "-c",
+            "#!/usr/bin/env bash -e\ncurl -XGET --fail 'elasticsearch-master:9200/_cluster/health?wait_for_status=green&timeout=1s'\n"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

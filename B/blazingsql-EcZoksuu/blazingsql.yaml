@@ -1,0 +1,286 @@
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: release-name-blazingsql-2
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: blazingsql
+      app.kubernetes.io/instance: release-name
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 10.233.103.0/32
+        - ipBlock:
+            cidr: 10.233.111.0/32
+  policyTypes:
+    - Ingress
+---
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: release-name-blazingsql
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: blazingsql
+      app.kubernetes.io/instance: release-name
+  ingress:
+    - from:
+        - podSelector: {}
+  policyTypes:
+    - Ingress
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-blazingsql
+  labels:
+    helm.sh/chart: blazingsql-4.1.0
+    app.kubernetes.io/name: blazingsql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-blazingsql-configmapgit
+  labels:
+    helm.sh/chart: blazingsql-4.1.0
+    app.kubernetes.io/name: blazingsql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+data:
+  GIT_USER_NAME: ""
+  GIT_USER_MAIL: ""
+  GIT_CREDENTIALS_CACHE_DURATION: ""
+  GIT_PERSONAL_ACCESS_TOKEN: ""
+  GIT_REPOSITORY: ""
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-blazingsql-configmaps3
+  labels:
+    helm.sh/chart: blazingsql-4.1.0
+    app.kubernetes.io/name: blazingsql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+data:
+  AWS_ACCESS_KEY_ID: ""
+  AWS_S3_ENDPOINT: ""
+  S3_ENDPOINT: https:///
+  AWS_DEFAULT_REGION: ""
+  AWS_SECRET_ACCESS_KEY: ""
+  AWS_SESSION_TOKEN: ""
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-blazingsql-configmapvault
+  labels:
+    helm.sh/chart: blazingsql-4.1.0
+    app.kubernetes.io/name: blazingsql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+data:
+  VAULT_ADDR: ""
+  VAULT_TOKEN: ""
+  VAULT_RELATIVE_PATH: ""
+  VAULT_TOP_DIR: ""
+  VAULT_MOUNT: ""
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-blazingsql
+  labels:
+    helm.sh/chart: blazingsql-4.1.0
+    app.kubernetes.io/name: blazingsql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-blazingsql
+  labels:
+    helm.sh/chart: blazingsql-4.1.0
+    app.kubernetes.io/name: blazingsql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: blazingsql
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-blazingsql
+  labels:
+    helm.sh/chart: blazingsql-4.1.0
+    app.kubernetes.io/name: blazingsql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: blazingsql
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: blazingsql
+        app.kubernetes.io/instance: release-name
+    spec:
+      volumes:
+        - name: home
+          persistentVolumeClaim:
+            claimName: release-name-blazingsql
+        - name: release-name-blazingsql-data
+          emptyDir: {}
+      serviceAccountName: release-name-blazingsql
+      securityContext: {}
+      subdomain: release-name-blazingsql
+      hostname: blazingsql
+      containers:
+        - name: blazingsql
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: inseefrlab/blazingsql:latest
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - /data/onyxia-init.sh /run_jupyter.sh jupyter-lab --notebook-dir=/blazingsql/work --allow-root --ip=0.0.0.0 --port=8888 --no-browser --NotebookApp.token='$(PASSWORD)'
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SHELL
+              value: /bin/bash
+            - name: PASSWORD
+              value: changeme
+            - name: ROOT_PROJECT_DIRECTORY
+              value: /blazingsql/work
+            - name: GRANT_SUDO
+              value: "yes"
+          envFrom:
+            - configMapRef:
+                name: release-name-blazingsql-configmaps3
+            - configMapRef:
+                name: release-name-blazingsql-configmapvault
+            - configMapRef:
+                name: release-name-blazingsql-configmapgit
+          ports:
+            - name: http
+              containerPort: 8888
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /data
+              name: release-name-blazingsql-data
+            - mountPath: /blazingsql/work
+              name: home
+      initContainers:
+        - name: standard-init
+          image: busybox
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - wget -O /data/onyxia-init.sh https://git.lab.sspcloud.fr/innovation/plateforme-onyxia/services-ressources/-/raw/master/onyxia-init.sh && chmod +x /data/onyxia-init.sh
+          volumeMounts:
+            - mountPath: /data
+              name: release-name-blazingsql-data
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: release-name-blazingsql
+  labels:
+    helm.sh/chart: blazingsql-4.1.0
+    app.kubernetes.io/name: blazingsql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/whitelist-source-range: 0.0.0.0/0
+spec:
+  tls:
+    - hosts:
+        - chart-example.local
+  rules:
+    - host: chart-example.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: release-name-blazingsql
+                port:
+                  number: 80
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-blazingsql-test-connection
+  labels:
+    helm.sh/chart: blazingsql-4.1.0
+    app.kubernetes.io/name: blazingsql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - 'release-name-blazingsql:'
+  restartPolicy: Never

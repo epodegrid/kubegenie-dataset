@@ -1,0 +1,143 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: servicemesh-portal
+  namespace: uwYJiIM7L
+  labels:
+    helm.sh/chart: servicemesh-portal-1.0.0
+    app.kubernetes.io/name: servicemesh-portal
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.0.0
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: servicemesh-portal
+  namespace: uwYJiIM7L
+data:
+  application.yaml: |-
+    config: null
+    harbor:
+      url: https://harbor-v2.taco-cat.xyz
+    keycloak:
+      auth-server-url: https://keycloak-awsk1.taco-cat.xyz/auth
+      confidential-port: 0
+      credentials:
+        secret: 5abd9104-6480-4914-ac14-dcf2cce84396
+      policy-enforcer: {}
+      realm: exntu
+      resource: portal
+      ssl-required: external
+      use-resource-role-mappings: false
+      verify-token-audience: true
+    logging:
+      config: classpath:logback-console.xml
+    security:
+      oauth2:
+        auth-server-uri: http://localhost:8080
+        client:
+          client-id: registry
+          client-secret: registry-secret
+        resource:
+          token-info-uri: http://localhost:8080/oauth/check_token
+    server:
+      port: 8080
+    spring:
+      aop:
+        proxy-target-class: true
+      jmx:
+        enabled: false
+      profiles:
+        active: prod,log
+    tks:
+      admin:
+        password: admin-exntu
+        username: admin
+      url: https://dashboard-awsk1.taco-cat.xyz
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: servicemesh-portal-clusterrolebinding
+subjects:
+  - kind: ServiceAccount
+    name: servicemesh-portal
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: servicemesh-portal
+  namespace: uwYJiIM7L
+  labels:
+    helm.sh/chart: servicemesh-portal-1.0.0
+    app.kubernetes.io/name: servicemesh-portal
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.0.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - protocol: TCP
+      port: 9110
+      targetPort: 8080
+  selector:
+    app.kubernetes.io/name: servicemesh-portal
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: servicemesh-portal
+  namespace: uwYJiIM7L
+  labels:
+    helm.sh/chart: servicemesh-portal-1.0.0
+    app.kubernetes.io/name: servicemesh-portal
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.0.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: servicemesh-portal
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: servicemesh-portal
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: servicemesh-portal
+      securityContext: {}
+      containers:
+        - name: servicemesh-portal
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: docker.io/sktcloud/tks-portal:1.0.0
+          imagePullPolicy: Always
+          ports:
+            - name: port
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - mountPath: /opt/application.yaml
+              name: config
+              subPath: application.yaml
+      volumes:
+        - configMap:
+            defaultMode: 420
+            name: servicemesh-portal
+          name: config

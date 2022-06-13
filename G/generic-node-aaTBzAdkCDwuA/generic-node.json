@@ -1,0 +1,908 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-10.12.9",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "namespace": "aaTBzAdkCDwuA"
+    },
+    "type": "Opaque",
+    "data": {
+      "postgresql-password": "b3hzSlNVc2w4bw=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-postgresql-headless",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-10.12.9",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "service.alpha.kubernetes.io/tolerate-unready-endpoints": "true"
+      },
+      "namespace": "aaTBzAdkCDwuA"
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "publishNotReadyAddresses": true,
+      "ports": [
+        {
+          "name": "tcp-postgresql",
+          "port": 5432,
+          "targetPort": "tcp-postgresql"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "postgresql",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-10.12.9",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": null,
+      "namespace": "aaTBzAdkCDwuA"
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "tcp-postgresql",
+          "port": 5432,
+          "targetPort": "tcp-postgresql"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "postgresql",
+        "app.kubernetes.io/instance": "release-name",
+        "role": "primary"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "generic-node"
+    },
+    "spec": {
+      "type": "LoadBalancer",
+      "publishNotReadyAddresses": true,
+      "selector": {
+        "app": "generic-node"
+      },
+      "ports": [
+        {
+          "name": "tcp-p2p",
+          "port": 10909,
+          "targetPort": "external-port",
+          "nodePort": 30011
+        },
+        {
+          "name": "tcp-archive",
+          "port": 3086,
+          "targetPort": "archive-port"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "generic-node-archive",
+      "labels": {
+        "app": "generic-node-archive"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "generic-node-archive"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "generic-node-archive",
+            "testnet": "mainnet",
+            "role": "archive-node",
+            "class": "archive-node",
+            "version": "focal-latest",
+            "syncStatus": "INIT"
+          },
+          "annotations": {
+            "prometheus.io/scrape": "true",
+            "prometheus.io/port": "10001",
+            "prometheus.io/path": "/metrics"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "nodeAffinity": {
+              "requiredDuringSchedulingIgnoredDuringExecution": {
+                "nodeSelectorTerms": [
+                  {
+                    "matchExpressions": [
+                      {
+                        "key": "cloud.google.com/gke-preemptible",
+                        "operator": "In",
+                        "values": [
+                          "true"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "containers": [
+            {
+              "name": "mina-archive",
+              "image": "minaprotocol/mina-archive:focal-latest",
+              "imagePullPolicy": "IfNotPresent",
+              "resources": {
+                "limits": null,
+                "requests": {
+                  "memory": "8Gi",
+                  "cpu": 12
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "args": [
+                "mina-archive",
+                "run",
+                "--postgres-uri",
+                "$(DAEMON_ARCHIVE_PG_CONN_PORT)",
+                "--metrics-port",
+                "$(DAEMON_METRICS_PORT)"
+              ],
+              "env": [
+                {
+                  "name": "DAEMON_METRICS_PORT",
+                  "value": "10001"
+                },
+                {
+                  "name": "DAEMON_ARCHIVE_PG_CONN_PORT",
+                  "value": "postgres://postgresql:5432"
+                },
+                {
+                  "name": "NETWORK_NAME",
+                  "value": "mainnet"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "archive-port",
+                  "protocol": "TCP",
+                  "containerPort": 3086
+                },
+                {
+                  "name": "metrics-port",
+                  "protocol": "TCP",
+                  "containerPort": 10001
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "generic-node",
+      "labels": {
+        "app": "generic-node"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "generic-node"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "generic-node",
+            "testnet": "mainnet",
+            "role": "generic-node",
+            "class": "generic-node",
+            "version": "focal-latest",
+            "syncStatus": "INIT"
+          },
+          "annotations": {
+            "prometheus.io/scrape": "true",
+            "prometheus.io/port": "10001",
+            "prometheus.io/path": "/metrics"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "nodeAffinity": {
+              "requiredDuringSchedulingIgnoredDuringExecution": {
+                "nodeSelectorTerms": [
+                  {
+                    "matchExpressions": [
+                      {
+                        "key": "cloud.google.com/gke-preemptible",
+                        "operator": "In",
+                        "values": [
+                          "true"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "initContainers": null,
+          "containers": [
+            {
+              "name": "daemon",
+              "image": "minaprotocol/mina-daemon:focal-latest",
+              "imagePullPolicy": "IfNotPresent",
+              "volumeMounts": [
+                {
+                  "name": "destination-libp2p",
+                  "mountPath": "/root/libp2p-keys",
+                  "readOnly": true
+                },
+                {
+                  "name": "config-dir",
+                  "mountPath": "/root/.mina-config"
+                }
+              ],
+              "resources": {
+                "limits": null,
+                "requests": {
+                  "memory": "8Gi",
+                  "cpu": 12
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "args": [
+                "daemon",
+                "--log-level",
+                "Debug",
+                "--client-port",
+                "$(DAEMON_CLIENT_PORT)",
+                "--rest-port",
+                "$(DAEMON_REST_PORT)",
+                "--external-port",
+                "$(DAEMON_EXTERNAL_PORT)",
+                "--metrics-port",
+                "$(DAEMON_METRICS_PORT)",
+                "--log-json",
+                "--seed",
+                "--max-connections",
+                "200",
+                "--peer-list-url",
+                "https://storage.googleapis.com/seed-lists/mainnet_seeds.txt",
+                "--libp2p-metrics-port",
+                "9000"
+              ],
+              "env": [
+                {
+                  "name": "DAEMON_REST_PORT",
+                  "value": "3085"
+                },
+                {
+                  "name": "DAEMON_CLIENT_PORT",
+                  "value": "8301"
+                },
+                {
+                  "name": "DAEMON_METRICS_PORT",
+                  "value": "10001"
+                },
+                {
+                  "name": "MINA_CLIENT_TRUSTLIST",
+                  "value": "10.0.0.0/8"
+                },
+                {
+                  "name": "CODA_CLIENT_TRUSTLIST",
+                  "value": "10.0.0.0/8"
+                },
+                {
+                  "name": "CONNECT_PRIVATE_IPS",
+                  "value": "true"
+                },
+                {
+                  "name": "GCLOUD_KEYFILE",
+                  "value": "/gcloud/keyfile.json"
+                },
+                {
+                  "name": "NETWORK_NAME",
+                  "value": "mainnet"
+                },
+                {
+                  "name": "GCLOUD_BLOCK_UPLOAD_BUCKET",
+                  "value": "features_network_block_data"
+                },
+                {
+                  "name": "DAEMON_EXTERNAL_PORT",
+                  "value": "10909"
+                },
+                {
+                  "name": "RESTART_EVERY_MINS",
+                  "value": ""
+                },
+                {
+                  "name": "RESTART_NODES",
+                  "value": ""
+                },
+                {
+                  "name": "SEED_PEERS",
+                  "value": "[]"
+                },
+                {
+                  "name": "SEED_PEERS_URL",
+                  "value": ""
+                }
+              ],
+              "ports": [
+                {
+                  "name": "client-port",
+                  "protocol": "TCP",
+                  "containerPort": 8301
+                },
+                {
+                  "name": "graphql-port",
+                  "protocol": "TCP",
+                  "containerPort": 3085
+                },
+                {
+                  "name": "metrics-port",
+                  "protocol": "TCP",
+                  "containerPort": 10001
+                },
+                {
+                  "name": "external-port",
+                  "protocol": "TCP",
+                  "containerPort": 10909,
+                  "hostPort": null
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "destination-libp2p",
+              "emptyDir": {}
+            },
+            {
+              "name": "config-dir",
+              "emptyDir": {}
+            },
+            {
+              "name": "actual-libp2p",
+              "emptyDir": {}
+            },
+            {
+              "name": "wallet-keys",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "generic-node-rosetta",
+      "labels": {
+        "app": "generic-node-rosetta"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "generic-node-rosetta"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "generic-node-rosetta",
+            "testnet": "mainnet",
+            "role": "rosetta-node",
+            "class": "rosetta-node",
+            "version": "latest",
+            "syncStatus": "INIT"
+          },
+          "annotations": {
+            "prometheus.io/scrape": "true",
+            "prometheus.io/port": "10001",
+            "prometheus.io/path": "/metrics"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "nodeAffinity": {
+              "requiredDuringSchedulingIgnoredDuringExecution": {
+                "nodeSelectorTerms": [
+                  {
+                    "matchExpressions": [
+                      {
+                        "key": "cloud.google.com/gke-preemptible",
+                        "operator": "In",
+                        "values": [
+                          "true"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "containers": [
+            {
+              "name": "mina-rosetta",
+              "image": "minaprotocol/mina-rosetta:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "resources": {
+                "limits": null,
+                "requests": {
+                  "memory": "8Gi",
+                  "cpu": 12
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "args": [
+                "--archive-uri",
+                "$(DAEMON_PG_CONN_PORT)",
+                "--graphql-uri",
+                "$(DAEMON_GRAPHQL_URI)",
+                "--port",
+                "$(DAEMON_ROSETTA_PORT)",
+                "--log-json",
+                "--metrics-port",
+                "$(DAEMON_METRICS_PORT)"
+              ],
+              "env": [
+                {
+                  "name": "DAEMON_GRAPHQL_URI",
+                  "value": "generic-node:3085/graphql"
+                },
+                {
+                  "name": "DAEMON_ROSETTA_PORT",
+                  "value": "3087"
+                },
+                {
+                  "name": "DAEMON_METRICS_PORT",
+                  "value": "10001"
+                },
+                {
+                  "name": "MINA_ROSETTA_PG_DATA_INTERVAL",
+                  "value": "30"
+                },
+                {
+                  "name": "MINA_ROSETTA_MAX_DB_POOL_SIZE",
+                  "value": "80"
+                },
+                {
+                  "name": "MINA_ROSETTA_NETWORK",
+                  "value": "mainnet"
+                },
+                {
+                  "name": "MINA_NETWORK",
+                  "value": "mainnet"
+                },
+                {
+                  "name": "MINA_CLIENT_TRUSTLIST",
+                  "value": "10.0.0.0/8"
+                },
+                {
+                  "name": "CODA_CLIENT_TRUSTLIST",
+                  "value": "10.0.0.0/8"
+                },
+                {
+                  "name": "CONNECT_PRIVATE_IPS",
+                  "value": "true"
+                },
+                {
+                  "name": "GCLOUD_KEYFILE",
+                  "value": "/gcloud/keyfile.json"
+                },
+                {
+                  "name": "NETWORK_NAME",
+                  "value": "mainnet"
+                },
+                {
+                  "name": "GCLOUD_BLOCK_UPLOAD_BUCKET",
+                  "value": "features_network_block_data"
+                },
+                {
+                  "name": "DAEMON_EXTERNAL_PORT",
+                  "value": "10909"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "rosetta-port",
+                  "protocol": "TCP",
+                  "containerPort": 3087
+                },
+                {
+                  "name": "metrics-port",
+                  "protocol": "TCP",
+                  "containerPort": 10001
+                },
+                {
+                  "name": "external-port",
+                  "protocol": "TCP",
+                  "containerPort": 10909,
+                  "hostPort": null
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "destination-libp2p",
+              "emptyDir": {}
+            },
+            {
+              "name": "config-dir",
+              "emptyDir": {}
+            },
+            {
+              "name": "actual-libp2p",
+              "emptyDir": {}
+            },
+            {
+              "name": "wallet-keys",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "generic-node-watchdog",
+      "labels": {
+        "app": "generic-node-watchdog"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "generic-node-watchdog"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "generic-node-watchdog",
+            "testnet": "mainnet",
+            "role": "watchdog",
+            "version": "latest"
+          },
+          "annotations": {
+            "prometheus.io/scrape": "true",
+            "prometheus.io/port": "10001",
+            "prometheus.io/path": "/metrics"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "watchdog",
+              "resources": {
+                "requests": {
+                  "memory": "512m",
+                  "cpu": 1
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "image": "gcr.io/o1labs-192920/watchdog:latest",
+              "command": [
+                "python3"
+              ],
+              "args": [
+                "-u",
+                "/code/watchdog.py"
+              ],
+              "env": [
+                {
+                  "name": "METRICS_PORT",
+                  "value": "10001"
+                },
+                {
+                  "name": "SEED_PEERS_URL",
+                  "value": ""
+                }
+              ],
+              "ports": [
+                {
+                  "name": "metrics-port",
+                  "protocol": "TCP",
+                  "containerPort": 10001
+                }
+              ],
+              "imagePullPolicy": "Always",
+              "volumeMounts": null
+            }
+          ],
+          "volumes": null
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-10.12.9",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "primary"
+      },
+      "annotations": null,
+      "namespace": "aaTBzAdkCDwuA"
+    },
+    "spec": {
+      "serviceName": "release-name-postgresql-headless",
+      "replicas": 1,
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "postgresql",
+          "app.kubernetes.io/instance": "release-name",
+          "role": "primary"
+        }
+      },
+      "template": {
+        "metadata": {
+          "name": "release-name-postgresql",
+          "labels": {
+            "app.kubernetes.io/name": "postgresql",
+            "helm.sh/chart": "postgresql-10.12.9",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "role": "primary",
+            "app.kubernetes.io/component": "primary"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "podAffinity": null,
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app.kubernetes.io/name": "postgresql",
+                        "app.kubernetes.io/instance": "release-name",
+                        "app.kubernetes.io/component": "primary"
+                      }
+                    },
+                    "namespaces": [
+                      "default"
+                    ],
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 1
+                }
+              ]
+            },
+            "nodeAffinity": null
+          },
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "automountServiceAccountToken": false,
+          "containers": [
+            {
+              "name": "release-name-postgresql",
+              "image": "docker.io/bitnami/postgresql:11.13.0-debian-10-r73",
+              "imagePullPolicy": "IfNotPresent",
+              "resources": {
+                "requests": {
+                  "cpu": "250m",
+                  "memory": "256Mi"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "securityContext": {
+                "runAsUser": 11935,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "env": [
+                {
+                  "name": "BITNAMI_DEBUG",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_PORT_NUMBER",
+                  "value": "5432"
+                },
+                {
+                  "name": "POSTGRESQL_VOLUME_DIR",
+                  "value": "/bitnami/postgresql"
+                },
+                {
+                  "name": "PGDATA",
+                  "value": "/bitnami/postgresql/data"
+                },
+                {
+                  "name": "POSTGRES_USER",
+                  "value": "postgres"
+                },
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-postgresql",
+                      "key": "postgresql-password"
+                    }
+                  }
+                },
+                {
+                  "name": "POSTGRESQL_ENABLE_LDAP",
+                  "value": "no"
+                },
+                {
+                  "name": "POSTGRESQL_ENABLE_TLS",
+                  "value": "no"
+                },
+                {
+                  "name": "POSTGRESQL_LOG_HOSTNAME",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_LOG_CONNECTIONS",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_LOG_DISCONNECTIONS",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_PGAUDIT_LOG_CATALOG",
+                  "value": "off"
+                },
+                {
+                  "name": "POSTGRESQL_CLIENT_MIN_MESSAGES",
+                  "value": "error"
+                },
+                {
+                  "name": "POSTGRESQL_SHARED_PRELOAD_LIBRARIES",
+                  "value": "pgaudit"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "tcp-postgresql",
+                  "containerPort": 5432
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/sh",
+                    "-c",
+                    "exec pg_isready -U \"postgres\" -h 127.0.0.1 -p 5432"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/sh",
+                    "-c",
+                    "-e",
+                    "exec pg_isready -U \"postgres\" -h 127.0.0.1 -p 5432\n[ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]\n"
+                  ]
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "volumeMounts": [
+                {
+                  "name": "dshm",
+                  "mountPath": "/dev/shm"
+                },
+                {
+                  "name": "data",
+                  "mountPath": "/bitnami/postgresql",
+                  "subPath": null
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "dshm",
+              "emptyDir": {
+                "medium": "Memory"
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "8Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+]

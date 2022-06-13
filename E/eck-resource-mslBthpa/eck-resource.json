@@ -1,0 +1,284 @@
+[
+  {
+    "apiVersion": "elasticsearch.k8s.elastic.co/v1",
+    "kind": "Elasticsearch",
+    "metadata": {
+      "name": "eck-elasticsearch"
+    },
+    "spec": {
+      "http": {
+        "service": {
+          "spec": {
+            "ports": [
+              {
+                "name": "http",
+                "nodePort": 30002,
+                "port": 9200,
+                "targetPort": 9200
+              }
+            ],
+            "type": "NodePort"
+          }
+        }
+      },
+      "version": "7.5.1",
+      "image": "docker.elastic.co/elasticsearch/elasticsearch:7.5.1",
+      "podDisruptionBudget": {},
+      "nodeSets": [
+        {
+          "name": "client",
+          "count": 1,
+          "config": {
+            "node.data": false,
+            "node.ingest": false,
+            "node.master": false,
+            "node.store.allow_mmap": false
+          },
+          "podTemplate": {
+            "spec": {
+              "initContainers": [
+                {
+                  "name": "sysctl",
+                  "securityContext": {
+                    "privileged": true
+                  },
+                  "command": [
+                    "sh",
+                    "-c",
+                    "sysctl -w vm.max_map_count=262144"
+                  ]
+                }
+              ],
+              "containers": [
+                {
+                  "name": "elasticsearch",
+                  "resources": {
+                    "limits": {
+                      "memory": "2Gi",
+                      "cpu": 1
+                    }
+                  },
+                  "env": [
+                    {
+                      "name": "ES_JAVA_OPTS",
+                      "value": "-Xms1g -Xmx1g"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "volumeClaimTemplates": [
+            {
+              "metadata": {
+                "name": "elasticsearch-data"
+              },
+              "spec": {
+                "accessModes": [
+                  "ReadWriteOnce"
+                ],
+                "resources": {
+                  "requests": {
+                    "storage": "10Gi"
+                  }
+                },
+                "storageClassName": "rbd"
+              }
+            }
+          ]
+        },
+        {
+          "name": "hotdata",
+          "count": 3,
+          "config": {
+            "node.attr.hotwarm": "hot",
+            "node.data": true,
+            "node.ingest": true,
+            "node.master": false,
+            "node.store.allow_mmap": false
+          },
+          "podTemplate": {
+            "spec": {
+              "initContainers": [
+                {
+                  "name": "sysctl",
+                  "securityContext": {
+                    "privileged": true
+                  },
+                  "command": [
+                    "sh",
+                    "-c",
+                    "sysctl -w vm.max_map_count=262144"
+                  ]
+                }
+              ],
+              "containers": [
+                {
+                  "name": "elasticsearch",
+                  "resources": {
+                    "limits": {
+                      "memory": "4Gi",
+                      "cpu": 1
+                    }
+                  },
+                  "env": [
+                    {
+                      "name": "ES_JAVA_OPTS",
+                      "value": "-Xms2g -Xmx2g"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "volumeClaimTemplates": [
+            {
+              "metadata": {
+                "name": "elasticsearch-data"
+              },
+              "spec": {
+                "accessModes": [
+                  "ReadWriteOnce"
+                ],
+                "resources": {
+                  "requests": {
+                    "storage": "5Gi"
+                  }
+                },
+                "storageClassName": "rbd"
+              }
+            }
+          ]
+        },
+        {
+          "name": "master",
+          "count": 3,
+          "config": {
+            "node.data": false,
+            "node.ingest": false,
+            "node.master": true,
+            "node.store.allow_mmap": false
+          },
+          "podTemplate": {
+            "spec": {
+              "initContainers": [
+                {
+                  "name": "sysctl",
+                  "securityContext": {
+                    "privileged": true
+                  },
+                  "command": [
+                    "sh",
+                    "-c",
+                    "sysctl -w vm.max_map_count=262144"
+                  ]
+                }
+              ],
+              "containers": [
+                {
+                  "name": "elasticsearch",
+                  "resources": {
+                    "limits": {
+                      "memory": "1Gi",
+                      "cpu": 1
+                    }
+                  },
+                  "env": [
+                    {
+                      "name": "ES_JAVA_OPTS",
+                      "value": "-Xms256m -Xmx256m"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "volumeClaimTemplates": [
+            {
+              "metadata": {
+                "name": "elasticsearch-data"
+              },
+              "spec": {
+                "accessModes": [
+                  "ReadWriteOnce"
+                ],
+                "resources": {
+                  "requests": {
+                    "storage": "1Gi"
+                  }
+                },
+                "storageClassName": "rbd"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "kibana.k8s.elastic.co/v1beta1",
+    "kind": "Kibana",
+    "metadata": {
+      "name": "eck-kibana"
+    },
+    "spec": {
+      "version": "7.5.1",
+      "image": "docker.elastic.co/kibana/kibana:7.5.1",
+      "count": 1,
+      "elasticsearchRef": {
+        "name": "eck-elasticsearch"
+      },
+      "http": {
+        "service": {
+          "spec": {
+            "ports": [
+              {
+                "name": "kibana-dashboard-kb-http",
+                "nodePort": 30001,
+                "port": 5601,
+                "targetPort": 5601
+              }
+            ],
+            "type": "NodePort"
+          }
+        }
+      },
+      "podTemplate": {
+        "metadata": {
+          "creationTimestamp": null
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "kibana",
+              "resources": {
+                "limits": {
+                  "memory": "2Gi",
+                  "cpu": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "eck-elasticsearch-es-elastic-user",
+      "labels": {
+        "common.k8s.elastic.co/type": "elasticsearch",
+        "elasticsearch.k8s.elastic.co/cluster-name": "eck-elasticsearch"
+      },
+      "annotations": {
+        "helm.sh/hook": "pre-install",
+        "helm.sh/hook-delete-policy": "before-hook-creation"
+      }
+    },
+    "data": {
+      "elastic": "cGFzc3dvcmQ="
+    }
+  }
+]

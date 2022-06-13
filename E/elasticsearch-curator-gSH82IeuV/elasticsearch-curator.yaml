@@ -1,0 +1,98 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-elasticsearch-curator-config
+  labels:
+    app: elasticsearch-curator
+    chart: elasticsearch-curator-1.5.0
+    release: release-name
+    heritage: Helm
+data:
+  action_file.yml: |-
+    ---
+    actions:
+      1:
+        action: delete_indices
+        description: "Clean up ES by deleting old indices"
+        options:
+          timeout_override:
+          continue_if_exception: False
+          disable_action: False
+          ignore_empty_list: True
+        filters:
+        - filtertype: age
+          source: name
+          direction: older
+          timestring: '%Y.%m.%d'
+          unit: days
+          unit_count: 7
+          field:
+          stats_result:
+          epoch:
+          exclude: False
+  config.yml: |-
+    ---
+    client:
+      hosts:
+        - CHANGEME.host
+      port: 9200
+      # url_prefix:
+      # use_ssl: True
+      # certificate:
+      # client_cert:
+      # client_key:
+      # ssl_no_validate: True
+      # http_auth:
+      # timeout: 30
+      # master_only: False
+    # logging:
+    #   loglevel: INFO
+    #   logfile:
+    #   logformat: default
+    #   blacklist: ['elasticsearch', 'urllib3']
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: release-name-elasticsearch-curator
+  labels:
+    app: elasticsearch-curator
+    chart: elasticsearch-curator-1.5.0
+    release: release-name
+    heritage: Helm
+spec:
+  schedule: 0 1 * * *
+  jobTemplate:
+    metadata:
+      labels:
+        app: elasticsearch-curator
+        release: release-name
+    spec:
+      template:
+        metadata:
+          labels:
+            app: elasticsearch-curator
+            release: release-name
+        spec:
+          volumes:
+            - name: config-volume
+              configMap:
+                name: release-name-elasticsearch-curator-config
+          restartPolicy: Never
+          containers:
+            - name: elasticsearch-curator
+              image: registry.cn-hangzhou.aliyuncs.com/kubeapps/quay-docker-elasticsearch-curator:5.5.4
+              imagePullPolicy: IfNotPresent
+              volumeMounts:
+                - name: config-volume
+                  mountPath: /etc/es-curator
+              command:
+                - curator
+              args:
+                - --config
+                - /etc/es-curator/config.yml
+                - /etc/es-curator/action_file.yml
+              env: null
+              resources: {}
+          securityContext:
+            runAsUser: 16

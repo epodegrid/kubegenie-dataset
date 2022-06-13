@@ -1,0 +1,197 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-presto-loadbalancer",
+      "labels": {
+        "helm.sh/chart": "presto-loadbalancer-0.1.16",
+        "app.kubernetes.io/name": "presto-loadbalancer",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.1.5",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-configmap",
+      "labels": {
+        "chart": "presto-loadbalancer-0.1.16",
+        "release": "release-name"
+      }
+    },
+    "data": {
+      "config.yml": "clusters:\n  healthcheck:\n    delay: 5s\n    enabled: true\n  statistics:\n    delay: 5s\n    enabled: true\n  sync:\n    delay: 600s\ndiscovery:\n  aws:\n    access_key_id: \"\"\n    region: eu-west-1\n    secret_key: \"\"\n  enabled: true\n  type: aws-emr\npersistence:\n  postgres:\n    db: postgres\n    host: 127.0.0.1\n    password: presto\n    port: 5432\n    ssl_mode: disable\n    username: prestohub\nproxy:\n  port: 8998\nrouting:\n  rule: round-robin\nsession:\n  store:\n    redis:\n      opts:\n        max_ttl: 24h\n        prefix: 'presto::'\n      standalone:\n        db: 0\n        enabled: true\n        host: 127.0.0.1:6379\n        password: \"\"\n"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "name": "release-name-presto-loadbalancer"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "services",
+          "namespaces"
+        ],
+        "verbs": [
+          "get",
+          "watch",
+          "list"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "release-name-presto-loadbalancer"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "release-name-presto-loadbalancer"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-presto-loadbalancer",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-presto-loadbalancer",
+      "labels": {
+        "helm.sh/chart": "presto-loadbalancer-0.1.16",
+        "app.kubernetes.io/name": "presto-loadbalancer",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.1.5",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "presto-loadbalancer",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-presto-loadbalancer-proxy",
+      "labels": {
+        "helm.sh/chart": "presto-loadbalancer-0.1.16",
+        "app.kubernetes.io/name": "presto-loadbalancer",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.1.5",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 2,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "presto-loadbalancer",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "presto-loadbalancer",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-presto-loadbalancer",
+          "securityContext": {},
+          "volumes": [
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "release-name-configmap"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "presto-loadbalancer",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "garugaru/presto-loadbalancer:v0.1.5",
+              "imagePullPolicy": "Always",
+              "args": [
+                "proxy",
+                "--config",
+                "/config/config.yml",
+                "--static-files",
+                "/ui"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config-volume",
+                  "mountPath": "/config"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8998,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "http"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "http"
+                }
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

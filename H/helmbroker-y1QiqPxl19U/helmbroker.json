@@ -1,0 +1,569 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "drycc-helmbroker",
+      "labels": {
+        "heritage": "drycc"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "drycc-helmbroker-cm",
+      "labels": {
+        "heritage": "drycc"
+      },
+      "annotations": {
+        "component.drycc.cc/version": "canary"
+      }
+    },
+    "data": {
+      "repositories": "- name: drycc-helm-broker\n  url: https://github.com/drycc/addons/releases/download/latest/index.yaml\n"
+    }
+  },
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "drycc-helmbroker",
+      "labels": {
+        "heritage": "drycc"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteMany"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "5Gi"
+        }
+      }
+    }
+  },
+  {
+    "kind": "ClusterRoleBinding",
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "metadata": {
+      "name": "drycc:drycc-helmbroker",
+      "labels": {
+        "app": "drycc-helmbroker",
+        "heritage": "drycc"
+      }
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "cluster-admin"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "drycc-helmbroker",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "drycc-helmbroker",
+      "labels": {
+        "heritage": "drycc"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "http",
+          "port": 80,
+          "targetPort": 8000
+        }
+      ],
+      "selector": {
+        "app": "drycc-helmbroker"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "drycc-helmbroker-celery",
+      "labels": {
+        "heritage": "drycc"
+      },
+      "annotations": {
+        "component.drycc.cc/version": "canary"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "rollingUpdate": {
+          "maxSurge": 1,
+          "maxUnavailable": 0
+        },
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app": "drycc-helmbroker-celery"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "drycc-helmbroker-celery"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "weight": 2,
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "app",
+                          "operator": "In",
+                          "values": [
+                            "drycc-helmbroker-celery"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "topology.kubernetes.io/zone"
+                  }
+                },
+                {
+                  "weight": 1,
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "app",
+                          "operator": "In",
+                          "values": [
+                            "drycc-helmbroker-celery"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  }
+                }
+              ]
+            }
+          },
+          "serviceAccount": "drycc-helmbroker",
+          "containers": [
+            {
+              "name": "drycc-helmbroker-celery",
+              "image": "registry.drycc.cc/drycc/helmbroker:canary",
+              "imagePullPolicy": "Always",
+              "args": [
+                "/bin/bash",
+                "-c",
+                "celery -A helmbroker worker --autoscale=32,1 --loglevel=info"
+              ],
+              "env": [
+                {
+                  "name": "TZ",
+                  "value": "UTC"
+                },
+                {
+                  "name": "USERNAME",
+                  "value": "admin"
+                },
+                {
+                  "name": "PASSWORD",
+                  "value": "admin"
+                },
+                {
+                  "name": "RESERVED_NAMES",
+                  "value": "drycc, drycc-helmbroker"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "drycc-helmbroker-cm",
+                  "mountPath": "/etc/helmbroker/config",
+                  "readOnly": true
+                },
+                {
+                  "name": "helmbroker-data",
+                  "mountPath": "/etc/helmbroker"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "drycc-helmbroker-cm",
+              "configMap": {
+                "name": "drycc-helmbroker-cm"
+              }
+            },
+            {
+              "name": "helmbroker-data",
+              "persistentVolumeClaim": {
+                "claimName": "drycc-helmbroker"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "drycc-helmbroker",
+      "labels": {
+        "heritage": "drycc"
+      },
+      "annotations": {
+        "component.drycc.cc/version": "canary"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "rollingUpdate": {
+          "maxSurge": 1,
+          "maxUnavailable": 0
+        },
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app": "drycc-helmbroker"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "drycc-helmbroker"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "weight": 2,
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "app",
+                          "operator": "In",
+                          "values": [
+                            "drycc-helmbroker"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "topology.kubernetes.io/zone"
+                  }
+                },
+                {
+                  "weight": 1,
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "app",
+                          "operator": "In",
+                          "values": [
+                            "drycc-helmbroker"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  }
+                }
+              ]
+            }
+          },
+          "serviceAccount": "drycc-helmbroker",
+          "initContainers": [
+            {
+              "name": "loader",
+              "image": "registry.drycc.cc/drycc/helmbroker:canary",
+              "imagePullPolicy": "Always",
+              "args": [
+                "/bin/bash",
+                "-c",
+                "python -m helmbroker.loader"
+              ],
+              "env": [
+                {
+                  "name": "TZ",
+                  "value": "UTC"
+                },
+                {
+                  "name": "USERNAME",
+                  "value": "admin"
+                },
+                {
+                  "name": "PASSWORD",
+                  "value": "admin"
+                },
+                {
+                  "name": "RESERVED_NAMES",
+                  "value": "drycc, drycc-helmbroker"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "drycc-helmbroker-cm",
+                  "mountPath": "/etc/helmbroker/config",
+                  "readOnly": true
+                },
+                {
+                  "name": "helmbroker-data",
+                  "mountPath": "/etc/helmbroker"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "drycc-helmbroker",
+              "image": "registry.drycc.cc/drycc/helmbroker:canary",
+              "imagePullPolicy": "Always",
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": 8000
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 10
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/readiness",
+                  "port": 8000
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 10,
+                "periodSeconds": 5
+              },
+              "ports": [
+                {
+                  "containerPort": 8000,
+                  "name": "http"
+                }
+              ],
+              "env": [
+                {
+                  "name": "TZ",
+                  "value": "UTC"
+                },
+                {
+                  "name": "USERNAME",
+                  "value": "admin"
+                },
+                {
+                  "name": "PASSWORD",
+                  "value": "admin"
+                },
+                {
+                  "name": "RESERVED_NAMES",
+                  "value": "drycc, drycc-helmbroker"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "drycc-helmbroker-cm",
+                  "mountPath": "/etc/helmbroker/config",
+                  "readOnly": true
+                },
+                {
+                  "name": "helmbroker-data",
+                  "mountPath": "/etc/helmbroker"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "drycc-helmbroker-cm",
+              "configMap": {
+                "name": "drycc-helmbroker-cm"
+              }
+            },
+            {
+              "name": "helmbroker-data",
+              "persistentVolumeClaim": {
+                "claimName": "drycc-helmbroker"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "drycc-helmbroker-cronjob-daily",
+      "labels": {
+        "heritage": "drycc"
+      },
+      "annotations": {
+        "component.drycc.cc/version": "canary"
+      }
+    },
+    "spec": {
+      "schedule": "0 0 * * *",
+      "concurrencyPolicy": null,
+      "successfulJobsHistoryLimit": 1,
+      "failedJobsHistoryLimit": 1,
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "spec": {
+              "restartPolicy": "OnFailure",
+              "serviceAccount": "drycc-helmbroker",
+              "containers": [
+                {
+                  "image": "registry.drycc.cc/drycc/helmbroker:canary",
+                  "imagePullPolicy": "Always",
+                  "name": "drycc-helmbroker-cleaner",
+                  "args": [
+                    "/bin/bash",
+                    "-c",
+                    "python -m helmbroker.cleaner"
+                  ],
+                  "env": [
+                    {
+                      "name": "TZ",
+                      "value": "UTC"
+                    },
+                    {
+                      "name": "USERNAME",
+                      "value": "admin"
+                    },
+                    {
+                      "name": "PASSWORD",
+                      "value": "admin"
+                    },
+                    {
+                      "name": "RESERVED_NAMES",
+                      "value": "drycc, drycc-helmbroker"
+                    }
+                  ],
+                  "volumeMounts": [
+                    {
+                      "name": "drycc-helmbroker-cm",
+                      "mountPath": "/etc/helmbroker/config",
+                      "readOnly": true
+                    },
+                    {
+                      "name": "helmbroker-data",
+                      "mountPath": "/etc/helmbroker"
+                    }
+                  ]
+                }
+              ],
+              "volumes": [
+                {
+                  "name": "drycc-helmbroker-cm",
+                  "configMap": {
+                    "name": "drycc-helmbroker-cm"
+                  }
+                },
+                {
+                  "name": "helmbroker-data",
+                  "persistentVolumeClaim": {
+                    "claimName": "drycc-helmbroker"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "helmbroker-api-server",
+      "labels": {
+        "app": "helmbroker",
+        "chart": "helmbroker-v1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": {
+        "kubernetes.io/tls-acme": "true"
+      }
+    },
+    "spec": {
+      "rules": [
+        {
+          "host": "drycc-helmbroker.",
+          "http": {
+            "paths": [
+              {
+                "pathType": "Prefix",
+                "path": "/",
+                "backend": {
+                  "service": {
+                    "name": "drycc-helmbroker",
+                    "port": {
+                      "number": 80
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "tls": [
+        {
+          "secretName": "drycc-helmbroker-certificate-auto",
+          "hosts": [
+            "drycc-helmbroker."
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "cert-manager.io/v1",
+    "kind": "Certificate",
+    "metadata": {
+      "name": "drycc-helmbroker"
+    },
+    "spec": {
+      "secretName": "drycc-helmbroker-certificate-auto",
+      "issuerRef": {
+        "name": "drycc-cluster-issuer",
+        "kind": "ClusterIssuer"
+      },
+      "dnsNames": [
+        "drycc-helmbroker."
+      ],
+      "privateKey": {
+        "rotationPolicy": "Always"
+      }
+    }
+  }
+]

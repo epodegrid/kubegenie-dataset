@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: beets-config
+  labels:
+    app: release-name
+data:
+  config.yaml: |
+    art_filename: albumart
+    asciify_paths: true
+    directory: /music
+    embedart:
+      auto: true
+    fetchart:
+      auto: true
+    import:
+      autotag: true
+      copy: true
+      detail: true
+      incremental: true
+      languages: en es fr
+      log: /config/beet.log
+      move: false
+      original_date: false
+      quiet_fallback: skip
+      resume: ask
+      timid: true
+      write: true
+    library: /music/library.db
+    original_date: false
+    paths:
+      comp: Compilations/$album [$year, $media, $format, $channels, $bitdepth-$samplerate]
+        ($mb_albumid)/Disk $disc of $disctotal/$track $title ($length)
+      default: $albumartist/$album [$year, $media, $format, $channels, $bitdepth-$samplerate]
+        ($mb_albumid)/Disk $disc of $disctotal/$track $title ($length)
+      singleton: $albumartist/$album [$year, $media, $format, $channels, $bitdepth-$samplerate]
+        ($mb_albumid)/$track $title ($length)
+    per_disc_numbering: false
+    plugins: fetchart embedart scrub info web missing duplicates export inline
+    replace:
+      '[<>:"\?\*\|]': _
+      '[\\/]': _
+      '[\x00-\x1f]': _
+      '[\xE2-\xE6]': a
+      '[\xE8-\xEB]': e
+      '[\xEC-\xEF]': i
+      '[\xF2-\xF6]': o
+      '[\xF8]': o
+      \.$: _
+      \s+$: ""
+      ^-: _
+      ^\.: _
+      ^\s+: ""
+    scrub:
+      auto: true
+    threaded: true
+    web:
+      host: 0.0.0.0
+      port: 8337
+      reverse_proxy: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-beets
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: beets
+    helm.sh/chart: beets-0.8.5
+spec:
+  revisionHistoryLimit: 3
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: beets
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: beets
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      automountServiceAccountToken: true
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      containers:
+        - name: release-name-beets
+          image: ghcr.io/linuxserver/beets:1.4.9-ls94@sha256:826263aebec32caed2bd3abe17fb26636b36c84ee27993aab14e11ed8a68fece
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TZ
+              value: UTC
+          ports: null
+          volumeMounts:
+            - name: config
+              mountPath: config/config.yaml
+              subPath: config.yaml
+          livenessProbe: null
+          readinessProbe: null
+          startupProbe: null
+      volumes:
+        - name: config
+          configMap:
+            items:
+              - key: config.yaml
+                path: config.yaml
+            name: beets-config

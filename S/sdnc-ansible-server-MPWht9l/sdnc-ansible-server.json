@@ -1,0 +1,287 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-sdnc-ansible-server-db-secret",
+      "namespace": "MPWht9l",
+      "labels": {
+        "app": "sdnc-ansible-server",
+        "chart": "sdnc-ansible-server-6.0.0",
+        "release": "release",
+        "heritage": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "stringData": {
+      "login": "sdnc",
+      "password": "sdnc"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-sdnc-ansible-server-rest-creds",
+      "namespace": "MPWht9l",
+      "labels": {
+        "app": "sdnc-ansible-server",
+        "chart": "sdnc-ansible-server-6.0.0",
+        "release": "release",
+        "heritage": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "stringData": {
+      "login": "sdnc",
+      "password": "sdnc"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-sdnc-ansible-server",
+      "namespace": "MPWht9l",
+      "labels": {
+        "app": "sdnc-ansible-server",
+        "chart": "sdnc-ansible-server-6.0.0",
+        "release": "release",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "RestServer_config": "# Copyright © 2017 AT&T, Amdocs, Bell Canada\n#\n# Licensed under the Apache License, Version 2.0 (the \"License\");\n# you may not use this file except in compliance with the License.\n# You may obtain a copy of the License at\n#\n#       http://www.apache.org/licenses/LICENSE-2.0\n#\n# Unless required by applicable law or agreed to in writing, software\n# distributed under the License is distributed on an \"AS IS\" BASIS,\n# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n# See the License for the specific language governing permissions and\n# limitations under the License.\n\n# Host definition\nip:     0.0.0.0\nport:   8000\n\n# Security (controls use of TLS encrypton and RestServer authentication)\ntls:    no\nauth:   no\n\n# TLS certificates (must be built on application host)\npriv:   provide_privated_key.pem\npub:    provide_public_key.pem\n\n# RestServer authentication\nid:     ${REST_USER}\npsswd:  ${REST_PASSWORD}\n\n# Mysql\nhost:   mariadb-galera\nuser:   ${DB_USER}\npasswd: ${DB_PASSWORD}\ndb:     ansible\n\n# Playbooks\nfrom_files:             yes\nansible_path:           /opt/onap/sdnc/Playbooks\nansible_inv:            Ansible_inventory\nansible_temp:           PlaybooksTemp\ntimeout_seconds:        60\n\n# Blocking on GetResults\ngetresults_block:       yes\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "sdnc-ansible-server",
+      "namespace": "MPWht9l",
+      "labels": {
+        "app": "sdnc-ansible-server",
+        "chart": "sdnc-ansible-server-6.0.0",
+        "release": "release",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 8000,
+          "targetPort": 8000,
+          "name": "sdnc-ansible-server"
+        }
+      ],
+      "selector": {
+        "app": "sdnc-ansible-server",
+        "release": "release"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-sdnc-ansible-server",
+      "namespace": "MPWht9l",
+      "labels": {
+        "app.kubernetes.io/name": "sdnc-ansible-server",
+        "helm.sh/chart": "sdnc-ansible-server-6.0.0",
+        "app.kubernetes.io/instance": "release",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "sdnc-ansible-server",
+          "app.kubernetes.io/instance": "release"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "sdnc-ansible-server",
+            "helm.sh/chart": "sdnc-ansible-server-6.0.0",
+            "app.kubernetes.io/instance": "release",
+            "app.kubernetes.io/managed-by": "Helm"
+          },
+          "name": "sdnc-ansible-server"
+        },
+        "spec": {
+          "initContainers": [
+            {
+              "command": [
+                "sh"
+              ],
+              "args": [
+                "-c",
+                "cd /config-input && for PFILE in `ls -1 .`; do envsubst <${PFILE} >/config/${PFILE}; done"
+              ],
+              "env": [
+                {
+                  "name": "DB_USER",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-sdnc-ansible-server-db-secret",
+                      "key": "login"
+                    }
+                  }
+                },
+                {
+                  "name": "DB_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-sdnc-ansible-server-db-secret",
+                      "key": "password"
+                    }
+                  }
+                },
+                {
+                  "name": "REST_USER",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-sdnc-ansible-server-rest-creds",
+                      "key": "login"
+                    }
+                  }
+                },
+                {
+                  "name": "REST_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-sdnc-ansible-server-rest-creds",
+                      "key": "password"
+                    }
+                  }
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/config-input",
+                  "name": "config-input"
+                },
+                {
+                  "mountPath": "/config",
+                  "name": "config"
+                }
+              ],
+              "image": "dibi/envsubst",
+              "imagePullPolicy": "Always",
+              "name": "sdnc-ansible-server-update-config"
+            },
+            {
+              "command": [
+                "/root/ready.py"
+              ],
+              "args": [
+                "--container-name",
+                "sdnc"
+              ],
+              "env": [
+                {
+                  "name": "NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                }
+              ],
+              "image": "oomk8s/readiness-check:2.0.2",
+              "imagePullPolicy": "Always",
+              "name": "sdnc-ansible-server-readiness"
+            }
+          ],
+          "containers": [
+            {
+              "name": "sdnc-ansible-server",
+              "command": [
+                "/bin/bash"
+              ],
+              "args": [
+                "-c",
+                "cd /opt/onap/ccsdk && ./startAnsibleServer.sh"
+              ],
+              "image": "nexus3.onap.org:10001/onap/sdnc-ansible-server-image:1.8.2",
+              "imagePullPolicy": "Always",
+              "ports": [
+                {
+                  "containerPort": 8000
+                }
+              ],
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": 8000
+                },
+                "initialDelaySeconds": 180,
+                "periodSeconds": 10
+              },
+              "readinessProbe": {
+                "tcpSocket": {
+                  "port": 8000
+                },
+                "initialDelaySeconds": 60,
+                "periodSeconds": 10
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/etc/localtime",
+                  "name": "localtime",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/opt/onap/sdnc/RestServer_config",
+                  "name": "config",
+                  "subPath": "RestServer_config"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": 1,
+                  "memory": "1Gi"
+                },
+                "requests": {
+                  "cpu": 0.5,
+                  "memory": "500Mi"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "localtime",
+              "hostPath": {
+                "path": "/etc/localtime"
+              }
+            },
+            {
+              "name": "config-input",
+              "configMap": {
+                "name": "release-sdnc-ansible-server",
+                "defaultMode": 420
+              }
+            },
+            {
+              "name": "config",
+              "emptyDir": {
+                "medium": "Memory"
+              }
+            }
+          ],
+          "imagePullSecrets": [
+            {
+              "name": "default-docker-registry-key"
+            }
+          ]
+        }
+      }
+    }
+  }
+]

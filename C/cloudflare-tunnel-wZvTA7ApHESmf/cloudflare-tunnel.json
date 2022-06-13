@@ -1,0 +1,184 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-cloudflare-tunnel",
+      "labels": {
+        "helm.sh/chart": "cloudflare-tunnel-0.1.5",
+        "app.kubernetes.io/name": "cloudflare-tunnel",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "2021.11.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-cloudflare-tunnel",
+      "labels": {
+        "helm.sh/chart": "cloudflare-tunnel-0.1.5",
+        "app.kubernetes.io/name": "cloudflare-tunnel",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "2021.11.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "config.yaml": "# Name of the tunnel you want to run\ntunnel: \ncredentials-file: /etc/cloudflared/creds/credentials.json\n# Serves the metrics server under /metrics and the readiness server under /ready\nmetrics: 0.0.0.0:2000\n# Autoupdates applied in a k8s pod will be lost when the pod is removed or restarted, so\n# autoupdate doesn't make sense in Kubernetes. However, outside of Kubernetes, we strongly\n# recommend using autoupdate.\nno-autoupdate: true\ningress:\n# Ingress rules\n  - hostname: hello.example.com\n    service: hello_world\n  - service: http_status:404\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-cloudflare-tunnel",
+      "labels": {
+        "helm.sh/chart": "cloudflare-tunnel-0.1.5",
+        "app.kubernetes.io/name": "cloudflare-tunnel",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "2021.11.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 2000,
+          "targetPort": 2000,
+          "protocol": "TCP",
+          "name": "metrics"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "cloudflare-tunnel",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-cloudflare-tunnel",
+      "labels": {
+        "helm.sh/chart": "cloudflare-tunnel-0.1.5",
+        "app.kubernetes.io/name": "cloudflare-tunnel",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "2021.11.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "cloudflare-tunnel",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config": "d6cfb4362a3d93b80fb0a5dc0a6ac64d082eae6bec6f90fea99f821e7737b499"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "cloudflare-tunnel",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-cloudflare-tunnel",
+          "securityContext": {},
+          "containers": [
+            {
+              "name": "cloudflare-tunnel",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "cloudflare/cloudflared:2021.11.0",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "metrics",
+                  "containerPort": 2000,
+                  "protocol": "TCP"
+                }
+              ],
+              "args": [
+                "tunnel",
+                "--config",
+                "/etc/cloudflared/config/config.yaml",
+                "run"
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/ready",
+                  "port": 2000
+                },
+                "failureThreshold": 1,
+                "initialDelaySeconds": 10,
+                "periodSeconds": 10
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/ready",
+                  "port": 2000
+                },
+                "failureThreshold": 1,
+                "initialDelaySeconds": 10,
+                "periodSeconds": 10
+              },
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/etc/cloudflared/config",
+                  "readOnly": true
+                },
+                {
+                  "name": "creds",
+                  "mountPath": "/etc/cloudflared/creds",
+                  "readOnly": true
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "creds",
+              "secret": {
+                "secretName": "tunnel-credentials"
+              }
+            },
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-cloudflare-tunnel",
+                "items": [
+                  {
+                    "key": "config.yaml",
+                    "path": "config.yaml"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

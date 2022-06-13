@@ -1,0 +1,221 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-etcd
+  labels:
+    app: etcd
+    chart: etcd-2.2.3
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  etcd-root-password: NVlFVEhBNXdubg==
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-etcd-headless
+  annotations:
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+  labels:
+    app: etcd
+    chart: etcd-2.2.3
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: client
+      port: 2379
+      targetPort: client
+    - name: peer
+      port: 2380
+      targetPort: peer
+  selector:
+    app: etcd
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-etcd
+  labels:
+    app: etcd
+    chart: etcd-2.2.3
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: client
+      port: 2379
+      targetPort: client
+    - name: peer
+      port: 2380
+      targetPort: peer
+  selector:
+    app: etcd
+    release: release-name
+---
+apiVersion: apps/v1beta2
+kind: StatefulSet
+metadata:
+  name: release-name-etcd
+  labels:
+    app: etcd
+    chart: etcd-2.2.3
+    release: release-name
+    heritage: Helm
+spec:
+  selector:
+    matchLabels:
+      app: etcd
+      release: release-name
+  serviceName: release-name-etcd-headless
+  podManagementPolicy: OrderedReady
+  replicas: 1
+  updateStrategy:
+    type: null
+  template:
+    metadata:
+      name: release-name-etcd
+      labels:
+        app: etcd
+        chart: etcd-2.2.3
+        release: release-name
+        heritage: Helm
+    spec:
+      securityContext:
+        fsGroup: 1001
+        runAsUser: 1001
+      containers:
+        - name: release-name-etcd
+          image: docker.io/bitnami/etcd:3.3.13
+          imagePullPolicy: Always
+          command:
+            - bash
+            - -ec
+            - |
+              HOSTNAME=$(hostname -s)
+              ID=${HOSTNAME:(-1)}
+              echo "==> The ID of the host is $ID"
+              DATA_DIR=/bitnami/etcd/data
+
+              AUTH_OPTIONS="-u root:$ETCD_ROOT_PASSWORD"
+
+              ## Store member id for later member replacement
+              store_member_id() {
+                  while ! etcdctl ${AUTH_OPTIONS} member list &>/dev/null; do sleep 1; done
+                  etcdctl ${AUTH_OPTIONS} member list | grep `hostname -s` | awk '{ print $1}' | awk -F ":" '{ print $1}' > ${DATA_DIR}/member_id
+                  exit 0
+              }
+
+              ## Create data dir if not exists
+              if [ ! -d "${DATA_DIR}" ]; then
+                echo "==> Creating data dir..."
+                mkdir -p "${DATA_DIR}"
+                ## Setting up new cluster
+                echo "==> There is no data at all. Creating new cluster"
+                export ETCDCTL_ENDPOINTS="http://release-name-etcd-0.release-name-etcd-headless.default.svc.cluster.local:2379,"
+                store_member_id &
+                if [ -n "${ETCD_ROOT_PASSWORD}" ] && [ "${HOSTNAME}" == "release-name-etcd-0" ]; then
+                  echo "==> Configuring RBAC authentication!"
+                  etcd > /dev/null 2>&1 &
+                  ETCD_PID=$!
+                  while ! etcdctl member list &>/dev/null; do sleep 1; done
+                  echo "${ETCD_ROOT_PASSWORD}" | etcdctl user add root
+                  etcdctl auth enable
+                  etcdctl ${AUTH_OPTIONS} role revoke guest -path '/*' --readwrite
+                  kill "${ETCD_PID}"
+                  sleep 5
+                fi
+              else
+                ## Re-joining failed node
+                if [ -d "${DATA_DIR}/member/snap" ]; then
+                  echo "==> Data exists. Re-joining etcd member"
+                  member_id=$(cat "${DATA_DIR}/member_id")
+                  if [ "${HOSTNAME}" != "release-name-etcd-0" ]; then
+                    echo "==> Updating member in existing cluster."
+                    export ETCDCTL_ENDPOINTS="http://release-name-etcd-0.release-name-etcd-headless.default.svc.cluster.local:2379,"
+                    etcdctl ${AUTH_OPTIONS} member update ${member_id} http://`hostname -s`.release-name-etcd-headless.default.svc.cluster.local:2380
+                  fi
+                ## Adding new member to the cluster
+                else
+                  echo "==> Adding member to existing cluster."
+                  export ETCDCTL_ENDPOINTS="http://release-name-etcd-0.release-name-etcd-headless.default.svc.cluster.local:2379,"
+
+                  etcdctl ${AUTH_OPTIONS} member add `hostname -s` http://`hostname -s`.release-name-etcd-headless.default.svc.cluster.local:2380 | grep "^ETCD_" > ${DATA_DIR}/new_member_envs
+                  sed -ie 's/^/export /' /bitnami/etcd/data/new_member_envs
+
+                  echo "==> Loading env vars of existing cluster"
+                  source "${DATA_DIR}/new_member_envs"
+
+                  store_member_id &
+                fi
+              fi
+              exec /opt/bitnami/etcd/bin/etcd
+          resources: null
+          env:
+            - name: MY_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: MY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: ETCD_NAME
+              value: $(MY_POD_NAME)
+            - name: ETCD_DATA_DIR
+              value: /bitnami/etcd/data
+            - name: ETCD_ADVERTISE_CLIENT_URLS
+              value: http://$(MY_POD_NAME).release-name-etcd-headless.default.svc.cluster.local:2379
+            - name: ETCD_LISTEN_CLIENT_URLS
+              value: http://0.0.0.0:2379
+            - name: ETCD_INITIAL_ADVERTISE_PEER_URLS
+              value: http://$(MY_POD_NAME).release-name-etcd-headless.default.svc.cluster.local:2380
+            - name: ETCD_LISTEN_PEER_URLS
+              value: http://0.0.0.0:2380
+            - name: ALLOW_NONE_AUTHENTICATION
+              value: "no"
+            - name: ETCD_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-etcd
+                  key: etcd-root-password
+          ports:
+            - name: client
+              containerPort: 2379
+            - name: peer
+              containerPort: 2379
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -ec
+                  - |
+                    AUTH_OPTIONS="-u root:$ETCD_ROOT_PASSWORD"
+                    DATA_DIR=/bitnami/etcd/data
+                    MEMBER_ID=$(etcdctl member list | grep name=`hostname -s` | awk {'print $1'} | awk -F ":" {'print $1'})
+                    export ETCDCTL_ENDPOINTS="http://release-name-etcd-0.release-name-etcd-headless.default.svc.cluster.local:2379,"
+                    echo "==> Removing $MEMBER_ID from etcd cluster"
+                    etcdctl ${AUTH_OPTIONS} member remove $MEMBER_ID
+                    if [ $? -eq 0 ]; then
+                        rm -rf ${DATA_DIR}/*
+                    fi
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/etcd
+      volumes: null
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        annotations: null
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi

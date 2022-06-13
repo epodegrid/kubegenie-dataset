@@ -1,0 +1,104 @@
+apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+  name: release-name-ssh
+  labels:
+    app: gitserver
+data:
+  ssh_host_ecdsa_key: ""
+  ssh_host_ecdsa_key.pub: ""
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-config
+  labels:
+    app: gitserver
+data:
+  authorized_keys: ""
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: release-name-gitserver-data
+  labels:
+    app: gitserver
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-gitserver
+  labels:
+    app: gitserver
+spec:
+  type: ClusterIP
+  ports:
+    - name: ssh
+      port: 22
+      targetPort: 22
+  selector:
+    app: gitserver
+    release: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name
+  labels:
+    app: gitserver
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: gitserver
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: gitserver
+        release: release-name
+      annotations:
+        checksum/config: f0117320099bfcc8c2102f490aeec1701c4a9a20b42eecac30ab6a5438ddab1d
+    spec:
+      containers:
+        - name: gitserver
+          image: n0rad/alpine-gitserver:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+          args:
+            - -c
+            - "cp /etc/ssh/volume/ssh_host_ecdsa_key /etc/ssh\ncp /etc/ssh/volume/ssh_host_ecdsa_key.pub /etc/ssh\nchmod 600 /etc/ssh/ssh_host_ecdsa_key\nchmod 600 /etc/ssh/ssh_host_ecdsa_key.pub\n\ncp /home/git/.ssh-volume/authorized_keys /home/git/.ssh/authorized_keys \nchmod 600 /home/git/.ssh/authorized_keys\nchown -R git: /home/git/.ssh\n"
+          ports:
+            - name: ssh
+              containerPort: 22
+          volumeMounts:
+            - name: secret
+              mountPath: /etc/ssh/volume/
+            - name: config
+              mountPath: /home/git/.ssh-volume/
+              subpath: authorized_keys
+            - name: data
+              mountPath: /data
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: secret
+          secret:
+            secretName: release-name-ssh
+        - name: config
+          configMap:
+            name: release-name-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: release-name-gitserver-data

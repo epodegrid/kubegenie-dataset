@@ -1,0 +1,335 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-cert-manager-webhook-hetzner
+  namespace: fqIwaj
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.2.1
+    release: release-name
+    heritage: Helm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-cert-manager-webhook-hetzner:domain-solver
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.2.1
+    release: release-name
+    heritage: Helm
+rules:
+  - apiGroups:
+      - acme.unique.company.name
+    resources:
+      - '*'
+    verbs:
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-cert-manager-webhook-hetzner:flowcontrol-solver
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.2.1
+    release: release-name
+    heritage: Helm
+rules:
+  - apiGroups:
+      - flowcontrol.apiserver.k8s.io
+    resources:
+      - prioritylevelconfigurations
+      - flowschemas
+    verbs:
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-cert-manager-webhook-hetzner:auth-delegator
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.2.1
+    release: release-name
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: release-name-cert-manager-webhook-hetzner
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-cert-manager-webhook-hetzner:domain-solver
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.2.1
+    release: release-name
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-cert-manager-webhook-hetzner:domain-solver
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: cert-manager
+    namespace: cert-manager
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-cert-manager-webhook-hetzner:flowcontrol-solver
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.2.1
+    release: release-name
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-cert-manager-webhook-hetzner:flowcontrol-solver
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: release-name-cert-manager-webhook-hetzner
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-cert-manager-webhook-hetzner:secret-reader
+  namespace: fqIwaj
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    resourceNames:
+      - hetzner-secret
+    verbs:
+      - get
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-cert-manager-webhook-hetzner:webhook-authentication-reader
+  namespace: kube-system
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.2.1
+    release: release-name
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: release-name-cert-manager-webhook-hetzner
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-cert-manager-webhook-hetzner:secret-reader
+  namespace: fqIwaj
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-cert-manager-webhook-hetzner:secret-reader
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: release-name-cert-manager-webhook-hetzner
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-cert-manager-webhook-hetzner
+  namespace: fqIwaj
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.2.1
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 443
+      targetPort: https
+      protocol: TCP
+      name: https
+  selector:
+    app: cert-manager-webhook-hetzner
+    release: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-cert-manager-webhook-hetzner
+  namespace: fqIwaj
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.2.1
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cert-manager-webhook-hetzner
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: cert-manager-webhook-hetzner
+        release: release-name
+    spec:
+      serviceAccountName: release-name-cert-manager-webhook-hetzner
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: cert-manager-webhook-hetzner
+          image: deyaeddin/cert-manager-webhook-hetzner:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 11437
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            seccompProfile:
+              type: RuntimeDefault
+          args:
+            - --tls-cert-file=/tls/tls.crt
+            - --tls-private-key-file=/tls/tls.key
+          env:
+            - name: GROUP_NAME
+              value: acme.unique.company.name
+          ports:
+            - name: https
+              containerPort: 443
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /healthz
+              port: https
+          readinessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /healthz
+              port: https
+          volumeMounts:
+            - name: certs
+              mountPath: /tls
+              readOnly: true
+          resources:
+            limits:
+              cpu: 250m
+              memory: 256Mi
+            requests:
+              cpu: 250m
+              memory: 256Mi
+      volumes:
+        - name: certs
+          secret:
+            secretName: release-name-cert-manager-webhook-hetzner-webhook-tls
+---
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1alpha1.acme.unique.company.name
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.2.1
+    release: release-name
+    heritage: Helm
+  annotations:
+    cert-manager.io/inject-ca-from: default/release-name-cert-manager-webhook-hetzner-webhook-tls
+spec:
+  group: acme.unique.company.name
+  groupPriorityMinimum: 1000
+  versionPriority: 15
+  service:
+    name: release-name-cert-manager-webhook-hetzner
+    namespace: default
+  version: v1alpha1
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: release-name-cert-manager-webhook-hetzner-ca
+  namespace: default
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.2.1
+    release: release-name
+    heritage: Helm
+spec:
+  secretName: release-name-cert-manager-webhook-hetzner-ca
+  duration: 43800h
+  issuerRef:
+    name: release-name-cert-manager-webhook-hetzner-selfsign
+  commonName: ca.cert-manager-webhook-hetzner.cert-manager
+  isCA: true
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: release-name-cert-manager-webhook-hetzner-webhook-tls
+  namespace: default
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.2.1
+    release: release-name
+    heritage: Helm
+spec:
+  secretName: release-name-cert-manager-webhook-hetzner-webhook-tls
+  duration: 8760h
+  issuerRef:
+    name: release-name-cert-manager-webhook-hetzner-ca
+  dnsNames:
+    - release-name-cert-manager-webhook-hetzner
+    - release-name-cert-manager-webhook-hetzner.default
+    - release-name-cert-manager-webhook-hetzner.default.svc
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: release-name-cert-manager-webhook-hetzner-selfsign
+  namespace: default
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.2.1
+    release: release-name
+    heritage: Helm
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: release-name-cert-manager-webhook-hetzner-ca
+  namespace: default
+  labels:
+    app: cert-manager-webhook-hetzner
+    chart: cert-manager-webhook-hetzner-0.2.1
+    release: release-name
+    heritage: Helm
+spec:
+  ca:
+    secretName: release-name-cert-manager-webhook-hetzner-ca

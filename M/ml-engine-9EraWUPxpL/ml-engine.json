@@ -1,0 +1,187 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-ml-engine",
+      "labels": {
+        "app.kubernetes.io/name": "ml-engine",
+        "helm.sh/chart": "ml-engine-0.1.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "immutable": false,
+    "metadata": {
+      "name": "release-name-ml-engine",
+      "labels": {
+        "app.kubernetes.io/name": "ml-engine",
+        "helm.sh/chart": "ml-engine-0.1.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "configs.yaml": "controller:\n  transport:\n    buffer:\n      readBufferSize: 256KiB\n      writeBufferSize: 256KiB\n    maxIdleConns: 0\n    tcpKeepalive:\n      enabled: false\n      period: 15s\n    timeout: 30s\n  url: \"\"\ndebugMode: false\ngrpc:\n  compression:\n    enabled: false\n    type: Zstd\n  connection:\n    host: 0.0.0.0\n    insecure: true\n    maxMessageSize: 50MiB\n    port: 8091\n    readBufferSize: 50MiB\n    timeout: 15s\n    writeBufferSize: 50MiB\n  enabled: true\n  keepalive:\n    enforcementPolicy:\n      minTime: 20m\n      permitWithoutStream: false\n    time: 5m\n    timeout: 5m\n  useReflection: true\nmonitoring:\n  enabled: true\nprofiling:\n  enabled: false\nsingle:\n  buffer:\n    readBufferSize: 256KiB\n    writeBufferSize: 256KiB\n  concurrency: 100000\n  enabled: true\n  host: 0.0.0.0\n  httptransport:\n    maxIdleConnDuration: 15s\n    readTimeout: 7s\n    writeTimeout: 7s\n  name: pprof/monitoring server\n  port: 8097\n  tcpKeepalive:\n    enabled: true\n    period: 1s\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-ml-engine",
+      "labels": {
+        "app.kubernetes.io/name": "ml-engine",
+        "helm.sh/chart": "ml-engine-0.1.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "grpc",
+          "port": 8091,
+          "protocol": "TCP",
+          "targetPort": "grpc"
+        },
+        {
+          "name": "monitoring",
+          "port": 8097,
+          "protocol": "TCP",
+          "targetPort": "monitoring"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "ml-engine",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-ml-engine",
+      "labels": {
+        "app.kubernetes.io/name": "ml-engine",
+        "helm.sh/chart": "ml-engine-0.1.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "ml-engine",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config": "f3c41c40306333f23d25c83819f3bf5751c7c7f8826c3ee3d0bc4ed175a57fee"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "ml-engine",
+            "helm.sh/chart": "ml-engine-0.1.0",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-ml-engine",
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "containers": [
+            {
+              "name": "ml-engine",
+              "image": "foo/bar:latest",
+              "imagePullPolicy": "Always",
+              "securityContext": {
+                "runAsNonRoot": true,
+                "runAsUser": 11309,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "command": [
+                "/app"
+              ],
+              "args": [
+                "-conf=/etc/ml-engine/configs/configs.yaml"
+              ],
+              "resources": {
+                "limits": {},
+                "requests": {},
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "ports": [
+                {
+                  "name": "grpc",
+                  "containerPort": 8091
+                },
+                {
+                  "name": "monitoring",
+                  "containerPort": 8097
+                }
+              ],
+              "livenessProbe": {
+                "failureThreshold": 3,
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": 8097
+                },
+                "initialDelaySeconds": 20,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 15
+              },
+              "readinessProbe": {
+                "failureThreshold": 3,
+                "httpGet": {
+                  "path": "/readyz",
+                  "port": 8097
+                },
+                "initialDelaySeconds": 20,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 15
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/etc/ml-engine/configs",
+                  "name": "configs",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "configMap": {
+                "name": "release-name-ml-engine"
+              },
+              "name": "configs"
+            }
+          ]
+        }
+      }
+    }
+  }
+]

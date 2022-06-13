@@ -1,0 +1,460 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: verticadb-operator-controller-manager
+  namespace: Z3q0MIdH34KAx
+---
+apiVersion: v1
+data:
+  DEPLOY_WITH: helm
+  VERSION: 1.5.0
+kind: ConfigMap
+metadata:
+  name: verticadb-operator-manager-config
+  namespace: Z3q0MIdH34KAx
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: verticadb-operator-leader-election-role
+  namespace: Z3q0MIdH34KAx
+rules:
+  - apiGroups:
+      - ""
+      - coordination.k8s.io
+    resources:
+      - configmaps
+      - leases
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  creationTimestamp: null
+  name: verticadb-operator-manager-role
+  namespace: Z3q0MIdH34KAx
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - pods/exec
+    verbs:
+      - create
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - vertica.com
+    resources:
+      - verticaautoscalers
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - vertica.com
+    resources:
+      - verticaautoscalers/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - vertica.com
+    resources:
+      - verticaautoscalers/status
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
+      - vertica.com
+    resources:
+      - verticadbs
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - vertica.com
+    resources:
+      - verticadbs/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - vertica.com
+    resources:
+      - verticadbs/status
+    verbs:
+      - get
+      - patch
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: verticadb-operator-leader-election-rolebinding
+  namespace: Z3q0MIdH34KAx
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: verticadb-operator-leader-election-role
+subjects:
+  - kind: ServiceAccount
+    name: verticadb-operator-controller-manager
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: verticadb-operator-manager-rolebinding
+  namespace: Z3q0MIdH34KAx
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: verticadb-operator-manager-role
+subjects:
+  - kind: ServiceAccount
+    name: verticadb-operator-controller-manager
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    control-plane: controller-manager
+  name: verticadb-operator-metrics-service
+  namespace: Z3q0MIdH34KAx
+spec:
+  ports:
+    - name: metrics
+      port: 8443
+      protocol: TCP
+      targetPort: metrics
+  selector:
+    control-plane: controller-manager
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: verticadb-operator-webhook-service
+  namespace: Z3q0MIdH34KAx
+spec:
+  ports:
+    - port: 443
+      protocol: TCP
+      targetPort: 9443
+  selector:
+    control-plane: controller-manager
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    control-plane: controller-manager
+  name: verticadb-operator-controller-manager
+  namespace: Z3q0MIdH34KAx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+      labels:
+        app.kubernetes.io/name: verticadb-operator
+        control-plane: controller-manager
+    spec:
+      containers:
+        - args:
+            - --health-probe-bind-address=:8081
+            - --metrics-bind-address=127.0.0.1:8080
+            - --leader-elect
+            - --service-account-name=verticadb-operator-controller-manager
+            - --filepath=
+            - --maxfilesize=500
+            - --maxfileage=7
+            - --maxfilerotation=3
+            - --level=info
+            - --dev=false
+          command:
+            - /manager
+          env:
+            - name: WATCH_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          image: vertica/verticadb-operator:1.5.0
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          name: manager
+          ports:
+            - containerPort: 9443
+              name: webhook-server
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 100m
+              memory: 750Mi
+            requests:
+              cpu: 100m
+              memory: 20Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - mountPath: /tmp/k8s-webhook-server/serving-certs
+              name: cert
+              readOnly: true
+        - args:
+            - --secure-listen-address=0.0.0.0:8443
+            - --upstream=http://127.0.0.1:8080/
+            - --logtostderr=true
+            - --v=0
+          image: gcr.io/kubebuilder/kube-rbac-proxy:v0.11.0
+          name: kube-rbac-proxy
+          ports:
+            - containerPort: 8443
+              name: metrics
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 500m
+              memory: 128Mi
+            requests:
+              cpu: 5m
+              memory: 64Mi
+      securityContext:
+        runAsNonRoot: true
+      serviceAccountName: verticadb-operator-controller-manager
+      terminationGracePeriodSeconds: 10
+      volumes:
+        - name: cert
+          secret:
+            defaultMode: 420
+            secretName: webhook-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: verticadb-operator-serving-cert
+  namespace: default
+spec:
+  dnsNames:
+    - verticadb-operator-webhook-service.default.svc
+    - verticadb-operator-webhook-service.default.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: verticadb-operator-selfsigned-issuer
+  secretName: webhook-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: verticadb-operator-selfsigned-issuer
+  namespace: default
+spec:
+  selfSigned: {}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: default/verticadb-operator-serving-cert
+  name: default-verticadb-operator-mutating-webhook-configuration
+webhooks:
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      caBundle: null
+      service:
+        name: verticadb-operator-webhook-service
+        namespace: default
+        path: /mutate-vertica-com-v1beta1-verticadb
+    failurePolicy: Fail
+    name: mverticadb.kb.io
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values:
+            - default
+    rules:
+      - apiGroups:
+          - vertica.com
+        apiVersions:
+          - v1beta1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - verticadbs
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      caBundle: null
+      service:
+        name: verticadb-operator-webhook-service
+        namespace: default
+        path: /mutate-vertica-com-v1beta1-verticaautoscaler
+    failurePolicy: Fail
+    name: mverticaautoscaler.kb.io
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values:
+            - default
+    rules:
+      - apiGroups:
+          - vertica.com
+        apiVersions:
+          - v1beta1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - verticaautoscalers
+    sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: default/verticadb-operator-serving-cert
+  name: default-verticadb-operator-validating-webhook-configuration
+webhooks:
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      caBundle: null
+      service:
+        name: verticadb-operator-webhook-service
+        namespace: default
+        path: /validate-vertica-com-v1beta1-verticaautoscaler
+    failurePolicy: Fail
+    name: vverticaautoscaler.kb.io
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values:
+            - default
+    rules:
+      - apiGroups:
+          - vertica.com
+        apiVersions:
+          - v1beta1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - verticaautoscalers
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      caBundle: null
+      service:
+        name: verticadb-operator-webhook-service
+        namespace: default
+        path: /validate-vertica-com-v1beta1-verticadb
+    failurePolicy: Fail
+    name: vverticadb.kb.io
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values:
+            - default
+    rules:
+      - apiGroups:
+          - vertica.com
+        apiVersions:
+          - v1beta1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - verticadbs
+    sideEffects: None

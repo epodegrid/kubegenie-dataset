@@ -1,0 +1,272 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-mongodb-scripts",
+      "labels": {
+        "helm.sh/chart": "mongodb-0.4.6",
+        "app.kubernetes.io/name": "mongodb",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "5.0.8",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "01-init-userdb.sh": "#!/bin/sh\ncreate_user()\n{\nmongo -u $MONGO_INITDB_ROOT_USERNAME -p $MONGO_INITDB_ROOT_PASSWORD <<EOF\n  var userdb = db.getSiblingDB('$MONGO_INITDB_DATABASE');\n  userdb.createUser({user: '$USERDB_USER', pwd: '$USERDB_PASSWORD', roles: [ \"readWrite\", \"dbAdmin\" ]});\nEOF\n}\nset -e\nif [ ! -z \"$MONGO_INITDB_ROOT_USERNAME\" ] && [ ! -z \"$MONGO_INITDB_ROOT_PASSWORD\" ] && [ ! -z \"$MONGO_INITDB_DATABASE\" ] && [ ! -z \"$USERDB_USER\" ] && [ ! -z \"$USERDB_PASSWORD\" ]; then\n  create_user\nfi",
+      "init.sh": "#!/bin/sh\necho \"Start initialization\"\necho \"Copy init-userdb script\"\ncp /initscripts/01-init-userdb.sh /scripts\nif [ -d /extrascripts ]; then\n  echo \"Copy extra scripts\"\n  cp /extrascripts/* /scripts\nfi\nif [ -d /customconfig ]; then\n  echo \"Create custom mongodb config\"\n  cat /customconfig/* >>/configs/custom.conf\nfi\nif [ -d /extraconfigs ]; then\n  echo \"Add extra configs to custom mongodb config\"\n  cat /extraconfigs/* >>/configs/custom.conf\nfi\necho \"Initialization done.\"\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-mongodb-internal",
+      "labels": {
+        "helm.sh/chart": "mongodb-0.4.6",
+        "app.kubernetes.io/name": "mongodb",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "5.0.8",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "ports": [
+        {
+          "port": 27017,
+          "targetPort": "mongodb",
+          "protocol": "TCP",
+          "name": "mongodb"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "mongodb",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-mongodb",
+      "labels": {
+        "helm.sh/chart": "mongodb-0.4.6",
+        "app.kubernetes.io/name": "mongodb",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "5.0.8",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 27017,
+          "targetPort": "mongodb",
+          "protocol": "TCP",
+          "name": "mongodb"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "mongodb",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-mongodb",
+      "labels": {
+        "helm.sh/chart": "mongodb-0.4.6",
+        "app.kubernetes.io/name": "mongodb",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "5.0.8",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "mongodb",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "serviceName": "release-name-mongodb-internal",
+      "podManagementPolicy": "OrderedReady",
+      "replicas": 1,
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/customconfig": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+            "checksum/secureconfig": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+            "checksum/scripts": "2228ab0e015e2ff24c1575da8e32e888d5a4c0a1bc505bc884ba51421ae1cd86"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "mongodb",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "securityContext": {
+            "fsGroup": 999
+          },
+          "initContainers": [
+            {
+              "name": "mongodb-init",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "privileged": false,
+                "readOnlyRootFilesystem": true,
+                "runAsGroup": 999,
+                "runAsNonRoot": true,
+                "runAsUser": 999
+              },
+              "image": "mongo:5.0.8",
+              "imagePullPolicy": "IfNotPresent",
+              "volumeMounts": [
+                {
+                  "mountPath": "/initscripts",
+                  "name": "initscripts"
+                },
+                {
+                  "mountPath": "/scripts",
+                  "name": "scripts"
+                },
+                {
+                  "mountPath": "/configs",
+                  "name": "configs"
+                }
+              ],
+              "command": [
+                "/initscripts/init.sh"
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "mongodb",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "privileged": false,
+                "readOnlyRootFilesystem": true,
+                "runAsGroup": 999,
+                "runAsNonRoot": true,
+                "runAsUser": 11593,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "image": "mongo:5.0.8",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "mongodb",
+                  "containerPort": 27017,
+                  "protocol": "TCP"
+                }
+              ],
+              "startupProbe": {
+                "exec": {
+                  "command": [
+                    "mongo",
+                    "--eval",
+                    "db.adminCommand('ping')"
+                  ]
+                },
+                "initialDelaySeconds": 10,
+                "timeoutSeconds": 5,
+                "failureThreshold": 30,
+                "successThreshold": 1,
+                "periodSeconds": 10
+              },
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "mongo",
+                    "--eval",
+                    "db.adminCommand('ping')"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 5,
+                "periodSeconds": 10,
+                "failureThreshold": 3,
+                "successThreshold": 1
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "mongo",
+                    "--eval",
+                    "db.adminCommand('ping')"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 5,
+                "periodSeconds": 10,
+                "failureThreshold": 3,
+                "successThreshold": 1
+              },
+              "envFrom": null,
+              "args": null,
+              "volumeMounts": [
+                {
+                  "name": "tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "mongodb-volume",
+                  "mountPath": "/data/db"
+                },
+                {
+                  "mountPath": "/docker-entrypoint-initdb.d",
+                  "name": "scripts"
+                },
+                {
+                  "mountPath": "/etc/mongo",
+                  "name": "configs"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "tmp",
+              "emptyDir": {}
+            },
+            {
+              "name": "scripts",
+              "emptyDir": {}
+            },
+            {
+              "name": "configs",
+              "emptyDir": {}
+            },
+            {
+              "name": "initscripts",
+              "configMap": {
+                "name": "release-name-mongodb-scripts",
+                "defaultMode": 365
+              }
+            },
+            {
+              "name": "mongodb-volume",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,1010 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mongodb
+  namespace: T0j9QhExtwbG
+  labels:
+    app.kubernetes.io/name: mongodb
+    helm.sh/chart: mongodb-10.23.13
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+secrets:
+  - name: mongodb
+---
+apiVersion: v1
+kind: ServiceAccount
+automountServiceAccountToken: true
+metadata:
+  name: redis
+  namespace: T0j9QhExtwbG
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-14.7.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-dependabot-gitlab
+  namespace: T0j9QhExtwbG
+  labels:
+    helm.sh/chart: dependabot-gitlab-0.0.106
+    app.kubernetes.io/name: dependabot-gitlab
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.10.8
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mongodb
+  namespace: T0j9QhExtwbG
+  labels:
+    app.kubernetes.io/name: mongodb
+    helm.sh/chart: mongodb-10.23.13
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: mongodb
+type: Opaque
+data:
+  mongodb-root-password: cW9venJVMDJ6NQ==
+  mongodb-password: bW9uZ29kYi1wYXNzd29yZA==
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: redis
+  namespace: T0j9QhExtwbG
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-14.7.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+  redis-password: cmVkaXMtcGFzc3dvcmQ=
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-dependabot-gitlab
+data:
+  SETTINGS__GITLAB_ACCESS_TOKEN: dGVzdA==
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-configuration
+  namespace: T0j9QhExtwbG
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-14.7.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  redis.conf: |-
+    # User-supplied common configuration:
+    # Enable AOF https://redis.io/topics/persistence#append-only-file
+    appendonly yes
+    # Disable RDB persistence, AOF persistence already enabled.
+    save ""
+    # End of common configuration
+  master.conf: |-
+    dir /data
+    # User-supplied master configuration:
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+    # End of master configuration
+  replica.conf: |-
+    dir /data
+    slave-read-only yes
+    # User-supplied replica configuration:
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+    # End of replica configuration
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-health
+  namespace: T0j9QhExtwbG
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-14.7.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  ping_readiness_local.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    export REDISCLI_AUTH="$REDIS_PASSWORD"
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_local.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    export REDISCLI_AUTH="$REDIS_PASSWORD"
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$response" != "PONG" ] && [ "$response" != "LOADING Redis is loading the dataset in memory" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_master.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD="$(< "${REDIS_MASTER_PASSWORD_FILE}")"
+    export REDISCLI_AUTH="$REDIS_MASTER_PASSWORD"
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_master.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD="$(< "${REDIS_MASTER_PASSWORD_FILE}")"
+    export REDISCLI_AUTH="$REDIS_MASTER_PASSWORD"
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$response" != "PONG" ] && [ "$response" != "LOADING Redis is loading the dataset in memory" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_readiness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_readiness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+  ping_liveness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_liveness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_liveness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-scripts
+  namespace: T0j9QhExtwbG
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-14.7.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  start-master.sh: |
+    #!/bin/bash
+
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    if [[ ! -f /opt/bitnami/redis/etc/master.conf ]];then
+        cp /opt/bitnami/redis/mounted-etc/master.conf /opt/bitnami/redis/etc/master.conf
+    fi
+    if [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then
+        cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf
+    fi
+    ARGS=("--port" "${REDIS_PORT}")
+    ARGS+=("--requirepass" "${REDIS_PASSWORD}")
+    ARGS+=("--masterauth" "${REDIS_PASSWORD}")
+    ARGS+=("--include" "/opt/bitnami/redis/etc/redis.conf")
+    ARGS+=("--include" "/opt/bitnami/redis/etc/master.conf")
+    exec redis-server "${ARGS[@]}"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-dependabot-gitlab
+data:
+  RAILS_ENV: production
+  RAILS_SERVE_STATIC_FILES: "true"
+  SECRET_KEY_BASE: key
+  PORT: "3000"
+  SETTINGS__GITLAB_URL: https://gitlab.com
+  SETTINGS__UPDATE_RETRY: "2"
+  SETTINGS__LOG_LEVEL: info
+  SETTINGS__METRICS: "false"
+  SETTINGS__PROJECT_REGISTRATION: manual
+  REDIS_URL: redis://redis-master.default.svc.cluster.local
+  MONGODB_DATABASE: dependabot_gitab
+  MONGODB_USER: dependabot-gitlab
+  MONGODB_URL: mongodb.default.svc.cluster.local:27017
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: mongodb
+  namespace: default
+  labels:
+    app.kubernetes.io/name: mongodb
+    helm.sh/chart: mongodb-10.23.13
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: mongodb
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 8Gi
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-dependabot-gitlab-role
+  namespace: T0j9QhExtwbG
+  labels:
+    helm.sh/chart: dependabot-gitlab-0.0.106
+    app.kubernetes.io/name: dependabot-gitlab
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.10.8
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-dependabot-gitlab-binding
+  namespace: T0j9QhExtwbG
+  labels:
+    helm.sh/chart: dependabot-gitlab-0.0.106
+    app.kubernetes.io/name: dependabot-gitlab
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.10.8
+    app.kubernetes.io/managed-by: Helm
+subjects:
+  - kind: ServiceAccount
+    name: release-name-dependabot-gitlab
+roleRef:
+  kind: Role
+  name: release-name-dependabot-gitlab-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb
+  namespace: T0j9QhExtwbG
+  labels:
+    app.kubernetes.io/name: mongodb
+    helm.sh/chart: mongodb-10.23.13
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: mongodb
+spec:
+  type: ClusterIP
+  ports:
+    - name: mongodb
+      port: 27017
+      targetPort: mongodb
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: mongodb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: mongodb
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-headless
+  namespace: T0j9QhExtwbG
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-14.7.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: tcp-redis
+      port: 6379
+      targetPort: redis
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-master
+  namespace: T0j9QhExtwbG
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-14.7.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: master
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-redis
+      port: 6379
+      targetPort: redis
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: master
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-dependabot-gitlab
+  labels:
+    app.kubernetes.io/component: web
+    helm.sh/chart: dependabot-gitlab-0.0.106
+    app.kubernetes.io/name: dependabot-gitlab
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.10.8
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/component: web
+    app.kubernetes.io/name: dependabot-gitlab
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb
+  namespace: T0j9QhExtwbG
+  labels:
+    app.kubernetes.io/name: mongodb
+    helm.sh/chart: mongodb-10.23.13
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: mongodb
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mongodb
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: mongodb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mongodb
+        helm.sh/chart: mongodb-10.23.13
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: mongodb
+    spec:
+      serviceAccountName: mongodb
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: mongodb
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: mongodb
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+        sysctls: []
+      containers:
+        - name: mongodb
+          image: docker.io/bitnami/mongodb:4.4.8-debian-10-r24
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 11795
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: MONGODB_USERNAME
+              value: dependabot-gitlab
+            - name: MONGODB_DATABASE
+              value: dependabot_gitab
+            - name: MONGODB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb
+                  key: mongodb-password
+            - name: MONGODB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb
+                  key: mongodb-root-password
+            - name: ALLOW_EMPTY_PASSWORD
+              value: "no"
+            - name: MONGODB_SYSTEM_LOG_VERBOSITY
+              value: "0"
+            - name: MONGODB_DISABLE_SYSTEM_LOG
+              value: "no"
+            - name: MONGODB_DISABLE_JAVASCRIPT
+              value: "no"
+            - name: MONGODB_ENABLE_JOURNAL
+              value: "yes"
+            - name: MONGODB_ENABLE_IPV6
+              value: "no"
+            - name: MONGODB_ENABLE_DIRECTORY_PER_DB
+              value: "no"
+          ports:
+            - name: mongodb
+              containerPort: 27017
+          livenessProbe:
+            exec:
+              command:
+                - mongo
+                - --disableImplicitSessions
+                - --eval
+                - db.adminCommand('ping')
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - bash
+                - -ec
+                - |
+                  # Run the proper check depending on the version
+                  [[ $(mongo --version | grep "MongoDB shell") =~ ([0-9]+\.[0-9]+\.[0-9]+) ]] && VERSION=${BASH_REMATCH[1]}
+                  . /opt/bitnami/scripts/libversion.sh
+                  VERSION_MAJOR="$(get_sematic_version "$VERSION" 1)"
+                  VERSION_MINOR="$(get_sematic_version "$VERSION" 2)"
+                  VERSION_PATCH="$(get_sematic_version "$VERSION" 3)"
+                  if [[ "$VERSION_MAJOR" -ge 4 ]] && [[ "$VERSION_MINOR" -ge 4 ]] && [[ "$VERSION_PATCH" -ge 2 ]]; then
+                      mongo --disableImplicitSessions $TLS_OPTIONS --eval 'db.hello().isWritablePrimary || db.hello().secondary' | grep -q 'true'
+                  else
+                      mongo --disableImplicitSessions $TLS_OPTIONS --eval 'db.isMaster().ismaster || db.isMaster().secondary' | grep -q 'true'
+                  fi
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: datadir
+              mountPath: /bitnami/mongodb
+              subPath: null
+      volumes:
+        - name: datadir
+          persistentVolumeClaim:
+            claimName: mongodb
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-dependabot-gitlab-web
+  labels:
+    helm.sh/chart: dependabot-gitlab-0.0.106
+    app.kubernetes.io/name: dependabot-gitlab
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.10.8
+    app.kubernetes.io/managed-by: Helm
+spec:
+  strategy:
+    type: RollingUpdate
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dependabot-gitlab
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dependabot-gitlab
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/component: web
+      annotations:
+        checksum/secrets: 19cfd21f50367aafebaffdc895cb98a74e846da50e8cdfa2c740371aa5d7a886
+        checksum/config: ac0ef2ae06de7dd52ce6550d07bd836d3f3e416a17c475d30b60a1c326d787ef
+        checksum/redis-password: 543bba2743240902315c1273a1f54bc0f4ad031560927357939c43c6f4dd5011
+        checksum/mongodb-password: c10ea620110c94c69a472e8038944c954a9f53fbb4a6797d7ef31ed2a3401db9
+    spec:
+      serviceAccountName: release-name-dependabot-gitlab
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsUser: 1000
+      initContainers:
+        - name: wait-migrations
+          image: docker.io/andrcuns/dependabot-gitlab:0.10.8
+          imagePullPolicy: IfNotPresent
+          args:
+            - rake
+            - dependabot:check_migrations
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis
+                  key: redis-password
+            - name: MONGODB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb
+                  key: mongodb-password
+          envFrom:
+            - configMapRef:
+                name: release-name-dependabot-gitlab
+            - secretRef:
+                name: release-name-dependabot-gitlab
+        - name: wait-redis
+          image: docker.io/andrcuns/dependabot-gitlab:0.10.8
+          imagePullPolicy: IfNotPresent
+          args:
+            - rake
+            - dependabot:check_redis
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis
+                  key: redis-password
+            - name: MONGODB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb
+                  key: mongodb-password
+          envFrom:
+            - configMapRef:
+                name: release-name-dependabot-gitlab
+            - secretRef:
+                name: release-name-dependabot-gitlab
+      containers:
+        - name: dependabot-gitlab-web
+          image: docker.io/andrcuns/dependabot-gitlab:0.10.8
+          imagePullPolicy: IfNotPresent
+          args:
+            - rails
+            - server
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis
+                  key: redis-password
+            - name: MONGODB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb
+                  key: mongodb-password
+          envFrom:
+            - configMapRef:
+                name: release-name-dependabot-gitlab
+            - secretRef:
+                name: release-name-dependabot-gitlab
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: http
+            failureThreshold: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+          startupProbe:
+            httpGet:
+              path: /healthcheck
+              port: http
+            failureThreshold: 12
+            periodSeconds: 10
+            timeoutSeconds: 3
+            initialDelaySeconds: 10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-dependabot-gitlab-worker
+  labels:
+    helm.sh/chart: dependabot-gitlab-0.0.106
+    app.kubernetes.io/name: dependabot-gitlab
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.10.8
+    app.kubernetes.io/managed-by: Helm
+spec:
+  strategy:
+    type: RollingUpdate
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dependabot-gitlab
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dependabot-gitlab
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/component: worker
+      annotations:
+        checksum/secrets: 19cfd21f50367aafebaffdc895cb98a74e846da50e8cdfa2c740371aa5d7a886
+        checksum/config: ac0ef2ae06de7dd52ce6550d07bd836d3f3e416a17c475d30b60a1c326d787ef
+        checksum/redis-password: 543bba2743240902315c1273a1f54bc0f4ad031560927357939c43c6f4dd5011
+        checksum/mongodb-password: c10ea620110c94c69a472e8038944c954a9f53fbb4a6797d7ef31ed2a3401db9
+    spec:
+      serviceAccountName: release-name-dependabot-gitlab
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsUser: 1000
+      initContainers:
+        - name: wait-migrations
+          image: docker.io/andrcuns/dependabot-gitlab:0.10.8
+          imagePullPolicy: IfNotPresent
+          args:
+            - rake
+            - dependabot:check_migrations
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis
+                  key: redis-password
+            - name: MONGODB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb
+                  key: mongodb-password
+          envFrom:
+            - configMapRef:
+                name: release-name-dependabot-gitlab
+            - secretRef:
+                name: release-name-dependabot-gitlab
+        - name: wait-redis
+          image: docker.io/andrcuns/dependabot-gitlab:0.10.8
+          imagePullPolicy: IfNotPresent
+          args:
+            - rake
+            - dependabot:check_redis
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis
+                  key: redis-password
+            - name: MONGODB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb
+                  key: mongodb-password
+          envFrom:
+            - configMapRef:
+                name: release-name-dependabot-gitlab
+            - secretRef:
+                name: release-name-dependabot-gitlab
+      containers:
+        - name: dependabot-gitlab-worker
+          image: docker.io/andrcuns/dependabot-gitlab:0.10.8
+          imagePullPolicy: IfNotPresent
+          args:
+            - sidekiq
+          env:
+            - name: SIDEKIQ_ALIVE_PORT
+              value: "7433"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis
+                  key: redis-password
+            - name: MONGODB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb
+                  key: mongodb-password
+          envFrom:
+            - configMapRef:
+                name: release-name-dependabot-gitlab
+            - secretRef:
+                name: release-name-dependabot-gitlab
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: 7433
+            failureThreshold: 2
+            periodSeconds: 120
+            timeoutSeconds: 3
+          startupProbe:
+            httpGet:
+              path: /healthcheck
+              port: 7433
+            failureThreshold: 12
+            periodSeconds: 5
+            timeoutSeconds: 3
+            initialDelaySeconds: 10
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - kube/sidekiq-quiet.sh
+      terminationGracePeriodSeconds: 300
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-master
+  namespace: T0j9QhExtwbG
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-14.7.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: master
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: master
+  serviceName: redis-headless
+  updateStrategy:
+    rollingUpdate: {}
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+        helm.sh/chart: redis-14.7.2
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: master
+      annotations:
+        checksum/configmap: 0346333fd00d19c964cff3261a51e68fc9b471b3993d787e40572ab2b7f1d835
+        checksum/health: e25f557379f73a7ccf70739df007d208e834dfdb8ee01e4b6c02ce90921190cc
+        checksum/scripts: 0208c3acc2e08f5024a2aa9bbef10ec2a4698e0f93b415fa5869aff7407cc7fa
+        checksum/secret: 46ac3635a09519d5d67480ca85184755c247d5ccdad1552df8a03040ab1a5ce8
+    spec:
+      securityContext:
+        fsGroup: 1001
+      serviceAccountName: redis
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: redis
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: master
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: redis
+          image: docker.io/bitnami/redis:6.2.4-debian-10-r13
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 10854
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          command:
+            - /bin/bash
+          args:
+            - -c
+            - /opt/bitnami/scripts/start-scripts/start-master.sh
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: REDIS_REPLICATION_MODE
+              value: master
+            - name: ALLOW_EMPTY_PASSWORD
+              value: "no"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis
+                  key: redis-password
+            - name: REDIS_TLS_ENABLED
+              value: "no"
+            - name: REDIS_PORT
+              value: "6379"
+          ports:
+            - name: redis
+              containerPort: 6379
+          livenessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 6
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_liveness_local.sh 5
+          readinessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 2
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_readiness_local.sh 1
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: start-scripts
+              mountPath: /opt/bitnami/scripts/start-scripts
+            - name: health
+              mountPath: /health
+            - name: redis-data
+              mountPath: /data
+              subPath: null
+            - name: config
+              mountPath: /opt/bitnami/redis/mounted-etc
+            - name: redis-tmp-conf
+              mountPath: /opt/bitnami/redis/etc/
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: start-scripts
+          configMap:
+            name: redis-scripts
+            defaultMode: 493
+        - name: health
+          configMap:
+            name: redis-health
+            defaultMode: 493
+        - name: config
+          configMap:
+            name: redis-configuration
+        - name: redis-tmp-conf
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+        labels:
+          app.kubernetes.io/name: redis
+          app.kubernetes.io/instance: release-name
+          app.kubernetes.io/component: master
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-dependabot-gitlab-migration-job
+  labels:
+    helm.sh/chart: dependabot-gitlab-0.0.106
+    app.kubernetes.io/name: dependabot-gitlab
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.10.8
+    app.kubernetes.io/managed-by: Helm
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 4
+  activeDeadlineSeconds: 180
+  template:
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsUser: 1000
+      initContainers:
+        - name: wait-db
+          image: docker.io/andrcuns/dependabot-gitlab:0.10.8
+          imagePullPolicy: IfNotPresent
+          args:
+            - rake
+            - dependabot:check_db
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis
+                  key: redis-password
+            - name: MONGODB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb
+                  key: mongodb-password
+          envFrom:
+            - configMapRef:
+                name: release-name-dependabot-gitlab
+            - secretRef:
+                name: release-name-dependabot-gitlab
+      containers:
+        - name: dependabot-gitlab-migration-job
+          image: docker.io/andrcuns/dependabot-gitlab:0.10.8
+          imagePullPolicy: IfNotPresent
+          args:
+            - rake
+            - db:migrate
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis
+                  key: redis-password
+            - name: MONGODB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb
+                  key: mongodb-password
+          envFrom:
+            - configMapRef:
+                name: release-name-dependabot-gitlab
+            - secretRef:
+                name: release-name-dependabot-gitlab
+      restartPolicy: Never

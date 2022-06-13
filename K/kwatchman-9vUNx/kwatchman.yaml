@@ -1,0 +1,113 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-kwatchman
+  labels:
+    app: kwatchman
+    chart: kwatchman-0.1.0
+    release: release-name
+    heritage: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-kwatchman
+  labels:
+    app: kwatchman
+    chart: kwatchman-0.1.0
+    release: release-name
+    heritage: Helm
+data:
+  config.yaml: |2
+    handler:
+    - name: diff
+    - name: log
+    resource:
+    - kind: deployment
+    - kind: service
+    - kind: statefulset
+    - kind: daemonset
+    - kind: ingress
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-kwatchman
+  labels:
+    app: kwatchman
+    chart: kwatchman-0.1.0
+    release: release-name
+    heritage: Helm
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-kwatchman
+  labels:
+    app: kwatchman
+    chart: kwatchman-0.1.0
+    release: release-name
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-kwatchman
+subjects:
+  - kind: ServiceAccount
+    name: release-name-kwatchman
+    namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-kwatchman
+  labels:
+    app.kubernetes.io/name: kwatchman
+    helm.sh/chart: kwatchman-0.1.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kwatchman
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config: 713a105bed6790a916d9a0c936c3e4dbb80d242bc303c3607e5845213354e4fe
+      labels:
+        app.kubernetes.io/name: kwatchman
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-kwatchman
+      containers:
+        - name: kwatchman
+          image: snebel29/kwatchman:latest
+          command:
+            - kwatchman
+          args:
+            - --config=/etc/kwatchman/config.yaml
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/kwatchman
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-kwatchman

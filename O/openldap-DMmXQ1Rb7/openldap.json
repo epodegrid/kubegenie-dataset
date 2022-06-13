@@ -1,0 +1,344 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-openldap-init",
+      "labels": {
+        "app": "openldap",
+        "chart": "openldap-0.1.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "stringData": null
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-openldap",
+      "labels": {
+        "name": "openldap",
+        "instance": "openldap",
+        "chart": "openldap-0.1.1",
+        "release": "release-name",
+        "heritage": "Helm",
+        "managed-by": "helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "LDAP_ADMIN_PASSWORD": "OHp3SFpUY2pUQzJ4R1hiYUdVTkEyektkRk1jZTRDZVo=",
+      "LDAP_CONFIG_PASSWORD": "SWVwYVBTM002MVZ5ZnQyM3VuSU9FUnFlRlV4ZGJsRkM="
+    },
+    "stringData": {
+      "LDAP_HOST": "release-name-openldap"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-openldap-env",
+      "labels": {
+        "app": "openldap",
+        "chart": "openldap-0.1.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "LDAP_BACKEND": "hdb",
+      "LDAP_DOMAIN": "example.org",
+      "LDAP_ORGANISATION": "Example Inc.",
+      "LDAP_REMOVE_CONFIG_AFTER_SETUP": "true",
+      "LDAP_TLS": "true",
+      "LDAP_TLS_ENFORCE": "false"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-openldap-init-script",
+      "labels": {
+        "app": "openldap",
+        "chart": "openldap-0.1.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "check_ready.sh": "#!/bin/bash\nUSER=\"cn=admin,dc=$(echo $LDAP_DOMAIN | sed s/\\\\./,dc=/g)\"\nuntil ldapwhoami -x -h $LDAP_HOST -D $USER -w $LDAP_ADMIN_PASSWORD; do echo waiting for ldap to be ready; sleep 2; done\n",
+      "init.sh": "#!/bin/bash\nUSER=\"cn=admin,dc=$(echo $LDAP_DOMAIN | sed s/\\\\./,dc=/g)\"\nfor file in $1\ndo\n  ldapadd -f $file -h $LDAP_HOST -w $LDAP_ADMIN_PASSWORD -D $USER || exit $?\ndone\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-openldap",
+      "labels": {
+        "app": "openldap",
+        "chart": "openldap-0.1.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "ldap",
+          "protocol": "TCP",
+          "port": 389,
+          "targetPort": "ldap"
+        },
+        {
+          "name": "ssl-ldap",
+          "protocol": "TCP",
+          "port": 636,
+          "targetPort": "ssl-ldap"
+        }
+      ],
+      "selector": {
+        "app": "openldap",
+        "release": "release-name"
+      },
+      "type": "ClusterIP"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-openldap",
+      "labels": {
+        "app": "openldap",
+        "chart": "openldap-0.1.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "openldap",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "openldap",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "openldap",
+              "image": "osixia/openldap:1.5.0",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "-l",
+                "info"
+              ],
+              "ports": [
+                {
+                  "name": "ldap",
+                  "containerPort": 389
+                },
+                {
+                  "name": "ssl-ldap",
+                  "containerPort": 636
+                }
+              ],
+              "envFrom": [
+                {
+                  "configMapRef": {
+                    "name": "release-name-openldap-env"
+                  }
+                },
+                {
+                  "secretRef": {
+                    "name": "release-name-openldap"
+                  }
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/var/lib/ldap",
+                  "subPath": "data"
+                },
+                {
+                  "name": "data",
+                  "mountPath": "/etc/ldap/slapd.d",
+                  "subPath": "config-data"
+                }
+              ],
+              "env": null,
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": "ldap"
+                },
+                "initialDelaySeconds": 20,
+                "periodSeconds": 10,
+                "failureThreshold": 10
+              },
+              "readinessProbe": {
+                "tcpSocket": {
+                  "port": "ldap"
+                },
+                "initialDelaySeconds": 20,
+                "periodSeconds": 10,
+                "failureThreshold": 10
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "certs",
+              "emptyDir": {
+                "medium": "Memory"
+              }
+            },
+            {
+              "name": "data",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+      "name": "init-ldap",
+      "labels": {
+        "app": "openldap",
+        "chart": "openldap-0.1.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "template": {
+        "spec": {
+          "initContainers": [
+            {
+              "name": "lookup-release-name-openldap",
+              "image": "busybox:1.28",
+              "command": [
+                "sh",
+                "-c",
+                "until nslookup release-name-openldap.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local; do echo waiting for ldap; sleep 2; done"
+              ]
+            },
+            {
+              "name": "wait-ready-release-name-openldap",
+              "image": "osixia/openldap:1.5.0",
+              "command": [
+                "sh",
+                "/init/check_ready.sh"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "init-script",
+                  "mountPath": "/init",
+                  "readOnly": true
+                }
+              ],
+              "envFrom": [
+                {
+                  "configMapRef": {
+                    "name": "release-name-openldap-env"
+                  }
+                },
+                {
+                  "secretRef": {
+                    "name": "release-name-openldap"
+                  }
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "ldapadd",
+              "image": "osixia/openldap:1.5.0",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/init/script/init.sh"
+              ],
+              "args": [
+                "/init/files"
+              ],
+              "envFrom": [
+                {
+                  "configMapRef": {
+                    "name": "release-name-openldap-env"
+                  }
+                },
+                {
+                  "secretRef": {
+                    "name": "release-name-openldap"
+                  }
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "init",
+                  "mountPath": "/init"
+                },
+                {
+                  "name": "init-files",
+                  "mountPath": "/init/files",
+                  "readOnly": true
+                },
+                {
+                  "name": "init-script",
+                  "mountPath": "/init/script",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "init-script",
+              "configMap": {
+                "name": "release-name-openldap-init-script",
+                "defaultMode": 511
+              }
+            },
+            {
+              "name": "init-files",
+              "secret": {
+                "secretName": "release-name-openldap-init"
+              }
+            },
+            {
+              "name": "init",
+              "emptyDir": {}
+            }
+          ],
+          "restartPolicy": "OnFailure"
+        }
+      },
+      "backoffLimit": 4
+    }
+  },
+  null,
+  null,
+  null
+]

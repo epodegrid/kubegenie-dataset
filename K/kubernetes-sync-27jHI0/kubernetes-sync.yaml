@@ -1,0 +1,114 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: opslevel-sync
+  labels:
+    helm.sh/chart: kubernetes-sync-0.5.6
+    app.kubernetes.io/name: kubernetes-sync
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.02.25
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    opslevel.com/description: A tool that enables you to import & reconcile services with OpsLevel from your Kubernetes clusters.
+    opslevel.com/framework: client-go
+    opslevel.com/language: go
+    opslevel.com/tags.app_version: v0.6.3
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-kubernetes-sync
+  labels:
+    helm.sh/chart: kubernetes-sync-0.5.6
+    app.kubernetes.io/name: kubernetes-sync
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.02.25
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    opslevel.com/description: A tool that enables you to import & reconcile services with OpsLevel from your Kubernetes clusters.
+    opslevel.com/framework: client-go
+    opslevel.com/language: go
+    opslevel.com/tags.app_version: v0.6.3
+data:
+  opslevel-k8s.yaml: "\nversion: \"1.1.0\"\nservice:\n  import:\n    - selector: # This limits what data we look at in Kubernetes\n        apiVersion: apps/v1 # only supports resources found in 'kubectl api-resources --verbs=\"get,list\"'\n        kind: Deployment\n        excludes: # filters out resources if any expression returns truthy\n          - .metadata.namespace == \"kube-system\"\n          - .metadata.namespace == \"local-path-storage\"\n          - .metadata.annotations.\"opslevel.com/ignore\"\n      opslevel: # This is how you map your kubernetes data to opslevel service\n        name: .metadata.name\n        description: .metadata.annotations.\"opslevel.com/description\"\n        owner: .metadata.annotations.\"opslevel.com/owner\"\n        lifecycle: .metadata.annotations.\"opslevel.com/lifecycle\"\n        tier: .metadata.annotations.\"opslevel.com/tier\"\n        product: .metadata.annotations.\"opslevel.com/product\"\n        language: .metadata.annotations.\"opslevel.com/language\"\n        framework: .metadata.annotations.\"opslevel.com/framework\"\n        aliases: # This are how we identify the services again during reconciliation - please make sure they are very unique\n          - '\"k8s:\\(.metadata.name)-\\(.metadata.namespace)\"'\n        tags:\n          assign: # tag with the same key name but with a different value will be updated on the service\n            - '{\"imported\": \"kubectl-opslevel\"}'\n            - .metadata.labels\n            # find annoations with format: opslevel.com/tags.<key name>: <value>\n            - '.metadata.annotations | to_entries |  map(select(.key | startswith(\"opslevel.com/tags\"))) | map({(.key | split(\".\")[2]): .value})'\n          create: # tag with the same key name but with a different value with be added to the service\n            - '{\"environment\": .metadata.labels.environment}'\n        tools:\n          # find annotations with format: opslevel.com/tools.<category>.<displayname>: <url> \n          - '.metadata.annotations | to_entries |  map(select(.key | startswith(\"opslevel.com/tools\"))) | map({\"category\": .key | split(\".\")[2], \"displayName\": .key | split(\".\")[3], \"url\": .value})'\n        repositories: # attach repositories to the service using the opslevel repo alias - IE github.com:hashicorp/vault\n          # find annotations with format: opslevel.com/repo.<displayname>.<repo.subpath.dots.turned.to.forwardslash>: <opslevel repo alias> \n          - '.metadata.annotations | to_entries |  map(select(.key | startswith(\"opslevel.com/repos\"))) | map({\"name\": .key | split(\".\")[2], \"directory\": .key | split(\".\")[3:] | join(\"/\"), \"repo\": .value})'"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-kubernetes-sync
+rules:
+  - apiGroups:
+      - ""
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sync
+subjects:
+  - kind: ServiceAccount
+    name: opslevel-sync
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: release-name-kubernetes-sync
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-kubernetes-sync
+  labels:
+    helm.sh/chart: kubernetes-sync-0.5.6
+    app.kubernetes.io/name: kubernetes-sync
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.02.25
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    opslevel.com/description: A tool that enables you to import & reconcile services with OpsLevel from your Kubernetes clusters.
+    opslevel.com/framework: client-go
+    opslevel.com/language: go
+    opslevel.com/tags.app_version: v0.6.3
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubernetes-sync
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: kubernetes-sync-0.5.6
+        app.kubernetes.io/name: kubernetes-sync
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/version: 2022.02.25
+        app.kubernetes.io/managed-by: Helm
+      annotations:
+        checksum/config: 64b1e83f0e726593b9d9db557fa746a7ede40d1b89ad7aa552b3bea45cf93f00
+    spec:
+      serviceAccountName: opslevel-sync
+      initContainers: null
+      containers:
+        - name: kubernetes-sync
+          image: public.ecr.aws/opslevel/kubectl-opslevel:v2022.02.25
+          imagePullPolicy: IfNotPresent
+          args:
+            - service
+            - reconcile
+          envFrom:
+            - secretRef:
+                name: opslevel-api-token
+                optional: true
+          volumeMounts:
+            - name: config
+              mountPath: /app
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-kubernetes-sync

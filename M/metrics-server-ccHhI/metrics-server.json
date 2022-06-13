@@ -1,0 +1,147 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-metrics-server",
+      "labels": {
+        "app": "metrics-server",
+        "chart": "metrics-server-0.0.8",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1beta1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "release-name-metrics-server-auth-reader",
+      "namespace": "kube-system",
+      "labels": {
+        "app": "metrics-server",
+        "chart": "metrics-server-0.0.8",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "extension-apiserver-authentication-reader"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-metrics-server",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-metrics-server",
+      "labels": {
+        "app": "metrics-server",
+        "chart": "metrics-server-0.0.8",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "port": 443,
+          "protocol": "TCP",
+          "targetPort": 443
+        }
+      ],
+      "selector": {
+        "app": "metrics-server",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-metrics-server",
+      "labels": {
+        "app": "metrics-server",
+        "chart": "metrics-server-0.0.8",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "metrics-server",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "metrics-server",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-metrics-server",
+          "volumes": [
+            {
+              "name": "tmp-dir",
+              "emptyDir": {}
+            }
+          ],
+          "containers": [
+            {
+              "name": "metrics-server",
+              "command": [
+                "/metrics-server",
+                "--kubelet-insecure-tls",
+                "--kubelet-preferred-address-types=InternalIP"
+              ],
+              "image": "k8s.gcr.io/metrics-server-amd64:v0.3.1",
+              "imagePullPolicy": "IfNotPresent",
+              "volumeMounts": [
+                {
+                  "name": "tmp-dir",
+                  "mountPath": "/tmp"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apiregistration.k8s.io/v1beta1",
+    "kind": "APIService",
+    "metadata": {
+      "name": "v1beta1.metrics.k8s.io",
+      "labels": {
+        "app": "metrics-server",
+        "chart": "metrics-server-0.0.8",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "service": {
+        "name": "release-name-metrics-server",
+        "namespace": "default"
+      },
+      "group": "metrics.k8s.io",
+      "version": "v1beta1",
+      "insecureSkipTLSVerify": true,
+      "groupPriorityMinimum": 100,
+      "versionPriority": 100
+    }
+  }
+]

@@ -1,0 +1,137 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-rds-exporter
+  labels:
+    helm.sh/chart: rds-exporter-0.0.2
+    app.kubernetes.io/name: rds-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.0.2
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-rds-exporter
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - services
+      - namespaces
+    verbs:
+      - get
+      - watch
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-rds-exporter
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-rds-exporter
+subjects:
+  - kind: ServiceAccount
+    name: release-name-rds-exporter
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-rds-exporter
+  labels:
+    helm.sh/chart: rds-exporter-0.0.2
+    app.kubernetes.io/name: rds-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.0.2
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: rds-exporter
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-rds-exporter-proxy
+  labels:
+    helm.sh/chart: rds-exporter-0.0.2
+    app.kubernetes.io/name: rds-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.0.2
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rds-exporter
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rds-exporter
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-rds-exporter
+      securityContext: {}
+      containers:
+        - name: rds-exporter
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: garugaru/aws-cloudwatch-exporter:latest
+          imagePullPolicy: Always
+          args:
+            - --cloudwatch-namespace=AWS/RDS
+          ports:
+            - name: http
+              containerPort: 9999
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: release-name-rds-exporter
+  labels:
+    helm.sh/chart: rds-exporter-0.0.2
+    app.kubernetes.io/name: rds-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.0.2
+    app.kubernetes.io/managed-by: Helm
+spec:
+  namespaceSelector:
+    matchNames:
+      - default
+  selector:
+    matchLabels:
+      helm.sh/chart: rds-exporter-0.0.2
+      app.kubernetes.io/name: rds-exporter
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/version: 0.0.2
+      app.kubernetes.io/managed-by: Helm
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 5s

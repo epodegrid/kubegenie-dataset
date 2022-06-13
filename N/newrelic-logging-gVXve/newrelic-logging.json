@@ -1,0 +1,92 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "namespace": "gVXve",
+      "labels": {
+        "app": "newrelic-logging",
+        "chart": "newrelic-logging-1.10.11",
+        "heritage": "Helm",
+        "release": "release-name"
+      },
+      "annotations": null,
+      "name": "release-name-newrelic-logging"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "namespace": "gVXve",
+      "labels": {
+        "app": "newrelic-logging",
+        "chart": "newrelic-logging-1.10.11",
+        "heritage": "Helm",
+        "release": "release-name",
+        "app.kubernetes.io/name": "newrelic-logging"
+      },
+      "name": "release-name-newrelic-logging-fluent-bit-config"
+    },
+    "data": {
+      "fluent-bit.conf": "[SERVICE]\n    Flush         1\n    Log_Level     ${LOG_LEVEL}\n    Daemon        off\n    Parsers_File  parsers.conf\n    HTTP_Server   On\n    HTTP_Listen   0.0.0.0\n    HTTP_Port     2020\n\n[INPUT]\n    Name              tail\n    Tag               kube.*\n    Path              ${PATH}\n    Parser            ${LOG_PARSER}\n    DB                ${FB_DB}\n    Mem_Buf_Limit     7MB\n    Skip_Long_Lines   On\n    Refresh_Interval  10\n\n[FILTER]\n    Name                kubernetes\n    Match               kube.*\n    # We need the full DNS suffix as Windows only supports resolving names with this suffix\n    # See: https://kubernetes.io/docs/setup/production-environment/windows/intro-windows-in-kubernetes/#dns-limitations\n    Kube_URL            https://kubernetes.default.svc.cluster.local:443\n    Buffer_Size         ${K8S_BUFFER_SIZE}\n    K8S-Logging.Exclude ${K8S_LOGGING_EXCLUDE}\n\n[FILTER]\n    Name           record_modifier\n    Match          *\n    Record         cluster_name ${CLUSTER_NAME}\n\n[OUTPUT]\n    Name           newrelic\n    Match          *\n    licenseKey     ${LICENSE_KEY}\n    endpoint       ${ENDPOINT}\n    lowDataMode    ${LOW_DATA_MODE}\n",
+      "parsers.conf": "[PARSER]\n    Name         docker\n    Format       json\n    Time_Key     time\n    Time_Format  %Y-%m-%dT%H:%M:%S.%L\n    Time_Keep    On\n\n[PARSER]\n    Name cri\n    Format regex\n    Regex ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<message>.*)$\n    Time_Key    time\n    Time_Format %Y-%m-%dT%H:%M:%S.%L%z\n"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "labels": {
+        "app": "newrelic-logging",
+        "chart": "newrelic-logging-1.10.11",
+        "heritage": "Helm",
+        "release": "release-name",
+        "app.kubernetes.io/name": "newrelic-logging"
+      },
+      "name": "release-name-newrelic-logging"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "namespaces",
+          "pods"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "labels": {
+        "app": "newrelic-logging",
+        "chart": "newrelic-logging-1.10.11",
+        "heritage": "Helm",
+        "release": "release-name",
+        "app.kubernetes.io/name": "newrelic-logging"
+      },
+      "name": "release-name-newrelic-logging"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "release-name-newrelic-logging"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-newrelic-logging",
+        "namespace": "default"
+      }
+    ]
+  }
+]

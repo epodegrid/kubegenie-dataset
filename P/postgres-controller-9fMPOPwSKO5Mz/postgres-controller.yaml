@@ -1,0 +1,172 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    helm.sh/chart: postgres-controller-1.2
+    app.kubernetes.io/name: postgres-controller
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "0.5"
+    app.kubernetes.io/managed-by: Helm
+  name: release-name-postgres-controller
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    helm.sh/chart: postgres-controller-1.2
+    app.kubernetes.io/name: postgres-controller
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "0.5"
+    app.kubernetes.io/managed-by: Helm
+  name: release-name-postgres-controller
+data:
+  postgres-controller.yaml: |
+    postgres_instances:
+      default:
+        host: hostname
+        password: postgres
+        port: 5432
+        user: postgres
+---
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: pgdatabases.postgresql.org
+  labels:
+    helm.sh/chart: postgres-controller-1.2
+    app.kubernetes.io/name: postgres-controller
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "0.5"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  group: postgresql.org
+  versions:
+    - name: v1
+      served: true
+      storage: true
+  scope: Namespaced
+  names:
+    plural: pgdatabases
+    singular: pgdatabase
+    kind: PostgresDatabase
+    shortNames:
+      - pgdb
+  additionalPrinterColumns:
+    - name: DBNAME
+      type: string
+      description: The name of the database
+      JSONPath: .spec.dbName
+  validation:
+    openAPIV3Schema:
+      properties:
+        spec:
+          required:
+            - dbName
+            - dbRoleName
+            - dbRolePassword
+          properties:
+            dbName:
+              type: string
+            dbRoleName:
+              type: string
+            dbRolePassword:
+              type: string
+            dbInstanceId:
+              type: string
+            dbExtensions:
+              type: array
+              items:
+                type: string
+            extraSQL:
+              type: string
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    helm.sh/chart: postgres-controller-1.2
+    app.kubernetes.io/name: postgres-controller
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "0.5"
+    app.kubernetes.io/managed-by: Helm
+  name: release-name-postgres-controller
+rules:
+  - apiGroups:
+      - postgresql.org
+    resources:
+      - pgdatabases
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+      - deletecollection
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    helm.sh/chart: postgres-controller-1.2
+    app.kubernetes.io/name: postgres-controller
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "0.5"
+    app.kubernetes.io/managed-by: Helm
+  name: release-name-postgres-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-postgres-controller
+subjects:
+  - kind: ServiceAccount
+    name: release-name-postgres-controller
+    namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-postgres-controller
+  labels:
+    helm.sh/chart: postgres-controller-1.2
+    app.kubernetes.io/name: postgres-controller
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "0.5"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres-controller
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config: d6b36c0c9a0d891c972ef5af27f7ae10174106848009596be2954de353cb10bf
+      labels:
+        app.kubernetes.io/name: postgres-controller
+        app.kubernetes.io/instance: release-name
+        app: postgres-controller
+        release: release-name
+    spec:
+      serviceAccountName: release-name-postgres-controller
+      containers:
+        - name: postgres-controller
+          image: maxrocketinternet/postgres-controller:0.5
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CONFIG_FILE
+              value: /config/postgres-controller.yaml
+            - name: LOG_LEVEL
+              value: info
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: config
+              mountPath: /config
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-postgres-controller

@@ -1,0 +1,111 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "signon-secrets-bootstrapper",
+      "namespace": "apps"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "namespace": "apps",
+      "name": "signon-secret-manager"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "secrets"
+        ],
+        "verbs": [
+          "get",
+          "create",
+          "patch",
+          "update"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "signon-secret-manager-binding"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "signon-secret-manager"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "signon-secrets-bootstrapper"
+      }
+    ]
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+      "name": "bootstrap-signon-resources-78827271"
+    },
+    "spec": {
+      "template": {
+        "metadata": {
+          "name": "bootstrap-signon-resources"
+        },
+        "spec": {
+          "restartPolicy": "Never",
+          "serviceAccountName": "signon-secrets-bootstrapper",
+          "containers": [
+            {
+              "name": "bootstrap-signon-resources",
+              "image": "govuk/signon-bootstrap:0.0.14",
+              "command": [
+                "bundle"
+              ],
+              "args": [
+                "exec",
+                "rake",
+                "bootstrap:signon"
+              ],
+              "env": [
+                {
+                  "name": "SIGNON_AUTH_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "signon-auth-token",
+                      "key": "token"
+                    }
+                  }
+                },
+                {
+                  "name": "APPLICATIONS",
+                  "value": "{\n  \"content-store\": {\n    \"name\": \"Content Store\",\n    \"slug\": \"content-store\",\n    \"secret_name\": \"signon-app-content-store\",\n    \"description\": \"Central store for current live content on GOV.UK\",\n    \"home_uri\": \"https://content-store.test.govuk.digital\",\n    \"redirect_uri\": \"https://content-store.test.govuk.digital/auth/gds/callback\",\n    \"permissions\": []\n  },\n  \"router-api\": {\n    \"name\": \"Router API\",\n    \"slug\": \"router-api\",\n    \"secret_name\": \"signon-app-router-api\",\n    \"description\": \"Manages the Router database\",\n    \"home_uri\": \"https://router-api.test.govuk.digital\",\n    \"redirect_uri\": \"https://router-api.test.govuk.digital/auth/gds/callback\",\n    \"permissions\": []\n  },\n  \"asset-manager\": {\n    \"name\": \"Asset Manager\",\n    \"slug\": \"asset-manager\",\n    \"secret_name\": \"signon-app-asset-manager\",\n    \"description\": \"Manages assets\",\n    \"home_uri\": \"https://asset-manager.test.govuk.digital\",\n    \"redirect_uri\": \"https://asset-manager.test.govuk.digital/auth/gds/callback\",\n    \"permissions\": []\n  },\n  \"link-checker-api\": {\n    \"name\": \"Link Checker API\",\n    \"slug\": \"link-checker-api\",\n    \"secret_name\": \"signon-app-link-checker-api\",\n    \"description\": \"Checks links\",\n    \"home_uri\": \"https://link-checker-api.test.govuk.digital\",\n    \"redirect_uri\": \"https://link-checker-api.test.govuk.digital/auth/gds/callback\",\n    \"permissions\": []\n  },\n  \"publisher-eks\": {\n    \"name\": \"Publisher [EKS]\",\n    \"slug\": \"publisher-eks\",\n    \"secret_name\": \"signon-app-publisher-eks\",\n    \"description\": \"Mainstream publishing application\",\n    \"home_uri\": \"https://publisher.eks.test.govuk.digital\",\n    \"redirect_uri\": \"https://publisher.eks.test.govuk.digital/auth/gds/callback\",\n    \"permissions\": [\"view_all\"]\n  },\n  \"publishing-api\": {\n    \"name\": \"Publishing API\",\n    \"slug\": \"publishing-api\",\n    \"secret_name\": \"signon-app-publishing-api\",\n    \"description\": \"Central store for all publishing content on GOV.UK\",\n    \"home_uri\": \"https://publishing-api.test.govuk.digital\",\n    \"redirect_uri\": \"https://publishing-api.test.govuk.digital/auth/gds/callback\",\n    \"permissions\": [\"view_all\"]\n  }\n}"
+                },
+                {
+                  "name": "API_USERS",
+                  "value": "{\n  \"content-store\": {\n    \"name\": \"Content Store\",\n    \"username\": \"content-store\",\n    \"email\": \"content-store@test.govuk.digital\",\n    \"bearer_tokens\": [\n      { \"application_slug\": \"router-api\" }\n    ]\n  },\n  \"frontend\": {\n    \"name\": \"Frontend\",\n    \"username\": \"frontend\",\n    \"email\": \"frontend@test.govuk.digital\",\n    \"bearer_tokens\": [\n      { \"application_slug\": \"publishing-api\" }\n    ]\n  },\n  \"publisher\": {\n    \"name\": \"Publisher\",\n    \"username\": \"publisher\",\n    \"email\": \"publisher@test.govuk.digital\",\n    \"bearer_tokens\": [\n      { \"application_slug\": \"publishing-api\" },\n      { \"application_slug\": \"link-checker-api\" },\n      { \"application_slug\": \"asset-manager\" }\n    ]\n  },\n  \"publishing-api\": {\n    \"name\": \"Publishing API\",\n    \"username\": \"publishing-api\",\n    \"email\": \"publishing-api@test.govuk.digital\",\n    \"bearer_tokens\": [\n      { \"application_slug\": \"content-store\" }\n    ]\n  }\n}"
+                },
+                {
+                  "name": "SIGNON_API_ENDPOINT",
+                  "value": "http://signon.apps.svc.cluster.local/api/v1"
+                },
+                {
+                  "name": "GOVUK_PUBLISHING_DOMAIN",
+                  "value": "test.publishing.service.gov.uk"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+]

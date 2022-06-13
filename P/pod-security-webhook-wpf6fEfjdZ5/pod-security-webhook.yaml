@@ -1,0 +1,241 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-pod-security-webhook
+  labels:
+    helm.sh/chart: pod-security-webhook-0.3.2
+    app.kubernetes.io/name: pod-security-webhook
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.23-beta.0
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-pod-security-webhook
+data:
+  podsecurityconfiguration.yaml: |
+    apiVersion: pod-security.admission.config.k8s.io/v1beta1
+    kind: PodSecurityConfiguration
+    defaults:
+      audit: privileged
+      audit-version: latest
+      enforce: privileged
+      enforce-version: latest
+      warn: privileged
+      warn-version: latest
+    exemptions:
+      namespaces: []
+      runtimeClasses: []
+      usernames: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-pod-security-webhook
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - namespaces
+    verbs:
+      - get
+      - watch
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-pod-security-webhook
+subjects:
+  - kind: ServiceAccount
+    name: release-name-pod-security-webhook
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: release-name-pod-security-webhook
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-pod-security-webhook
+  labels:
+    helm.sh/chart: pod-security-webhook-0.3.2
+    app.kubernetes.io/name: pod-security-webhook
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.23-beta.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 443
+      targetPort: webhook
+      protocol: TCP
+      name: https
+  selector:
+    app.kubernetes.io/name: pod-security-webhook
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-pod-security-webhook
+  labels:
+    helm.sh/chart: pod-security-webhook-0.3.2
+    app.kubernetes.io/name: pod-security-webhook
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.23-beta.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pod-security-webhook
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pod-security-webhook
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-pod-security-webhook
+      priorityClassName: system-cluster-critical
+      securityContext: {}
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-pod-security-webhook
+        - name: pki
+          secret:
+            secretName: null
+      containers:
+        - name: pod-security-webhook
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+            readOnlyRootFilesystem: true
+          image: k8s.gcr.io/sig-auth/pod-security-webhook:v1.23-beta.0
+          imagePullPolicy: IfNotPresent
+          terminationMessagePolicy: FallbackToLogsOnError
+          ports:
+            - name: webhook
+              containerPort: 10250
+          args:
+            - --config
+            - /etc/config/podsecurityconfiguration.yaml
+            - --tls-cert-file
+            - /etc/pki/tls.crt
+            - --tls-private-key-file
+            - /etc/pki/tls.key
+            - --secure-port
+            - "10250"
+          resources:
+            requests:
+              cpu: 100m
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - mountPath: /etc/config
+              readOnly: true
+              name: config
+            - mountPath: /etc/pki
+              readOnly: true
+              name: pki
+      nodeSelector:
+        kubernetes.io/arch: amd64
+        kubernetes.io/os: linux
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: pod-security-webhook.kubernetes.io
+webhooks:
+  - name: pod-security-webhook.kubernetes.io
+    failurePolicy: Fail
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - pod-security-webhook
+            - kube-system
+    rules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - namespaces
+          - pods
+          - pods/ephemeralcontainers
+    clientConfig:
+      caBundle: ""
+      service:
+        namespace: default
+        name: release-name-pod-security-webhook
+    admissionReviewVersions:
+      - v1
+    sideEffects: None
+    timeoutSeconds: 5
+  - name: advisory.pod-security-webhook.kubernetes.io
+    failurePolicy: Ignore
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - pod-security-webhook
+            - kube-system
+    rules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - podtemplates
+          - replicationcontrollers
+      - apiGroups:
+          - apps
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - daemonsets
+          - deployments
+          - replicasets
+          - statefulsets
+      - apiGroups:
+          - batch
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - cronjobs
+          - jobs
+    clientConfig:
+      caBundle: ""
+      service:
+        namespace: default
+        name: release-name-pod-security-webhook
+    admissionReviewVersions:
+      - v1
+    sideEffects: None
+    timeoutSeconds: 5

@@ -1,0 +1,192 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-pod-defaulter
+  labels:
+    helm.sh/chart: pod-defaulter-0.1.1
+    app.kubernetes.io/name: pod-defaulter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.1.1
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-pod-defaulter
+  labels:
+    helm.sh/chart: pod-defaulter-0.1.1
+    app.kubernetes.io/name: pod-defaulter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.1.1
+    app.kubernetes.io/managed-by: Helm
+data:
+  cert.pem: null
+  key.pem: null
+type: Opaque
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-pod-defaulter-config
+data:
+  config: |
+    null
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-pod-defaulter-get-config
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-pod-defaulter-role-binding
+subjects:
+  - kind: ServiceAccount
+    name: release-name-pod-defaulter
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: release-name-pod-defaulter-get-config
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-pod-defaulter
+  labels:
+    helm.sh/chart: pod-defaulter-0.1.1
+    app.kubernetes.io/name: pod-defaulter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.1.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 443
+      targetPort: https
+      protocol: TCP
+      name: https
+  selector:
+    app.kubernetes.io/name: pod-defaulter
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-pod-defaulter
+  labels:
+    helm.sh/chart: pod-defaulter-0.1.1
+    app.kubernetes.io/name: pod-defaulter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.1.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pod-defaulter
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app: pod-defaulter
+        app.kubernetes.io/name: pod-defaulter
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-pod-defaulter
+      securityContext: {}
+      containers:
+        - name: pod-defaulter
+          args:
+            - --tls-cert=/etc/webhook/certs/cert.pem
+            - --tls-key=/etc/webhook/certs/key.pem
+            - -v=2
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: softonic/pod-defaulter:0.1.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BIND_ADDRESS
+              value: 0.0.0.0:8443
+            - name: CONFIGMAP_NAME
+              value: release-name-pod-defaulter-config
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /
+              port: https
+          readinessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /
+              port: https
+          volumeMounts:
+            - name: webhook-certs
+              mountPath: /etc/webhook/certs
+              readOnly: true
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: webhook-certs
+          secret:
+            secretName: release-name-pod-defaulter
+---
+apiVersion: admissionregistration.k8s.io/v1beta1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: release-name-pod-defaulter
+  labels:
+    helm.sh/chart: pod-defaulter-0.1.1
+    app.kubernetes.io/name: pod-defaulter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.1.1
+    app.kubernetes.io/managed-by: Helm
+webhooks:
+  - name: release-name-pod-defaulter.default.svc.cluster.local
+    objectSelector:
+      matchExpressions:
+        - key: app
+          operator: NotIn
+          values:
+            - pod-defaulter
+    clientConfig:
+      caBundle: null
+      service:
+        name: release-name-pod-defaulter
+        namespace: default
+        path: /mutate
+        port: 443
+    rules:
+      - operations:
+          - CREATE
+        apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        resources:
+          - pods
+    sideEffects: None
+    timeoutSeconds: 5
+    reinvocationPolicy: Never
+    failurePolicy: Ignore

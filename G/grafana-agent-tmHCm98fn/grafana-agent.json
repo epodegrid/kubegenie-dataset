@@ -1,0 +1,274 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "grafana-agent",
+      "labels": {
+        "helm.sh/chart": "grafana-agent-0.19.1",
+        "app.kubernetes.io/name": "grafana-agent",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v0.20.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "kind": "ConfigMap",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-grafana-agent"
+    },
+    "data": {
+      "agent.yml": "server:\n  log_level: info\nprometheus:\n  global:\n    scrape_interval: 15s\n  wal_directory: /var/lib/agent/data\n  configs:\n    - name: agent\n      remote_write:\n        - url: http://cortex.default.svc.cluster.local\n          headers:\n            X-Scope-OrgID: fake\n      scrape_configs:\n        - job_name: local_scrape\n          static_configs:\n            - targets: ['127.0.0.1:12345']\n              labels:\n                cluster: 'docker_compose'\n                container: 'agent'\n                pod: 'grafana-agent-local'\n    \ntempo:\n  configs:\n    - name: default\n      receivers:\n        jaeger:\n          protocols:\n            thrift_http:\n      attributes:\n        actions:\n        - action: upsert\n          key: env\n          value: prod\n      remote_write:\n        - endpoint: tempo:55680\n          insecure: true\n      batch:\n        timeout: 5s\n        send_batch_size: 100\n      automatic_logging:\n        backend: loki\n        loki_name: default\n        spans: true\n        processes: true\n        roots: true\n    \nloki:\n  positions_directory: /tmp/loki-positions\n  configs:\n  - name: default\n    clients:\n      - url: http://localhost:3100/loki/api/v1/push\n    scrape_configs:\n    - job_name: system\n      static_configs:\n      - targets: ['localhost']\n        labels:\n          job: varlogs\n          __path__: /var/log/*log\n"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "name": "grafana-agent"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "nodes",
+          "nodes/proxy",
+          "services",
+          "endpoints",
+          "pods"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch"
+        ]
+      },
+      {
+        "nonResourceURLs": [
+          "/metrics"
+        ],
+        "verbs": [
+          "get"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "grafana-agent"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "grafana-agent"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "grafana-agent",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-grafana-agent",
+      "labels": {
+        "helm.sh/chart": "grafana-agent-0.19.1",
+        "app.kubernetes.io/name": "grafana-agent",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v0.20.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "grafana-agent",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "DaemonSet",
+    "metadata": {
+      "name": "release-name-grafana-agent",
+      "labels": {
+        "helm.sh/chart": "grafana-agent-0.19.1",
+        "app.kubernetes.io/name": "grafana-agent",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v0.20.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "minReadySeconds": 10,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "grafana-agent",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config": "f0bea74febf9e56f62784d35d3c0135be0d2931731cc823a83eb4ef937c0f0bf"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "grafana-agent",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "grafana-agent",
+          "securityContext": {},
+          "containers": [
+            {
+              "name": "grafana-agent",
+              "args": [
+                "-config.file=/etc/agent/agent.yml",
+                "-prometheus.wal-directory=/tmp/agent/data"
+              ],
+              "command": [
+                "/bin/agent"
+              ],
+              "securityContext": {
+                "privileged": true,
+                "runAsUser": 11212,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "grafana/agent:v0.20.0",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 80,
+                  "protocol": "TCP"
+                }
+              ],
+              "env": [
+                {
+                  "name": "HOSTNAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "spec.nodeName"
+                    }
+                  }
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/-/healthy",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 60
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/-/ready",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 60
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                },
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/etc/agent"
+                },
+                {
+                  "name": "wal-dir",
+                  "mountPath": "/var/lib/agent/data"
+                }
+              ]
+            }
+          ],
+          "tolerations": [
+            {
+              "effect": "NoSchedule",
+              "operator": "Exists"
+            }
+          ],
+          "volumes": [
+            {
+              "configMap": {
+                "name": "release-name-grafana-agent"
+              },
+              "name": "config"
+            },
+            {
+              "name": "wal-dir",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-grafana-agent-test-connection",
+      "labels": {
+        "helm.sh/chart": "grafana-agent-0.19.1",
+        "app.kubernetes.io/name": "grafana-agent",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v0.20.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "wget",
+          "image": "busybox",
+          "command": [
+            "wget"
+          ],
+          "args": [
+            "release-name-grafana-agent:80"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

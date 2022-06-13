@@ -1,0 +1,343 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-laravel",
+      "labels": {
+        "helm.sh/chart": "laravel-1.0.0",
+        "app.kubernetes.io/name": "laravel",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "8.0.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-nginx-config"
+    },
+    "data": {
+      "nginx.conf": "events {\n}\n\nhttp {\n  server {\n    listen 8080 default_server;\n    listen [::]:8080 default_server;\n\n    server_name stub_status;\n\n    location = /stub_status {\n      stub_status;\n    }\n  }\n\n  server {\n    listen 80 default_server;\n    listen [::]:80 default_server;\n\n    root /var/www/html/public;\n    server_name _;\n\n    add_header X-Frame-Options \"SAMEORIGIN\";\n    add_header X-XSS-Protection \"1; mode=block\";\n    add_header X-Content-Type-Options \"nosniff\";\n\n    index index.php;\n\n    charset utf-8;\n\n    location / {\n      try_files $uri $uri/ /index.php?$query_string;\n    }\n\n    location = /favicon.ico { access_log off; log_not_found off; }\n    location = /robots.txt  { access_log off; log_not_found off; }\n\n    error_page 404 /index.php;\n\n    location ~ \\.php$ {\n      include fastcgi_params;\n      fastcgi_param REQUEST_METHOD $request_method;\n      fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;\n      fastcgi_pass 127.0.0.1:9000;\n    }\n\n    location ~ /\\.(?!well-known).* {\n      deny all;\n    }\n  }\n}\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-php-fpm-config"
+    },
+    "data": {
+      "laravel.conf": "; Choose how the process manager will control the number of child processes.\n; Possible Values:\n;   static  - a fixed number (pm.max_children) of child processes;\n;   dynamic - the number of child processes are set dynamically based on the\n;             following directives. With this process management, there will be\n;             always at least 1 children.\n;             pm.max_children      - the maximum number of children that can\n;                                    be alive at the same time.\n;             pm.start_servers     - the number of children created on startup.\n;             pm.min_spare_servers - the minimum number of children in 'idle'\n;                                    state (waiting to process). If the number\n;                                    of 'idle' processes is less than this\n;                                    number then some children will be created.\n;             pm.max_spare_servers - the maximum number of children in 'idle'\n;                                    state (waiting to process). If the number\n;                                    of 'idle' processes is greater than this\n;                                    number then some children will be killed.\n;  ondemand - no children are created at startup. Children will be forked when\n;             new requests will connect. The following parameter are used:\n;             pm.max_children           - the maximum number of children that\n;                                         can be alive at the same time.\n;             pm.process_idle_timeout   - The number of seconds after which\n;                                         an idle process will be killed.\n; Note: This value is mandatory.\npm = static\n\n; The number of child processes to be created when pm is set to 'static' and the\n; maximum number of child processes when pm is set to 'dynamic' or 'ondemand'.\n; This value sets the limit on the number of simultaneous requests that will be\n; served. Equivalent to the ApacheMaxClients directive with mpm_prefork.\n; Equivalent to the PHP_FCGI_CHILDREN environment variable in the original PHP\n; CGI. The below defaults are based on a server without much resources. Don't\n; forget to tweak pm.* to fit your needs.\n; Note: Used when pm is set to 'static', 'dynamic' or 'ondemand'\n; Note: This value is mandatory.\npm.max_children = 5\n\n; The number of child processes created on startup.\n; Note: Used only when pm is set to 'dynamic'\n; Default Value: (min_spare_servers + max_spare_servers) / 2\n;pm.start_servers = 2\n\n; The desired minimum number of idle server processes.\n; Note: Used only when pm is set to 'dynamic'\n; Note: Mandatory when pm is set to 'dynamic'\n;pm.min_spare_servers = 1\n\n; The desired maximum number of idle server processes.\n; Note: Used only when pm is set to 'dynamic'\n; Note: Mandatory when pm is set to 'dynamic'\n;pm.max_spare_servers = 3\n\n; The number of seconds after which an idle process will be killed.\n; Note: Used only when pm is set to 'ondemand'\n; Default Value: 10s\n;pm.process_idle_timeout = 10s;\n\n; The number of requests each child process should execute before respawning.\n; This can be useful to work around memory leaks in 3rd party libraries. For\n; endless request processing specify '0'. Equivalent to PHP_FCGI_MAX_REQUESTS.\n; Default Value: 0\npm.max_requests = 100\n\n; The URI to view the FPM status page. If this value is not set, no URI will be\n; recognized as a status page. It shows the following information:\n;   pool                 - the name of the pool;\n;   process manager      - static, dynamic or ondemand;\n;   start time           - the date and time FPM has started;\n;   start since          - number of seconds since FPM has started;\n;   accepted conn        - the number of request accepted by the pool;\n;   listen queue         - the number of request in the queue of pending\n;                          connections (see backlog in listen(2));\n;   max listen queue     - the maximum number of requests in the queue\n;                          of pending connections since FPM has started;\n;   listen queue len     - the size of the socket queue of pending connections;\n;   idle processes       - the number of idle processes;\n;   active processes     - the number of active processes;\n;   total processes      - the number of idle + active processes;\n;   max active processes - the maximum number of active processes since FPM\n;                          has started;\n;   max children reached - number of times, the process limit has been reached,\n;                          when pm tries to start more children (works only for\n;                          pm 'dynamic' and 'ondemand');\n; Value are updated in real time.\n; Example output:\n;   pool:                 www\n;   process manager:      static\n;   start time:           01/Jul/2011:17:53:49 +0200\n;   start since:          62636\n;   accepted conn:        190460\n;   listen queue:         0\n;   max listen queue:     1\n;   listen queue len:     42\n;   idle processes:       4\n;   active processes:     11\n;   total processes:      15\n;   max active processes: 12\n;   max children reached: 0\n;\n; By default the status page output is formatted as text/plain. Passing either\n; 'html', 'xml' or 'json' in the query string will return the corresponding\n; output syntax. Example:\n;   http://www.foo.bar/status\n;   http://www.foo.bar/status?json\n;   http://www.foo.bar/status?html\n;   http://www.foo.bar/status?xml\n;\n; By default the status page only outputs short status. Passing 'full' in the\n; query string will also return status for each pool process.\n; Example:\n;   http://www.foo.bar/status?full\n;   http://www.foo.bar/status?json&full\n;   http://www.foo.bar/status?html&full\n;   http://www.foo.bar/status?xml&full\n; The Full status returns for each process:\n;   pid                  - the PID of the process;\n;   state                - the state of the process (Idle, Running, ...);\n;   start time           - the date and time the process has started;\n;   start since          - the number of seconds since the process has started;\n;   requests             - the number of requests the process has served;\n;   request duration     - the duration in µs of the requests;\n;   request method       - the request method (GET, POST, ...);\n;   request URI          - the request URI with the query string;\n;   content length       - the content length of the request (only with POST);\n;   user                 - the user (PHP_AUTH_USER) (or '-' if not set);\n;   script               - the main script called (or '-' if not set);\n;   last request cpu     - the %cpu the last request consumed\n;                          it's always 0 if the process is not in Idle state\n;                          because CPU calculation is done when the request\n;                          processing has terminated;\n;   last request memory  - the max amount of memory the last request consumed\n;                          it's always 0 if the process is not in Idle state\n;                          because memory calculation is done when the request\n;                          processing has terminated;\n; If the process is in Idle state, then informations are related to the\n; last request the process has served. Otherwise informations are related to\n; the current request being served.\n; Example output:\n;   ************************\n;   pid:                  31330\n;   state:                Running\n;   start time:           01/Jul/2011:17:53:49 +0200\n;   start since:          63087\n;   requests:             12808\n;   request duration:     1250261\n;   request method:       GET\n;   request URI:          /test_mem.php?N=10000\n;   content length:       0\n;   user:                 -\n;   script:               /home/fat/web/docs/php/test_mem.php\n;   last request cpu:     0.00\n;   last request memory:  0\n;\n; Note: There is a real-time FPM status monitoring sample web page available\n;       It's available in: /usr/local/share/php/fpm/status.html\n;\n; Note: The value must start with a leading slash (/). The value can be\n;       anything, but it may not be a good idea to use the .php extension or it\n;       may conflict with a real PHP file.\n; Default Value: not set\npm.status_path = /status\n\n; The address on which to accept FastCGI status request. This creates a new\n; invisible pool that can handle requests independently. This is useful\n; if the main pool is busy with long running requests because it is still possible\n; to get the status before finishing the long running requests.\n;\n; Valid syntaxes are:\n;   'ip.add.re.ss:port'    - to listen on a TCP socket to a specific IPv4 address on\n;                            a specific port;\n;   '[ip:6:addr:ess]:port' - to listen on a TCP socket to a specific IPv6 address on\n;                            a specific port;\n;   'port'                 - to listen on a TCP socket to all addresses\n;                            (IPv6 and IPv4-mapped) on a specific port;\n;   '/path/to/unix/socket' - to listen on a unix socket.\n; Default Value: value of the listen option\npm.status_listen = 127.0.0.1:9001\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-php-ini-config"
+    },
+    "data": {
+      "php.ini": "; Determines if Zend OPCache is enabled\nopcache.enable=1\n\n; Determines if Zend OPCache is enabled for the CLI version of PHP\nopcache.enable_cli=1\n\n; The OPcache shared memory storage size.\nopcache.memory_consumption=128\n\n; The amount of memory for interned strings in Mbytes.\nopcache.interned_strings_buffer=128\n\n; The maximum number of keys (scripts) in the OPcache hash table.\n; Only numbers between 200 and 1000000 are allowed.\nopcache.max_accelerated_files=1000000\n\n; maximum memory allocated to store the results\nrealpath_cache_size=8192K\n\n; save the results for 10 minutes (600 seconds)\nrealpath_cache_ttl=600\n\n; The maximum percentage of \"wasted\" memory until a restart is scheduled.\nopcache.max_wasted_percentage=5\n\n; When this directive is enabled, the OPcache appends the current working\n; directory to the script key, thus eliminating possible collisions between\n; files with the same name (basename). Disabling the directive improves\n; performance, but may break existing applications.\n;opcache.use_cwd=1\n\n; When disabled, you must reset the OPcache manually or restart the\n; webserver for changes to the filesystem to take effect.\nopcache.validate_timestamps=0\n\n; How often (in seconds) to check file timestamps for changes to the shared\n; memory storage allocation. (\"1\" means validate once per second, but only\n; once per request. \"0\" means always validate)\nopcache.revalidate_freq=0\n\n; Enables or disables file search in include_path optimization\n;opcache.revalidate_path=0\n\n; If disabled, all PHPDoc comments are dropped from the code to reduce the\n; size of the optimized code.\n;opcache.save_comments=1\n\n; If enabled, a fast shutdown sequence is used for the accelerated code\n; Depending on the used Memory Manager this may cause some incompatibilities.\nopcache.fast_shutdown=1\n\n; Allow file existence override (file_exists, etc.) performance feature.\n;opcache.enable_file_override=0\n\n; A bitmask, where each bit enables or disables the appropriate OPcache\n; passes\n;opcache.optimization_level=0xffffffff\n\n;opcache.inherited_hack=1\n;opcache.dups_fix=0\n\n; The location of the OPcache blacklist file (wildcards allowed).\n; Each OPcache blacklist file is a text file that holds the names of files\n; that should not be accelerated.\nopcache.blacklist_filename=/etc/php-*/opcache*.blacklist\n\n; Allows exclusion of large files from being cached. By default all files\n; are cached.\n;opcache.max_file_size=0\n\n; Check the cache checksum each N requests.\n; The default value of \"0\" means that the checks are disabled.\n;opcache.consistency_checks=0\n\n; How long to wait (in seconds) for a scheduled restart to begin if the cache\n; is not being accessed.\n;opcache.force_restart_timeout=180\n\n; OPcache error_log file name. Empty string assumes \"stderr\".\n;opcache.error_log=\n\n; All OPcache errors go to the Web server log.\n; By default, only fatal errors (level 0) or errors (level 1) are logged.\n; You can also enable warnings (level 2), info messages (level 3) or\n; debug messages (level 4).\n;opcache.log_verbosity_level=1\n\n; Preferred Shared Memory back-end. Leave empty and let the system decide.\n;opcache.preferred_memory_model=\n\n; Protect the shared memory from unexpected writing during script execution.\n; Useful for internal debugging only.\n;opcache.protect_memory=0\n\n; Allows calling OPcache API functions only from PHP scripts which path is\n; started from specified string. The default \"\" means no restriction\n;opcache.restrict_api=\n\n; Enables and sets the second level cache directory.\n; It should improve performance when SHM memory is full, at server restart or\n; SHM reset. The default \"\" disables file based caching.\n; RPM note : file cache directory must be owned by process owner\n;   for mod_php, see /etc/httpd/conf.d/php.conf\n;   for php-fpm, see /etc/php-fpm.d/*conf\n;opcache.file_cache=\n\n; Enables or disables opcode caching in shared memory.\n;opcache.file_cache_only=0\n\n; Enables or disables checksum validation when script loaded from file cache.\n;opcache.file_cache_consistency_checks=1\n\n; Implies opcache.file_cache_only=1 for a certain process that failed to\n; reattach to the shared memory (for Windows only). Explicitly enabled file\n; cache is required.\n;opcache.file_cache_fallback=1\n\n; Validate cached file permissions.\n; Leads OPcache to check file readability on each access to cached file.\n; This directive should be enabled in shared hosting environment, when few\n; users (PHP-FPM pools) reuse the common OPcache shared memory.\n;opcache.validate_permission=0\n\n; Prevent name collisions in chroot'ed environment.\n; This directive prevents file name collisions in different \"chroot\"\n; environments. It should be enabled for sites that may serve requests in\n; different \"chroot\" environments.\n;opcache.validate_root=0\n\n; Enables or disables copying of PHP code (text segment) into HUGE PAGES.\n; This should improve performance, but requires appropriate OS configuration.\nopcache.huge_code_pages=1\n\n; Maximum amount of memory a script may consume\n; http://php.net/memory-limit\nmemory_limit = 128M\n\n; Maximum execution time of each script, in seconds\n; http://php.net/max-execution-time\n; Note: This directive is hardcoded to 0 for the CLI SAPI\nmax_execution_time = 30\n\n;;;;;;;;;;;;;;;;\n; File Uploads ;\n;;;;;;;;;;;;;;;;\n\n; Whether to allow HTTP file uploads.\n; http://php.net/file-uploads\nfile_uploads = On\n\n; Temporary directory for HTTP uploaded files (will use system default if not\n; specified).\n; http://php.net/upload-tmp-dir\n;upload_tmp_dir =\n\n; Maximum allowed size for uploaded files.\n; http://php.net/upload-max-filesize\nupload_max_filesize = 2M\n\n; Maximum number of files that can be uploaded via a single request\nmax_file_uploads = 20\n\n;;;;;;;;;;;;;;;;;;\n; Fopen wrappers ;\n;;;;;;;;;;;;;;;;;;\n\n; Whether to allow the treatment of URLs (like http:// or ftp://) as files.\n; http://php.net/allow-url-fopen\nallow_url_fopen = On\n\n; Whether to allow include/require to open URLs (like http:// or ftp://) as files.\n; http://php.net/allow-url-include\nallow_url_include = Off\n\n[Session]\n; Handler used to store/retrieve data.\n; http://php.net/session.save-handler\nsession.save_handler = files\n\n; Argument passed to save_handler.  In the case of files, this is the path\n; where data files are stored. Note: Windows users have to change this\n; variable in order to use PHP's session functions.\n;\n; The path can be defined as:\n;\n;     session.save_path = \"N;/path\"\n;\n; where N is an integer.  Instead of storing all the session files in\n; /path, what this will do is use subdirectories N-levels deep, and\n; store the session data in those directories.  This is useful if\n; your OS has problems with many files in one directory, and is\n; a more efficient layout for servers that handle many sessions.\n;\n; NOTE 1: PHP will not create this directory structure automatically.\n;         You can use the script in the ext/session dir for that purpose.\n; NOTE 2: See the section on garbage collection below if you choose to\n;         use subdirectories for session storage\n;\n; The file storage module creates files using mode 600 by default.\n; You can change that by using\n;\n;     session.save_path = \"N;MODE;/path\"\n;\n; where MODE is the octal representation of the mode. Note that this\n; does not overwrite the process's umask.\n; http://php.net/session.save-path\n;session.save_path = \"/tmp\"\n\n; Whether to use strict session mode.\n; Strict session mode does not accept an uninitialized session ID, and\n; regenerates the session ID if the browser sends an uninitialized session ID.\n; Strict mode protects applications from session fixation via a session adoption\n; vulnerability. It is disabled by default for maximum compatibility, but\n; enabling it is encouraged.\n; https://wiki.php.net/rfc/strict_sessions\nsession.use_strict_mode = 0\n\n; Whether to use cookies.\n; http://php.net/session.use-cookies\nsession.use_cookies = 1\n\n; http://php.net/session.cookie-secure\n;session.cookie_secure =\n\n; This option forces PHP to fetch and use a cookie for storing and maintaining\n; the session id. We encourage this operation as it's very helpful in combating\n; session hijacking when not specifying and managing your own session id. It is\n; not the be-all and end-all of session hijacking defense, but it's a good start.\n; http://php.net/session.use-only-cookies\nsession.use_only_cookies = 1\n\n; Name of the session (used as cookie name).\n; http://php.net/session.name\nsession.name = PHPSESSID\n\n; Initialize session on request startup.\n; http://php.net/session.auto-start\nsession.auto_start = 0\n\n; Lifetime in seconds of cookie or, if 0, until browser is restarted.\n; http://php.net/session.cookie-lifetime\nsession.cookie_lifetime = 0\n\n; The path for which the cookie is valid.\n; http://php.net/session.cookie-path\nsession.cookie_path = /\n\n; The domain for which the cookie is valid.\n; http://php.net/session.cookie-domain\nsession.cookie_domain =\n\n; Whether or not to add the httpOnly flag to the cookie, which makes it\n; inaccessible to browser scripting languages such as JavaScript.\n; http://php.net/session.cookie-httponly\nsession.cookie_httponly =\n\n; Add SameSite attribute to cookie to help mitigate Cross-Site Request Forgery (CSRF/XSRF)\n; Current valid values are \"Strict\", \"Lax\" or \"None\". When using \"None\",\n; make sure to include the quotes, as `none` is interpreted like `false` in ini files.\n; https://tools.ietf.org/html/draft-west-first-party-cookies-07\nsession.cookie_samesite =\n\n; Handler used to serialize data. php is the standard serializer of PHP.\n; http://php.net/session.serialize-handler\nsession.serialize_handler = php\n\n; Defines the probability that the 'garbage collection' process is started on every\n; session initialization. The probability is calculated by using gc_probability/gc_divisor,\n; e.g. 1/100 means there is a 1% chance that the GC process starts on each request.\n; Default Value: 1\n; Development Value: 1\n; Production Value: 1\n; http://php.net/session.gc-probability\nsession.gc_probability = 1\n\n; Defines the probability that the 'garbage collection' process is started on every\n; session initialization. The probability is calculated by using gc_probability/gc_divisor,\n; e.g. 1/100 means there is a 1% chance that the GC process starts on each request.\n; For high volume production servers, using a value of 1000 is a more efficient approach.\n; Default Value: 100\n; Development Value: 1000\n; Production Value: 1000\n; http://php.net/session.gc-divisor\nsession.gc_divisor = 1000\n\n; After this number of seconds, stored data will be seen as 'garbage' and\n; cleaned up by the garbage collection process.\n; http://php.net/session.gc-maxlifetime\nsession.gc_maxlifetime = 1440\n\n; NOTE: If you are using the subdirectory option for storing session files\n;       (see session.save_path above), then garbage collection does *not*\n;       happen automatically.  You will need to do your own garbage\n;       collection through a shell script, cron entry, or some other method.\n;       For example, the following script is the equivalent of setting\n;       session.gc_maxlifetime to 1440 (1440 seconds = 24 minutes):\n;          find /path/to/sessions -cmin +24 -type f | xargs rm\n\n; Check HTTP Referer to invalidate externally stored URLs containing ids.\n; HTTP_REFERER has to contain this substring for the session to be\n; considered as valid.\n; http://php.net/session.referer-check\nsession.referer_check =\n\n; Set to {nocache,private,public,} to determine HTTP caching aspects\n; or leave this empty to avoid sending anti-caching headers.\n; http://php.net/session.cache-limiter\nsession.cache_limiter = nocache\n\n; Document expires after n minutes.\n; http://php.net/session.cache-expire\nsession.cache_expire = 180\n\n; trans sid support is disabled by default.\n; Use of trans sid may risk your users' security.\n; Use this option with caution.\n; - User may send URL contains active session ID\n;   to other person via. email/irc/etc.\n; - URL that contains active session ID may be stored\n;   in publicly accessible computer.\n; - User may access your site with the same session ID\n;   always using URL stored in browser's history or bookmarks.\n; http://php.net/session.use-trans-sid\nsession.use_trans_sid = 0\n\n; Set session ID character length. This value could be between 22 to 256.\n; Shorter length than default is supported only for compatibility reason.\n; Users should use 32 or more chars.\n; http://php.net/session.sid-length\n; Default Value: 32\n; Development Value: 26\n; Production Value: 26\nsession.sid_length = 26\n\n; The URL rewriter will look for URLs in a defined set of HTML tags.\n; <form> is special; if you include them here, the rewriter will\n; add a hidden <input> field with the info which is otherwise appended\n; to URLs. <form> tag's action attribute URL will not be modified\n; unless it is specified.\n; Note that all valid entries require a \"=\", even if no value follows.\n; Default Value: \"a=href,area=href,frame=src,form=\"\n; Development Value: \"a=href,area=href,frame=src,form=\"\n; Production Value: \"a=href,area=href,frame=src,form=\"\n; http://php.net/url-rewriter.tags\nsession.trans_sid_tags = \"a=href,area=href,frame=src,form=\"\n\n; URL rewriter does not rewrite absolute URLs by default.\n; To enable rewrites for absolute paths, target hosts must be specified\n; at RUNTIME. i.e. use ini_set()\n; <form> tags is special. PHP will check action attribute's URL regardless\n; of session.trans_sid_tags setting.\n; If no host is defined, HTTP_HOST will be used for allowed host.\n; Example value: php.net,www.php.net,wiki.php.net\n; Use \",\" for multiple hosts. No spaces are allowed.\n; Default Value: \"\"\n; Development Value: \"\"\n; Production Value: \"\"\n;session.trans_sid_hosts=\"\"\n\n; Define how many bits are stored in each character when converting\n; the binary hash data to something readable.\n; Possible values:\n;   4  (4 bits: 0-9, a-f)\n;   5  (5 bits: 0-9, a-v)\n;   6  (6 bits: 0-9, a-z, A-Z, \"-\", \",\")\n; Default Value: 4\n; Development Value: 5\n; Production Value: 5\n; http://php.net/session.hash-bits-per-character\nsession.sid_bits_per_character = 5\n\n; Enable upload progress tracking in $_SESSION\n; Default Value: On\n; Development Value: On\n; Production Value: On\n; http://php.net/session.upload-progress.enabled\n;session.upload_progress.enabled = On\n\n; Cleanup the progress information as soon as all POST data has been read\n; (i.e. upload completed).\n; Default Value: On\n; Development Value: On\n; Production Value: On\n; http://php.net/session.upload-progress.cleanup\n;session.upload_progress.cleanup = On\n\n; A prefix used for the upload progress key in $_SESSION\n; Default Value: \"upload_progress_\"\n; Development Value: \"upload_progress_\"\n; Production Value: \"upload_progress_\"\n; http://php.net/session.upload-progress.prefix\n;session.upload_progress.prefix = \"upload_progress_\"\n\n; The index name (concatenated with the prefix) in $_SESSION\n; containing the upload progress information\n; Default Value: \"PHP_SESSION_UPLOAD_PROGRESS\"\n; Development Value: \"PHP_SESSION_UPLOAD_PROGRESS\"\n; Production Value: \"PHP_SESSION_UPLOAD_PROGRESS\"\n; http://php.net/session.upload-progress.name\n;session.upload_progress.name = \"PHP_SESSION_UPLOAD_PROGRESS\"\n\n; How frequently the upload progress should be updated.\n; Given either in percentages (per-file), or in bytes\n; Default Value: \"1%\"\n; Development Value: \"1%\"\n; Production Value: \"1%\"\n; http://php.net/session.upload-progress.freq\n;session.upload_progress.freq =  \"1%\"\n\n; The minimum delay between updates, in seconds\n; Default Value: 1\n; Development Value: 1\n; Production Value: 1\n; http://php.net/session.upload-progress.min-freq\n;session.upload_progress.min_freq = \"1\"\n\n; Only write session data when session data is changed. Enabled by default.\n; http://php.net/session.lazy-write\n;session.lazy_write = On\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-laravel",
+      "labels": {
+        "helm.sh/chart": "laravel-1.0.0",
+        "app.kubernetes.io/name": "laravel",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "8.0.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "laravel",
+        "app.kubernetes.io/instance": "release-name",
+        "laravel.com/pod-type": "web"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-laravel",
+      "labels": {
+        "helm.sh/chart": "laravel-1.0.0",
+        "app.kubernetes.io/name": "laravel",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "8.0.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "laravel",
+          "app.kubernetes.io/instance": "release-name",
+          "laravel.com/pod-type": "web"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "laravel",
+            "app.kubernetes.io/instance": "release-name",
+            "laravel.com/pod-type": "web"
+          }
+        },
+        "spec": {
+          "volumes": [
+            {
+              "name": "app",
+              "emptyDir": {}
+            },
+            {
+              "name": "env",
+              "secret": {
+                "secretName": "release-name-env"
+              }
+            },
+            {
+              "name": "nginx-config",
+              "configMap": {
+                "name": "release-name-nginx-config"
+              }
+            },
+            {
+              "name": "php-ini-config",
+              "configMap": {
+                "name": "release-name-php-ini-config"
+              }
+            },
+            {
+              "name": "php-fpm-config",
+              "configMap": {
+                "name": "release-name-php-fpm-config"
+              }
+            }
+          ],
+          "serviceAccountName": "release-name-laravel",
+          "securityContext": {},
+          "containers": [
+            {
+              "name": "php-fpm",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "quay.io/renokico/laravel-helm-demo:0.6.0",
+              "imagePullPolicy": "IfNotPresent",
+              "volumeMounts": [
+                {
+                  "name": "app",
+                  "mountPath": "/app"
+                },
+                {
+                  "name": "env",
+                  "mountPath": "/tmp/.env",
+                  "subPath": ".env"
+                },
+                {
+                  "name": "php-ini-config",
+                  "mountPath": "/usr/local/etc/php/php.ini",
+                  "subPath": "php.ini"
+                },
+                {
+                  "name": "php-fpm-config",
+                  "mountPath": "/usr/local/etc/php-fpm.d/laravel.conf",
+                  "subPath": "laravel.conf"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "php-fpm",
+                  "containerPort": 9000,
+                  "protocol": "TCP"
+                }
+              ],
+              "readinessProbe": {
+                "tcpSocket": {
+                  "port": 9000
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 5
+              },
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": 9000
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 5
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "lifecycle": {
+                "postStart": {
+                  "exec": {
+                    "command": [
+                      "/bin/sh",
+                      "-c",
+                      "cp /tmp/.env /var/www/html/.env && cp -r /var/www/html/. /app && cd /var/www/html && sh deploy.sh"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "name": "scheduler",
+              "securityContext": {},
+              "image": "quay.io/renokico/laravel-helm-demo:0.6.0",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "php",
+                "artisan",
+                "schedule:work"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "env",
+                  "mountPath": "/tmp/.env",
+                  "subPath": ".env"
+                },
+                {
+                  "name": "php-ini-config",
+                  "mountPath": "/usr/local/etc/php/php.ini",
+                  "subPath": "php.ini"
+                }
+              ],
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "php",
+                    "-v"
+                  ]
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 5
+              },
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "php",
+                    "-v"
+                  ]
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 5
+              },
+              "resources": {},
+              "lifecycle": {
+                "postStart": {
+                  "exec": {
+                    "command": [
+                      "/bin/sh",
+                      "-c",
+                      "cp /tmp/.env /var/www/html/.env && cp -r /var/www/html/. /app && cd /var/www/html && sh deploy.sh"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "name": "nginx",
+              "securityContext": {},
+              "image": "nginx:1.19",
+              "imagePullPolicy": "IfNotPresent",
+              "volumeMounts": [
+                {
+                  "name": "app",
+                  "mountPath": "/var/www/html"
+                },
+                {
+                  "name": "nginx-config",
+                  "mountPath": "/etc/nginx/nginx.conf",
+                  "subPath": "nginx.conf"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 80,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "http2",
+                  "containerPort": 8080,
+                  "protocol": "TCP"
+                }
+              ],
+              "resources": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "release-name-laravel",
+      "labels": {
+        "helm.sh/chart": "laravel-1.0.0",
+        "app.kubernetes.io/name": "laravel",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "8.0.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "nginx.ingress.kubernetes.io/custom-http-errors": "404"
+      }
+    },
+    "spec": {
+      "rules": [
+        {
+          "host": "test.laravel.com",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "pathType": "Prefix",
+                "backend": {
+                  "service": {
+                    "name": "release-name-laravel",
+                    "port": {
+                      "number": 80
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

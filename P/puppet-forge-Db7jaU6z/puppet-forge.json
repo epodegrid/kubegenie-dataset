@@ -1,0 +1,210 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-puppet-forge-config",
+      "namespace": "Db7jaU6z",
+      "labels": {
+        "app": "puppet-forge",
+        "chart": "puppet-forge-0.1.8",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "puppet_forge_proxy": "https://forgeapi.puppetlabs.com/",
+      "puppet_forge_cache_ttl": "1800",
+      "puppet_forge_cache_size": "250"
+    }
+  },
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-claim",
+      "namespace": "default"
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "8Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-puppet-forge",
+      "labels": {
+        "app": "puppet-forge",
+        "chart": "puppet-forge-0.1.8",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "NodePort",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": 8080,
+          "protocol": "TCP",
+          "name": "puppet-forge"
+        }
+      ],
+      "selector": {
+        "app": "puppet-forge",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "extensions/v1beta1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-puppet-forge",
+      "labels": {
+        "app": "puppet-forge",
+        "chart": "puppet-forge-0.1.8",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "puppet-forge",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "initContainers": [
+            {
+              "name": "prep-volume",
+              "image": "busybox",
+              "command": [
+                "chown",
+                "-R",
+                "1000:1000",
+                "/puppet"
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/puppet/modules",
+                  "name": "release-name-volume",
+                  "readOnly": false
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "puppet-forge",
+              "image": "hickey/puppet_forge:1.10.0",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "PUPPET_FORGE_PROXY",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "name": "release-name-puppet-forge-config",
+                      "key": "puppet_forge_proxy"
+                    }
+                  }
+                },
+                {
+                  "name": "PUPPET_FORGE_CACHE_TTL",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "name": "release-name-puppet-forge-config",
+                      "key": "puppet_forge_cache_ttl"
+                    }
+                  }
+                },
+                {
+                  "name": "PUPPET_FORGE_CACHE_SIZE",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "name": "release-name-puppet-forge-config",
+                      "key": "puppet_forge_cache_size"
+                    }
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 8080
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": 8080
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": 8080
+                }
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/puppet/modules",
+                  "name": "release-name-volume",
+                  "readOnly": false
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "200m",
+                  "memory": "32Mi"
+                },
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "16Mi"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "release-name-volume",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-claim"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "extensions/v1beta1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "release-name-puppet-forge",
+      "labels": {
+        "app": "puppet-forge",
+        "chart": "puppet-forge-0.1.8",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "backend": {
+        "serviceName": "release-name-puppet-forge",
+        "servicePort": 80
+      }
+    }
+  }
+]

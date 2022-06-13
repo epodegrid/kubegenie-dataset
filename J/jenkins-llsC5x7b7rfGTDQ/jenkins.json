@@ -1,0 +1,1194 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "annotations": {
+        "serviceaccounts.openshift.io/oauth-redirectreference.jenkins": "{\"kind\":\"OAuthRedirectReference\",\"apiVersion\":\"v1\",\"reference\":{\"kind\":\"Route\",\"name\":\"jenkins\"}}"
+      },
+      "name": "jenkins"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "git-auth",
+      "labels": {
+        "credential.sync.jenkins.openshift.io": "true"
+      }
+    },
+    "type": "kubernetes.io/basic-auth",
+    "stringData": {
+      "password": "thisisdefinitelymypassword",
+      "username": "idm-sa"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "my-token",
+      "labels": {
+        "credential.sync.jenkins.openshift.io": "true"
+      }
+    },
+    "type": "Opaque",
+    "stringData": {
+      "token": "aaaaa.bbbbb.ccccc"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "nexus-password",
+      "labels": {
+        "credential.sync.jenkins.openshift.io": "true"
+      }
+    },
+    "type": "kubernetes.io/basic-auth",
+    "stringData": {
+      "password": "admin123",
+      "username": "admin"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "jenkins-edit"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "edit"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "jenkins"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "annotations": {
+        "service.alpha.openshift.io/dependencies": "[{\"name\": \"jenkins-jnlp\", \"namespace\":\"\", \"kind\": \"Service\"}]"
+      },
+      "name": "jenkins"
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "web",
+          "nodePort": 0,
+          "port": 80,
+          "protocol": "TCP",
+          "targetPort": 8080
+        }
+      ],
+      "selector": {
+        "name": "jenkins"
+      },
+      "sessionAffinity": "None",
+      "type": "ClusterIP"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "jenkins-jnlp"
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "agent",
+          "nodePort": 0,
+          "port": 50000,
+          "protocol": "TCP",
+          "targetPort": 50000
+        }
+      ],
+      "selector": {
+        "name": "jenkins"
+      },
+      "sessionAffinity": "None",
+      "type": "ClusterIP"
+    }
+  },
+  {
+    "kind": "BuildConfig",
+    "apiVersion": "build.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins",
+      "labels": {
+        "build": "jenkins",
+        "type": "image"
+      }
+    },
+    "spec": {
+      "triggers": [
+        {
+          "type": "ConfigChange"
+        }
+      ],
+      "runPolicy": "Serial",
+      "source": {
+        "type": "Git",
+        "git": {
+          "uri": "https://github.com/rht-labs/s2i-config-jenkins.git",
+          "ref": "master"
+        },
+        "contextDir": "/"
+      },
+      "strategy": {
+        "type": "Source",
+        "sourceStrategy": {
+          "from": {
+            "kind": "DockerImage",
+            "name": "quay.io/openshift/origin-jenkins:latest"
+          }
+        }
+      },
+      "output": {
+        "to": {
+          "kind": "ImageStreamTag",
+          "name": "jenkins:latest"
+        }
+      }
+    }
+  },
+  {
+    "kind": "BuildConfig",
+    "apiVersion": "build.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-ansible",
+      "labels": {
+        "build": "jenkins-agent-ansible",
+        "type": "image"
+      }
+    },
+    "spec": {
+      "triggers": [
+        {
+          "type": "ConfigChange"
+        }
+      ],
+      "runPolicy": "Serial",
+      "source": {
+        "type": "Git",
+        "git": {
+          "uri": "https://github.com/redhat-cop/containers-quickstarts",
+          "ref": "master"
+        },
+        "contextDir": "jenkins-agents/jenkins-agent-ansible"
+      },
+      "strategy": {
+        "type": "Docker",
+        "dockerStrategy": {
+          "dockerfilePath": "Dockerfile"
+        }
+      },
+      "output": {
+        "to": {
+          "kind": "ImageStreamTag",
+          "name": "jenkins-agent-ansible:latest"
+        }
+      }
+    }
+  },
+  {
+    "kind": "BuildConfig",
+    "apiVersion": "build.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-arachni",
+      "labels": {
+        "build": "jenkins-agent-arachni",
+        "type": "image"
+      }
+    },
+    "spec": {
+      "triggers": [
+        {
+          "type": "ConfigChange"
+        }
+      ],
+      "runPolicy": "Serial",
+      "source": {
+        "type": "Git",
+        "git": {
+          "uri": "https://github.com/redhat-cop/containers-quickstarts",
+          "ref": "master"
+        },
+        "contextDir": "jenkins-agents/jenkins-agent-arachni"
+      },
+      "strategy": {
+        "type": "Docker",
+        "dockerStrategy": {
+          "dockerfilePath": "Dockerfile"
+        }
+      },
+      "output": {
+        "to": {
+          "kind": "ImageStreamTag",
+          "name": "jenkins-agent-arachni:latest"
+        }
+      }
+    }
+  },
+  {
+    "kind": "BuildConfig",
+    "apiVersion": "build.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-argocd",
+      "labels": {
+        "build": "jenkins-agent-argocd",
+        "type": "image"
+      }
+    },
+    "spec": {
+      "triggers": [
+        {
+          "type": "ConfigChange"
+        }
+      ],
+      "runPolicy": "Serial",
+      "source": {
+        "type": "Git",
+        "git": {
+          "uri": "https://github.com/redhat-cop/containers-quickstarts",
+          "ref": "master"
+        },
+        "contextDir": "jenkins-agents/jenkins-agent-argocd"
+      },
+      "strategy": {
+        "type": "Docker",
+        "dockerStrategy": {
+          "dockerfilePath": "Dockerfile"
+        }
+      },
+      "output": {
+        "to": {
+          "kind": "ImageStreamTag",
+          "name": "jenkins-agent-argocd:latest"
+        }
+      }
+    }
+  },
+  {
+    "kind": "BuildConfig",
+    "apiVersion": "build.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-conftest",
+      "labels": {
+        "build": "jenkins-agent-conftest",
+        "type": "image"
+      }
+    },
+    "spec": {
+      "triggers": [
+        {
+          "type": "ConfigChange"
+        }
+      ],
+      "runPolicy": "Serial",
+      "source": {
+        "type": "Git",
+        "git": {
+          "uri": "https://github.com/redhat-cop/containers-quickstarts",
+          "ref": "master"
+        },
+        "contextDir": "jenkins-agents/jenkins-agent-conftest"
+      },
+      "strategy": {
+        "type": "Docker",
+        "dockerStrategy": {
+          "dockerfilePath": "Dockerfile"
+        }
+      },
+      "output": {
+        "to": {
+          "kind": "ImageStreamTag",
+          "name": "jenkins-agent-conftest:latest"
+        }
+      }
+    }
+  },
+  {
+    "kind": "BuildConfig",
+    "apiVersion": "build.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-erlang",
+      "labels": {
+        "build": "jenkins-agent-erlang",
+        "type": "image"
+      }
+    },
+    "spec": {
+      "triggers": [
+        {
+          "type": "ConfigChange"
+        }
+      ],
+      "runPolicy": "Serial",
+      "source": {
+        "type": "Git",
+        "git": {
+          "uri": "https://github.com/redhat-cop/containers-quickstarts",
+          "ref": "master"
+        },
+        "contextDir": "jenkins-agents/jenkins-agent-erlang"
+      },
+      "strategy": {
+        "type": "Docker",
+        "dockerStrategy": {
+          "dockerfilePath": "Dockerfile"
+        }
+      },
+      "output": {
+        "to": {
+          "kind": "ImageStreamTag",
+          "name": "jenkins-agent-erlang:latest"
+        }
+      }
+    }
+  },
+  {
+    "kind": "BuildConfig",
+    "apiVersion": "build.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-golang",
+      "labels": {
+        "build": "jenkins-agent-golang",
+        "type": "image"
+      }
+    },
+    "spec": {
+      "triggers": [
+        {
+          "type": "ConfigChange"
+        }
+      ],
+      "runPolicy": "Serial",
+      "source": {
+        "type": "Git",
+        "git": {
+          "uri": "https://github.com/redhat-cop/containers-quickstarts",
+          "ref": "master"
+        },
+        "contextDir": "jenkins-agents/jenkins-agent-golang"
+      },
+      "strategy": {
+        "type": "Docker",
+        "dockerStrategy": {
+          "dockerfilePath": "Dockerfile"
+        }
+      },
+      "output": {
+        "to": {
+          "kind": "ImageStreamTag",
+          "name": "jenkins-agent-golang:latest"
+        }
+      }
+    }
+  },
+  {
+    "kind": "BuildConfig",
+    "apiVersion": "build.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-graalvm",
+      "labels": {
+        "build": "jenkins-agent-graalvm",
+        "type": "image"
+      }
+    },
+    "spec": {
+      "triggers": [
+        {
+          "type": "ConfigChange"
+        }
+      ],
+      "runPolicy": "Serial",
+      "source": {
+        "type": "Git",
+        "git": {
+          "uri": "https://github.com/redhat-cop/containers-quickstarts",
+          "ref": "master"
+        },
+        "contextDir": "jenkins-agents/jenkins-agent-graalvm"
+      },
+      "strategy": {
+        "type": "Docker",
+        "dockerStrategy": {
+          "dockerfilePath": "Dockerfile"
+        }
+      },
+      "output": {
+        "to": {
+          "kind": "ImageStreamTag",
+          "name": "jenkins-agent-graalvm:latest"
+        }
+      }
+    }
+  },
+  {
+    "kind": "BuildConfig",
+    "apiVersion": "build.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-gradle",
+      "labels": {
+        "build": "jenkins-agent-gradle",
+        "type": "image"
+      }
+    },
+    "spec": {
+      "triggers": [
+        {
+          "type": "ConfigChange"
+        }
+      ],
+      "runPolicy": "Serial",
+      "source": {
+        "type": "Git",
+        "git": {
+          "uri": "https://github.com/redhat-cop/containers-quickstarts",
+          "ref": "master"
+        },
+        "contextDir": "jenkins-agents/jenkins-agent-gradle"
+      },
+      "strategy": {
+        "type": "Docker",
+        "dockerStrategy": {
+          "dockerfilePath": "Dockerfile"
+        }
+      },
+      "output": {
+        "to": {
+          "kind": "ImageStreamTag",
+          "name": "jenkins-agent-gradle:latest"
+        }
+      }
+    }
+  },
+  {
+    "kind": "BuildConfig",
+    "apiVersion": "build.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-helm",
+      "labels": {
+        "build": "jenkins-agent-helm",
+        "type": "image"
+      }
+    },
+    "spec": {
+      "triggers": [
+        {
+          "type": "ConfigChange"
+        }
+      ],
+      "runPolicy": "Serial",
+      "source": {
+        "type": "Git",
+        "git": {
+          "uri": "https://github.com/redhat-cop/containers-quickstarts",
+          "ref": "master"
+        },
+        "contextDir": "jenkins-agents/jenkins-agent-helm"
+      },
+      "strategy": {
+        "type": "Docker",
+        "dockerStrategy": {
+          "dockerfilePath": "Dockerfile"
+        }
+      },
+      "output": {
+        "to": {
+          "kind": "ImageStreamTag",
+          "name": "jenkins-agent-helm:latest"
+        }
+      }
+    }
+  },
+  {
+    "kind": "BuildConfig",
+    "apiVersion": "build.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-image-mgmt",
+      "labels": {
+        "build": "jenkins-agent-image-mgmt",
+        "type": "image"
+      }
+    },
+    "spec": {
+      "triggers": [
+        {
+          "type": "ConfigChange"
+        }
+      ],
+      "runPolicy": "Serial",
+      "source": {
+        "type": "Git",
+        "git": {
+          "uri": "https://github.com/redhat-cop/containers-quickstarts",
+          "ref": "master"
+        },
+        "contextDir": "jenkins-agents/jenkins-agent-image-mgmt"
+      },
+      "strategy": {
+        "type": "Docker",
+        "dockerStrategy": {
+          "dockerfilePath": "Dockerfile"
+        }
+      },
+      "output": {
+        "to": {
+          "kind": "ImageStreamTag",
+          "name": "jenkins-agent-image-mgmt:latest"
+        }
+      }
+    }
+  },
+  {
+    "kind": "BuildConfig",
+    "apiVersion": "build.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-mongodb",
+      "labels": {
+        "build": "jenkins-agent-mongodb",
+        "type": "image"
+      }
+    },
+    "spec": {
+      "triggers": [
+        {
+          "type": "ConfigChange"
+        }
+      ],
+      "runPolicy": "Serial",
+      "source": {
+        "type": "Git",
+        "git": {
+          "uri": "https://github.com/redhat-cop/containers-quickstarts",
+          "ref": "master"
+        },
+        "contextDir": "jenkins-agents/jenkins-agent-mongodb"
+      },
+      "strategy": {
+        "type": "Docker",
+        "dockerStrategy": {
+          "dockerfilePath": "Dockerfile"
+        }
+      },
+      "output": {
+        "to": {
+          "kind": "ImageStreamTag",
+          "name": "jenkins-agent-mongodb:latest"
+        }
+      }
+    }
+  },
+  {
+    "kind": "BuildConfig",
+    "apiVersion": "build.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-mvn",
+      "labels": {
+        "build": "jenkins-agent-mvn",
+        "type": "image"
+      }
+    },
+    "spec": {
+      "triggers": [
+        {
+          "type": "ConfigChange"
+        }
+      ],
+      "runPolicy": "Serial",
+      "source": {
+        "type": "Git",
+        "git": {
+          "uri": "https://github.com/redhat-cop/containers-quickstarts",
+          "ref": "master"
+        },
+        "contextDir": "jenkins-agents/jenkins-agent-mvn"
+      },
+      "strategy": {
+        "type": "Docker",
+        "dockerStrategy": {
+          "dockerfilePath": "Dockerfile"
+        }
+      },
+      "output": {
+        "to": {
+          "kind": "ImageStreamTag",
+          "name": "jenkins-agent-mvn:latest"
+        }
+      }
+    }
+  },
+  {
+    "kind": "BuildConfig",
+    "apiVersion": "build.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-npm",
+      "labels": {
+        "build": "jenkins-agent-npm",
+        "type": "image"
+      }
+    },
+    "spec": {
+      "triggers": [
+        {
+          "type": "ConfigChange"
+        }
+      ],
+      "runPolicy": "Serial",
+      "source": {
+        "type": "Git",
+        "git": {
+          "uri": "https://github.com/redhat-cop/containers-quickstarts",
+          "ref": "master"
+        },
+        "contextDir": "jenkins-agents/jenkins-agent-npm"
+      },
+      "strategy": {
+        "type": "Docker",
+        "dockerStrategy": {
+          "dockerfilePath": "Dockerfile"
+        }
+      },
+      "output": {
+        "to": {
+          "kind": "ImageStreamTag",
+          "name": "jenkins-agent-npm:latest"
+        }
+      }
+    }
+  },
+  {
+    "kind": "BuildConfig",
+    "apiVersion": "build.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-python",
+      "labels": {
+        "build": "jenkins-agent-python",
+        "type": "image"
+      }
+    },
+    "spec": {
+      "triggers": [
+        {
+          "type": "ConfigChange"
+        }
+      ],
+      "runPolicy": "Serial",
+      "source": {
+        "type": "Git",
+        "git": {
+          "uri": "https://github.com/redhat-cop/containers-quickstarts",
+          "ref": "master"
+        },
+        "contextDir": "jenkins-agents/jenkins-agent-python"
+      },
+      "strategy": {
+        "type": "Docker",
+        "dockerStrategy": {
+          "dockerfilePath": "Dockerfile"
+        }
+      },
+      "output": {
+        "to": {
+          "kind": "ImageStreamTag",
+          "name": "jenkins-agent-python:latest"
+        }
+      }
+    }
+  },
+  {
+    "kind": "BuildConfig",
+    "apiVersion": "build.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-ruby",
+      "labels": {
+        "build": "jenkins-agent-ruby",
+        "type": "image"
+      }
+    },
+    "spec": {
+      "triggers": [
+        {
+          "type": "ConfigChange"
+        }
+      ],
+      "runPolicy": "Serial",
+      "source": {
+        "type": "Git",
+        "git": {
+          "uri": "https://github.com/redhat-cop/containers-quickstarts",
+          "ref": "master"
+        },
+        "contextDir": "jenkins-agents/jenkins-agent-ruby"
+      },
+      "strategy": {
+        "type": "Docker",
+        "dockerStrategy": {
+          "dockerfilePath": "Dockerfile"
+        }
+      },
+      "output": {
+        "to": {
+          "kind": "ImageStreamTag",
+          "name": "jenkins-agent-ruby:latest"
+        }
+      }
+    }
+  },
+  {
+    "kind": "BuildConfig",
+    "apiVersion": "build.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-rust",
+      "labels": {
+        "build": "jenkins-agent-rust",
+        "type": "image"
+      }
+    },
+    "spec": {
+      "triggers": [
+        {
+          "type": "ConfigChange"
+        }
+      ],
+      "runPolicy": "Serial",
+      "source": {
+        "type": "Git",
+        "git": {
+          "uri": "https://github.com/redhat-cop/containers-quickstarts",
+          "ref": "master"
+        },
+        "contextDir": "jenkins-agents/jenkins-agent-rust"
+      },
+      "strategy": {
+        "type": "Docker",
+        "dockerStrategy": {
+          "dockerfilePath": "Dockerfile"
+        }
+      },
+      "output": {
+        "to": {
+          "kind": "ImageStreamTag",
+          "name": "jenkins-agent-rust:latest"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps.openshift.io/v1",
+    "kind": "DeploymentConfig",
+    "metadata": {
+      "annotations": null,
+      "name": "jenkins",
+      "labels": {
+        "app": "jenkins"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "name": "jenkins"
+      },
+      "strategy": {
+        "type": "Rolling"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "name": "jenkins"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "jenkins",
+              "env": [
+                {
+                  "name": "OPENSHIFT_ENABLE_OAUTH",
+                  "value": "true"
+                },
+                {
+                  "name": "OPENSHIFT_ENABLE_REDIRECT_PROMPT",
+                  "value": "true"
+                },
+                {
+                  "name": "KUBERNETES_MASTER",
+                  "value": "https://kubernetes.default:443"
+                },
+                {
+                  "name": "KUBERNETES_TRUST_CERTIFICATES",
+                  "value": "true"
+                },
+                {
+                  "name": "JENKINS_SERVICE_NAME",
+                  "value": "jenkins"
+                },
+                {
+                  "name": "JNLP_SERVICE_NAME",
+                  "value": "jenkins-jnlp"
+                },
+                {
+                  "name": "JVM_ARCH",
+                  "value": "x86_64"
+                },
+                {
+                  "name": "DISABLE_ADMINISTRATIVE_MONITORS",
+                  "value": "false"
+                },
+                {
+                  "name": "ENABLE_FATAL_ERROR_LOG_FILE",
+                  "value": "false"
+                },
+                {
+                  "name": "JENKINS_OPTS",
+                  "value": "--sessionTimeout=180"
+                },
+                {
+                  "name": "GITLAB_GROUP_NAME",
+                  "value": "rht-labs"
+                }
+              ],
+              "image": " ",
+              "imagePullPolicy": "IfNotPresent",
+              "livenessProbe": {
+                "failureThreshold": 2,
+                "httpGet": {
+                  "path": "/login",
+                  "port": 8080
+                },
+                "initialDelaySeconds": 420,
+                "periodSeconds": 360,
+                "timeoutSeconds": 240
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/login",
+                  "port": 8080
+                },
+                "initialDelaySeconds": 3,
+                "timeoutSeconds": 240
+              },
+              "resources": {
+                "requests": {
+                  "cpu": "500m",
+                  "memory": "2Gi"
+                },
+                "limits": {
+                  "cpu": "1",
+                  "memory": "6Gi"
+                }
+              },
+              "securityContext": {
+                "capabilities": {},
+                "privileged": false
+              },
+              "terminationMessagePath": "/dev/termination-log"
+            }
+          ],
+          "dnsPolicy": "ClusterFirst",
+          "restartPolicy": "Always",
+          "serviceAccountName": "jenkins"
+        }
+      },
+      "triggers": [
+        {
+          "imageChangeParams": {
+            "automatic": true,
+            "containerNames": [
+              "jenkins"
+            ],
+            "from": {
+              "kind": "ImageStreamTag",
+              "name": "jenkins:latest"
+            },
+            "lastTriggeredImage": ""
+          },
+          "type": "ImageChange"
+        },
+        {
+          "type": "ConfigChange"
+        }
+      ]
+    }
+  },
+  {
+    "kind": "ImageStream",
+    "apiVersion": "image.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins",
+      "annotations": {
+        "description": "Keeps track of changes in the application image"
+      }
+    }
+  },
+  {
+    "kind": "ImageStream",
+    "apiVersion": "image.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-ansible",
+      "labels": {
+        "build": "jenkins-agent-ansible",
+        "role": "jenkins-slave"
+      },
+      "annotations": {
+        "description": "Keeps track of changes in the application image"
+      }
+    }
+  },
+  {
+    "kind": "ImageStream",
+    "apiVersion": "image.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-arachni",
+      "labels": {
+        "build": "jenkins-agent-arachni",
+        "role": "jenkins-slave"
+      },
+      "annotations": {
+        "description": "Keeps track of changes in the application image"
+      }
+    }
+  },
+  {
+    "kind": "ImageStream",
+    "apiVersion": "image.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-argocd",
+      "labels": {
+        "build": "jenkins-agent-argocd",
+        "role": "jenkins-slave"
+      },
+      "annotations": {
+        "description": "Keeps track of changes in the application image"
+      }
+    }
+  },
+  {
+    "kind": "ImageStream",
+    "apiVersion": "image.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-conftest",
+      "labels": {
+        "build": "jenkins-agent-conftest",
+        "role": "jenkins-slave"
+      },
+      "annotations": {
+        "description": "Keeps track of changes in the application image"
+      }
+    }
+  },
+  {
+    "kind": "ImageStream",
+    "apiVersion": "image.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-erlang",
+      "labels": {
+        "build": "jenkins-agent-erlang",
+        "role": "jenkins-slave"
+      },
+      "annotations": {
+        "description": "Keeps track of changes in the application image"
+      }
+    }
+  },
+  {
+    "kind": "ImageStream",
+    "apiVersion": "image.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-golang",
+      "labels": {
+        "build": "jenkins-agent-golang",
+        "role": "jenkins-slave"
+      },
+      "annotations": {
+        "description": "Keeps track of changes in the application image"
+      }
+    }
+  },
+  {
+    "kind": "ImageStream",
+    "apiVersion": "image.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-graalvm",
+      "labels": {
+        "build": "jenkins-agent-graalvm",
+        "role": "jenkins-slave"
+      },
+      "annotations": {
+        "description": "Keeps track of changes in the application image"
+      }
+    }
+  },
+  {
+    "kind": "ImageStream",
+    "apiVersion": "image.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-gradle",
+      "labels": {
+        "build": "jenkins-agent-gradle",
+        "role": "jenkins-slave"
+      },
+      "annotations": {
+        "description": "Keeps track of changes in the application image"
+      }
+    }
+  },
+  {
+    "kind": "ImageStream",
+    "apiVersion": "image.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-helm",
+      "labels": {
+        "build": "jenkins-agent-helm",
+        "role": "jenkins-slave"
+      },
+      "annotations": {
+        "description": "Keeps track of changes in the application image"
+      }
+    }
+  },
+  {
+    "kind": "ImageStream",
+    "apiVersion": "image.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-image-mgmt",
+      "labels": {
+        "build": "jenkins-agent-image-mgmt",
+        "role": "jenkins-slave"
+      },
+      "annotations": {
+        "description": "Keeps track of changes in the application image"
+      }
+    }
+  },
+  {
+    "kind": "ImageStream",
+    "apiVersion": "image.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-mongodb",
+      "labels": {
+        "build": "jenkins-agent-mongodb",
+        "role": "jenkins-slave"
+      },
+      "annotations": {
+        "description": "Keeps track of changes in the application image"
+      }
+    }
+  },
+  {
+    "kind": "ImageStream",
+    "apiVersion": "image.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-mvn",
+      "labels": {
+        "build": "jenkins-agent-mvn",
+        "role": "jenkins-slave"
+      },
+      "annotations": {
+        "description": "Keeps track of changes in the application image"
+      }
+    }
+  },
+  {
+    "kind": "ImageStream",
+    "apiVersion": "image.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-npm",
+      "labels": {
+        "build": "jenkins-agent-npm",
+        "role": "jenkins-slave"
+      },
+      "annotations": {
+        "description": "Keeps track of changes in the application image"
+      }
+    }
+  },
+  {
+    "kind": "ImageStream",
+    "apiVersion": "image.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-python",
+      "labels": {
+        "build": "jenkins-agent-python",
+        "role": "jenkins-slave"
+      },
+      "annotations": {
+        "description": "Keeps track of changes in the application image"
+      }
+    }
+  },
+  {
+    "kind": "ImageStream",
+    "apiVersion": "image.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-ruby",
+      "labels": {
+        "build": "jenkins-agent-ruby",
+        "role": "jenkins-slave"
+      },
+      "annotations": {
+        "description": "Keeps track of changes in the application image"
+      }
+    }
+  },
+  {
+    "kind": "ImageStream",
+    "apiVersion": "image.openshift.io/v1",
+    "metadata": {
+      "name": "jenkins-agent-rust",
+      "labels": {
+        "build": "jenkins-agent-rust",
+        "role": "jenkins-slave"
+      },
+      "annotations": {
+        "description": "Keeps track of changes in the application image"
+      }
+    }
+  },
+  {
+    "apiVersion": "route.openshift.io/v1",
+    "kind": "Route",
+    "metadata": {
+      "annotations": {
+        "haproxy.router.openshift.io/timeout": "4m",
+        "openshift.io/host.generated": "true"
+      },
+      "name": "jenkins"
+    },
+    "spec": {
+      "host": null,
+      "tls": {
+        "insecureEdgeTerminationPolicy": "Redirect",
+        "termination": "edge"
+      },
+      "to": {
+        "kind": "Service",
+        "name": "jenkins"
+      }
+    },
+    "status": {
+      "ingress": [
+        {
+          "conditions": [
+            {
+              "status": "True",
+              "type": "Admitted"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

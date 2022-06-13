@@ -1,0 +1,193 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-elasticsearch2
+  labels:
+    app: elasticsearch2
+    chart: elasticsearch2-0.2.2
+    release: release-name
+    heritage: Helm
+data:
+  elasticsearch.yml: |
+    discovery.zen.ping.unicast.hosts: "release-name-elasticsearch2-discovery"
+    network.host: _local_, _site_
+    http.cors.allow-origin: "*"
+    http.cors.enabled: true
+    path.data: "/usr/share/elasticsearch/data"
+    path.logs: "/usr/share/elasticsearch/logs"
+    node.name: ${HOSTNAME}
+    cluster.name: clowder
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-elasticsearch2-elastichq
+  labels:
+    app: elasticsearch2
+    chart: elasticsearch2-0.2.2
+    release: release-name
+    heritage: Helm
+    component: elastichq
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5000
+      targetPort: ui
+      protocol: TCP
+      name: ui
+  selector:
+    app: elasticsearch2
+    release: release-name
+    component: elastichq
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-elasticsearch2-discovery
+  annotations:
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+  labels:
+    app: elasticsearch2
+    chart: elasticsearch2-0.2.2
+    release: release-name
+    heritage: Helm
+    component: elasticsearch
+spec:
+  clusterIP: None
+  type: ClusterIP
+  publishNotReadyAddresses: true
+  ports:
+    - port: 9300
+      targetPort: transport
+      protocol: TCP
+      name: transport
+  selector:
+    app: elasticsearch2
+    release: release-name
+    component: elasticsearch
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-elasticsearch2-api
+  labels:
+    app: elasticsearch2
+    chart: elasticsearch2-0.2.2
+    release: release-name
+    heritage: Helm
+    component: elasticsearch
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9200
+      targetPort: api
+      protocol: TCP
+      name: api
+  selector:
+    app: elasticsearch2
+    release: release-name
+    component: elasticsearch
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-elasticsearch2-elastichq
+  labels:
+    app: elasticsearch2
+    chart: elasticsearch2-0.2.2
+    release: release-name
+    heritage: Helm
+    component: elastichq
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elasticsearch2
+      release: release-name
+      component: elastichq
+  template:
+    metadata:
+      labels:
+        app: elasticsearch2
+        release: release-name
+        component: elastichq
+    spec:
+      containers:
+        - name: elastichq
+          image: elastichq/elasticsearch-hq
+          env:
+            - name: HQ_DEFAULT_URL
+              value: http://release-name-elasticsearch2-api:9200
+          ports:
+            - name: ui
+              containerPort: 5000
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-elasticsearch2
+  labels:
+    app: elasticsearch2
+    chart: elasticsearch2-0.2.2
+    release: release-name
+    heritage: Helm
+    component: elasticsearch
+spec:
+  replicas: 1
+  serviceName: elasticsearch2
+  selector:
+    matchLabels:
+      app: elasticsearch2
+      release: release-name
+      component: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch2
+        release: release-name
+        component: elasticsearch
+    spec:
+      securityContext:
+        runAsUser: 101
+        fsGroup: 101
+      volumes:
+        - name: es-config
+          configMap:
+            name: release-name-elasticsearch2
+      containers:
+        - name: elasticsearch2
+          image: elasticsearch:2.4.6
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: api
+              containerPort: 9200
+              protocol: TCP
+            - name: transport
+              containerPort: 9300
+              protocol: TCP
+          volumeMounts:
+            - name: es-config
+              mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
+              subPath: elasticsearch.yml
+            - name: release-name-elasticsearch2-data
+              mountPath: /usr/share/elasticsearch/data
+          resources: null
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: component
+                    operator: In
+                    values:
+                      - elasticsearch
+              topologyKey: kubernetes.io/hostname
+  volumeClaimTemplates:
+    - metadata:
+        name: release-name-elasticsearch2-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 2Gi

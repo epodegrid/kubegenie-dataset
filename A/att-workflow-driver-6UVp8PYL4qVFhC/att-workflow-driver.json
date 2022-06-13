@@ -1,0 +1,97 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "att-workflow-driver"
+    },
+    "data": {
+      "serviceConfig": "name: att-workflow-driver\naccessor:\n  username: \"admin@opencord.org\"\n  password: \"letmein\"\n  endpoint: \"xos-core:50051\"\nevent_bus:\n  endpoint: \"cord-kafka\"\n  kind: kafka\nlogging:\n  version: 1\n  handlers:\n    console:\n      class: logging.StreamHandler\n    file:\n      class: logging.handlers.RotatingFileHandler\n      filename: /var/log/xos.log\n      maxBytes: 10485760\n      backupCount: 5\n    kafka:\n      class: kafkaloghandler.KafkaLogHandler\n      bootstrap_servers:\n        - \"cord-kafka:9092\"\n      topic: xos.log.att-workflow-driver\n  loggers:\n    '':\n      handlers:\n        - console\n        - file\n        - kafka\n      level: DEBUG\n"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-att-workflow-driver",
+      "labels": {
+        "app": "att-workflow-driver",
+        "chart": "att-workflow-driver-2.0.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "att-workflow-driver",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "att-workflow-driver",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "5e25c73de800fc551d6c0a377f6438fe485f91f87874301b75668dcc1e58ac14"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "att-workflow-driver",
+              "image": "xosproject/att-workflow-driver-synchronizer:2.0.0",
+              "imagePullPolicy": "Always",
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "att-workflow-driver-config",
+                  "mountPath": "/opt/xos/synchronizers/att-workflow-driver/mounted_config.yaml",
+                  "subPath": "mounted_config.yaml"
+                },
+                {
+                  "name": "certchain-volume",
+                  "mountPath": "/usr/local/share/ca-certificates/local_certs.crt",
+                  "subPath": "config/ca_cert_chain.pem"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "att-workflow-driver-config",
+              "configMap": {
+                "name": "att-workflow-driver",
+                "items": [
+                  {
+                    "key": "serviceConfig",
+                    "path": "mounted_config.yaml"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "certchain-volume",
+              "configMap": {
+                "name": "ca-certificates",
+                "items": [
+                  {
+                    "key": "chain",
+                    "path": "config/ca_cert_chain.pem"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

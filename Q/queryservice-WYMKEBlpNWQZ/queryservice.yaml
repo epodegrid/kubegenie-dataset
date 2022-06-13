@@ -1,0 +1,133 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-queryservice
+  namespace: default
+  labels:
+    app: release-name-queryservice
+    chart: queryservice-0.1.3
+    release: release-name
+    heritage: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: faster
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-queryservice
+  labels:
+    app.kubernetes.io/name: queryservice
+    helm.sh/chart: queryservice-0.1.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9999
+      targetPort: 9999
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: queryservice
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-queryservice
+  labels:
+    app.kubernetes.io/name: queryservice
+    helm.sh/chart: queryservice-0.1.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+    rollingUpdate: null
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: queryservice
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: queryservice
+        app.kubernetes.io/instance: release-name
+    spec:
+      containers:
+        - name: queryservice
+          image: ghcr.io/wbstack/queryservice:0.3.6_0.6
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - mountPath: /wdqs/data
+              name: data
+          ports:
+            - name: http
+              containerPort: 9999
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /bigdata/
+              port: http
+            initialDelaySeconds: 30
+            timeoutSeconds: 1
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /bigdata/
+              port: http
+            initialDelaySeconds: 15
+            timeoutSeconds: 1
+            periodSeconds: 15
+          resources:
+            limits:
+              cpu: 0.5
+              memory: 4072Mi
+            requests:
+              cpu: 0.20000000000000001
+              memory: 3500Mi
+          env:
+            - name: WDQS_HOST
+              value: release-name-queryservice
+            - name: HEAP_SIZE
+              value: 2g
+            - name: EXTRA_JVM_OPTS
+              value: -XX:+UnlockExperimentalVMOptions -XX:+UseCGroupMemoryLimitForHeap -XX:MaxRAM=2g -XX:+TieredCompilation -XX:TieredStopAtLevel=1
+            - name: GC_LOGS
+              value: ' '
+            - name: WDQS_ENTITY_NAMESPACES
+              value: 120,122
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: release-name-queryservice
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-queryservice-test-connection
+  labels:
+    app.kubernetes.io/name: queryservice
+    helm.sh/chart: queryservice-0.1.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-queryservice:9999
+  restartPolicy: Never

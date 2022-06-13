@@ -1,0 +1,205 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "labels": {
+        "app": "oauth2-proxy",
+        "chart": "oauth2-proxy-3.2.7",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "name": "release-name-oauth2-proxy"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "labels": {
+        "app": "oauth2-proxy",
+        "chart": "oauth2-proxy-3.2.7",
+        "heritage": "Helm",
+        "release": "release-name"
+      },
+      "name": "release-name-oauth2-proxy"
+    },
+    "type": "Opaque",
+    "data": {
+      "cookie-secret": "WFhYWFhYWFhYWA==",
+      "client-secret": "WFhYWFhYWFg=",
+      "client-id": "WFhYWFhYWA=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "labels": {
+        "app": "oauth2-proxy",
+        "chart": "oauth2-proxy-3.2.7",
+        "heritage": "Helm",
+        "release": "release-name"
+      },
+      "name": "release-name-oauth2-proxy"
+    },
+    "data": {
+      "oauth2_proxy.cfg": "email_domains = [ \"*\" ]\nupstreams = [ \"file:///dev/null\" ]"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "labels": {
+        "app": "oauth2-proxy",
+        "chart": "oauth2-proxy-3.2.7",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "name": "release-name-oauth2-proxy"
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app": "oauth2-proxy",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "labels": {
+        "app": "oauth2-proxy",
+        "chart": "oauth2-proxy-3.2.7",
+        "heritage": "Helm",
+        "release": "release-name"
+      },
+      "name": "release-name-oauth2-proxy"
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "oauth2-proxy",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config": "ea855e39e612ffdd9ca07684b317deb88769665c62153e6ed44e99ec5ec5469b",
+            "checksum/config-emails": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6",
+            "checksum/secret": "ac0c7aad83dbc1d9bafcb8be7435c5dcecddd100f495824da4f2f9f8338244c5",
+            "checksum/google-secret": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "labels": {
+            "app": "oauth2-proxy",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-oauth2-proxy",
+          "containers": [
+            {
+              "name": "oauth2-proxy",
+              "image": "bitnami/oauth2-proxy:7.2.0",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "--http-address=0.0.0.0:4180",
+                "--config=/etc/oauth2_proxy/oauth2_proxy.cfg"
+              ],
+              "env": [
+                {
+                  "name": "OAUTH2_PROXY_CLIENT_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-oauth2-proxy",
+                      "key": "client-id"
+                    }
+                  }
+                },
+                {
+                  "name": "OAUTH2_PROXY_CLIENT_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-oauth2-proxy",
+                      "key": "client-secret"
+                    }
+                  }
+                },
+                {
+                  "name": "OAUTH2_PROXY_COOKIE_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-oauth2-proxy",
+                      "key": "cookie-secret"
+                    }
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 4180,
+                  "name": "http",
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/ping",
+                  "port": "http",
+                  "scheme": "HTTP"
+                },
+                "initialDelaySeconds": 0,
+                "timeoutSeconds": 1
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/ping",
+                  "port": "http",
+                  "scheme": "HTTP"
+                },
+                "initialDelaySeconds": 0,
+                "timeoutSeconds": 1,
+                "successThreshold": 1,
+                "periodSeconds": 10
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/etc/oauth2_proxy",
+                  "name": "configmain"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "configMap": {
+                "defaultMode": 420,
+                "name": "release-name-oauth2-proxy"
+              },
+              "name": "configmain"
+            }
+          ],
+          "tolerations": []
+        }
+      }
+    }
+  }
+]

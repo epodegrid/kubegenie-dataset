@@ -1,0 +1,301 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "olt0",
+      "namespace": "voltha",
+      "labels": {
+        "name": "olt0"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "grpc",
+          "port": 50060,
+          "targetPort": 50060
+        }
+      ],
+      "selector": {
+        "olt": "olt0"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "olt0",
+      "namespace": "voltha"
+    },
+    "spec": {
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "ponsim",
+            "olt": "olt0"
+          },
+          "annotations": {
+            "cni": "calico,nni0"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "podAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "weight": 100,
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "app",
+                          "operator": "In",
+                          "values": [
+                            "mininet"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  }
+                }
+              ]
+            }
+          },
+          "containers": [
+            {
+              "name": "olt0",
+              "image": "voltha/voltha-ponsim:1.7.0",
+              "imagePullPolicy": "Always",
+              "env": [
+                {
+                  "name": "POD_IP",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "status.podIP"
+                    }
+                  }
+                },
+                {
+                  "name": "NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                }
+              ],
+              "args": [
+                "/app/ponsim",
+                "-device_type",
+                "OLT",
+                "-onus",
+                "4",
+                "-internal_if",
+                "eth1",
+                "-external_if",
+                "eth1",
+                "-vcore_endpoint",
+                "vcore",
+                "-promiscuous"
+              ],
+              "ports": [
+                {
+                  "containerPort": 50060,
+                  "name": "grpc-port"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "onu0-0",
+      "namespace": "voltha"
+    },
+    "spec": {
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "ponsim",
+            "onu": "onu0-0"
+          },
+          "annotations": {
+            "cni": "calico,pon0.0"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "podAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "weight": 100,
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "rg",
+                          "operator": "In",
+                          "values": [
+                            "rg0-0"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  }
+                }
+              ]
+            }
+          },
+          "containers": [
+            {
+              "name": "onu0-0",
+              "image": "voltha/voltha-ponsim:1.7.0",
+              "imagePullPolicy": "Always",
+              "env": [
+                {
+                  "name": "POD_IP",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "status.podIP"
+                    }
+                  }
+                },
+                {
+                  "name": "NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                }
+              ],
+              "args": [
+                "/app/ponsim",
+                "-device_type",
+                "ONU",
+                "-parent_addr",
+                "olt0",
+                "-grpc_port",
+                "50061",
+                "-internal_if",
+                "eth0",
+                "-external_if",
+                "eth1",
+                "-promiscuous",
+                "-serial_number",
+                "PSMO00000000"
+              ],
+              "ports": [
+                {
+                  "containerPort": 50061,
+                  "name": "grpc-port"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "rg0-0",
+      "namespace": "voltha"
+    },
+    "spec": {
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "ponsim",
+            "rg": "rg0-0"
+          },
+          "annotations": {
+            "cni": "pon0.0"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "podAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "weight": 100,
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "onu",
+                          "operator": "In",
+                          "values": [
+                            "onu0-0"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  }
+                }
+              ]
+            }
+          },
+          "containers": [
+            {
+              "name": "rg0-0",
+              "image": "voltha/voltha-tester:1.7.0",
+              "imagePullPolicy": "Always",
+              "env": [
+                {
+                  "name": "POD_IP",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "status.podIP"
+                    }
+                  }
+                },
+                {
+                  "name": "NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                }
+              ],
+              "command": [
+                "/bin/bash",
+                "-c",
+                "trap : TERM INT; sleep infinity & wait"
+              ],
+              "securityContext": {
+                "privileged": true,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  null,
+  null,
+  null
+]

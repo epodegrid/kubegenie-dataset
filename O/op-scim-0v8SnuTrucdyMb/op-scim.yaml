@@ -1,0 +1,451 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: op-scim-bridge
+  namespace: 0v8SnuTrucdyMb
+  labels:
+    app.kubernetes.io/component: op-scim-bridge
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-redis-scripts
+  namespace: 0v8SnuTrucdyMb
+  labels:
+    app: redis
+    chart: redis-12.0.0
+    heritage: Helm
+    release: release-name
+data:
+  start-master.sh: |
+    #!/bin/bash
+    useradd redis
+    chown -R redis /data
+    if [[ -n $REDIS_PASSWORD_FILE ]]; then
+      password_aux=`cat ${REDIS_PASSWORD_FILE}`
+      export REDIS_PASSWORD=$password_aux
+    fi
+    if [[ ! -f /opt/bitnami/redis/etc/master.conf ]];then
+      cp /opt/bitnami/redis/mounted-etc/master.conf /opt/bitnami/redis/etc/master.conf
+    fi
+    if [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then
+      cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf
+    fi
+    ARGS=("--port" "${REDIS_PORT}")
+    ARGS+=("--protected-mode" "no")
+    ARGS+=("--include" "/opt/bitnami/redis/etc/redis.conf")
+    ARGS+=("--include" "/opt/bitnami/redis/etc/master.conf")
+    ARGS+=("--maxmemory 256mb")
+    ARGS+=("--maxmemory-policy volatile-lru")
+    exec /run.sh "${ARGS[@]}"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-redis
+  namespace: 0v8SnuTrucdyMb
+  labels:
+    app: redis
+    chart: redis-12.0.0
+    heritage: Helm
+    release: release-name
+data:
+  redis.conf: |-
+    # User-supplied configuration:
+    # Enable AOF https://redis.io/topics/persistence#append-only-file
+    appendonly yes
+    # Disable RDB persistence, AOF persistence already enabled.
+    save ""
+  master.conf: |-
+    dir /data
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+  replica.conf: |-
+    dir /data
+    slave-read-only yes
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-redis-health
+  namespace: 0v8SnuTrucdyMb
+  labels:
+    app: redis
+    chart: redis-12.0.0
+    heritage: Helm
+    release: release-name
+data:
+  ping_readiness_local.sh: |-
+    #!/bin/bash
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_local.sh: |-
+    #!/bin/bash
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$response" != "PONG" ] && [ "$response" != "LOADING Redis is loading the dataset in memory" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_master.sh: |-
+    #!/bin/bash
+     response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_master.sh: |-
+    #!/bin/bash
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$response" != "PONG" ] && [ "$response" != "LOADING Redis is loading the dataset in memory" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_readiness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_readiness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+  ping_liveness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_liveness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_liveness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: op-scim-bridge-pvc
+  namespace: default
+  labels:
+    app.kubernetes.io/application: op-scim-bridge
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-redis-headless
+  namespace: 0v8SnuTrucdyMb
+  labels:
+    app: redis
+    chart: redis-12.0.0
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+  selector:
+    app: redis
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-redis-master
+  namespace: 0v8SnuTrucdyMb
+  labels:
+    app: redis
+    chart: redis-12.0.0
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+  selector:
+    app: redis
+    release: release-name
+    role: master
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: op-scim-bridge-svc
+  namespace: 0v8SnuTrucdyMb
+  labels:
+    app.kubernetes.io/component: op-scim-bridge
+spec:
+  type: LoadBalancer
+  selector:
+    app: op-scim-bridge
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 8080
+    - name: https
+      port: 443
+      protocol: TCP
+      targetPort: 8443
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: op-scim-bridge
+  namespace: 0v8SnuTrucdyMb
+  labels:
+    app.kubernetes.io/component: op-scim-bridge
+spec:
+  selector:
+    matchLabels:
+      app: op-scim-bridge
+  replicas: 1
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: op-scim-bridge
+        version: v2.4.0
+        app.kubernetes.io/component: op-scim-bridge
+    spec:
+      serviceAccountName: op-scim-bridge
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: redis
+              topologyKey: topology.kubernetes.io/zone
+      volumes:
+        - name: op-scim-bridge-credentials
+          persistentVolumeClaim:
+            claimName: op-scim-bridge-pvc
+      initContainers:
+        - name: opuser-home-permissions
+          image: alpine:3.12
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - mkdir -p /home/opuser/.op && chown -R 999 /home/opuser && chmod -R 700 /home/opuser
+          volumeMounts:
+            - mountPath: /home/opuser/.op
+              name: op-scim-bridge-credentials
+      containers:
+        - name: op-scim-bridge
+          image: 1password/scim:v2.4.0
+          imagePullPolicy: Always
+          command:
+            - /op-scim/op-scim
+          securityContext:
+            runAsUser: 11556
+            runAsGroup: 999
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          resources:
+            limits:
+              cpu: 250m
+              memory: 512M
+            requests:
+              cpu: 125m
+              memory: 256M
+          env:
+            - name: OP_PORT
+              value: "8080"
+            - name: OP_SESSION
+              value: /home/opuser/.op/scimsession
+            - name: OP_REDIS_URL
+              value: redis://op-scim-bridge-redis-master:6379
+            - name: OP_PING_SERVER
+              value: "true"
+          ports:
+            - containerPort: 8080
+            - containerPort: 8443
+          livenessProbe:
+            httpGet:
+              path: /ping
+              scheme: HTTP
+              port: 8080
+            failureThreshold: 3
+            periodSeconds: 30
+            initialDelaySeconds: 15
+          volumeMounts:
+            - name: op-scim-bridge-credentials
+              mountPath: /home/opuser/.op
+              readOnly: false
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-redis-master
+  namespace: 0v8SnuTrucdyMb
+  labels:
+    app: redis
+    chart: redis-12.0.0
+    release: release-name
+    heritage: Helm
+spec:
+  selector:
+    matchLabels:
+      app: redis
+      release: release-name
+      role: master
+  serviceName: release-name-redis-headless
+  template:
+    metadata:
+      labels:
+        app: redis
+        chart: redis-12.0.0
+        release: release-name
+        role: master
+      annotations:
+        checksum/health: 2e9c8d3d8716b4af985749040238795a1e25e328b266f7d68c25d44907b0da22
+        checksum/configmap: f20bfb2fdaec44eb18854b050882ef06e0e64396c85cb0cbb0e3f43f46d8679c
+        checksum/secret: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+    spec:
+      securityContext:
+        fsGroup: 1001
+      serviceAccountName: default
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: op-scim-bridge
+              topologyKey: topology.kubernetes.io/zone
+      containers:
+        - name: redis
+          image: docker.io/bitnami/redis:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 10682
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - /bin/bash
+            - -c
+            - /opt/bitnami/scripts/start-scripts/start-master.sh
+          env:
+            - name: REDIS_REPLICATION_MODE
+              value: master
+            - name: ALLOW_EMPTY_PASSWORD
+              value: "yes"
+            - name: REDIS_TLS_ENABLED
+              value: "no"
+            - name: REDIS_PORT
+              value: "6379"
+          ports:
+            - name: redis
+              containerPort: 6379
+          livenessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 6
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_liveness_local.sh 5
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_readiness_local.sh 1
+          resources:
+            limits:
+              cpu: 250m
+              memory: 512M
+            requests:
+              cpu: 125m
+              memory: 256M
+          volumeMounts:
+            - name: start-scripts
+              mountPath: /opt/bitnami/scripts/start-scripts
+            - name: health
+              mountPath: /health
+            - name: redis-data
+              mountPath: /data
+              subPath: null
+            - name: config
+              mountPath: /opt/bitnami/redis/mounted-etc
+            - name: redis-tmp-conf
+              mountPath: /opt/bitnami/redis/etc/
+      volumes:
+        - name: start-scripts
+          configMap:
+            name: release-name-redis-scripts
+            defaultMode: 493
+        - name: health
+          configMap:
+            name: release-name-redis-health
+            defaultMode: 493
+        - name: config
+          configMap:
+            name: release-name-redis
+        - name: redis-tmp-conf
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+        labels:
+          app: redis
+          release: release-name
+          heritage: Helm
+          component: master
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi
+        selector: null
+  updateStrategy:
+    type: RollingUpdate

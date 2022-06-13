@@ -1,0 +1,230 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "nginx-rtmp-config"
+    },
+    "data": {
+      "nginx_rtmp_config.sh": "#!/bin/bash\n#ip addr add 192.168.99.2 dev north0\n#ip addr add 192.168.99.3 dev north0d1\n#ip route del default dev eth0\n#ip route add default gw 192.168.99.2 north0\nmkdir -pZ /var/www/live\nip route add 16.0.0.0/8 via 13.0.0.83 dev sgi-net;\nip route add 17.0.0.0/8 via 13.0.0.83 dev sgi-net;\nip link set sgi-net mtu 1200;\ncp /conf/nginx.conf  /etc/nginx/\n#nginx -c /etc/nginx/nginx.conf\n#while true; do sleep 1; done\nnginx -g \"daemon off;\"\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "nginx-rtmp-conf"
+    },
+    "data": {
+      "nginx.conf": "\n# I'll explain why we only have 1 worker process later\nworker_processes 1;\nerror_log /var/log/nginx/error.log;\npid /run/nginx.pid;\n\ninclude /usr/share/nginx/modules/*.conf;\n\nevents {\n    use epoll;\n    worker_connections 1024;\n}\n\nhttp {\n    log_format main '$remote_addr - $remote_user [$time_local] \"$request\" '\n                    '$status $body_bytes_sent \"$http_referer\" '\n                    '\"$http_user_agent\" \"$http_x_forwarded_for\" $request_time';\n    access_log /var/log/nginx/access.log main;\n    sendfile on;\n    tcp_nopush on;\n    tcp_nodelay on;\n    keepalive_timeout 65;\n    types_hash_max_size 2048;\n    include /etc/nginx/mime.types;\n    default_type application/octet-stream;\n\n    server {\n        listen 1980 default_server;\n        server_name _;\n        root /var/www;\n        expires -1d;\n\n        location ~ ^/live/.+\\.ts$ {\n            # MPEG-TS segments can be cached upstream indefinitely\n            expires max;\n        }\n    }\n}\n\nrtmp {\n    server {\n        listen 1935;\n\n        application app {\n            live on;\n\n            # Don't allow RTMP playback\n            deny play all;\n\n            # Package streams as HLS\n            hls on;\n            hls_path /var/www/live;\n            hls_nested on;\n            #hls_datetime system;\n            hls_fragment_naming system;\n        }\n        application vod2 {\n           play /var/www/live;\n        }\n        application l {\n           live on;\n           play /opt/cdn/movies;\n        }\n    }\n}\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "labels": {
+        "name": "nginx-rtmp"
+      },
+      "name": "nginx-rtmp"
+    },
+    "spec": {
+      "selector": {
+        "app": "nginx-rtmp"
+      },
+      "type": "NodePort",
+      "ports": [
+        {
+          "name": "rtmp",
+          "port": 1935,
+          "nodePort": 31935,
+          "protocol": "TCP"
+        },
+        {
+          "name": "stream",
+          "port": 1980,
+          "nodePort": 31980,
+          "protocol": "TCP"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "nginx-rtmp"
+    },
+    "spec": {
+      "serviceName": "nginx-rtmp",
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "name": "nginx-rtmp",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "name": "nginx-rtmp",
+            "app": "nginx-rtmp"
+          },
+          "annotations": {
+            "k8s.v1.cni.cncf.io/networks": "[ { \"name\": \"sgi-net\", \"interface\": \"sgi-net\", \"namespace\": \"default\" } ]"
+          }
+        },
+        "spec": {
+          "nodeSelector": {
+            "kubernetes.io/hostname": "node3"
+          },
+          "terminationGracePeriodSeconds": 0,
+          "imagePullSecrets": [
+            {
+              "name": "nexus-docker-secret"
+            }
+          ],
+          "initContainers": [
+            {
+              "name": "nginx-rtmp-init",
+              "image": "woojoong/nginx:onf-video-v3",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "cp /config/*.sh /shared-vol;cp /conf/* /shared-vol"
+              ],
+              "command": [
+                "/bin/bash",
+                "-c"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "shared-volume",
+                  "mountPath": "/shared-vol"
+                },
+                {
+                  "name": "nginx-rtmp-config",
+                  "mountPath": "/config"
+                },
+                {
+                  "name": "nginx-rtmp-conf",
+                  "mountPath": "/conf"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "nginx-rtmp",
+              "image": "woojoong/nginx:onf-video-v3",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "chmod a+x /config/*.sh;/config/nginx_rtmp_config.sh"
+              ],
+              "command": [
+                "/bin/bash",
+                "-c"
+              ],
+              "tty": true,
+              "securityContext": {
+                "privileged": true,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "ports": [
+                {
+                  "containerPort": 1935
+                },
+                {
+                  "containerPort": 1980
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "shared-volume",
+                  "mountPath": "/config"
+                },
+                {
+                  "name": "shared-volume",
+                  "mountPath": "/conf"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "intel.com/sriov": "2"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            },
+            {
+              "name": "streaming",
+              "image": "woojoong/mwc-cdn:local-free-v2",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "containerPort": 8189
+                },
+                {
+                  "containerPort": 50002
+                }
+              ],
+              "stdin": true,
+              "tty": true,
+              "command": [
+                "bash",
+                "-xc"
+              ],
+              "args": [
+                "sed -i 's/geteuid/getppid/' /usr/bin/vlc; ffmpeg -re -i /opt/cdn/movies/360.mp4 -c copy -f flv rtmp://127.0.0.1:1935/app/l"
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": 3,
+                  "memory": "1Gi"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "nginx-rtmp-config",
+              "configMap": {
+                "name": "nginx-rtmp-config",
+                "items": [
+                  {
+                    "key": "nginx_rtmp_config.sh",
+                    "path": "nginx_rtmp_config.sh"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "nginx-rtmp-conf",
+              "configMap": {
+                "name": "nginx-rtmp-conf",
+                "items": [
+                  {
+                    "key": "nginx.conf",
+                    "path": "nginx.conf"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "shared-volume",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  null,
+  null
+]

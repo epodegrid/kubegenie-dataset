@@ -1,0 +1,2419 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "ceph-pool-checkpgs",
+      "namespace": "bdA9DsS"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "ceph-defragosds",
+      "namespace": "bdA9DsS"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "ceph-checkdns",
+      "namespace": "bdA9DsS"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "ceph-mds",
+      "namespace": "bdA9DsS"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "ceph-mgr",
+      "namespace": "bdA9DsS"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "ceph-rbd-pool",
+      "namespace": "bdA9DsS"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-test",
+      "namespace": "bdA9DsS"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "ceph-client-bin"
+    },
+    "data": {
+      "init-dirs.sh": "#!/bin/bash\n\n\n\nset -ex\nexport LC_ALL=C\n: \"${HOSTNAME:=$(uname -n)}\"\n: \"${MGR_NAME:=${HOSTNAME}}\"\n: \"${MDS_NAME:=mds-${HOSTNAME}}\"\n: \"${MDS_BOOTSTRAP_KEYRING:=/var/lib/ceph/bootstrap-mds/${CLUSTER}.keyring}\"\n: \"${OSD_BOOTSTRAP_KEYRING:=/var/lib/ceph/bootstrap-osd/${CLUSTER}.keyring}\"\n\nfor keyring in ${OSD_BOOTSTRAP_KEYRING} ${MDS_BOOTSTRAP_KEYRING}; do\n  mkdir -p \"$(dirname \"$keyring\")\"\ndone\n\n# Let's create the ceph directories\nfor DIRECTORY in mds tmp mgr; do\n  mkdir -p \"/var/lib/ceph/${DIRECTORY}\"\ndone\n\n# Create socket directory\nmkdir -p /run/ceph\n\n# Create the MDS directory\nmkdir -p \"/var/lib/ceph/mds/${CLUSTER}-${MDS_NAME}\"\n\n# Create the MGR directory\nmkdir -p \"/var/lib/ceph/mgr/${CLUSTER}-${MGR_NAME}\"\n\n# Adjust the owner of all those directories\nchown -R ceph. /run/ceph/ /var/lib/ceph/*\n",
+      "pool-init.sh": "#!/bin/bash\n\n\n\nset -ex\nexport LC_ALL=C\n\n: \"${ADMIN_KEYRING:=/etc/ceph/${CLUSTER}.client.admin.keyring}\"\n\nif [[ ! -e /etc/ceph/${CLUSTER}.conf ]]; then\n  echo \"ERROR- /etc/ceph/${CLUSTER}.conf must exist; get it from your existing mon\"\n  exit 1\nfi\n\nif [[ ! -e ${ADMIN_KEYRING} ]]; then\n   echo \"ERROR- ${ADMIN_KEYRING} must exist; get it from your existing mon\"\n   exit 1\nfi\n\nfunction wait_for_pgs () {\n  echo \"#### Start: Checking pgs ####\"\n\n  pgs_ready=0\n  query='map({state: .state}) | group_by(.state) | map({state: .[0].state, count: length}) | .[] | select(.state | contains(\"active\") or contains(\"premerge\") | not)'\n\n  if [[ $(ceph mon versions | awk '/version/{print $3}' | cut -d. -f1) -ge 14 ]]; then\n    query=\".pg_stats | ${query}\"\n  fi\n\n  # Loop until all pgs are active\n  while [[ $pgs_ready -lt 3 ]]; do\n    pgs_state=$(ceph --cluster ${CLUSTER} pg ls -f json | jq -c \"${query}\")\n    if [[ $(jq -c '. | select(.state | contains(\"peer\") or contains(\"activating\") | not)' <<< \"${pgs_state}\") ]]; then\n      # If inactive PGs aren't peering, fail\n      echo \"Failure, found inactive PGs that aren't peering\"\n      exit 1\n    fi\n    if [[ \"${pgs_state}\" ]]; then\n      pgs_ready=0\n    else\n      (( pgs_ready+=1 ))\n    fi\n    sleep 3\n  done\n}\n\nfunction check_recovery_flags () {\n  echo \"### Start: Checking for flags that will prevent recovery\"\n\n  # Ensure there are no flags set that will prevent recovery of degraded PGs\n  if [[ $(ceph osd stat | grep \"norecover\\|nobackfill\\|norebalance\") ]]; then\n    ceph osd stat\n    echo \"Flags are set that prevent recovery of degraded PGs\"\n    exit 1\n  fi\n}\n\nfunction check_osd_count() {\n  echo \"#### Start: Checking OSD count ####\"\n  noup_flag=$(ceph osd stat | awk '/noup/ {print $2}')\n  osd_stat=$(ceph osd stat -f json-pretty)\n  num_osd=$(awk '/\"num_osds\"/{print $2}' <<< \"$osd_stat\" | cut -d, -f1)\n  num_in_osds=$(awk '/\"num_in_osds\"/{print $2}' <<< \"$osd_stat\" | cut -d, -f1)\n  num_up_osds=$(awk '/\"num_up_osds\"/{print $2}' <<< \"$osd_stat\" | cut -d, -f1)\n\n  EXPECTED_OSDS=5\n  REQUIRED_PERCENT_OF_OSDS=75\n\n  if [ ${num_up_osds} -gt ${EXPECTED_OSDS} ]; then\n    echo \"The expected amount of OSDs (${EXPECTED_OSDS}) is less than available OSDs (${num_up_osds}). Please, correct the value (.Values.conf.pool.target.osd).\"\n    exit 1\n  fi\n\n  MIN_OSDS=$(($EXPECTED_OSDS*$REQUIRED_PERCENT_OF_OSDS/100))\n  if [ ${MIN_OSDS} -lt 1 ]; then\n    MIN_OSDS=1\n  fi\n\n  if [ \"${noup_flag}\" ]; then\n    osd_status=$(ceph osd dump -f json | jq -c '.osds[] | .state')\n    count=0\n    for osd in $osd_status; do\n      if [[ \"$osd\" == *\"up\"* || \"$osd\" == *\"new\"* ]]; then\n        ((count=count+1))\n      fi\n    done\n    echo \"Caution: noup flag is set. ${count} OSDs in up/new state. Required number of OSDs: ${MIN_OSDS}.\"\n    if [ $MIN_OSDS -gt $count ]; then\n      exit 1\n    fi\n  else\n    if [ \"${num_osd}\" -eq 0 ]; then\n      echo \"There are no osds in the cluster\"\n      exit 1\n    elif [ \"${num_in_osds}\" -ge \"${MIN_OSDS}\" ] && [ \"${num_up_osds}\" -ge \"${MIN_OSDS}\"  ]; then\n      echo \"Required number of OSDs (${MIN_OSDS}) are UP and IN status\"\n    else\n      echo \"Required number of OSDs (${MIN_OSDS}) are NOT UP and IN status. Cluster shows OSD count=${num_osd}, UP=${num_up_osds}, IN=${num_in_osds}\"\n      exit 1\n    fi\n  fi\n}\n\nfunction create_crushrule () {\n  CRUSH_NAME=$1\n  CRUSH_RULE=$2\n  CRUSH_FAILURE_DOMAIN=$3\n  CRUSH_DEVICE_CLASS=$4\n  if ! ceph --cluster \"${CLUSTER}\" osd crush rule ls | grep -q \"^\\$CRUSH_NAME$\"; then\n    ceph --cluster \"${CLUSTER}\" osd crush rule $CRUSH_RULE $CRUSH_NAME default $CRUSH_FAILURE_DOMAIN $CRUSH_DEVICE_CLASS || true\n  fi\n}\n\n# Set mons to use the msgr2 protocol on nautilus\nif [[ $(ceph mon versions | awk '/version/{print $3}' | cut -d. -f1) -ge 14 ]]; then\n  ceph --cluster \"${CLUSTER}\" mon enable-msgr2\nfi\n\ncheck_osd_count\ncreate_crushrule same_host create-simple osd \ncreate_crushrule replicated_rule create-simple host \ncreate_crushrule rack_replicated_rule create-simple rack \n\nfunction reweight_osds () {\n  OSD_DF_OUTPUT=$(ceph --cluster \"${CLUSTER}\" osd df --format json-pretty)\n  for OSD_ID in $(ceph --cluster \"${CLUSTER}\" osd ls); do\n    OSD_EXPECTED_WEIGHT=$(echo \"${OSD_DF_OUTPUT}\" | grep -A7 \"\\bosd.${OSD_ID}\\b\" | awk '/\"kb\"/{ gsub(\",\",\"\"); d= $2/1073741824 ; r = sprintf(\"%.2f\", d); print r }');\n    OSD_WEIGHT=$(echo \"${OSD_DF_OUTPUT}\" | grep -A3 \"\\bosd.${OSD_ID}\\b\" | awk '/crush_weight/{print $2}' | cut -d',' -f1)\n    if [[ \"${OSD_EXPECTED_WEIGHT}\" != \"0.00\" ]] && [[ \"${OSD_WEIGHT}\" != \"${OSD_EXPECTED_WEIGHT}\" ]]; then\n      ceph --cluster \"${CLUSTER}\" osd crush reweight osd.${OSD_ID} ${OSD_EXPECTED_WEIGHT};\n    fi\n  done\n}\n\nfunction enable_autoscaling () {\n  if [[ $(ceph mgr versions | awk '/version/{print $3}' | cut -d. -f1) -eq 14 ]]; then\n    ceph mgr module enable pg_autoscaler # only required for nautilus\n  fi\n  ceph config set global osd_pool_default_pg_autoscale_mode on\n}\n\nfunction disable_autoscaling () {\n  if [[ $(ceph mgr versions | awk '/version/{print $3}' | cut -d. -f1) -eq 14 ]]; then\n    ceph mgr module disable pg_autoscaler # only required for nautilus\n  fi\n  ceph config set global osd_pool_default_pg_autoscale_mode off\n}\n\nfunction set_cluster_flags () {\n  if [[ ! -z \"${CLUSTER_SET_FLAGS}\" ]]; then\n    for flag in ${CLUSTER_SET_FLAGS}; do\n      ceph osd set ${flag}\n    done\n  fi\n}\n\nfunction unset_cluster_flags () {\n  if [[ ! -z \"${CLUSTER_UNSET_FLAGS}\" ]]; then\n    for flag in ${CLUSTER_UNSET_FLAGS}; do\n      ceph osd unset ${flag}\n    done\n  fi\n}\n\nfunction create_pool () {\n  POOL_APPLICATION=$1\n  POOL_NAME=$2\n  POOL_REPLICATION=$3\n  POOL_PLACEMENT_GROUPS=$4\n  POOL_CRUSH_RULE=$5\n  POOL_PROTECTION=$6\n  PG_NUM_MIN=8\n  if ! ceph --cluster \"${CLUSTER}\" osd pool stats \"${POOL_NAME}\" > /dev/null 2>&1; then\n    if [[ ${POOL_PLACEMENT_GROUPS} -gt 0 ]]; then\n      ceph --cluster \"${CLUSTER}\" osd pool create \"${POOL_NAME}\" ${POOL_PLACEMENT_GROUPS}\n    else\n      ceph --cluster \"${CLUSTER}\" osd pool create \"${POOL_NAME}\" ${PG_NUM_MIN} --pg-num-min ${PG_NUM_MIN}\n    fi\n    while [ $(ceph --cluster \"${CLUSTER}\" -s | grep creating -c) -gt 0 ]; do echo -n .;sleep 1; done\n    ceph --cluster \"${CLUSTER}\" osd pool application enable \"${POOL_NAME}\" \"${POOL_APPLICATION}\"\n  fi\n\n  if [[ $(ceph mgr versions | awk '/version/{print $3}' | cut -d. -f1) -ge 14 ]]; then\n    if [[ \"${ENABLE_AUTOSCALER}\" == \"true\" ]]; then\n      pool_values=$(ceph --cluster \"${CLUSTER}\" osd pool get \"${POOL_NAME}\" all -f json)\n      pg_num=$(jq '.pg_num' <<< \"${pool_values}\")\n      pg_num_min=$(jq '.pg_num_min' <<< \"${pool_values}\")\n      # set pg_num_min to PG_NUM_MIN before enabling autoscaler\n      if [[ ${pg_num_min} -gt ${PG_NUM_MIN} ]] || [[ ${pg_num} -gt ${PG_NUM_MIN} ]]; then\n        ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" pg_num_min ${PG_NUM_MIN}\n      fi\n      ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" pg_autoscale_mode on\n    else\n      ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" pg_autoscale_mode off\n    fi\n  fi\n#\n# Make sure pool is not protected after creation AND expansion so we can manipulate its settings.\n# Final protection settings are applied once parameters (size, pg) have been adjusted.\n#\n  ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" nosizechange false\n  ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" nopgchange false\n  ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" nodelete false\n#\n  ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" size ${POOL_REPLICATION}\n  ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" crush_rule \"${POOL_CRUSH_RULE}\"\n# set pg_num to pool\n  if [[ ${POOL_PLACEMENT_GROUPS} -gt 0 ]]; then\n    for PG_PARAM in pg_num pgp_num; do\n      CURRENT_PG_VALUE=$(ceph --cluster \"${CLUSTER}\" osd pool get \"${POOL_NAME}\" \"${PG_PARAM}\" | awk \"/^${PG_PARAM}:/ { print \\$NF }\")\n      if [ \"${POOL_PLACEMENT_GROUPS}\" -gt \"${CURRENT_PG_VALUE}\" ]; then\n        ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" \"${PG_PARAM}\" \"${POOL_PLACEMENT_GROUPS}\"\n      fi\n    done\n  fi\n\n#This is to handle cluster expansion case where replication may change from intilization\n  if [ ${POOL_REPLICATION} -gt 1 ]; then\n    EXPECTED_POOLMINSIZE=$[${POOL_REPLICATION}-1]\n    ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" min_size ${EXPECTED_POOLMINSIZE}\n  fi\n#\n# Handling of .Values.conf.pool.target.protected:\n# Possible settings\n# - true  | 1 = Protect the pools after they get created\n# - false | 0 = Do not protect the pools once they get created and let Ceph defaults apply\n# - Absent    = Do not protect the pools once they get created and let Ceph defaults apply\n#\n# If protection is not requested through values.yaml, just use the Ceph defaults. With Luminous we do not\n# apply any protection to the pools when they get created.\n#\n# Note: If the /etc/ceph/ceph.conf file modifies the defaults the deployment will fail on pool creation\n# - nosizechange = Do not allow size and min_size changes on the pool\n# - nodelete     = Do not allow deletion of the pool\n#\n  if [ \"x${POOL_PROTECTION}\" == \"xtrue\" ] ||  [ \"x${POOL_PROTECTION}\" == \"x1\" ]; then\n    ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" nosizechange true\n    ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" nodelete true\n  fi\n}\n\nfunction manage_pool () {\n  POOL_APPLICATION=$1\n  POOL_NAME=$2\n  POOL_REPLICATION=$3\n  TOTAL_DATA_PERCENT=$4\n  TARGET_PG_PER_OSD=$5\n  POOL_CRUSH_RULE=$6\n  POOL_QUOTA=$7\n  POOL_PROTECTION=$8\n  CLUSTER_CAPACITY=$9\n  TOTAL_OSDS=5\n  POOL_PLACEMENT_GROUPS=0\n  if [[ -n \"${TOTAL_DATA_PERCENT}\" ]]; then\n    if [[ \"${ENABLE_AUTOSCALER}\" == \"false\" ]] || [[ $(ceph mgr versions | awk '/version/{print $3}' | cut -d. -f1) -lt 14 ]]; then\n      POOL_PLACEMENT_GROUPS=$(python3 /tmp/pool-calc.py ${POOL_REPLICATION} ${TOTAL_OSDS} ${TOTAL_DATA_PERCENT} ${TARGET_PG_PER_OSD})\n    fi\n  fi\n  create_pool \"${POOL_APPLICATION}\" \"${POOL_NAME}\" \"${POOL_REPLICATION}\" \"${POOL_PLACEMENT_GROUPS}\" \"${POOL_CRUSH_RULE}\" \"${POOL_PROTECTION}\"\n  POOL_REPLICAS=$(ceph --cluster \"${CLUSTER}\" osd pool get \"${POOL_NAME}\" size | awk '{print $2}')\n  ceph --cluster \"${CLUSTER}\" osd pool set-quota \"${POOL_NAME}\" max_bytes $POOL_QUOTA\n}\n\n# Helper to convert TiB, TB, GiB, GB, MiB, MB, KiB, KB, or bytes to bytes\nfunction convert_to_bytes() {\n  value=${1}\n  value=\"$(echo \"${value}\" | sed 's/TiB/ \\* 1024GiB/g')\"\n  value=\"$(echo \"${value}\" | sed 's/TB/ \\* 1000GB/g')\"\n  value=\"$(echo \"${value}\" | sed 's/GiB/ \\* 1024MiB/g')\"\n  value=\"$(echo \"${value}\" | sed 's/GB/ \\* 1000MB/g')\"\n  value=\"$(echo \"${value}\" | sed 's/MiB/ \\* 1024KiB/g')\"\n  value=\"$(echo \"${value}\" | sed 's/MB/ \\* 1000KB/g')\"\n  value=\"$(echo \"${value}\" | sed 's/KiB/ \\* 1024/g')\"\n  value=\"$(echo \"${value}\" | sed 's/KB/ \\* 1000/g')\"\n  python3 -c \"print(int(${value}))\"\n}\n\nset_cluster_flags\nunset_cluster_flags\nreweight_osds\n\n\n\n\n\n\n\ncluster_capacity=$(ceph --cluster \"${CLUSTER}\" df -f json-pretty | grep '\"total_bytes\":' | head -n1 | awk '{print $2}' | tr -d ',')\n\n# Check to make sure pool quotas don't exceed the expected cluster capacity in its final state\ntarget_quota=$(python3 -c \"print(int(${cluster_capacity} * 5 / 5 * 100 / 100))\")\nquota_sum=0\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 1)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n\nif [[ ${quota_sum} -gt ${target_quota} ]]; then\n  echo \"The sum of all pool quotas exceeds the target quota for the cluster\"\n  exit 1\nfi\n\nif [[ $(ceph mgr versions | awk '/version/{print $3}' | cut -d. -f1) -ge 14 ]] && [[ \"${ENABLE_AUTOSCALER}\" != \"true\" ]]; then\n  disable_autoscaling\nfi\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool mgr_devicehealth device_health_metrics 1 5 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rbd rbd 3 40 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool cephfs cephfs_metadata 3 5 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool cephfs cephfs_data 3 10 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw .rgw.root 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.control 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.data.root 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.gc 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.log 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.intent-log 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.meta 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.usage 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.users.keys 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.users.email 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.users.swift 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.users.uid 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.buckets.extra 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.buckets.index 3 3 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.buckets.data 3 29 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n\nif [[ $(ceph mgr versions | awk '/version/{print $3}' | cut -d. -f1) -ge 14 ]] && [[ \"${ENABLE_AUTOSCALER}\" == \"true\" ]]; then\n  enable_autoscaling\nfi\n\nwait_for_pgs\ncheck_recovery_flags\n",
+      "pool-calc.py": "#!/usr/bin/python\n# -*- coding: utf-8 -*-\n\n\n\n#NOTE(portdirect): this is a simple approximation of https://ceph.com/pgcalc/\n\nimport math\nimport sys\n\nreplication = int(sys.argv[1])\nnumber_of_osds = int(sys.argv[2])\npercentage_data = float(sys.argv[3])\ntarget_pgs_per_osd = int(sys.argv[4])\n\nraw_pg_num_opt = target_pgs_per_osd * number_of_osds \\\n    * (math.ceil(percentage_data) / 100.0) / replication\n\nraw_pg_num_min = number_of_osds / replication\n\nif raw_pg_num_min >= raw_pg_num_opt:\n    raw_pg_num = raw_pg_num_min\nelse:\n    raw_pg_num = raw_pg_num_opt\n\nmax_pg_num = int(math.pow(2, math.ceil(math.log(raw_pg_num, 2))))\nmin_pg_num = int(math.pow(2, math.floor(math.log(raw_pg_num, 2))))\n\nif min_pg_num >= (raw_pg_num * 0.75):\n    print(min_pg_num)\nelse:\n    print(max_pg_num)\n",
+      "mds-start.sh": "#!/bin/bash\nset -ex\nexport LC_ALL=C\n: \"${HOSTNAME:=$(uname -n)}\"\n: \"${CEPHFS_CREATE:=0}\"\n: \"${CEPHFS_NAME:=cephfs}\"\n: \"${CEPHFS_DATA_POOL:=${CEPHFS_NAME}_data}\"\n: \"${CEPHFS_DATA_POOL_PG:=8}\"\n: \"${CEPHFS_METADATA_POOL:=${CEPHFS_NAME}_metadata}\"\n: \"${CEPHFS_METADATA_POOL_PG:=8}\"\n: \"${MDS_NAME:=mds-${HOSTNAME}}\"\n: \"${ADMIN_KEYRING:=/etc/ceph/${CLUSTER}.client.admin.keyring}\"\n: \"${MDS_KEYRING:=/var/lib/ceph/mds/${CLUSTER}-${MDS_NAME}/keyring}\"\n: \"${MDS_BOOTSTRAP_KEYRING:=/var/lib/ceph/bootstrap-mds/${CLUSTER}.keyring}\"\n: \"${CEPH_CONF:=\"/etc/ceph/${CLUSTER}.conf\"}\"\n\nif [[ ! -e ${CEPH_CONF}.template ]]; then\n  echo \"ERROR- ${CEPH_CONF}.template must exist; get it from your existing mon\"\n  exit 1\nelse\n  ENDPOINT=$(kubectl get endpoints ceph-mon-discovery -n ${NAMESPACE} -o json | awk -F'\"' -v port=${MON_PORT} \\\n             -v version=v1 -v msgr_version=v2 \\\n             -v msgr2_port=${MON_PORT_V2} \\\n             '/\"ip\"/{print \"[\"version\":\"$4\":\"port\"/\"0\",\"msgr_version\":\"$4\":\"msgr2_port\"/\"0\"]\"}' | paste -sd',')\n  if [[ \"${ENDPOINT}\" == \"\" ]]; then\n    /bin/sh -c -e \"cat ${CEPH_CONF}.template | tee ${CEPH_CONF}\" || true\n  else\n    /bin/sh -c -e \"cat ${CEPH_CONF}.template | sed 's#mon_host.*#mon_host = ${ENDPOINT}#g' | tee ${CEPH_CONF}\" || true\n  fi\nfi\n\n# Check to see if we are a new MDS\nif [ ! -e \"${MDS_KEYRING}\" ]; then\n\n  if [ -e \"${ADMIN_KEYRING}\" ]; then\n     KEYRING_OPT=(--name client.admin --keyring \"${ADMIN_KEYRING}\")\n  elif [ -e \"${MDS_BOOTSTRAP_KEYRING}\" ]; then\n     KEYRING_OPT=(--name client.bootstrap-mds --keyring \"${MDS_BOOTSTRAP_KEYRING}\")\n  else\n    echo \"ERROR- Failed to bootstrap MDS: could not find admin or bootstrap-mds keyring.  You can extract it from your current monitor by running 'ceph auth get client.bootstrap-mds -o ${MDS_BOOTSTRAP_KEYRING}\"\n    exit 1\n  fi\n\n  timeout 10 ceph --cluster \"${CLUSTER}\" \"${KEYRING_OPT[@]}\" health || exit 1\n\n  # Generate the MDS key\n  ceph --cluster \"${CLUSTER}\" \"${KEYRING_OPT[@]}\" auth get-or-create \"mds.${MDS_NAME}\" osd 'allow rwx' mds 'allow' mon 'allow profile mds' -o \"${MDS_KEYRING}\"\n  chown ceph. \"${MDS_KEYRING}\"\n  chmod 600 \"${MDS_KEYRING}\"\n\nfi\n\n# NOTE (leseb): having the admin keyring is really a security issue\n# If we need to bootstrap a MDS we should probably create the following on the monitors\n# I understand that this handy to do this here\n# but having the admin key inside every container is a concern\n\n# Create the Ceph filesystem, if necessary\nif [ $CEPHFS_CREATE -eq 1 ]; then\n\n  if [[ ! -e ${ADMIN_KEYRING} ]]; then\n      echo \"ERROR- ${ADMIN_KEYRING} must exist; get it from your existing mon\"\n      exit 1\n  fi\n\n  if [[ \"$(ceph --cluster \"${CLUSTER}\" fs ls | grep -c name:.${CEPHFS_NAME},)\" -eq 0 ]]; then\n     # Make sure the specified data pool exists\n     if ! ceph --cluster \"${CLUSTER}\" osd pool stats ${CEPHFS_DATA_POOL} > /dev/null 2>&1; then\n        ceph --cluster \"${CLUSTER}\" osd pool create ${CEPHFS_DATA_POOL} ${CEPHFS_DATA_POOL_PG}\n     fi\n\n     # Make sure the specified metadata pool exists\n     if ! ceph --cluster \"${CLUSTER}\" osd pool stats ${CEPHFS_METADATA_POOL} > /dev/null 2>&1; then\n        ceph --cluster \"${CLUSTER}\" osd pool create ${CEPHFS_METADATA_POOL} ${CEPHFS_METADATA_POOL_PG}\n     fi\n\n     ceph --cluster \"${CLUSTER}\" fs new ${CEPHFS_NAME} ${CEPHFS_METADATA_POOL} ${CEPHFS_DATA_POOL}\n  fi\nfi\n\n# NOTE: prefixing this with exec causes it to die (commit suicide)\n/usr/bin/ceph-mds \\\n  --cluster \"${CLUSTER}\" \\\n  --setuser \"ceph\" \\\n  --setgroup \"ceph\" \\\n  -d \\\n  -i \"${MDS_NAME}\"\n",
+      "mgr-start.sh": "#!/bin/bash\nset -ex\n: \"${CEPH_GET_ADMIN_KEY:=0}\"\n: \"${MGR_NAME:=$(uname -n)}\"\n: \"${MGR_KEYRING:=/var/lib/ceph/mgr/${CLUSTER}-${MGR_NAME}/keyring}\"\n: \"${ADMIN_KEYRING:=/etc/ceph/${CLUSTER}.client.admin.keyring}\"\n: \"${CEPH_CONF:=\"/etc/ceph/${CLUSTER}.conf\"}\"\n\nif [[ ! -e ${CEPH_CONF}.template ]]; then\n  echo \"ERROR- ${CEPH_CONF}.template must exist; get it from your existing mon\"\n  exit 1\nelse\n  ENDPOINT=$(kubectl get endpoints ceph-mon-discovery -n ${NAMESPACE} -o json | awk -F'\"' -v port=${MON_PORT} \\\n             -v version=v1 -v msgr_version=v2 \\\n             -v msgr2_port=${MON_PORT_V2} \\\n             '/\"ip\"/{print \"[\"version\":\"$4\":\"port\"/\"0\",\"msgr_version\":\"$4\":\"msgr2_port\"/\"0\"]\"}' | paste -sd',')\n  if [[ \"${ENDPOINT}\" == \"\" ]]; then\n    /bin/sh -c -e \"cat ${CEPH_CONF}.template | tee ${CEPH_CONF}\" || true\n  else\n    /bin/sh -c -e \"cat ${CEPH_CONF}.template | sed 's#mon_host.*#mon_host = ${ENDPOINT}#g' | tee ${CEPH_CONF}\" || true\n  fi\nfi\n\nif [ ${CEPH_GET_ADMIN_KEY} -eq 1 ]; then\n    if [[ ! -e ${ADMIN_KEYRING} ]]; then\n        echo \"ERROR- ${ADMIN_KEYRING} must exist; get it from your existing mon\"\n        exit 1\n    fi\nfi\n\n# Create a MGR keyring\nrm -rf $MGR_KEYRING\nif [ ! -e \"$MGR_KEYRING\" ]; then\n    # Create ceph-mgr key\n    timeout 10 ceph --cluster \"${CLUSTER}\" auth get-or-create mgr.\"${MGR_NAME}\" mon 'allow profile mgr' osd 'allow *' mds 'allow *' -o \"$MGR_KEYRING\"\n    chown --verbose ceph. \"$MGR_KEYRING\"\n    chmod 600 \"$MGR_KEYRING\"\nfi\n\necho \"SUCCESS\"\n\nceph --cluster \"${CLUSTER}\" -v\n\n# Env. variables matching the pattern \"<module>_\" will be\n# found and parsed for config-key settings by\n#  ceph config set mgr mgr/<module>/<key> <value>\nMODULES_TO_DISABLE=`ceph mgr dump | python3 -c \"import json, sys; print(' '.join(json.load(sys.stdin)['modules']))\"`\n\nfor module in ${ENABLED_MODULES}; do\n    # This module may have been enabled in the past\n    # remove it from the disable list if present\n    MODULES_TO_DISABLE=${MODULES_TO_DISABLE/$module/}\n\n    options=`env | grep ^${module}_ || true`\n    for option in ${options}; do\n        #strip module name\n        option=${option/${module}_/}\n        key=`echo $option | cut -d= -f1`\n        value=`echo $option | cut -d= -f2`\n        if [[ $(ceph mon versions | awk '/version/{print $3}' | cut -d. -f1) -ge 14 ]]; then\n          ceph --cluster \"${CLUSTER}\" config set mgr mgr/$module/$key $value --force\n        else\n          ceph --cluster \"${CLUSTER}\" config set mgr mgr/$module/$key $value\n        fi\n    done\n    ceph --cluster \"${CLUSTER}\" mgr module enable ${module} --force\ndone\n\nfor module in $MODULES_TO_DISABLE; do\n  ceph --cluster \"${CLUSTER}\" mgr module disable ${module}\ndone\n\necho \"SUCCESS\"\n# start ceph-mgr\nexec /usr/bin/ceph-mgr \\\n  --cluster \"${CLUSTER}\" \\\n  --setuser \"ceph\" \\\n  --setgroup \"ceph\" \\\n  -d \\\n  -i \"${MGR_NAME}\"\n",
+      "mgr-check.sh": "#!/bin/bash\n\n\n\nset -ex\nexport LC_ALL=C\n\nCOMMAND=\"${@:-liveness}\"\n\nfunction heath_check () {\n   ASOK=$(ls /var/run/ceph/${CLUSTER}-mgr*)\n   MGR_NAME=$(basename ${ASOK} | sed -e 's/.asok//' | cut -f 1 -d '.' --complement)\n   MGR_STATE=$(ceph --cluster ${CLUSTER} --connect-timeout 1 daemon mgr.${MGR_NAME} status|grep \"osd_epoch\")\n   if [ $? = 0 ]; then\n     exit 0\n   else\n     echo $MGR_STATE\n     exit 1\n   fi\n}\n\nfunction liveness () {\n  heath_check\n}\n\nfunction readiness () {\n  heath_check\n}\n\n$COMMAND\n",
+      "helm-tests.sh": "#!/bin/bash\n\n\n\nset -ex\n\nfunction check_cluster_status() {\n  echo \"#### Start: Checking Ceph cluster status ####\"\n  ceph_status_output=$(ceph -s -f json | jq -r '.health')\n  ceph_health_status=$(echo $ceph_status_output | jq -r '.status')\n\n  if [ \"x${ceph_health_status}\" == \"xHEALTH_OK\" ]; then\n    echo \"Ceph status is HEALTH_OK\"\n  else\n    echo \"Ceph cluster status is not HEALTH_OK, checking PG states\"\n    pg_validation\n  fi\n}\n\nfunction check_recovery_flags() {\n  echo \"### Start: Checking for flags that will prevent recovery\"\n\n  # Ensure there are no flags set that will prevent recovery of degraded PGs\n  if [[ $(ceph osd stat | grep \"norecover\\|nobackfill\\|norebalance\") ]]; then\n    ceph osd stat\n    echo \"Flags are set that prevent recovery of degraded PGs\"\n    exit 1\n  fi\n}\n\nfunction check_osd_count() {\n  echo \"#### Start: Checking OSD count ####\"\n  noup_flag=$(ceph osd stat | awk '/noup/ {print $2}')\n  osd_stat=$(ceph osd stat -f json-pretty)\n  num_osd=$(awk '/\"num_osds\"/{print $2}' <<< \"$osd_stat\" | cut -d, -f1)\n  num_in_osds=$(awk '/\"num_in_osds\"/{print $2}' <<< \"$osd_stat\" | cut -d, -f1)\n  num_up_osds=$(awk '/\"num_up_osds\"/{print $2}' <<< \"$osd_stat\" | cut -d, -f1)\n\n  MIN_OSDS=$((${num_osd}*$REQUIRED_PERCENT_OF_OSDS/100))\n  if [ ${MIN_OSDS} -lt 1 ]; then\n    MIN_OSDS=1\n  fi\n\n  if [ \"${noup_flag}\" ]; then\n    osd_status=$(ceph osd dump -f json | jq -c '.osds[] | .state')\n    count=0\n    for osd in $osd_status; do\n      if [[ \"$osd\" == *\"up\"* || \"$osd\" == *\"new\"* ]]; then\n        ((count=count+1))\n      fi\n    done\n    echo \"Caution: noup flag is set. ${count} OSDs in up/new state. Required number of OSDs: ${MIN_OSDS}.\"\n    if [ $MIN_OSDS -gt $count ]; then\n      exit 1\n    fi\n  else\n    if [ \"${num_osd}\" -eq 0 ]; then\n      echo \"There are no osds in the cluster\"\n      exit 1\n    elif [ \"${num_in_osds}\" -ge \"${MIN_OSDS}\" ] && [ \"${num_up_osds}\" -ge \"${MIN_OSDS}\"  ]; then\n      echo \"Required number of OSDs (${MIN_OSDS}) are UP and IN status\"\n    else\n      echo \"Required number of OSDs (${MIN_OSDS}) are NOT UP and IN status. Cluster shows OSD count=${num_osd}, UP=${num_up_osds}, IN=${num_in_osds}\"\n      exit 1\n    fi\n  fi\n}\n\nfunction check_failure_domain_count_per_pool() {\n  echo \"#### Start: Checking failure domain count per pool ####\"\n  pools=$(ceph osd pool ls)\n  for pool in ${pools}\n  do\n    crush_rule=$(ceph osd pool get ${pool} crush_rule | awk '{print $2}')\n    bucket_type=$(ceph osd crush rule dump ${crush_rule} | grep '\"type\":' | awk -F'\"' 'NR==2 {print $4}')\n    num_failure_domains=$(ceph osd tree | grep ${bucket_type} | wc -l)\n    pool_replica_size=$(ceph osd pool get ${pool} size | awk '{print $2}')\n    if [[ ${num_failure_domains} -ge ${pool_replica_size} ]]; then\n      echo \"--> Info: Pool ${pool} is configured with enough failure domains ${num_failure_domains} to satisfy pool replica size ${pool_replica_size}\"\n    else\n      echo \"--> Error : Pool ${pool} is NOT configured with enough failure domains ${num_failure_domains} to satisfy pool replica size ${pool_replica_size}\"\n      exit 1\n    fi\n  done\n}\n\nfunction mgr_validation() {\n  echo \"#### Start: MGR validation ####\"\n  mgr_dump=$(ceph mgr dump -f json-pretty)\n  echo \"Checking for ${MGR_COUNT} MGRs\"\n\n  mgr_avl=$(echo ${mgr_dump} | jq -r '.[\"available\"]')\n\n  if [ \"x${mgr_avl}\" == \"xtrue\" ]; then\n    mgr_active=$(echo ${mgr_dump} | jq -r '.[\"active_name\"]')\n    echo \"Out of ${MGR_COUNT}, 1 MGR is active\"\n\n    # Now lets check for standby managers\n    mgr_stdby_count=$(echo ${mgr_dump} | jq -r '.[\"standbys\"]' | jq length)\n\n    #Total MGR Count - 1 Active = Expected MGRs\n    expected_standbys=$(( MGR_COUNT -1 ))\n\n    if [ $mgr_stdby_count -eq $expected_standbys ]\n    then\n      echo \"Cluster has 1 Active MGR, $mgr_stdby_count Standbys MGR\"\n    else\n      echo \"Cluster Standbys MGR: Expected count= $expected_standbys Available=$mgr_stdby_count\"\n      retcode=1\n    fi\n\n  else\n    echo \"No Active Manager found, Expected 1 MGR to be active out of ${MGR_COUNT}\"\n    retcode=1\n  fi\n\n  if [ \"x${retcode}\" == \"x1\" ]\n  then\n    exit 1\n  fi\n}\n\nfunction pool_validation() {\n\n  echo \"#### Start: Checking Ceph pools ####\"\n\n  echo \"From env variables, RBD pool replication count is: ${RBD}\"\n\n  # Assuming all pools have same replication count as RBD\n  # If RBD replication count is greater then 1, POOLMINSIZE should be 1 less then replication count\n  # If RBD replication count is not greate then 1, then POOLMINSIZE should be 1\n\n  if [ ${RBD} -gt 1 ]; then\n    EXPECTED_POOLMINSIZE=$[${RBD}-1]\n  else\n    EXPECTED_POOLMINSIZE=1\n  fi\n\n  echo \"EXPECTED_POOLMINSIZE: ${EXPECTED_POOLMINSIZE}\"\n\n  expectedCrushRuleId=\"\"\n  nrules=$(echo ${OSD_CRUSH_RULE_DUMP} | jq length)\n  c=$[nrules-1]\n  for n in $(seq 0 ${c})\n  do\n    osd_crush_rule_obj=$(echo ${OSD_CRUSH_RULE_DUMP} | jq -r .[${n}])\n\n    name=$(echo ${osd_crush_rule_obj} | jq -r .rule_name)\n    echo \"Expected Crushrule: ${EXPECTED_CRUSHRULE}, Pool Crushmap: ${name}\"\n\n    if [ \"x${EXPECTED_CRUSHRULE}\" == \"x${name}\" ]; then\n      expectedCrushRuleId=$(echo ${osd_crush_rule_obj} | jq .rule_id)\n      echo \"Checking against rule: id: ${expectedCrushRuleId}, name:${name}\"\n    else\n      echo \"Didn't match\"\n    fi\n  done\n  echo \"Checking cluster for size:${RBD}, min_size:${EXPECTED_POOLMINSIZE}, crush_rule:${EXPECTED_CRUSHRULE}, crush_rule_id:${expectedCrushRuleId}\"\n\n  npools=$(echo ${OSD_POOLS_DETAILS} | jq length)\n  i=$[npools - 1]\n  for n in $(seq 0 ${i})\n  do\n    pool_obj=$(echo ${OSD_POOLS_DETAILS} | jq -r \".[${n}]\")\n\n    size=$(echo ${pool_obj} | jq -r .size)\n    min_size=$(echo ${pool_obj} | jq -r .min_size)\n    pg_num=$(echo ${pool_obj} | jq -r .pg_num)\n    pg_placement_num=$(echo ${pool_obj} | jq -r .pg_placement_num)\n    crush_rule=$(echo ${pool_obj} | jq -r .crush_rule)\n    name=$(echo ${pool_obj} | jq -r .pool_name)\n    pg_autoscale_mode=$(echo ${pool_obj} | jq -r .pg_autoscale_mode)\n    if [[ \"${ENABLE_AUTOSCALER}\" == \"true\" ]]; then\n      if [[ \"${pg_autoscale_mode}\" != \"on\" ]]; then\n        echo \"pg autoscaler not enabled on ${name} pool\"\n        exit 1\n      fi\n    fi\n    if [[ $(ceph mon versions | awk '/version/{print $3}' | cut -d. -f1) -ge 14 ]]; then\n      if [ \"x${size}\" != \"x${RBD}\" ] || [ \"x${min_size}\" != \"x${EXPECTED_POOLMINSIZE}\" ] \\\n        || [ \"x${crush_rule}\" != \"x${expectedCrushRuleId}\" ]; then\n        echo \"Pool ${name} has incorrect parameters!!! Size=${size}, Min_Size=${min_size}, Rule=${crush_rule}, PG_Autoscale_Mode=${pg_autoscale_mode}\"\n        exit 1\n      else\n        echo \"Pool ${name} seems configured properly. Size=${size}, Min_Size=${min_size}, Rule=${crush_rule}, PG_Autoscale_Mode=${pg_autoscale_mode}\"\n      fi\n    else\n      if [ \"x${size}\" != \"x${RBD}\" ] || [ \"x${min_size}\" != \"x${EXPECTED_POOLMINSIZE}\" ] \\\n      || [ \"x${pg_num}\" != \"x${pg_placement_num}\" ] || [ \"x${crush_rule}\" != \"x${expectedCrushRuleId}\" ]; then\n        echo \"Pool ${name} has incorrect parameters!!! Size=${size}, Min_Size=${min_size}, PG=${pg_num}, PGP=${pg_placement_num}, Rule=${crush_rule}\"\n        exit 1\n      else\n        echo \"Pool ${name} seems configured properly. Size=${size}, Min_Size=${min_size}, PG=${pg_num}, PGP=${pg_placement_num}, Rule=${crush_rule}\"\n      fi\n    fi\n  done\n}\n\nfunction pool_failuredomain_validation() {\n  echo \"#### Start: Checking Pools are configured with specific failure domain ####\"\n\n  expectedCrushRuleId=\"\"\n  nrules=$(echo ${OSD_CRUSH_RULE_DUMP} | jq length)\n  c=$[nrules-1]\n  for n in $(seq 0 ${c})\n  do\n    osd_crush_rule_obj=$(echo ${OSD_CRUSH_RULE_DUMP} | jq -r .[${n}])\n\n    name=$(echo ${osd_crush_rule_obj} | jq -r .rule_name)\n\n    if [ \"x${EXPECTED_CRUSHRULE}\" == \"x${name}\" ]; then\n      expectedCrushRuleId=$(echo ${osd_crush_rule_obj} | jq .rule_id)\n      echo \"Checking against rule: id: ${expectedCrushRuleId}, name:${name}\"\n    fi\n  done\n\n  echo \"Checking OSD pools are configured with Crush rule name:${EXPECTED_CRUSHRULE}, id:${expectedCrushRuleId}\"\n\n  npools=$(echo ${OSD_POOLS_DETAILS} | jq length)\n  i=$[npools-1]\n  for p in $(seq 0 ${i})\n  do\n    pool_obj=$(echo ${OSD_POOLS_DETAILS} | jq -r \".[${p}]\")\n\n    pool_crush_rule_id=$(echo $pool_obj | jq -r .crush_rule)\n    pool_name=$(echo $pool_obj | jq -r .pool_name)\n\n    if [ \"x${pool_crush_rule_id}\" == \"x${expectedCrushRuleId}\" ]; then\n      echo \"--> Info: Pool ${pool_name} is configured with the correct rule ${pool_crush_rule_id}\"\n    else\n      echo \"--> Error : Pool ${pool_name} is NOT configured with the correct rule ${pool_crush_rule_id}\"\n      exit 1\n    fi\n  done\n}\n\nfunction check_pgs() {\n  pgs_transitioning=false\n\n  ceph --cluster ${CLUSTER} pg dump_stuck inactive -f json-pretty > ${stuck_pgs_file}\n\n  # Check if there are any stuck PGs, which could indicate a serious problem\n  # if it does not resolve itself soon.\n  stuck_pgs=(`cat ${stuck_pgs_file} | awk -F \"\\\"\" '/pgid/{print $4}'`)\n  if [[ ${#stuck_pgs[*]} -gt 0 ]]; then\n    # We have at least one stuck pg\n    echo \"Some PGs are stuck: \"\n    echo ${stuck_pgs[*]}\n    # Not a critical error - yet\n    pgs_transitioning=true\n  else\n    # Examine the PGs that have non-active states. Consider those PGs that\n    # are in a \"premerge\" state to be similar to active. \"premerge\" PGs may\n    # stay in that state for several minutes, and this is considered ok.\n    ceph --cluster ${CLUSTER} pg ls -f json-pretty | grep '\"pgid\":\\|\"state\":' | grep -v -E \"active|premerge\" | grep -B1 '\"state\":' > ${inactive_pgs_file} || true\n\n    # If the inactive pgs file is non-empty, there are some inactive pgs in the cluster.\n    inactive_pgs=(`cat ${inactive_pgs_file} | awk -F \"\\\"\" '/pgid/{print $4}'`)\n    echo \"There is at least one inactive pg in the cluster: \"\n    echo ${inactive_pgs[*]}\n\n    echo \"Very likely the cluster is rebalancing or recovering some PG's. Checking...\"\n\n    # Check for PGs that are down. These are critical errors.\n    down_pgs=(`cat ${inactive_pgs_file} | grep -B1 'down' | awk -F \"\\\"\" '/pgid/{print $4}'`)\n    if [[ ${#down_pgs[*]} -gt 0 ]]; then\n      # Some PGs could be down. This is really bad situation and test must fail.\n      echo \"Some PGs are down: \"\n      echo ${down_pgs[*]}\n      echo \"This is critical error, exiting. \"\n      exit 1\n    fi\n\n    # Check for PGs that are in some transient state due to rebalancing,\n    # peering or backfilling. If we see other states which are not in the\n    # following list of states, then we likely have a problem and need to\n    # exit.\n    transient_states='peer|recover|activating|creating|unknown'\n    non_transient_pgs=(`cat ${inactive_pgs_file} | grep '\"state\":' | grep -v -E \"${transient_states}\" || true`)\n    if [[ ${#non_transient_pgs[*]} -gt 0 ]]; then\n      # Some PGs could be inactive and not peering. Better we fail.\n      echo \"We don't have down/stuck PGs, but we have some inactive pgs that\"\n      echo \"are not in the list of allowed transient states: \"\n      pg_list=(`sed -n '/peer\\|recover\\|activating\\|creating\\|unknown/{s/.*//;x;d;};x;p;${x;p;}' ${inactive_pgs_file} | sed '/^$/d' | awk -F \"\\\"\" '/pgid/{print $4}'`)\n      echo ${pg_list[*]}\n      echo ${non_transient_pgs[*]}\n      # Critical error. Fail/exit the script\n      exit 1\n    fi\n\n    # Check and note which PGs are in a transient state. This script\n    # will allow these transient states for a period of time\n    # (time_between_retries * max_retries seconds).\n    transient_pgs=(`cat ${inactive_pgs_file} | grep -B1 -E \"${transient_states}\" | awk -F \"\\\"\" '/pgid/{print $4}'`)\n    if [[ ${#transient_pgs[*]} -gt 0 ]]; then\n      # Some PGs are not in an active state but peering and/or cluster is recovering\n      echo \"Some PGs are peering and/or cluster is recovering: \"\n      echo ${transient_pgs[*]}\n      echo \"This is normal but will wait a while to verify the PGs are not stuck in a transient state.\"\n      # not critical, just wait\n      pgs_transitioning=true\n    fi\n  fi\n}\n\nfunction pg_validation() {\n  retries=0\n  time_between_retries=3\n  max_retries=60\n  pgs_transitioning=false\n  stuck_pgs_file=$(mktemp -p /tmp)\n  inactive_pgs_file=$(mktemp -p /tmp)\n\n  # Check this over a period of retries. Fail/stop if any critical errors found.\n  while check_pgs && [[ \"${pgs_transitioning}\" == \"true\" ]] && [[ retries -lt ${max_retries} ]]; do\n    echo \"Sleep for a bit waiting on the pg(s) to become active/unstuck...\"\n    sleep ${time_between_retries}\n    ((retries=retries+1))\n  done\n\n  # If peering PGs haven't gone active after retries have expired, fail\n  if [[ retries -ge ${max_retries} ]]; then\n    ((timeout_sec=${time_between_retries}*${max_retries}))\n    echo \"Some PGs have not become active or have been stuck after ${timeout_sec} seconds. Exiting...\"\n    exit 1\n  fi\n}\n\nfunction check_ceph_osd_crush_weight(){\n  OSDS_WITH_ZERO_WEIGHT=(`ceph --cluster ${CLUSTER} osd df -f json-pretty | awk -F\"[, ]*\" '/\"crush_weight\":/{if ($3 == 0) print $3}'`)\n  if [[ ${#OSDS_WITH_ZERO_WEIGHT[*]} -eq 0 ]]; then\n    echo \"All OSDs from namespace have crush weight!\"\n  else\n    echo \"OSDs from namespace have zero crush weight\"\n    exit 1\n  fi\n}\n\ncheck_osd_count\nmgr_validation\n\nOSD_POOLS_DETAILS=$(ceph osd pool ls detail -f json-pretty)\nOSD_CRUSH_RULE_DUMP=$(ceph osd crush rule dump -f json-pretty)\nPG_STAT=$(ceph pg stat -f json-pretty)\n\nceph -s\npg_validation\npool_validation\npool_failuredomain_validation\ncheck_failure_domain_count_per_pool\ncheck_cluster_status\ncheck_recovery_flags\ncheck_ceph_osd_crush_weight\n",
+      "utils-checkDNS.sh": "#!/bin/bash\n\n\n\n: \"${CEPH_CONF:=\"/etc/ceph/${CLUSTER}.conf\"}\"\nENDPOINT=\"{$1}\"\n\nfunction check_mon_dns () {\n  GREP_CMD=$(grep -rl 'ceph-mon' ${CEPH_CONF})\n\n  if [[ \"${ENDPOINT}\" == \"up\" ]]; then\n    echo \"If DNS is working, we are good here\"\n  elif [[ \"${ENDPOINT}\" != \"\" ]]; then\n    if [[ ${GREP_CMD} != \"\" ]]; then\n      # No DNS, write CEPH MONs IPs into ${CEPH_CONF}\n      sh -c -e \"cat ${CEPH_CONF}.template | sed 's/mon_host.*/mon_host = ${ENDPOINT}/g' | tee ${CEPH_CONF}\" > /dev/null 2>&1\n    else\n      echo \"endpoints are already cached in ${CEPH_CONF}\"\n      exit\n    fi\n  fi\n}\n\ncheck_mon_dns\n\nexit\n",
+      "utils-checkDNS_start.sh": "#!/bin/bash\n\n\n\nset -xe\n\nfunction check_mon_dns {\n  DNS_CHECK=$(getent hosts ceph-mon | head -n1)\n  PODS=$(kubectl get pods --namespace=${NAMESPACE} --selector=application=ceph --field-selector=status.phase=Running \\\n         --output=jsonpath='{range .items[*]}{.metadata.name}{\"\\n\"}{end}' | grep -E 'ceph-mon|ceph-osd|ceph-mgr|ceph-mds')\n  ENDPOINT=$(kubectl get endpoints ceph-mon-discovery -n ${NAMESPACE} -o json | awk -F'\"' -v port=${MON_PORT} \\\n             -v version=v1 -v msgr_version=v2 \\\n             -v msgr2_port=${MON_PORT_V2} \\\n             '/\"ip\"/{print \"[\"version\":\"$4\":\"port\"/\"0\",\"msgr_version\":\"$4\":\"msgr2_port\"/\"0\"]\"}' | paste -sd',')\n\n  if [[ ${PODS} == \"\" || \"${ENDPOINT}\" == \"\" ]]; then\n    echo \"Something went wrong, no PODS or ENDPOINTS are available!\"\n  elif [[ ${DNS_CHECK} == \"\" ]]; then\n    for POD in ${PODS}; do\n      kubectl exec -t ${POD} --namespace=${NAMESPACE} -- \\\n      sh -c -e \"/tmp/utils-checkDNS.sh \"${ENDPOINT}\"\"\n    done\n  else\n    for POD in ${PODS}; do\n      kubectl exec -t ${POD} --namespace=${NAMESPACE} -- \\\n      sh -c -e \"/tmp/utils-checkDNS.sh up\"\n    done\n  fi\n}\n\nfunction watch_mon_dns {\n  while [ true ]; do\n    echo \"checking DNS health\"\n    check_mon_dns || true\n    echo \"sleep 300 sec\"\n    sleep 300\n  done\n}\n\nwatch_mon_dns\n\nexit\n",
+      "utils-checkPGs.py": "#!/usr/bin/python\n\nimport subprocess  # nosec\nimport json\nimport sys\nfrom argparse import *\n\nclass cephCRUSH():\n    \"\"\"\n    Currently, this script is coded to work with the ceph clusters that have\n    these type-ids -- osd, host, rack, root.  To add other type_ids to the\n    CRUSH map, this script needs enhancements to include the new type_ids.\n\n    type_id name\n    ------- ----\n          0 osd\n          1 host\n          2 chassis\n          3 rack\n          4 row\n          5 pdu\n          6 pod\n          7 room\n          8 datacenter\n          9 region\n         10 root\n\n    Ceph organizes the CRUSH map in hierarchical topology.  At the top, it is\n    the root.  The next levels are racks, hosts, and OSDs, respectively.  The\n    OSDs are at the leaf level.  This script looks at OSDs in each placement\n    group of a ceph pool.  For each OSD, starting from the OSD leaf level, this\n    script traverses up to the root.  Along the way, the host and rack are\n    recorded and then verified to make sure the paths to the root are in\n    separate failure domains.  This script reports the offending PGs to stdout.\n    \"\"\"\n\n    \"\"\"\n    This list stores the ceph crush hierarchy retrieved from the\n    ceph osd crush tree -f json-pretty\n    \"\"\"\n    crushHierarchy = []\n\n    \"\"\"\n    Failure Domains - currently our crush map uses these type IDs - osd,\n    host, rack, root\n    If we need to add chassis type (or other types) later on, add the\n    type to the if statement in the crushFD construction section.\n\n    crushFD[0] = {'id': -2, 'name': 'host1', 'type': 'host'}\n    crushFD[23] = {'id': -5, 'name': 'host2', 'type': 'host'}\n    crushFD[68] = {'id': -7, 'name': 'host3', 'type': 'host'}\n    rack_FD[-2] = {'id': -9, 'name': 'rack1', 'type': 'rack' }\n    rack_FD[-15] = {'id': -17, 'name': 'rack2', 'type': 'rack' }\n    root_FD[-17] = {'id': -1, 'name': 'default', 'type': 'root' }}\n    root_FD[-9] = {'id': -1, 'name': 'default', 'type': 'root' }}\n    \"\"\"\n    crushFD = {}\n\n    def __init__(self, poolName):\n        if 'all' in poolName or 'All' in poolName:\n            try:\n                poolLs = 'ceph osd pool ls -f json-pretty'\n                poolstr = subprocess.check_output(poolLs, shell=True)  # nosec\n                self.listPoolName = json.loads(poolstr)\n            except subprocess.CalledProcessError as e:\n                print('{}'.format(e))\n                \"\"\"Unable to get all pools - cannot proceed\"\"\"\n                sys.exit(2)\n        else:\n            self.listPoolName = poolName\n\n        try:\n            \"\"\"Retrieve the crush hierarchies\"\"\"\n            crushTree = \"ceph osd crush tree -f json-pretty | jq .nodes\"\n            chstr = subprocess.check_output(crushTree, shell=True)  # nosec\n            self.crushHierarchy = json.loads(chstr)\n        except subprocess.CalledProcessError as e:\n            print('{}'.format(e))\n            \"\"\"Unable to get crush hierarchy - cannot proceed\"\"\"\n            sys.exit(2)\n\n        \"\"\"\n        Number of racks configured in the ceph cluster.  The racks that are\n        present in the crush hierarchy may not be used.  The un-used rack\n        would not show up in the crushFD.\n        \"\"\"\n        self.count_racks = 0\n\n        \"\"\"depth level - 3 is OSD, 2 is host, 1 is rack, 0 is root\"\"\"\n        self.osd_depth = 0\n        \"\"\"Construct the Failure Domains - OSD -> Host -> Rack -> Root\"\"\"\n        for chitem in self.crushHierarchy:\n            if chitem['type'] == 'host' or \\\n               chitem['type'] == 'rack' or \\\n               chitem['type'] == 'root':\n                for child in chitem['children']:\n                    self.crushFD[child] = {'id': chitem['id'], 'name': chitem['name'], 'type': chitem['type']}\n                if chitem['type'] == 'rack' and len(chitem['children']) > 0:\n                    self.count_racks += 1\n            elif chitem['type'] == 'osd':\n                if self.osd_depth == 0:\n                    self.osd_depth = chitem['depth']\n\n        \"\"\"[ { 'pg-name' : [osd.1, osd.2, osd.3] } ... ]\"\"\"\n        self.poolPGs = []\n        \"\"\"Replica of the pool.  Initialize to 0.\"\"\"\n        self.poolSize = 0\n\n    def isSupportedRelease(self):\n        cephMajorVer = int(subprocess.check_output(\"ceph mon versions | awk '/version/{print $3}' | cut -d. -f1\", shell=True))  # nosec\n        return cephMajorVer >= 14\n\n    def getPoolSize(self, poolName):\n        \"\"\"\n        size (number of replica) is an attribute of a pool\n        { \"pool\": \"rbd\", \"pool_id\": 1, \"size\": 3 }\n        \"\"\"\n        pSize = {}\n        \"\"\"Get the size attribute of the poolName\"\"\"\n        try:\n            poolGet = 'ceph osd pool get ' + poolName + ' size -f json-pretty'\n            szstr = subprocess.check_output(poolGet, shell=True)  # nosec\n            pSize = json.loads(szstr)\n            self.poolSize = pSize['size']\n        except subprocess.CalledProcessError as e:\n            print('{}'.format(e))\n            self.poolSize = 0\n            \"\"\"Continue on\"\"\"\n        return\n\n    def checkPGs(self, poolName):\n        poolPGs = self.poolPGs['pg_stats'] if self.isSupportedRelease() else self.poolPGs\n        if not poolPGs:\n            return\n        print('Checking PGs in pool {} ...'.format(poolName)),\n        badPGs = False\n        for pg in poolPGs:\n            osdUp = pg['up']\n            \"\"\"\n            Construct the OSD path from the leaf to the root.  If the\n            replica is set to 3 and there are 3 racks.  Each OSD has its\n            own rack (failure domain).   If more than one OSD has the\n            same rack, this is a violation.  If the number of rack is\n            one, then we need to make sure the hosts for the three OSDs\n            are different.\n            \"\"\"\n            check_FD = {}\n            checkFailed = False\n            for osd in osdUp:\n                traverseID = osd\n                \"\"\"Start the level with 1 to include the OSD leaf\"\"\"\n                traverseLevel = 1\n                while (self.crushFD[traverseID]['type'] != 'root'):\n                    crushType = self.crushFD[traverseID]['type']\n                    crushName = self.crushFD[traverseID]['name']\n                    if crushType in check_FD:\n                        check_FD[crushType].append(crushName)\n                    else:\n                        check_FD[crushType] = [crushName]\n                    \"\"\"traverse up (to the root) one level\"\"\"\n                    traverseID = self.crushFD[traverseID]['id']\n                    traverseLevel += 1\n                if not (traverseLevel == self.osd_depth):\n                    raise Exception(\"OSD depth mismatch\")\n            \"\"\"\n            check_FD should have\n            {\n             'host': ['host1', 'host2', 'host3', 'host4'],\n             'rack': ['rack1', 'rack2', 'rack3']\n            }\n            Not checking for the 'root' as there is only one root.\n            \"\"\"\n            for ktype in check_FD:\n                kvalue = check_FD[ktype]\n                if ktype == 'host':\n                    \"\"\"\n                    At the host level, every OSD should come from different\n                    host.  It is a violation if duplicate hosts are found.\n                    \"\"\"\n                    if len(kvalue) != len(set(kvalue)):\n                        if not badPGs:\n                            print('Failed')\n                        badPGs = True\n                        print('OSDs {} in PG {} failed check in host {}'.format(pg['up'], pg['pgid'], kvalue))\n                elif ktype == 'rack':\n                    if len(kvalue) == len(set(kvalue)):\n                        continue\n                    else:\n                        \"\"\"\n                        There are duplicate racks.  This could be due to\n                        situation like pool's size is 3 and there are only\n                        two racks (or one rack).  OSDs should come from\n                        different hosts as verified in the 'host' section.\n                        \"\"\"\n                        if self.count_racks == len(set(kvalue)):\n                            continue\n                        elif self.count_racks > len(set(kvalue)):\n                            \"\"\"Not all the racks were used to allocate OSDs\"\"\"\n                            if not badPGs:\n                                print('Failed')\n                            badPGs = True\n                            print('OSDs {} in PG {} failed check in rack {}'.format(pg['up'], pg['pgid'], kvalue))\n            check_FD.clear()\n        if not badPGs:\n            print('Passed')\n        return\n\n    def checkPoolPGs(self):\n        for pool in self.listPoolName:\n            self.getPoolSize(pool)\n            if self.poolSize == 1:\n                \"\"\"No need to check pool with the size set to 1 copy\"\"\"\n                print('Checking PGs in pool {} ... {}'.format(pool, 'Skipped'))\n                continue\n            elif self.poolSize == 0:\n                print('Pool {} was not found.'.format(pool))\n                continue\n            if not self.poolSize > 1:\n                raise Exception(\"Pool size was incorrectly set\")\n\n            try:\n                \"\"\"Get the list of PGs in the pool\"\"\"\n                lsByPool = 'ceph pg ls-by-pool ' + pool + ' -f json-pretty'\n                pgstr = subprocess.check_output(lsByPool, shell=True)  # nosec\n                self.poolPGs = json.loads(pgstr)\n                \"\"\"Check that OSDs in the PG are in separate failure domains\"\"\"\n                self.checkPGs(pool)\n            except subprocess.CalledProcessError as e:\n                print('{}'.format(e))\n                \"\"\"Continue to the next pool (if any)\"\"\"\n        return\n\ndef Main():\n    parser = ArgumentParser(description='''\nCross-check the OSDs assigned to the Placement Groups (PGs) of a ceph pool\nwith the CRUSH topology.  The cross-check compares the OSDs in a PG and\nverifies the OSDs reside in separate failure domains.  PGs with OSDs in\nthe same failure domain are flagged as violation.  The offending PGs are\nprinted to stdout.\n\nThis CLI is executed on-demand on a ceph-mon pod.  To invoke the CLI, you\ncan specify one pool or list of pools to check.  The special pool name\nAll (or all) checks all the pools in the ceph cluster.\n''',\n    formatter_class=RawTextHelpFormatter)\n    parser.add_argument('PoolName', type=str, nargs='+',\n      help='List of pools (or All) to validate the PGs and OSDs mapping')\n    args = parser.parse_args()\n\n    if ('all' in args.PoolName or\n        'All' in args.PoolName) and len(args.PoolName) > 1:\n        print('You only need to give one pool with special pool All')\n        sys.exit(1)\n\n    \"\"\"\n    Retrieve the crush hierarchies and store it.  Cross-check the OSDs\n    in each PG searching for failure domain violation.\n    \"\"\"\n    ccm = cephCRUSH(args.PoolName)\n    ccm.checkPoolPGs()\n\nif __name__ == '__main__':\n    Main()\n",
+      "utils-checkPGs.sh": "#!/bin/bash\n\n\n\nset -ex\n\nmgrPod=$(kubectl get pods --namespace=${DEPLOYMENT_NAMESPACE} --selector=application=ceph --selector=component=mgr --output=jsonpath={.items[0].metadata.name} 2>/dev/null)\n\nkubectl exec -t ${mgrPod} --namespace=${DEPLOYMENT_NAMESPACE} -- python3 /tmp/utils-checkPGs.py All 2>/dev/null\n",
+      "utils-defragOSDs.sh": "#!/bin/bash\n\n\n\nset -ex\n\nPODS=$(kubectl get pods --namespace=${NAMESPACE} \\\n  --selector=application=ceph,component=osd --field-selector=status.phase=Running \\\n  '--output=jsonpath={range .items[*]}{.metadata.name}{\"\\n\"}{end}')\n\nfor POD in ${PODS}; do\n  kubectl exec -t ${POD} --namespace=${NAMESPACE} -- \\\n  sh -c -e \"/tmp/utils-defragOSDs.sh\"\ndone\n\n\nexit 0\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "ceph-client-etc"
+    },
+    "data": {
+      "ceph.conf": "[global]\ncephx = true\ncephx_cluster_require_signatures = true\ncephx_require_signatures = false\ncephx_service_require_signatures = false\ndebug_ms = 0/0\nlog_file = /dev/stdout\nmon_cluster_log_file = /dev/stdout\nmon_host = ceph-mon.default.svc.cluster.local:3300\nobjecter_inflight_op_bytes = 1073741824\nobjecter_inflight_ops = 10240\n[osd]\ncluster_network = 192.168.0.0/16\nms_bind_port_max = 7100\nms_bind_port_min = 6800\nosd_max_object_name_len = 256\nosd_mkfs_options_xfs = -f -i size=2048\nosd_mkfs_type = xfs\npublic_network = 192.168.0.0/16\n"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "release-name-default-ceph-pool-checkpgs",
+      "namespace": "bdA9DsS"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "",
+          "extensions",
+          "batch",
+          "apps"
+        ],
+        "verbs": [
+          "get",
+          "list"
+        ],
+        "resources": [
+          "services",
+          "endpoints",
+          "jobs",
+          "pods"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "ceph-pool-checkpgs"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "pods",
+          "pods/exec"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch",
+          "create"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "ceph-defragosds"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "pods",
+          "pods/exec"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch",
+          "create"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "release-name-default-ceph-checkdns",
+      "namespace": "bdA9DsS"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "",
+          "extensions",
+          "batch",
+          "apps"
+        ],
+        "verbs": [
+          "get",
+          "list"
+        ],
+        "resources": [
+          "services",
+          "endpoints"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "ceph-checkdns"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "pods",
+          "endpoints",
+          "pods/exec"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch",
+          "create"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "release-name-default-ceph-mds",
+      "namespace": "bdA9DsS"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "",
+          "extensions",
+          "batch",
+          "apps"
+        ],
+        "verbs": [
+          "get",
+          "list"
+        ],
+        "resources": [
+          "services",
+          "endpoints",
+          "jobs",
+          "pods"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "release-name-default-ceph-mgr",
+      "namespace": "bdA9DsS"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "",
+          "extensions",
+          "batch",
+          "apps"
+        ],
+        "verbs": [
+          "get",
+          "list"
+        ],
+        "resources": [
+          "services",
+          "endpoints",
+          "jobs",
+          "pods"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "release-name-default-ceph-rbd-pool",
+      "namespace": "bdA9DsS"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "",
+          "extensions",
+          "batch",
+          "apps"
+        ],
+        "verbs": [
+          "get",
+          "list"
+        ],
+        "resources": [
+          "services",
+          "endpoints"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "release-name-default-release-name-test",
+      "namespace": "bdA9DsS"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "",
+          "extensions",
+          "batch",
+          "apps"
+        ],
+        "verbs": [
+          "get",
+          "list"
+        ],
+        "resources": [
+          "services",
+          "endpoints",
+          "jobs",
+          "pods"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "release-name-ceph-pool-checkpgs",
+      "namespace": "bdA9DsS"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "release-name-default-ceph-pool-checkpgs"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "ceph-pool-checkpgs",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "ceph-pool-checkpgs"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "ceph-pool-checkpgs"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "ceph-pool-checkpgs",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "ceph-defragosds"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "ceph-defragosds"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "ceph-defragosds",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "release-name-ceph-checkdns",
+      "namespace": "bdA9DsS"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "release-name-default-ceph-checkdns"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "ceph-checkdns",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "ceph-checkdns"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "ceph-checkdns"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "ceph-checkdns",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "release-name-ceph-mds",
+      "namespace": "bdA9DsS"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "release-name-default-ceph-mds"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "ceph-mds",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "release-name-ceph-mgr",
+      "namespace": "bdA9DsS"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "release-name-default-ceph-mgr"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "ceph-mgr",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "release-name-ceph-rbd-pool",
+      "namespace": "bdA9DsS"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "release-name-default-ceph-rbd-pool"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "ceph-rbd-pool",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "release-name-release-name-test",
+      "namespace": "bdA9DsS"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "release-name-default-release-name-test"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-test",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "ceph-mgr",
+      "labels": {
+        "release_group": "release-name",
+        "application": "ceph",
+        "component": "manager"
+      },
+      "annotations": {
+        "prometheus.io/scrape": "true",
+        "prometheus.io/port": "9283"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "ceph-mgr",
+          "port": 7000,
+          "protocol": "TCP",
+          "targetPort": 7000
+        },
+        {
+          "name": "metrics",
+          "protocol": "TCP",
+          "port": 9283
+        }
+      ],
+      "selector": {
+        "release_group": "release-name",
+        "application": "ceph",
+        "component": "mgr"
+      }
+    }
+  },
+  {
+    "kind": "Deployment",
+    "apiVersion": "apps/v1",
+    "metadata": {
+      "name": "ceph-checkdns",
+      "annotations": {
+        "configmap-bin-hash": "aa84f116394754844fa7d84f74aba1e7ca4c2f7c6ff6eba98dec7ecd96e5dcc0"
+      },
+      "labels": {
+        "release_group": "release-name",
+        "application": "ceph",
+        "component": "checkdns"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "release_group": "release-name",
+          "application": "ceph",
+          "component": "checkdns"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "release_group": "release-name",
+            "application": "ceph",
+            "component": "checkdns"
+          },
+          "annotations": {
+            "openstackhelm.openstack.org/release_uuid": ""
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "runAsUser": 65534
+          },
+          "serviceAccountName": "ceph-checkdns",
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "release_group",
+                          "operator": "In",
+                          "values": [
+                            "release-name"
+                          ]
+                        },
+                        {
+                          "key": "application",
+                          "operator": "In",
+                          "values": [
+                            "ceph"
+                          ]
+                        },
+                        {
+                          "key": "component",
+                          "operator": "In",
+                          "values": [
+                            "checkdns"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 10
+                }
+              ]
+            }
+          },
+          "tolerations": [
+            {
+              "effect": "NoExecute",
+              "key": "node.kubernetes.io/not-ready",
+              "operator": "Exists",
+              "tolerationSeconds": 60
+            },
+            {
+              "effect": "NoExecute",
+              "key": "node.kubernetes.io/unreachable",
+              "operator": "Exists",
+              "tolerationSeconds": 60
+            }
+          ],
+          "nodeSelector": {
+            "ceph-mon": "enabled"
+          },
+          "initContainers": [
+            {
+              "name": "init",
+              "image": "quay.io/airshipit/kubernetes-entrypoint:v1.0.0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 65534
+              },
+              "env": [
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "INTERFACE_NAME",
+                  "value": "eth0"
+                },
+                {
+                  "name": "PATH",
+                  "value": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/"
+                },
+                {
+                  "name": "DEPENDENCY_SERVICE",
+                  "value": "default:ceph-mon"
+                },
+                {
+                  "name": "DEPENDENCY_DAEMONSET",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CONTAINER",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_POD_JSON",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CUSTOM_RESOURCE",
+                  "value": ""
+                }
+              ],
+              "command": [
+                "kubernetes-entrypoint"
+              ],
+              "volumeMounts": []
+            }
+          ],
+          "hostNetwork": true,
+          "dnsPolicy": "ClusterFirstWithHostNet",
+          "containers": [
+            {
+              "name": "ceph-checkdns",
+              "image": "docker.io/openstackhelm/ceph-config-helper:change_770201_ubuntu_bionic-20210113",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "env": [
+                {
+                  "name": "CLUSTER",
+                  "value": "ceph"
+                },
+                {
+                  "name": "K8S_HOST_NETWORK",
+                  "value": "1"
+                },
+                {
+                  "name": "NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "MON_PORT",
+                  "value": "6789"
+                },
+                {
+                  "name": "MON_PORT_V2",
+                  "value": "3300"
+                },
+                {
+                  "name": "KUBECTL_PARAM",
+                  "value": "-l application=ceph -l component=checkdns"
+                }
+              ],
+              "command": [
+                "/tmp/_start.sh"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "pod-tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "ceph-client-bin",
+                  "mountPath": "/tmp/_start.sh",
+                  "subPath": "utils-checkDNS_start.sh",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "pod-tmp",
+              "emptyDir": {}
+            },
+            {
+              "name": "ceph-client-bin",
+              "configMap": {
+                "name": "ceph-client-bin",
+                "defaultMode": 365
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "kind": "Deployment",
+    "apiVersion": "apps/v1",
+    "metadata": {
+      "name": "ceph-mds",
+      "annotations": {
+        "openstackhelm.openstack.org/release_uuid": ""
+      },
+      "labels": {
+        "release_group": "release-name",
+        "application": "ceph",
+        "component": "mds"
+      }
+    },
+    "spec": {
+      "replicas": 2,
+      "selector": {
+        "matchLabels": {
+          "release_group": "release-name",
+          "application": "ceph",
+          "component": "mds"
+        }
+      },
+      "revisionHistoryLimit": 3,
+      "strategy": {
+        "type": "RollingUpdate",
+        "rollingUpdate": {
+          "maxUnavailable": "25%",
+          "maxSurge": "25%"
+        }
+      },
+      "template": {
+        "metadata": {
+          "name": "ceph-mds",
+          "labels": {
+            "release_group": "release-name",
+            "application": "ceph",
+            "component": "mds"
+          },
+          "annotations": {
+            "openstackhelm.openstack.org/release_uuid": "",
+            "configmap-bin-hash": "aa84f116394754844fa7d84f74aba1e7ca4c2f7c6ff6eba98dec7ecd96e5dcc0",
+            "configmap-etc-client-hash": "2e3fc275686ae0170b6270527b6eb1e59d511283f7272ff90455c3bfcb57bff6"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "runAsUser": 65534
+          },
+          "serviceAccountName": "ceph-mds",
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "release_group",
+                          "operator": "In",
+                          "values": [
+                            "release-name"
+                          ]
+                        },
+                        {
+                          "key": "application",
+                          "operator": "In",
+                          "values": [
+                            "ceph"
+                          ]
+                        },
+                        {
+                          "key": "component",
+                          "operator": "In",
+                          "values": [
+                            "mds"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 10
+                }
+              ]
+            }
+          },
+          "tolerations": [
+            {
+              "effect": "NoExecute",
+              "key": "node.kubernetes.io/not-ready",
+              "operator": "Exists",
+              "tolerationSeconds": 60
+            },
+            {
+              "effect": "NoExecute",
+              "key": "node.kubernetes.io/unreachable",
+              "operator": "Exists",
+              "tolerationSeconds": 60
+            }
+          ],
+          "nodeSelector": {
+            "ceph-mds": "enabled"
+          },
+          "initContainers": [
+            {
+              "name": "init",
+              "image": "quay.io/airshipit/kubernetes-entrypoint:v1.0.0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 65534
+              },
+              "env": [
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "INTERFACE_NAME",
+                  "value": "eth0"
+                },
+                {
+                  "name": "PATH",
+                  "value": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/"
+                },
+                {
+                  "name": "DEPENDENCY_SERVICE",
+                  "value": "default:ceph-mon"
+                },
+                {
+                  "name": "DEPENDENCY_JOBS",
+                  "value": "ceph-storage-keys-generator,ceph-mds-keyring-generator,ceph-rbd-pool"
+                },
+                {
+                  "name": "DEPENDENCY_DAEMONSET",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CONTAINER",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_POD_JSON",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CUSTOM_RESOURCE",
+                  "value": ""
+                }
+              ],
+              "command": [
+                "kubernetes-entrypoint"
+              ],
+              "volumeMounts": []
+            },
+            {
+              "name": "ceph-init-dirs",
+              "image": "docker.io/openstackhelm/ceph-daemon:change_770201_ubuntu_bionic-20210113",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 0,
+                "allowPrivilegeEscalation": false
+              },
+              "command": [
+                "/tmp/init-dirs.sh"
+              ],
+              "env": [
+                {
+                  "name": "CLUSTER",
+                  "value": "ceph"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "pod-tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "pod-run",
+                  "mountPath": "/run"
+                },
+                {
+                  "name": "pod-etc-ceph",
+                  "mountPath": "/etc/ceph"
+                },
+                {
+                  "name": "ceph-client-bin",
+                  "mountPath": "/tmp/init-dirs.sh",
+                  "subPath": "init-dirs.sh",
+                  "readOnly": true
+                },
+                {
+                  "name": "pod-var-lib-ceph",
+                  "mountPath": "/var/lib/ceph",
+                  "readOnly": false
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "ceph-mds",
+              "image": "docker.io/openstackhelm/ceph-daemon:change_770201_ubuntu_bionic-20210113",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 10775,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "command": [
+                "/tmp/mds-start.sh"
+              ],
+              "env": [
+                {
+                  "name": "CLUSTER",
+                  "value": "ceph"
+                },
+                {
+                  "name": "CEPHFS_CREATE",
+                  "value": "1"
+                },
+                {
+                  "name": "NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "MON_PORT",
+                  "value": "6789"
+                },
+                {
+                  "name": "MON_PORT_V2",
+                  "value": "3300"
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 6800
+                }
+              ],
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": 6800
+                },
+                "initialDelaySeconds": 60,
+                "timeoutSeconds": 5
+              },
+              "readinessProbe": {
+                "tcpSocket": {
+                  "port": 6800
+                },
+                "timeoutSeconds": 5
+              },
+              "volumeMounts": [
+                {
+                  "name": "pod-tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "pod-run",
+                  "mountPath": "/run"
+                },
+                {
+                  "name": "pod-etc-ceph",
+                  "mountPath": "/etc/ceph"
+                },
+                {
+                  "name": "ceph-client-bin",
+                  "mountPath": "/tmp/mds-start.sh",
+                  "subPath": "mds-start.sh",
+                  "readOnly": true
+                },
+                {
+                  "name": "ceph-client-bin",
+                  "mountPath": "/tmp/utils-checkDNS.sh",
+                  "subPath": "utils-checkDNS.sh",
+                  "readOnly": true
+                },
+                {
+                  "name": "ceph-client-etc",
+                  "mountPath": "/etc/ceph/ceph.conf.template",
+                  "subPath": "ceph.conf",
+                  "readOnly": true
+                },
+                {
+                  "name": "ceph-client-admin-keyring",
+                  "mountPath": "/etc/ceph/ceph.client.admin.keyring",
+                  "subPath": "ceph.client.admin.keyring",
+                  "readOnly": true
+                },
+                {
+                  "name": "ceph-bootstrap-mds-keyring",
+                  "mountPath": "/var/lib/ceph/bootstrap-mds/ceph.keyring",
+                  "subPath": "ceph.keyring",
+                  "readOnly": false
+                },
+                {
+                  "name": "pod-var-lib-ceph",
+                  "mountPath": "/var/lib/ceph",
+                  "readOnly": false
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "pod-tmp",
+              "emptyDir": {}
+            },
+            {
+              "name": "pod-run",
+              "emptyDir": {
+                "medium": "Memory"
+              }
+            },
+            {
+              "name": "pod-etc-ceph",
+              "emptyDir": {}
+            },
+            {
+              "name": "ceph-client-etc",
+              "configMap": {
+                "name": "ceph-client-etc",
+                "defaultMode": 292
+              }
+            },
+            {
+              "name": "ceph-client-bin",
+              "configMap": {
+                "name": "ceph-client-bin",
+                "defaultMode": 365
+              }
+            },
+            {
+              "name": "pod-var-lib-ceph",
+              "emptyDir": {}
+            },
+            {
+              "name": "ceph-client-admin-keyring",
+              "secret": {
+                "secretName": "ceph-client-admin-keyring"
+              }
+            },
+            {
+              "name": "ceph-bootstrap-mds-keyring",
+              "secret": {
+                "secretName": "ceph-bootstrap-mds-keyring"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "kind": "Deployment",
+    "apiVersion": "apps/v1",
+    "metadata": {
+      "name": "ceph-mgr",
+      "annotations": {
+        "openstackhelm.openstack.org/release_uuid": ""
+      },
+      "labels": {
+        "release_group": "release-name",
+        "application": "ceph",
+        "component": "mgr"
+      }
+    },
+    "spec": {
+      "replicas": 2,
+      "selector": {
+        "matchLabels": {
+          "release_group": "release-name",
+          "application": "ceph",
+          "component": "mgr"
+        }
+      },
+      "strategy": {
+        "type": "Recreate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "release_group": "release-name",
+            "application": "ceph",
+            "component": "mgr"
+          },
+          "annotations": {
+            "openstackhelm.openstack.org/release_uuid": "",
+            "configmap-bin-hash": "aa84f116394754844fa7d84f74aba1e7ca4c2f7c6ff6eba98dec7ecd96e5dcc0",
+            "configmap-etc-client-hash": "2e3fc275686ae0170b6270527b6eb1e59d511283f7272ff90455c3bfcb57bff6"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "runAsUser": 65534
+          },
+          "serviceAccountName": "ceph-mgr",
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "release_group",
+                          "operator": "In",
+                          "values": [
+                            "release-name"
+                          ]
+                        },
+                        {
+                          "key": "application",
+                          "operator": "In",
+                          "values": [
+                            "ceph"
+                          ]
+                        },
+                        {
+                          "key": "component",
+                          "operator": "In",
+                          "values": [
+                            "mgr"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 10
+                }
+              ]
+            }
+          },
+          "tolerations": [
+            {
+              "effect": "NoExecute",
+              "key": "node.kubernetes.io/not-ready",
+              "operator": "Exists",
+              "tolerationSeconds": 60
+            },
+            {
+              "effect": "NoExecute",
+              "key": "node.kubernetes.io/unreachable",
+              "operator": "Exists",
+              "tolerationSeconds": 60
+            }
+          ],
+          "nodeSelector": {
+            "ceph-mgr": "enabled"
+          },
+          "hostNetwork": true,
+          "hostPID": true,
+          "dnsPolicy": "ClusterFirstWithHostNet",
+          "initContainers": [
+            {
+              "name": "init",
+              "image": "quay.io/airshipit/kubernetes-entrypoint:v1.0.0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 65534
+              },
+              "env": [
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "INTERFACE_NAME",
+                  "value": "eth0"
+                },
+                {
+                  "name": "PATH",
+                  "value": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/"
+                },
+                {
+                  "name": "DEPENDENCY_SERVICE",
+                  "value": "default:ceph-mon"
+                },
+                {
+                  "name": "DEPENDENCY_JOBS",
+                  "value": "ceph-storage-keys-generator,ceph-mgr-keyring-generator"
+                },
+                {
+                  "name": "DEPENDENCY_DAEMONSET",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CONTAINER",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_POD_JSON",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CUSTOM_RESOURCE",
+                  "value": ""
+                }
+              ],
+              "command": [
+                "kubernetes-entrypoint"
+              ],
+              "volumeMounts": []
+            },
+            {
+              "name": "ceph-init-dirs",
+              "image": "docker.io/openstackhelm/ceph-daemon:change_770201_ubuntu_bionic-20210113",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 0,
+                "allowPrivilegeEscalation": false
+              },
+              "command": [
+                "/tmp/init-dirs.sh"
+              ],
+              "env": [
+                {
+                  "name": "CLUSTER",
+                  "value": "ceph"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "pod-tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "pod-run",
+                  "mountPath": "/run"
+                },
+                {
+                  "name": "pod-etc-ceph",
+                  "mountPath": "/etc/ceph"
+                },
+                {
+                  "name": "ceph-client-bin",
+                  "mountPath": "/tmp/init-dirs.sh",
+                  "subPath": "init-dirs.sh",
+                  "readOnly": true
+                },
+                {
+                  "name": "pod-var-lib-ceph",
+                  "mountPath": "/var/lib/ceph",
+                  "readOnly": false
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "ceph-mgr",
+              "image": "docker.io/openstackhelm/ceph-daemon:change_770201_ubuntu_bionic-20210113",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 10062,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "env": [
+                {
+                  "name": "CLUSTER",
+                  "value": "ceph"
+                },
+                {
+                  "name": "NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "MON_PORT",
+                  "value": "6789"
+                },
+                {
+                  "name": "MON_PORT_V2",
+                  "value": "3300"
+                },
+                {
+                  "name": "ENABLED_MODULES",
+                  "value": "restful\nstatus\nprometheus\nbalancer\niostat\npg_autoscaler"
+                }
+              ],
+              "command": [
+                "/mgr-start.sh"
+              ],
+              "ports": [
+                {
+                  "name": "mgr",
+                  "containerPort": 7000
+                },
+                {
+                  "name": "metrics",
+                  "containerPort": 9283
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "/tmp/mgr-check.sh",
+                    "liveness"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 5
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "/tmp/mgr-check.sh",
+                    "readiness"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 5
+              },
+              "volumeMounts": [
+                {
+                  "name": "pod-tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "pod-run",
+                  "mountPath": "/run"
+                },
+                {
+                  "name": "pod-etc-ceph",
+                  "mountPath": "/etc/ceph"
+                },
+                {
+                  "name": "ceph-client-bin",
+                  "mountPath": "/mgr-start.sh",
+                  "subPath": "mgr-start.sh",
+                  "readOnly": true
+                },
+                {
+                  "name": "ceph-client-bin",
+                  "mountPath": "/tmp/mgr-check.sh",
+                  "subPath": "mgr-check.sh",
+                  "readOnly": true
+                },
+                {
+                  "name": "ceph-client-bin",
+                  "mountPath": "/tmp/utils-checkDNS.sh",
+                  "subPath": "utils-checkDNS.sh",
+                  "readOnly": true
+                },
+                {
+                  "name": "ceph-client-etc",
+                  "mountPath": "/etc/ceph/ceph.conf.template",
+                  "subPath": "ceph.conf",
+                  "readOnly": true
+                },
+                {
+                  "name": "ceph-client-admin-keyring",
+                  "mountPath": "/etc/ceph/ceph.client.admin.keyring",
+                  "subPath": "ceph.client.admin.keyring",
+                  "readOnly": true
+                },
+                {
+                  "name": "ceph-bootstrap-mgr-keyring",
+                  "mountPath": "/var/lib/ceph/bootstrap-mgr/ceph.keyring",
+                  "subPath": "ceph.keyring",
+                  "readOnly": false
+                },
+                {
+                  "name": "pod-var-lib-ceph",
+                  "mountPath": "/var/lib/ceph",
+                  "readOnly": false
+                },
+                {
+                  "name": "ceph-client-bin",
+                  "mountPath": "/tmp/utils-checkPGs.py",
+                  "subPath": "utils-checkPGs.py",
+                  "readOnly": true
+                },
+                {
+                  "name": "ceph-client-bin",
+                  "mountPath": "/tmp/utils-checkPGs.sh",
+                  "subPath": "utils-checkPGs.sh",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "pod-tmp",
+              "emptyDir": {}
+            },
+            {
+              "name": "pod-run",
+              "emptyDir": {
+                "medium": "Memory"
+              }
+            },
+            {
+              "name": "pod-etc-ceph",
+              "emptyDir": {}
+            },
+            {
+              "name": "ceph-client-bin",
+              "configMap": {
+                "name": "ceph-client-bin",
+                "defaultMode": 365
+              }
+            },
+            {
+              "name": "ceph-client-etc",
+              "configMap": {
+                "name": "ceph-client-etc",
+                "defaultMode": 292
+              }
+            },
+            {
+              "name": "pod-var-lib-ceph",
+              "emptyDir": {}
+            },
+            {
+              "name": "ceph-client-admin-keyring",
+              "secret": {
+                "secretName": "ceph-client-admin-keyring"
+              }
+            },
+            {
+              "name": "ceph-bootstrap-mgr-keyring",
+              "secret": {
+                "secretName": "ceph-bootstrap-mgr-keyring"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+      "name": "ceph-rbd-pool",
+      "annotations": {
+        "openstackhelm.openstack.org/release_uuid": ""
+      }
+    },
+    "spec": {
+      "template": {
+        "metadata": {
+          "name": "ceph-rbd-pool",
+          "labels": {
+            "release_group": "release-name",
+            "application": "ceph",
+            "component": "rbd-pool"
+          },
+          "annotations": null
+        },
+        "spec": {
+          "securityContext": {
+            "runAsUser": 65534
+          },
+          "serviceAccountName": "ceph-rbd-pool",
+          "restartPolicy": "OnFailure",
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "release_group",
+                          "operator": "In",
+                          "values": [
+                            "release-name"
+                          ]
+                        },
+                        {
+                          "key": "application",
+                          "operator": "In",
+                          "values": [
+                            "ceph"
+                          ]
+                        },
+                        {
+                          "key": "component",
+                          "operator": "In",
+                          "values": [
+                            "rbd-pool"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 10
+                }
+              ]
+            }
+          },
+          "nodeSelector": {
+            "openstack-control-plane": "enabled"
+          },
+          "initContainers": [
+            {
+              "name": "init",
+              "image": "quay.io/airshipit/kubernetes-entrypoint:v1.0.0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 65534
+              },
+              "env": [
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "INTERFACE_NAME",
+                  "value": "eth0"
+                },
+                {
+                  "name": "PATH",
+                  "value": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/"
+                },
+                {
+                  "name": "DEPENDENCY_SERVICE",
+                  "value": "default:ceph-mon,default:ceph-mgr"
+                },
+                {
+                  "name": "DEPENDENCY_DAEMONSET",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CONTAINER",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_POD_JSON",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CUSTOM_RESOURCE",
+                  "value": ""
+                }
+              ],
+              "command": [
+                "kubernetes-entrypoint"
+              ],
+              "volumeMounts": []
+            }
+          ],
+          "containers": [
+            {
+              "name": "ceph-rbd-pool",
+              "image": "docker.io/openstackhelm/ceph-config-helper:change_770201_ubuntu_bionic-20210113",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "env": [
+                {
+                  "name": "CLUSTER",
+                  "value": "ceph"
+                },
+                {
+                  "name": "ENABLE_AUTOSCALER",
+                  "value": "true"
+                },
+                {
+                  "name": "CLUSTER_SET_FLAGS",
+                  "value": ""
+                },
+                {
+                  "name": "CLUSTER_UNSET_FLAGS",
+                  "value": ""
+                }
+              ],
+              "command": [
+                "/tmp/pool-init.sh"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "pod-tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "ceph-client-bin",
+                  "mountPath": "/tmp/pool-init.sh",
+                  "subPath": "pool-init.sh",
+                  "readOnly": true
+                },
+                {
+                  "name": "ceph-client-bin",
+                  "mountPath": "/tmp/pool-calc.py",
+                  "subPath": "pool-calc.py",
+                  "readOnly": true
+                },
+                {
+                  "name": "ceph-client-etc",
+                  "mountPath": "/etc/ceph/ceph.conf",
+                  "subPath": "ceph.conf",
+                  "readOnly": true
+                },
+                {
+                  "name": "ceph-client-admin-keyring",
+                  "mountPath": "/etc/ceph/ceph.client.admin.keyring",
+                  "subPath": "ceph.client.admin.keyring",
+                  "readOnly": true
+                },
+                {
+                  "name": "pod-var-lib-ceph",
+                  "mountPath": "/var/lib/ceph",
+                  "readOnly": false
+                },
+                {
+                  "name": "pod-run",
+                  "mountPath": "/run",
+                  "readOnly": false
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "pod-tmp",
+              "emptyDir": {}
+            },
+            {
+              "name": "ceph-client-etc",
+              "configMap": {
+                "name": "ceph-client-etc",
+                "defaultMode": 292
+              }
+            },
+            {
+              "name": "ceph-client-bin",
+              "configMap": {
+                "name": "ceph-client-bin",
+                "defaultMode": 365
+              }
+            },
+            {
+              "name": "pod-var-lib-ceph",
+              "emptyDir": {}
+            },
+            {
+              "name": "pod-run",
+              "emptyDir": {
+                "medium": "Memory"
+              }
+            },
+            {
+              "name": "ceph-client-admin-keyring",
+              "secret": {
+                "secretName": "ceph-client-admin-keyring"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "ceph-pool-checkpgs",
+      "annotations": {
+        "openstackhelm.openstack.org/release_uuid": ""
+      },
+      "labels": {
+        "release_group": "release-name",
+        "application": "ceph",
+        "component": "pool-checkpgs"
+      }
+    },
+    "spec": {
+      "schedule": "*/15 * * * *",
+      "successfulJobsHistoryLimit": 1,
+      "failedJobsHistoryLimit": 1,
+      "concurrencyPolicy": "Forbid",
+      "startingDeadlineSeconds": 60,
+      "jobTemplate": {
+        "metadata": {
+          "labels": {
+            "release_group": "release-name",
+            "application": "ceph",
+            "component": "pool-checkpgs"
+          }
+        },
+        "spec": {
+          "template": {
+            "metadata": {
+              "labels": {
+                "release_group": "release-name",
+                "application": "ceph",
+                "component": "pool-checkpgs"
+              }
+            },
+            "spec": {
+              "serviceAccountName": "ceph-pool-checkpgs",
+              "nodeSelector": {
+                "ceph-mgr": "enabled"
+              },
+              "initContainers": [
+                {
+                  "name": "init",
+                  "image": "quay.io/airshipit/kubernetes-entrypoint:v1.0.0",
+                  "imagePullPolicy": "IfNotPresent",
+                  "securityContext": {
+                    "allowPrivilegeEscalation": false,
+                    "readOnlyRootFilesystem": true,
+                    "runAsUser": 65534
+                  },
+                  "env": [
+                    {
+                      "name": "POD_NAME",
+                      "valueFrom": {
+                        "fieldRef": {
+                          "apiVersion": "v1",
+                          "fieldPath": "metadata.name"
+                        }
+                      }
+                    },
+                    {
+                      "name": "NAMESPACE",
+                      "valueFrom": {
+                        "fieldRef": {
+                          "apiVersion": "v1",
+                          "fieldPath": "metadata.namespace"
+                        }
+                      }
+                    },
+                    {
+                      "name": "INTERFACE_NAME",
+                      "value": "eth0"
+                    },
+                    {
+                      "name": "PATH",
+                      "value": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/"
+                    },
+                    {
+                      "name": "DEPENDENCY_SERVICE",
+                      "value": "default:ceph-mgr"
+                    },
+                    {
+                      "name": "DEPENDENCY_JOBS",
+                      "value": "ceph-rbd-pool"
+                    },
+                    {
+                      "name": "DEPENDENCY_DAEMONSET",
+                      "value": ""
+                    },
+                    {
+                      "name": "DEPENDENCY_CONTAINER",
+                      "value": ""
+                    },
+                    {
+                      "name": "DEPENDENCY_POD_JSON",
+                      "value": ""
+                    },
+                    {
+                      "name": "DEPENDENCY_CUSTOM_RESOURCE",
+                      "value": ""
+                    }
+                  ],
+                  "command": [
+                    "kubernetes-entrypoint"
+                  ],
+                  "volumeMounts": []
+                }
+              ],
+              "containers": [
+                {
+                  "name": "ceph-pool-checkpgs",
+                  "image": "docker.io/openstackhelm/ceph-config-helper:change_770201_ubuntu_bionic-20210113",
+                  "imagePullPolicy": "IfNotPresent",
+                  "env": [
+                    {
+                      "name": "DEPLOYMENT_NAMESPACE",
+                      "valueFrom": {
+                        "fieldRef": {
+                          "fieldPath": "metadata.namespace"
+                        }
+                      }
+                    }
+                  ],
+                  "command": [
+                    "/tmp/utils-checkPGs.sh"
+                  ],
+                  "volumeMounts": [
+                    {
+                      "name": "pod-tmp",
+                      "mountPath": "/tmp"
+                    },
+                    {
+                      "name": "pod-etc-ceph",
+                      "mountPath": "/etc/ceph"
+                    },
+                    {
+                      "name": "ceph-client-bin",
+                      "mountPath": "/tmp/utils-checkPGs.py",
+                      "subPath": "utils-checkPGs.py",
+                      "readOnly": true
+                    },
+                    {
+                      "name": "ceph-client-bin",
+                      "mountPath": "/tmp/utils-checkPGs.sh",
+                      "subPath": "utils-checkPGs.sh",
+                      "readOnly": true
+                    },
+                    {
+                      "name": "ceph-client-etc",
+                      "mountPath": "/etc/ceph/ceph.conf",
+                      "subPath": "ceph.conf",
+                      "readOnly": true
+                    },
+                    {
+                      "mountPath": "/etc/ceph/ceph.client.admin.keyring",
+                      "name": "ceph-client-admin-keyring",
+                      "readOnly": true,
+                      "subPath": "ceph.client.admin.keyring"
+                    },
+                    {
+                      "mountPath": "/etc/ceph/ceph.mon.keyring.seed",
+                      "name": "ceph-mon-keyring",
+                      "readOnly": true,
+                      "subPath": "ceph.mon.keyring"
+                    },
+                    {
+                      "mountPath": "/var/lib/ceph/bootstrap-osd/ceph.keyring",
+                      "name": "ceph-bootstrap-osd-keyring",
+                      "readOnly": true,
+                      "subPath": "ceph.keyring"
+                    },
+                    {
+                      "mountPath": "/var/lib/ceph/bootstrap-mds/ceph.keyring",
+                      "name": "ceph-bootstrap-mds-keyring",
+                      "readOnly": true,
+                      "subPath": "ceph.keyring"
+                    }
+                  ]
+                }
+              ],
+              "restartPolicy": "Never",
+              "hostNetwork": true,
+              "volumes": [
+                {
+                  "name": "pod-tmp",
+                  "emptyDir": {}
+                },
+                {
+                  "name": "pod-etc-ceph",
+                  "emptyDir": {}
+                },
+                {
+                  "name": "ceph-client-bin",
+                  "configMap": {
+                    "name": "ceph-client-bin",
+                    "defaultMode": 365
+                  }
+                },
+                {
+                  "name": "ceph-client-etc",
+                  "configMap": {
+                    "name": "ceph-client-etc",
+                    "defaultMode": 292
+                  }
+                },
+                {
+                  "name": "ceph-client-admin-keyring",
+                  "secret": {
+                    "defaultMode": 420,
+                    "secretName": "ceph-client-admin-keyring"
+                  }
+                },
+                {
+                  "name": "ceph-mon-keyring",
+                  "secret": {
+                    "defaultMode": 420,
+                    "secretName": "ceph-mon-keyring"
+                  }
+                },
+                {
+                  "name": "ceph-bootstrap-osd-keyring",
+                  "secret": {
+                    "defaultMode": 420,
+                    "secretName": "ceph-bootstrap-osd-keyring"
+                  }
+                },
+                {
+                  "name": "ceph-bootstrap-mds-keyring",
+                  "secret": {
+                    "defaultMode": 420,
+                    "secretName": "ceph-bootstrap-mds-keyring"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "ceph-defragosds",
+      "annotations": {
+        "openstackhelm.openstack.org/release_uuid": ""
+      },
+      "labels": {
+        "release_group": "release-name",
+        "application": "ceph",
+        "component": "ceph-defragosds"
+      }
+    },
+    "spec": {
+      "schedule": "0 0 1 * *",
+      "successfulJobsHistoryLimit": 1,
+      "failedJobsHistoryLimit": 1,
+      "concurrencyPolicy": "Forbid",
+      "startingDeadlineSeconds": 60,
+      "jobTemplate": {
+        "metadata": {
+          "labels": {
+            "release_group": "release-name",
+            "application": "ceph",
+            "component": "ceph-defragosds"
+          }
+        },
+        "spec": {
+          "template": {
+            "metadata": {
+              "labels": {
+                "release_group": "release-name",
+                "application": "ceph",
+                "component": "ceph-defragosds"
+              }
+            },
+            "spec": {
+              "serviceAccountName": "ceph-defragosds",
+              "nodeSelector": {
+                "ceph-mgr": "enabled"
+              },
+              "containers": [
+                {
+                  "name": "ceph-defragosds",
+                  "image": "docker.io/openstackhelm/ceph-config-helper:change_770201_ubuntu_bionic-20210113",
+                  "imagePullPolicy": "IfNotPresent",
+                  "env": [
+                    {
+                      "name": "NAMESPACE",
+                      "valueFrom": {
+                        "fieldRef": {
+                          "fieldPath": "metadata.namespace"
+                        }
+                      }
+                    },
+                    {
+                      "name": "KUBECTL_PARAM",
+                      "value": "-l application=ceph -l component=ceph-defragosd"
+                    }
+                  ],
+                  "command": [
+                    "/tmp/utils-defragOSDs.sh",
+                    "cron"
+                  ],
+                  "volumeMounts": [
+                    {
+                      "name": "pod-tmp",
+                      "mountPath": "/tmp"
+                    },
+                    {
+                      "name": "pod-etc-ceph",
+                      "mountPath": "/etc/ceph"
+                    },
+                    {
+                      "name": "ceph-client-bin",
+                      "mountPath": "/tmp/utils-defragOSDs.sh",
+                      "subPath": "utils-defragOSDs.sh",
+                      "readOnly": true
+                    }
+                  ]
+                }
+              ],
+              "restartPolicy": "Never",
+              "hostNetwork": true,
+              "volumes": [
+                {
+                  "name": "pod-tmp",
+                  "emptyDir": {}
+                },
+                {
+                  "name": "pod-etc-ceph",
+                  "emptyDir": {}
+                },
+                {
+                  "name": "ceph-client-bin",
+                  "configMap": {
+                    "name": "ceph-client-bin",
+                    "defaultMode": 365
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-test",
+      "labels": {
+        "release_group": "release-name",
+        "application": "ceph-client",
+        "component": "test"
+      },
+      "annotations": {
+        "helm.sh/hook": "test-success"
+      }
+    },
+    "spec": {
+      "securityContext": {
+        "runAsUser": 65534
+      },
+      "restartPolicy": "Never",
+      "serviceAccountName": "release-name-test",
+      "nodeSelector": {
+        "openstack-control-plane": "enabled"
+      },
+      "initContainers": [
+        {
+          "name": "init",
+          "image": "quay.io/airshipit/kubernetes-entrypoint:v1.0.0",
+          "imagePullPolicy": "IfNotPresent",
+          "securityContext": {
+            "allowPrivilegeEscalation": false,
+            "readOnlyRootFilesystem": true,
+            "runAsUser": 65534
+          },
+          "env": [
+            {
+              "name": "POD_NAME",
+              "valueFrom": {
+                "fieldRef": {
+                  "apiVersion": "v1",
+                  "fieldPath": "metadata.name"
+                }
+              }
+            },
+            {
+              "name": "NAMESPACE",
+              "valueFrom": {
+                "fieldRef": {
+                  "apiVersion": "v1",
+                  "fieldPath": "metadata.namespace"
+                }
+              }
+            },
+            {
+              "name": "INTERFACE_NAME",
+              "value": "eth0"
+            },
+            {
+              "name": "PATH",
+              "value": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/"
+            },
+            {
+              "name": "DEPENDENCY_SERVICE",
+              "value": "default:ceph-mon,default:ceph-mgr"
+            },
+            {
+              "name": "DEPENDENCY_JOBS",
+              "value": "ceph-rbd-pool,ceph-mgr-keyring-generator"
+            },
+            {
+              "name": "DEPENDENCY_DAEMONSET",
+              "value": ""
+            },
+            {
+              "name": "DEPENDENCY_CONTAINER",
+              "value": ""
+            },
+            {
+              "name": "DEPENDENCY_POD_JSON",
+              "value": ""
+            },
+            {
+              "name": "DEPENDENCY_CUSTOM_RESOURCE",
+              "value": ""
+            }
+          ],
+          "command": [
+            "kubernetes-entrypoint"
+          ],
+          "volumeMounts": []
+        }
+      ],
+      "containers": [
+        {
+          "name": "ceph-cluster-helm-test",
+          "image": "docker.io/openstackhelm/ceph-config-helper:change_770201_ubuntu_bionic-20210113",
+          "imagePullPolicy": "IfNotPresent",
+          "securityContext": {
+            "allowPrivilegeEscalation": false,
+            "readOnlyRootFilesystem": true
+          },
+          "env": [
+            {
+              "name": "CLUSTER",
+              "value": "ceph"
+            },
+            {
+              "name": "CEPH_DEPLOYMENT_NAMESPACE",
+              "value": "default"
+            },
+            {
+              "name": "REQUIRED_PERCENT_OF_OSDS",
+              "value": "75"
+            },
+            {
+              "name": "EXPECTED_CRUSHRULE",
+              "value": "replicated_rule"
+            },
+            {
+              "name": "MGR_COUNT",
+              "value": "2"
+            },
+            {
+              "name": "ENABLE_AUTOSCALER",
+              "value": "true"
+            },
+            {
+              "name": "DEVICE_HEALTH_METRICS",
+              "value": "1"
+            },
+            {
+              "name": "RBD",
+              "value": "3"
+            },
+            {
+              "name": "CEPHFS_METADATA",
+              "value": "3"
+            },
+            {
+              "name": "CEPHFS_DATA",
+              "value": "3"
+            },
+            {
+              "name": "_RGW_ROOT",
+              "value": "3"
+            },
+            {
+              "name": "DEFAULT_RGW_CONTROL",
+              "value": "3"
+            },
+            {
+              "name": "DEFAULT_RGW_DATA_ROOT",
+              "value": "3"
+            },
+            {
+              "name": "DEFAULT_RGW_GC",
+              "value": "3"
+            },
+            {
+              "name": "DEFAULT_RGW_LOG",
+              "value": "3"
+            },
+            {
+              "name": "DEFAULT_RGW_INTENT-LOG",
+              "value": "3"
+            },
+            {
+              "name": "DEFAULT_RGW_META",
+              "value": "3"
+            },
+            {
+              "name": "DEFAULT_RGW_USAGE",
+              "value": "3"
+            },
+            {
+              "name": "DEFAULT_RGW_USERS_KEYS",
+              "value": "3"
+            },
+            {
+              "name": "DEFAULT_RGW_USERS_EMAIL",
+              "value": "3"
+            },
+            {
+              "name": "DEFAULT_RGW_USERS_SWIFT",
+              "value": "3"
+            },
+            {
+              "name": "DEFAULT_RGW_USERS_UID",
+              "value": "3"
+            },
+            {
+              "name": "DEFAULT_RGW_BUCKETS_EXTRA",
+              "value": "3"
+            },
+            {
+              "name": "DEFAULT_RGW_BUCKETS_INDEX",
+              "value": "3"
+            },
+            {
+              "name": "DEFAULT_RGW_BUCKETS_DATA",
+              "value": "3"
+            }
+          ],
+          "command": [
+            "/tmp/helm-tests.sh"
+          ],
+          "volumeMounts": [
+            {
+              "name": "pod-tmp",
+              "mountPath": "/tmp"
+            },
+            {
+              "name": "ceph-client-bin",
+              "mountPath": "/tmp/helm-tests.sh",
+              "subPath": "helm-tests.sh",
+              "readOnly": true
+            },
+            {
+              "name": "ceph-client-admin-keyring",
+              "mountPath": "/etc/ceph/ceph.client.admin.keyring",
+              "subPath": "ceph.client.admin.keyring",
+              "readOnly": true
+            },
+            {
+              "name": "ceph-client-etc",
+              "mountPath": "/etc/ceph/ceph.conf",
+              "subPath": "ceph.conf",
+              "readOnly": true
+            }
+          ]
+        }
+      ],
+      "volumes": [
+        {
+          "name": "pod-tmp",
+          "emptyDir": {}
+        },
+        {
+          "name": "ceph-client-bin",
+          "configMap": {
+            "name": "ceph-client-bin",
+            "defaultMode": 365
+          }
+        },
+        {
+          "name": "ceph-client-admin-keyring",
+          "secret": {
+            "secretName": "ceph-client-admin-keyring"
+          }
+        },
+        {
+          "name": "ceph-client-etc",
+          "configMap": {
+            "name": "ceph-client-etc",
+            "defaultMode": 292
+          }
+        }
+      ]
+    }
+  }
+]

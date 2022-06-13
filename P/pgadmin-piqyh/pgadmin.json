@@ -1,0 +1,164 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-pgadmin-password",
+      "labels": {
+        "app": "release-name-pgadmin",
+        "chart": "pgadmin-0.1.12",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "pgadmin-password": "YWRtaW4="
+    }
+  },
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-pgadmin",
+      "labels": {
+        "app": "release-name-pgadmin",
+        "chart": "pgadmin-0.1.12",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": {
+        "volume.alpha.kubernetes.io/storage-class": "default"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "4Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-pgadmin",
+      "labels": {
+        "app": "pgadmin",
+        "chart": "pgadmin-0.1.12",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "LoadBalancer",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app": "pgadmin",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-pgadmin",
+      "labels": {
+        "app": "pgadmin",
+        "chart": "pgadmin-0.1.12",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "pgadmin",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "pgadmin",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "pgadmin",
+              "image": "dpage/pgadmin4",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "PGADMIN_DEFAULT_EMAIL",
+                  "value": "pgadmin4@pgadmin.org"
+                },
+                {
+                  "name": "PGADMIN_DEFAULT_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-pgadmin-password",
+                      "key": "pgadmin-password"
+                    }
+                  }
+                },
+                {
+                  "name": "PGADMIN_PORT",
+                  "value": "80"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 80,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "https",
+                  "containerPort": 443,
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "pgadmin-data",
+                  "mountPath": "/var/lib/pgadmin"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "livenessProbe": null,
+              "readinessProbe": null
+            }
+          ],
+          "volumes": [
+            {
+              "name": "pgadmin-data",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-pgadmin"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

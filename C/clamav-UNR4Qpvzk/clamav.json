@@ -1,0 +1,274 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-clamav",
+      "labels": {
+        "helm.sh/chart": "clamav-0.7.0",
+        "app.kubernetes.io/name": "clamav",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.105.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-clamav-commands",
+      "labels": {
+        "helm.sh/chart": "clamav-0.7.0",
+        "app.kubernetes.io/name": "clamav",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.105.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "clamdcheck.sh": "#!/usr/bin/env sh\n\nset -eu\n\nif [ \"$(echo \"PING\" | nc 127.0.0.1 3310)\" != \"PONG\" ]; then\n  echo \"ERROR: Unable to contact server\"\n  exit 1\nfi\n\necho \"Clamd is up\"\n\nexit 0\n",
+      "freshclam-init.sh": "#!/usr/bin/env sh\nset -eu\n\nsource_db_dir=\"/var/lib/clamav\"\n\nif [ -n \"${DATABASE_DIRECTORY:-}\" ] && [ \"${DATABASE_DIRECTORY:-}\" != \"${source_db_dir}\" ]\nthen\n  for f in \"${source_db_dir}\"/*\n  do\n    if [ -f \"${f}\" ]\n    then\n      basename=$(basename \"${f}\")\n      if [ ! -f \"${DATABASE_DIRECTORY}/${basename}\" ]\n      then\n        echo \"Copying ${basename}\"\n        cp \"${f}\" \"${DATABASE_DIRECTORY}\"\n      fi\n    fi\n  done\nfi\n\nexec freshclam --foreground --stdout\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-clamav-config",
+      "labels": {
+        "helm.sh/chart": "clamav-0.7.0",
+        "app.kubernetes.io/name": "clamav",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.105.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "clamd.conf": "LogTime yes\nForeground true\nTCPSocket 3310\nTCPAddr 0.0.0.0\nUser clamav\nSelfCheck 600\nDatabaseDirectory /data/clamav",
+      "freshclam.conf": "Foreground true\nDatabaseOwner clamav\nDatabaseMirror database.clamav.net\nScriptedUpdates yes\nDatabaseDirectory /data/clamav"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-clamav",
+      "labels": {
+        "helm.sh/chart": "clamav-0.7.0",
+        "app.kubernetes.io/name": "clamav",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.105.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 3310,
+          "targetPort": 3310,
+          "protocol": "TCP",
+          "name": "clamd"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "clamav",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-clamav",
+      "labels": {
+        "helm.sh/chart": "clamav-0.7.0",
+        "app.kubernetes.io/name": "clamav",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.105.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "clamav",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "clamav",
+            "app.kubernetes.io/instance": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "dee802f5973c0cd2ab7d573f586032429b68a0268f1cc8838283ba9d3e692ef0",
+            "checksum/commands": "2cf87ea2f9e1f5d1950889a7e7814a39945870b85e495c5343f7ade67d151b38"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-clamav",
+          "securityContext": {
+            "fsGroup": 65534,
+            "runAsGroup": 101,
+            "runAsNonRoot": true,
+            "runAsUser": 100
+          },
+          "initContainers": [
+            {
+              "name": "freshclam-init",
+              "image": "clamav/clamav:0.105.0",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "DATABASE_DIRECTORY",
+                  "value": "/data/clamav"
+                }
+              ],
+              "command": [
+                "/sbin/tini",
+                "--"
+              ],
+              "args": [
+                "freshclam-init.sh"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/etc/clamav/freshclam.conf",
+                  "subPath": "freshclam.conf",
+                  "readOnly": true
+                },
+                {
+                  "name": "commands",
+                  "mountPath": "/usr/local/bin/freshclam-init.sh",
+                  "subPath": "freshclam-init.sh",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/data/clamav",
+                  "name": "release-name-clamav-data"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "clamav",
+              "image": "clamav/clamav:0.105.0_base",
+              "imagePullPolicy": "IfNotPresent",
+              "env": null,
+              "command": [
+                "/sbin/tini",
+                "--"
+              ],
+              "args": [
+                "clamd",
+                "--foreground"
+              ],
+              "ports": [
+                {
+                  "name": "clamavd",
+                  "containerPort": 3310,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "clamdcheck.sh"
+                  ]
+                },
+                "failureThreshold": 10,
+                "initialDelaySeconds": 15,
+                "periodSeconds": 30,
+                "timeoutSeconds": 1
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "clamdcheck.sh"
+                  ]
+                },
+                "failureThreshold": 10,
+                "initialDelaySeconds": 15,
+                "periodSeconds": 30,
+                "timeoutSeconds": 1
+              },
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/etc/clamav/clamd.conf",
+                  "subPath": "clamd.conf",
+                  "readOnly": true
+                },
+                {
+                  "name": "commands",
+                  "mountPath": "/usr/local/bin/clamdcheck.sh",
+                  "subPath": "clamdcheck.sh",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/data/clamav",
+                  "name": "release-name-clamav-data"
+                }
+              ]
+            },
+            {
+              "name": "freshclam",
+              "image": "clamav/clamav:0.105.0_base",
+              "imagePullPolicy": "IfNotPresent",
+              "env": null,
+              "command": [
+                "/sbin/tini",
+                "--"
+              ],
+              "args": [
+                "freshclam",
+                "--foreground",
+                "--stdout",
+                "--daemon"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/etc/clamav/freshclam.conf",
+                  "subPath": "freshclam.conf",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/data/clamav",
+                  "name": "release-name-clamav-data"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-clamav-config",
+                "defaultMode": 493
+              }
+            },
+            {
+              "name": "commands",
+              "configMap": {
+                "name": "release-name-clamav-commands",
+                "defaultMode": 511
+              }
+            },
+            {
+              "name": "release-name-clamav-data",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  }
+]

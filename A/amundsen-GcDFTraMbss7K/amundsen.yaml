@@ -1,0 +1,945 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: elasticsearch
+    chart: elasticsearch-1.32.5
+    component: client
+    heritage: Helm
+    release: release-name
+  name: release-name-elasticsearch-client
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: elasticsearch
+    chart: elasticsearch-1.32.5
+    component: data
+    heritage: Helm
+    release: release-name
+  name: release-name-elasticsearch-data
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: elasticsearch
+    chart: elasticsearch-1.32.5
+    component: master
+    heritage: Helm
+    release: release-name
+  name: release-name-elasticsearch-master
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-elasticsearch
+  labels:
+    app: release-name-elasticsearch
+    chart: elasticsearch-1.32.5
+    release: release-name
+    heritage: Helm
+data:
+  elasticsearch.yml: |-
+    cluster.name: elasticsearch
+
+    node.data: ${NODE_DATA:true}
+    node.master: ${NODE_MASTER:true}
+    node.ingest: ${NODE_INGEST:true}
+    node.name: ${HOSTNAME}
+    network.host: 0.0.0.0
+    # see https://github.com/kubernetes/kubernetes/issues/3595
+    bootstrap.memory_lock: ${BOOTSTRAP_MEMORY_LOCK:false}
+
+    discovery:
+      zen:
+        ping.unicast.hosts: ${DISCOVERY_SERVICE:}
+        minimum_master_nodes: ${MINIMUM_MASTER_NODES:2}
+
+    # see https://github.com/elastic/elasticsearch-definitive-guide/pull/679
+    processors: ${PROCESSORS:}
+
+    # avoid split-brain w/ a minimum consensus of two masters plus a data node
+    gateway.expected_master_nodes: ${EXPECTED_MASTER_NODES:2}
+    gateway.expected_data_nodes: ${EXPECTED_DATA_NODES:1}
+    gateway.recover_after_time: ${RECOVER_AFTER_TIME:5m}
+    gateway.recover_after_master_nodes: ${RECOVER_AFTER_MASTER_NODES:2}
+    gateway.recover_after_data_nodes: ${RECOVER_AFTER_DATA_NODES:1}
+  log4j2.properties: |-
+    status = error
+    appender.console.type = Console
+    appender.console.name = console
+    appender.console.layout.type = PatternLayout
+    appender.console.layout.pattern = [%d{ISO8601}][%-5p][%-25c{1.}] %marker%m%n
+    rootLogger.level = info
+    rootLogger.appenderRef.console.ref = console
+    logger.searchguard.name = com.floragunn
+    logger.searchguard.level = info
+  data-pre-stop-hook.sh: |-
+    #!/bin/bash
+    exec &> >(tee -a "/var/log/elasticsearch-hooks.log")
+    NODE_NAME=${HOSTNAME}
+    echo "Prepare to migrate data of the node ${NODE_NAME}"
+    echo "Move all data from node ${NODE_NAME}"
+    curl -s -XPUT -H 'Content-Type: application/json' 'release-name-elasticsearch-client:9200/_cluster/settings' -d "{
+      \"transient\" :{
+          \"cluster.routing.allocation.exclude._name\" : \"${NODE_NAME}\"
+      }
+    }"
+    echo ""
+
+    while true ; do
+      echo -e "Wait for node ${NODE_NAME} to become empty"
+      SHARDS_ALLOCATION=$(curl -s -XGET 'http://release-name-elasticsearch-client:9200/_cat/shards')
+      if ! echo "${SHARDS_ALLOCATION}" | grep -E "${NODE_NAME}"; then
+        break
+      fi
+      sleep 1
+    done
+    echo "Node ${NODE_NAME} is ready to shutdown"
+  data-post-start-hook.sh: |-
+    #!/bin/bash
+    exec &> >(tee -a "/var/log/elasticsearch-hooks.log")
+    NODE_NAME=${HOSTNAME}
+    CLUSTER_SETTINGS=$(curl -s -XGET "http://release-name-elasticsearch-client:9200/_cluster/settings")
+    if echo "${CLUSTER_SETTINGS}" | grep -E "${NODE_NAME}"; then
+      echo "Activate node ${NODE_NAME}"
+      curl -s -XPUT -H 'Content-Type: application/json' "http://release-name-elasticsearch-client:9200/_cluster/settings" -d "{
+        \"transient\" :{
+            \"cluster.routing.allocation.exclude._name\" : null
+        }
+      }"
+    fi
+    echo "Node ${NODE_NAME} is ready to be used"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-elasticsearch-test
+  labels:
+    app: release-name-elasticsearch
+    chart: elasticsearch-1.32.5
+    heritage: Helm
+    release: release-name
+data:
+  run.sh: |-
+    @test "Test Access and Health" {
+      curl -D - http://release-name-elasticsearch-client:9200
+      curl -D - http://release-name-elasticsearch-client:9200/_cluster/health?wait_for_status=green
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-amundsen-neo4j-configmap
+  labels:
+    app.kubernetes.io/name: amundsen
+    app.kubernetes.io/component: neo4j
+    helm.sh/chart: amundsen-1.0.0
+    app.kubernetes.io/instance: release-name
+    heritage: Helm
+    app.kubernetes.io/managed-by: Helm
+data:
+  neo4j.conf: |-
+    apoc.import.file.enabled=true
+    cypher.forbid_shortestpath_common_nodes=false
+    dbms.connector.bolt.enabled=true
+    dbms.connector.http.enabled=true
+    dbms.connector.https.enabled=true
+    dbms.shell.enabled=true
+    dbms.shell.host=0.0.0.0
+    dbms.connectors.default_listen_address=0.0.0.0
+    dbms.directories.import=/mnt
+    dbms.jvm.additional=-Djdk.tls.ephemeralDHKeySize=2048
+    dbms.jvm.additional=-Dunsupported.dbms.udc.source=tarball
+    dbms.jvm.additional=-XX:+AlwaysPreTouch
+    dbms.jvm.additional=-XX:+DisableExplicitGC
+    dbms.jvm.additional=-XX:+UseG1GC
+    dbms.logs.query.enabled=true
+    dbms.logs.query.rotation.keep_number=7
+    dbms.logs.query.rotation.size=20m
+    dbms.memory.heap.initial_size=1G
+    dbms.memory.heap.max_size=2G
+    dbms.memory.pagecache.size=2G
+    dbms.security.allow_csv_import_from_file_urls=true
+    dbms.security.procedures.unrestricted=algo.*,apoc.*
+    dbms.security.auth_enabled=false
+    dbms.windows_service_name=neo4j
+    apoc.export.file.enabled=true
+    apoc.import.file.enabled=true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: elasticsearch
+    chart: elasticsearch-1.32.5
+    component: client
+    heritage: Helm
+    release: release-name
+  name: release-name-elasticsearch-client
+spec:
+  ports:
+    - name: http
+      port: 9200
+      targetPort: http
+  selector:
+    app: elasticsearch
+    component: client
+    release: release-name
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: elasticsearch
+    chart: elasticsearch-1.32.5
+    component: master
+    heritage: Helm
+    release: release-name
+  name: release-name-elasticsearch-discovery
+spec:
+  clusterIP: None
+  ports:
+    - port: 9300
+      targetPort: transport
+  selector:
+    app: elasticsearch
+    component: master
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-amundsen-frontend
+  labels:
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/name: amundsen
+    helm.sh/chart: amundsen-1.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/name: amundsen
+    app.kubernetes.io/instance: release-name
+  ports:
+    - name: amundsen-frontend-http
+      port: 5000
+      targetPort: frontendport
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-amundsen-metadata
+  labels:
+    app.kubernetes.io/component: metadata
+    app.kubernetes.io/name: amundsen
+    helm.sh/chart: amundsen-1.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: metadata
+    app.kubernetes.io/name: amundsen
+    app.kubernetes.io/instance: release-name
+  ports:
+    - name: amundsen-metadata-http
+      port: 5002
+      targetPort: metadataport
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-amundsen-neo4j
+  labels:
+    app.kubernetes.io/component: neo4j
+    app.kubernetes.io/name: amundsen-neo4j
+    helm.sh/chart: amundsen-1.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: null
+  selector:
+    app.kubernetes.io/component: neo4j
+    app.kubernetes.io/name: amundsen-neo4j
+    app.kubernetes.io/instance: release-name
+  ports:
+    - port: 7473
+      name: neo4j-https
+      targetPort: 7473
+    - port: 7474
+      name: neo4j-http
+      targetPort: 7474
+    - port: 7687
+      name: neo4j-bolt
+      targetPort: 7687
+    - port: 1337
+      name: neo4j-shell
+      targetPort: 1337
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-amundsen-search
+  labels:
+    app.kubernetes.io/component: search
+    app.kubernetes.io/name: amundsen
+    helm.sh/chart: amundsen-1.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: search
+    app.kubernetes.io/name: amundsen
+    app.kubernetes.io/instance: release-name
+  ports:
+    - name: amundsen-search-http
+      port: 5001
+      targetPort: searchport
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: elasticsearch
+    chart: elasticsearch-1.32.5
+    component: client
+    heritage: Helm
+    release: release-name
+  name: release-name-elasticsearch-client
+spec:
+  selector:
+    matchLabels:
+      app: elasticsearch
+      component: client
+      release: release-name
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+        component: client
+        release: release-name
+      annotations:
+        checksum/config: 016be46c36e92dde7cf304459972af1dd2a6cd45cd0b1c38b0853fb3702968ff
+    spec:
+      serviceAccountName: release-name-elasticsearch-client
+      securityContext:
+        fsGroup: 1000
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 1
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: elasticsearch
+                    release: release-name
+                    component: client
+      initContainers:
+        - name: sysctl
+          image: busybox:latest
+          imagePullPolicy: Always
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - sysctl
+            - -w
+            - vm.max_map_count=262144
+          securityContext:
+            privileged: true
+      containers:
+        - name: elasticsearch
+          env:
+            - name: NODE_DATA
+              value: "false"
+            - name: NODE_MASTER
+              value: "false"
+            - name: DISCOVERY_SERVICE
+              value: release-name-elasticsearch-discovery
+            - name: PROCESSORS
+              valueFrom:
+                resourceFieldRef:
+                  resource: limits.cpu
+            - name: ES_JAVA_OPTS
+              value: '-Djava.net.preferIPv4Stack=true -Xms512m -Xmx512m  '
+            - name: EXPECTED_MASTER_NODES
+              value: "1"
+            - name: MINIMUM_MASTER_NODES
+              value: "1"
+            - name: RECOVER_AFTER_MASTER_NODES
+              value: "1"
+          resources:
+            limits:
+              cpu: "1"
+            requests:
+              cpu: 25m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: 9200
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /_cluster/health?local=true
+              port: 9200
+            initialDelaySeconds: 90
+          image: docker.elastic.co/elasticsearch/elasticsearch-oss:6.8.6
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9200
+              name: http
+            - containerPort: 9300
+              name: transport
+          volumeMounts:
+            - mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
+              name: config
+              subPath: elasticsearch.yml
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-elasticsearch
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-amundsen-frontend
+  labels:
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/name: amundsen
+    helm.sh/chart: amundsen-1.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: frontend
+      app.kubernetes.io/name: amundsen
+      app.kubernetes.io/instance: release-name
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: frontend
+        app.kubernetes.io/name: amundsen
+        app.kubernetes.io/instance: release-name
+    spec:
+      volumes: null
+      containers:
+        - name: amundsen-frontend
+          image: amundsendev/amundsen-frontend:2.1.1
+          imagePullPolicy: Always
+          ports:
+            - name: frontendport
+              containerPort: 5000
+          env:
+            - name: FRONTEND_BASE
+              value: http://localhost
+            - name: SEARCHSERVICE_BASE
+              value: http://release-name-amundsen-search.default.svc.cluster.local:5001
+            - name: METADATASERVICE_BASE
+              value: http://release-name-amundsen-metadata.default.svc.cluster.local:5002
+            - name: LONG_RANDOM_STRING
+              value: "1234"
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: 5000
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          volumeMounts: null
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-amundsen-metadata
+  labels:
+    app.kubernetes.io/component: metadata
+    app.kubernetes.io/name: amundsen
+    helm.sh/chart: amundsen-1.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: metadata
+      app.kubernetes.io/name: amundsen
+      helm.sh/chart: amundsen-1.0.0
+      app.kubernetes.io/instance: release-name
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: metadata
+        app.kubernetes.io/name: amundsen
+        helm.sh/chart: amundsen-1.0.0
+        app.kubernetes.io/instance: release-name
+    spec:
+      volumes: null
+      containers:
+        - name: amundsen-metadata
+          image: amundsendev/amundsen-metadata:2.5.4
+          imagePullPolicy: Always
+          ports:
+            - name: metadataport
+              containerPort: 5002
+          env:
+            - name: PROXY_HOST
+              value: bolt://release-name-amundsen-neo4j.default.svc.cluster.local
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: 5002
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          volumeMounts: null
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-amundsen-neo4j
+  labels:
+    app.kubernetes.io/component: neo4j
+    app.kubernetes.io/name: amundsen-neo4j
+    helm.sh/chart: amundsen-1.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: amundsen-neo4j
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: neo4j
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: amundsen-neo4j
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/component: neo4j
+    spec:
+      initContainers:
+        - name: init-neo4j-plugins
+          image: appropriate/curl:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              curl -L https://github.com/neo4j-contrib/neo4j-apoc-procedures/releases/download/3.3.0.4/apoc-3.3.0.4-all.jar -O
+              curl -L https://github.com/neo4j-contrib/neo4j-graph-algorithms/releases/download/3.3.5.0/graph-algorithms-algo-3.3.5.0.jar -O
+              curl -L https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-core/1.11.250/aws-java-sdk-core-1.11.250.jar -O
+              curl -L https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-s3/1.11.250/aws-java-sdk-s3-1.11.250.jar -O
+              curl -L https://repo1.maven.org/maven2/org/apache/httpcomponents/httpclient/4.5.4/httpclient-4.5.4.jar -O
+              curl -L https://repo1.maven.org/maven2/org/apache/httpcomponents/httpcore/4.4.8/httpcore-4.4.8.jar -O
+              curl -L https://repo1.maven.org/maven2/joda-time/joda-time/2.9.9/joda-time-2.9.9.jar -O
+              chmod 755 *.jar
+              mv *.jar /var/lib/neo4j/plugins
+          volumeMounts:
+            - name: plugins
+              mountPath: /var/lib/neo4j/plugins
+      containers:
+        - name: neo4j
+          image: neo4j:3.3.0
+          ports:
+            - containerPort: 7474
+            - containerPort: 7687
+            - containerPort: 1337
+          env:
+            - name: NEO4J_CONF
+              value: /conf
+          volumeMounts:
+            - name: conf
+              mountPath: /conf
+            - name: plugins
+              mountPath: /var/lib/neo4j/plugins
+      volumes:
+        - name: conf
+          configMap:
+            name: release-name-amundsen-neo4j-configmap
+        - name: plugins
+          hostPath:
+            path: /mnt/ephemeral/neo4j/plugins
+            type: DirectoryOrCreate
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-amundsen-search
+  labels:
+    app.kubernetes.io/component: search
+    app.kubernetes.io/name: amundsen
+    helm.sh/chart: amundsen-1.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: search
+      app.kubernetes.io/name: amundsen
+      app.kubernetes.io/instance: release-name
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: search
+        app.kubernetes.io/name: amundsen
+        app.kubernetes.io/instance: release-name
+    spec:
+      containers:
+        - name: amundsen-search
+          image: amundsendev/amundsen-search:2.4.0
+          ports:
+            - name: searchport
+              containerPort: 5001
+          env:
+            - name: PROXY_ENDPOINT
+              value: release-name-elasticsearch-client.default.svc.cluster.local
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: 5001
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: elasticsearch
+    chart: elasticsearch-1.32.5
+    component: data
+    heritage: Helm
+    release: release-name
+  name: release-name-elasticsearch-data
+spec:
+  selector:
+    matchLabels:
+      app: elasticsearch
+      component: data
+      release: release-name
+      role: data
+  serviceName: release-name-elasticsearch-data
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+        component: data
+        release: release-name
+        role: data
+    spec:
+      serviceAccountName: release-name-elasticsearch-data
+      securityContext:
+        fsGroup: 1000
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 1
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: elasticsearch
+                    release: release-name
+                    component: data
+      initContainers:
+        - name: sysctl
+          image: busybox:latest
+          imagePullPolicy: Always
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - sysctl
+            - -w
+            - vm.max_map_count=262144
+          securityContext:
+            privileged: true
+        - name: chown
+          image: docker.elastic.co/elasticsearch/elasticsearch-oss:6.8.6
+          imagePullPolicy: IfNotPresent
+          resources: {}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e; set -x; chown elasticsearch:elasticsearch /usr/share/elasticsearch/data; for datadir in $(find /usr/share/elasticsearch/data -mindepth 1 -maxdepth 1 -not -name ".snapshot"); do
+                chown -R elasticsearch:elasticsearch $datadir;
+              done; chown elasticsearch:elasticsearch /usr/share/elasticsearch/logs; for logfile in $(find /usr/share/elasticsearch/logs -mindepth 1 -maxdepth 1 -not -name ".snapshot"); do
+                chown -R elasticsearch:elasticsearch $logfile;
+              done
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - mountPath: /usr/share/elasticsearch/data
+              name: data
+      containers:
+        - name: elasticsearch
+          env:
+            - name: DISCOVERY_SERVICE
+              value: release-name-elasticsearch-discovery
+            - name: NODE_MASTER
+              value: "false"
+            - name: PROCESSORS
+              valueFrom:
+                resourceFieldRef:
+                  resource: limits.cpu
+            - name: ES_JAVA_OPTS
+              value: '-Djava.net.preferIPv4Stack=true -Xms1536m -Xmx1536m  '
+            - name: EXPECTED_MASTER_NODES
+              value: "1"
+            - name: MINIMUM_MASTER_NODES
+              value: "1"
+            - name: RECOVER_AFTER_MASTER_NODES
+              value: "1"
+          image: docker.elastic.co/elasticsearch/elasticsearch-oss:6.8.6
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9300
+              name: transport
+          resources:
+            limits:
+              cpu: "1"
+            requests:
+              cpu: 25m
+              memory: 1536Mi
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health?local=true
+              port: 9200
+            initialDelaySeconds: 5
+          volumeMounts:
+            - mountPath: /usr/share/elasticsearch/data
+              name: data
+            - mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
+              name: config
+              subPath: elasticsearch.yml
+            - name: config
+              mountPath: /data-pre-stop-hook.sh
+              subPath: data-pre-stop-hook.sh
+            - name: config
+              mountPath: /data-post-start-hook.sh
+              subPath: data-post-start-hook.sh
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/bash
+                  - /data-pre-stop-hook.sh
+            postStart:
+              exec:
+                command:
+                  - /bin/bash
+                  - /data-post-start-hook.sh
+      terminationGracePeriodSeconds: 3600
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-elasticsearch
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: OnDelete
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 30Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: elasticsearch
+    chart: elasticsearch-1.32.5
+    component: master
+    heritage: Helm
+    release: release-name
+  name: release-name-elasticsearch-master
+spec:
+  selector:
+    matchLabels:
+      app: elasticsearch
+      component: master
+      release: release-name
+      role: master
+  serviceName: release-name-elasticsearch-master
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+        component: master
+        release: release-name
+        role: master
+    spec:
+      serviceAccountName: release-name-elasticsearch-master
+      securityContext:
+        fsGroup: 1000
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 1
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: elasticsearch
+                    release: release-name
+                    component: master
+      initContainers:
+        - name: sysctl
+          image: busybox:latest
+          imagePullPolicy: Always
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - sysctl
+            - -w
+            - vm.max_map_count=262144
+          securityContext:
+            privileged: true
+        - name: chown
+          image: docker.elastic.co/elasticsearch/elasticsearch-oss:6.8.6
+          imagePullPolicy: IfNotPresent
+          resources: {}
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e; set -x; chown elasticsearch:elasticsearch /usr/share/elasticsearch/data; for datadir in $(find /usr/share/elasticsearch/data -mindepth 1 -maxdepth 1 -not -name ".snapshot"); do
+                chown -R elasticsearch:elasticsearch $datadir;
+              done; chown elasticsearch:elasticsearch /usr/share/elasticsearch/logs; for logfile in $(find /usr/share/elasticsearch/logs -mindepth 1 -maxdepth 1 -not -name ".snapshot"); do
+                chown -R elasticsearch:elasticsearch $logfile;
+              done
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - mountPath: /usr/share/elasticsearch/data
+              name: data
+      containers:
+        - name: elasticsearch
+          env:
+            - name: NODE_DATA
+              value: "false"
+            - name: DISCOVERY_SERVICE
+              value: release-name-elasticsearch-discovery
+            - name: PROCESSORS
+              valueFrom:
+                resourceFieldRef:
+                  resource: limits.cpu
+            - name: ES_JAVA_OPTS
+              value: '-Djava.net.preferIPv4Stack=true -Xms512m -Xmx512m  '
+            - name: EXPECTED_MASTER_NODES
+              value: "1"
+            - name: MINIMUM_MASTER_NODES
+              value: "1"
+            - name: RECOVER_AFTER_MASTER_NODES
+              value: "1"
+          resources:
+            limits:
+              cpu: "1"
+            requests:
+              cpu: 25m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health?local=true
+              port: 9200
+            initialDelaySeconds: 5
+          image: docker.elastic.co/elasticsearch/elasticsearch-oss:6.8.6
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9300
+              name: transport
+          volumeMounts:
+            - mountPath: /usr/share/elasticsearch/data
+              name: data
+            - mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
+              name: config
+              subPath: elasticsearch.yml
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-elasticsearch
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: OnDelete
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 4Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-elasticsearch-test
+  labels:
+    app: release-name-elasticsearch
+    chart: elasticsearch-1.32.5
+    heritage: Helm
+    release: release-name
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  initContainers:
+    - name: test-framework
+      image: dduportal/bats:0.4.0
+      command:
+        - bash
+        - -c
+        - |
+          set -ex
+          # copy bats to tools dir
+          cp -R /usr/local/libexec/ /tools/bats/
+      volumeMounts:
+        - mountPath: /tools
+          name: tools
+  containers:
+    - name: release-name-test
+      image: dduportal/bats:0.4.0
+      command:
+        - /tools/bats/bats
+        - -t
+        - /tests/run.sh
+      volumeMounts:
+        - mountPath: /tests
+          name: tests
+          readOnly: true
+        - mountPath: /tools
+          name: tools
+  volumes:
+    - name: tests
+      configMap:
+        name: release-name-elasticsearch-test
+    - name: tools
+      emptyDir: {}
+  restartPolicy: Never

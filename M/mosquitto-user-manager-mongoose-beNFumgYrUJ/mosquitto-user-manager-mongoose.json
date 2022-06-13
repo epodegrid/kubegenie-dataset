@@ -1,0 +1,594 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "credentials"
+    },
+    "type": "Opaque",
+    "stringData": {
+      "JWT_SECRET": "keyboardcat",
+      "ADMIN_USERNAME": "admin",
+      "ADMIN_PASSWORD": "admin"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "mosquitto-config"
+    },
+    "data": {
+      "mosquitto.conf": "\npersistence true\npersistence_location /mosquitto/data/\n\nlog_dest stdout\n\n# Raw MQTT with TLS (MQTTS)\nlistener 8883\nprotocol mqtt\n\n# /mosquitto/certs is mounted as a secrets\ncafile /mosquitto/certs/ca.crt\nkeyfile /mosquitto/certs/tls.key\ncertfile /mosquitto/certs/tls.crt\n\nallow_anonymous false\n\n# Configuration of the mosquitto authentication plugin\nauth_plugin /mosquitto/go-auth.so\nauth_opt_log_dest stdout\nauth_opt_log_level debug\n\nauth_opt_backends http\n\nauth_opt_http_host mosquitto-auth-gateway\nauth_opt_http_port 80\nauth_opt_http_getuser_uri /getuser\nauth_opt_http_aclcheck_uri /aclcheck\nauth_opt_http_superuser_uri /superuser\n\n# MQTT over Websocket using TLS (WSS)\n# Not too sure why has to be defined after and options dont need to be repeated\nlistener 9001\nprotocol websockets\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "name": "mongo"
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "100Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "name": "mosquitto-data"
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "10Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "mongo"
+    },
+    "spec": {
+      "ports": [
+        {
+          "port": 27017
+        }
+      ],
+      "selector": {
+        "app": "mongo"
+      },
+      "type": "ClusterIP"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "mosquitto-auth-gateway"
+    },
+    "spec": {
+      "ports": [
+        {
+          "port": 80
+        }
+      ],
+      "selector": {
+        "app": "mosquitto-auth-gateway"
+      },
+      "type": "ClusterIP"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "mosquitto-mqtts"
+    },
+    "spec": {
+      "type": "NodePort",
+      "selector": {
+        "app": "mosquitto"
+      },
+      "ports": [
+        {
+          "port": 8883,
+          "nodePort": 30884
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "mosquitto-wss"
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "selector": {
+        "app": "mosquitto"
+      },
+      "ports": [
+        {
+          "port": 9001
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "user-manager"
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "selector": {
+        "app": "user-manager"
+      },
+      "ports": [
+        {
+          "port": 80
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "user-manager-front"
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "selector": {
+        "app": "user-manager-front"
+      },
+      "ports": [
+        {
+          "port": 80
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "user-manager-proxy"
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "selector": {
+        "app": "user-manager-proxy"
+      },
+      "ports": [
+        {
+          "port": 80
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "mongo"
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "mongo"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "mongo"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "mongo",
+              "image": "mongo",
+              "ports": [
+                {
+                  "containerPort": 27017
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/data/db",
+                  "name": "mongo"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "mongo",
+              "persistentVolumeClaim": {
+                "claimName": "mongo"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "mosquitto-auth-gateway"
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "mosquitto-auth-gateway"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "mosquitto-auth-gateway"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "mosquitto-auth-gateway",
+              "image": "moreillon/mosquitto-auth-gateway",
+              "ports": [
+                {
+                  "containerPort": 80
+                }
+              ],
+              "env": [
+                {
+                  "name": "USER_MANAGER_API_URL",
+                  "value": "http://user-manager"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "mosquitto"
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "mosquitto"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "mosquitto"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "mosquitto",
+              "image": "iegomez/mosquitto-go-auth",
+              "ports": [
+                {
+                  "containerPort": 8883
+                },
+                {
+                  "containerPort": 9001
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/etc/mosquitto/",
+                  "name": "config"
+                },
+                {
+                  "mountPath": "/mosquitto/certs/",
+                  "name": "certs"
+                },
+                {
+                  "mountPath": "/mosquitto/data/",
+                  "name": "data"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "mosquitto-config"
+              }
+            },
+            {
+              "name": "certs",
+              "secret": {
+                "secretName": "mosquitto-certs"
+              }
+            },
+            {
+              "name": "data",
+              "persistentVolumeClaim": {
+                "claimName": "mosquitto-data"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "user-manager"
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "user-manager"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "user-manager"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "user-manager",
+              "image": "moreillon/user-manager-mongoose",
+              "ports": [
+                {
+                  "containerPort": 80
+                }
+              ],
+              "envFrom": [
+                {
+                  "secretRef": {
+                    "name": "credentials"
+                  }
+                }
+              ],
+              "env": [
+                {
+                  "name": "MONGODB_URL",
+                  "value": "mongodb://mongo"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "user-manager-front"
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "user-manager-front"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "user-manager-front"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "user-manager-front",
+              "image": "moreillon/user-manager-mongoose-front",
+              "ports": [
+                {
+                  "containerPort": 80
+                }
+              ],
+              "env": [
+                {
+                  "name": "VUE_APP_USER_MANAGER_API_URL",
+                  "value": "/proxy/api"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "api-proxy"
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "user-manager-proxy"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "user-manager-proxy"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "user-manager-proxy",
+              "image": "moreillon/api-proxy",
+              "imagePullPolicy": "Always",
+              "ports": [
+                {
+                  "containerPort": 80
+                }
+              ],
+              "env": [
+                {
+                  "name": "PROXY_API",
+                  "value": "http://user-manager"
+                },
+                {
+                  "name": "PROXY_ROOT",
+                  "value": "http://user-manager-front"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "extensions/v1beta1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "mosquitto",
+      "annotations": {
+        "kubernetes.io/ingress.class": "nginx",
+        "cert-manager.io/cluster-issuer": "letsencrypt-prod"
+      }
+    },
+    "spec": {
+      "tls": [
+        {
+          "hosts": [
+            "mqtt.test.home.maximemoreillon.com"
+          ],
+          "secretName": "mosquitto-certs"
+        }
+      ],
+      "rules": [
+        {
+          "host": "mqtt.test.home.maximemoreillon.com",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "backend": {
+                  "serviceName": "mosquitto-wss",
+                  "servicePort": 9001
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "extensions/v1beta1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "user-manager",
+      "annotations": {
+        "kubernetes.io/ingress.class": "nginx",
+        "cert-manager.io/cluster-issuer": "letsencrypt-prod"
+      }
+    },
+    "spec": {
+      "tls": [
+        {
+          "hosts": [
+            "api.users.test.home.maximemoreillon.com"
+          ],
+          "secretName": "user-manager"
+        }
+      ],
+      "rules": [
+        {
+          "host": "api.users.test.home.maximemoreillon.com",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "backend": {
+                  "serviceName": "user-manager",
+                  "servicePort": 80
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "extensions/v1beta1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "user-manager-proxy",
+      "annotations": {
+        "kubernetes.io/ingress.class": "nginx",
+        "cert-manager.io/cluster-issuer": "letsencrypt-prod"
+      }
+    },
+    "spec": {
+      "tls": [
+        {
+          "hosts": [
+            "users.test.home.maximemoreillon.com"
+          ],
+          "secretName": "user-manager-proxy"
+        }
+      ],
+      "rules": [
+        {
+          "host": "users.test.home.maximemoreillon.com",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "backend": {
+                  "serviceName": "user-manager-proxy",
+                  "servicePort": 80
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

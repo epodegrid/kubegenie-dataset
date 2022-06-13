@@ -1,0 +1,428 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-nextcloud
+  labels:
+    helm.sh/chart: nextcloud-0.11.4
+    app.kubernetes.io/name: nextcloud
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 24.0.1-apache
+    app.kubernetes.io/managed-by: Helm
+data:
+  SQLITE_DATABASE: bmV4dGNsb3Vk
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-nextcloud-extendedconfigs
+  labels:
+    helm.sh/chart: nextcloud-0.11.4
+    app.kubernetes.io/name: nextcloud
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 24.0.1-apache
+    app.kubernetes.io/managed-by: Helm
+data:
+  000-default.conf: |
+    <VirtualHost *:8000>
+            ServerAdmin webmaster@localhost
+            DocumentRoot /var/www/html
+
+            ErrorLog ${APACHE_LOG_DIR}/error.log
+            CustomLog ${APACHE_LOG_DIR}/access.log combined
+    </VirtualHost>
+  ports.conf: |
+    Listen 8000
+  redis-session.ini: ""
+  custom.ini: ""
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-nextcloud-scripts
+  labels:
+    helm.sh/chart: nextcloud-0.11.4
+    app.kubernetes.io/name: nextcloud
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 24.0.1-apache
+    app.kubernetes.io/managed-by: Helm
+data:
+  initdatavol.sh: "#!/bin/sh\nmkdir -p /var/datavolume/data\nchmod 770 /var/datavolume/data \nchown www-data:www-data /var/datavolume/data\n"
+  postupgrade.sh: |
+    #!/bin/sh
+    sleep 30
+    php -f /var/www/html/occ db:add-missing-indices -n
+    php -f /var/www/html/occ db:add-missing-columns -n
+    php -f /var/www/html/occ db:add-missing-primary-keys -n
+    php -f /var/www/html/occ db:convert-filecache-bigint -n
+  initconfigs.sh: |
+    #!/bin/sh
+    cp -R /usr/local/etc/php/conf.d/* /confd
+    chmod 660 /confd/*
+    cp -R /etc/apache2/* /apache2
+  addcustomconfigs.sh: "#!/bin/sh\nc=0\nwhile [ ! -d \"/var/www/html/config\" ] && [ \"$c\" -le 10 ]; do\n  c=$((c+1))\n  sleep 10\ndone\nif [ -d \"/var/www/html/config\" ]; then \n  cp /customconfigs/* /var/www/html/config\n  chmod 644 /var/www/html/config/*\nelse\n  exit 1\nfi\n"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-nextcloud
+  labels:
+    helm.sh/chart: nextcloud-0.11.4
+    app.kubernetes.io/name: nextcloud
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 24.0.1-apache
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: nextcloud
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-nextcloud
+  labels:
+    helm.sh/chart: nextcloud-0.11.4
+    app.kubernetes.io/name: nextcloud
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 24.0.1-apache
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nextcloud
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/secureconfig: 21d0af13ceded1f5ab9fceb9cc14a57feb959001767bc9cc35c9ade5f7b48166
+        checksum/extendedconfigs: 5596704e72e41f5fd7062d2a36e798502c90baac9a19c355e4fa8446ec7d7d56
+        checksum/customconfigs: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
+      labels:
+        app.kubernetes.io/name: nextcloud
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      securityContext:
+        fsGroup: 33
+        runAsNonRoot: true
+        runAsUser: 33
+      initContainers:
+        - name: nextcloud-initdatavol
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+          image: busybox:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - /bin/sh
+            - -c
+            - /scripts/initdatavol.sh
+          volumeMounts:
+            - mountPath: /var/datavolume
+              name: nextcloud-data-vol
+            - mountPath: /scripts
+              name: scripts
+        - name: nextcloud-initconfig
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+          image: nextcloud:24.0.1-apache
+          imagePullPolicy: IfNotPresent
+          args:
+            - /bin/sh
+            - -c
+            - /scripts/initconfigs.sh
+          volumeMounts:
+            - mountPath: /confd
+              name: confd
+            - mountPath: /apache2
+              name: apache2
+            - mountPath: /usr/local/etc/php/conf.d/custom.ini
+              subPath: custom.ini
+              name: extendedconfigs
+            - mountPath: /usr/local/etc/php/conf.d/redis-session.ini
+              subPath: redis-session.ini
+              name: extendedconfigs
+            - mountPath: /etc/apache2/ports.conf
+              subPath: ports.conf
+              name: extendedconfigs
+            - mountPath: /etc/apache2/000-default.conf
+              subPath: 000-default.conf
+              name: extendedconfigs
+            - mountPath: /scripts
+              name: scripts
+      containers:
+        - name: nextcloud
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                "": NET_RAW
+          image: nextcloud:24.0.1-apache
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: release-name-nextcloud
+          env:
+            - name: NEXTCLOUD_DATA_DIR
+              value: /var/datavolume/data
+            - name: PHP_UPLOAD_LIMIT
+              value: 512M
+            - name: PHP_MEMORY_LIMIT
+              value: 512M
+            - name: NEXTCLOUD_TRUSTED_DOMAINS
+              value: release-name-nextcloud
+            - name: TRUSTED_PROXIES
+              value: 10.0.0.0/8
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /status.php
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: localhost:8000
+            initialDelaySeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+            successThreshold: 1
+            periodSeconds: 10
+          startupProbe:
+            httpGet:
+              path: /status.php
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: localhost:8000
+            initialDelaySeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+            successThreshold: 1
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /status.php
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: localhost:8000
+            initialDelaySeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+            periodSeconds: 10
+          volumeMounts:
+            - mountPath: /var/www/html
+              name: nextcloud-vol
+            - mountPath: /var/datavolume
+              name: nextcloud-data-vol
+            - mountPath: /tmp
+              name: tmp
+            - mountPath: /var/run
+              name: run
+            - mountPath: /etc/apache2
+              name: apache2
+            - mountPath: /usr/local/etc/php/conf.d
+              name: confd
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
+        - name: confd
+          emptyDir: {}
+        - name: apache2
+          emptyDir: {}
+        - name: extendedconfigs
+          configMap:
+            name: release-name-nextcloud-extendedconfigs
+        - name: scripts
+          configMap:
+            name: release-name-nextcloud-scripts
+            defaultMode: 365
+        - name: nextcloud-vol
+          emptyDir: {}
+        - name: nextcloud-data-vol
+          emptyDir: {}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: release-name-nextcloud-cronphp
+  labels:
+    helm.sh/chart: nextcloud-0.11.4
+    app.kubernetes.io/name: nextcloud
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 24.0.1-apache
+    app.kubernetes.io/managed-by: Helm
+spec:
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  schedule: '*/5 * * * *'
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          securityContext:
+            fsGroup: 33
+            runAsNonRoot: true
+            runAsUser: 33
+          restartPolicy: OnFailure
+          containers:
+            - name: nextcloud-cronphp
+              securityContext:
+                allowPrivilegeEscalation: false
+                privileged: false
+                readOnlyRootFilesystem: true
+              image: nextcloud:24.0.1-apache
+              imagePullPolicy: IfNotPresent
+              envFrom:
+                - secretRef:
+                    name: release-name-nextcloud
+              env:
+                - name: NEXTCLOUD_DATA_DIR
+                  value: /var/datavolume/data
+                - name: PHP_UPLOAD_LIMIT
+                  value: 512M
+                - name: PHP_MEMORY_LIMIT
+                  value: 512M
+                - name: NEXTCLOUD_TRUSTED_DOMAINS
+                  value: release-name-nextcloud
+                - name: TRUSTED_PROXIES
+                  value: 10.0.0.0/8
+              args:
+                - /bin/sh
+                - -c
+                - php -f /var/www/html/cron.php
+              volumeMounts:
+                - mountPath: /var/www/html
+                  name: nextcloud-vol
+                - mountPath: /var/datavolume
+                  name: nextcloud-data-vol
+                - mountPath: /tmp
+                  name: tmp
+                - mountPath: /var/run
+                  name: run
+              resources: {}
+          volumes:
+            - name: tmp
+              emptyDir: {}
+            - name: run
+              emptyDir: {}
+            - name: nextcloud-vol
+              emptyDir: {}
+            - name: nextcloud-data-vol
+              emptyDir: {}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-nextcloud-test-connection
+  labels:
+    helm.sh/chart: nextcloud-0.11.4
+    app.kubernetes.io/name: nextcloud
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 24.0.1-apache
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-nextcloud:80
+  restartPolicy: Never
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-nextcloud-postupgrade
+  labels:
+    helm.sh/chart: nextcloud-0.11.4
+    app.kubernetes.io/name: nextcloud
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 24.0.1-apache
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: post-upgrade
+    helm.sh/hook-delete-policy: hook-succeeded
+spec:
+  template:
+    spec:
+      securityContext:
+        fsGroup: 33
+        runAsNonRoot: true
+        runAsUser: 33
+      restartPolicy: OnFailure
+      containers:
+        - name: nextcloud-postupgrade
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                "": NET_RAW
+          image: nextcloud:24.0.1-apache
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: release-name-nextcloud
+          env:
+            - name: NEXTCLOUD_DATA_DIR
+              value: /var/datavolume/data
+            - name: PHP_UPLOAD_LIMIT
+              value: 512M
+            - name: PHP_MEMORY_LIMIT
+              value: 512M
+            - name: NEXTCLOUD_TRUSTED_DOMAINS
+              value: release-name-nextcloud
+            - name: TRUSTED_PROXIES
+              value: 10.0.0.0/8
+          args:
+            - /bin/sh
+            - -c
+            - /scripts/postupgrade.sh
+          volumeMounts:
+            - mountPath: /var/www/html
+              name: nextcloud-vol
+            - mountPath: /var/datavolume
+              name: nextcloud-data-vol
+            - mountPath: /scripts
+              name: scripts
+            - mountPath: /tmp
+              name: tmp
+            - mountPath: /var/run
+              name: run
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
+        - name: scripts
+          configMap:
+            name: release-name-nextcloud-scripts
+            defaultMode: 365
+        - name: nextcloud-vol
+          emptyDir: {}
+        - name: nextcloud-data-vol
+          emptyDir: {}

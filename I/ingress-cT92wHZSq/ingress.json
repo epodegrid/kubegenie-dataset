@@ -1,0 +1,880 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "ingress-error-pages",
+      "namespace": "cT92wHZSq"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-ingress",
+      "namespace": "cT92wHZSq"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "ingress-bin"
+    },
+    "data": {
+      "ingress-controller.sh": "#!/bin/bash\n\n\n\nset -ex\nCOMMAND=\"${@:-start}\"\n\nfunction start () {\n  find /tmp -maxdepth 1 \\! -path /tmp -perm /222 -exec rm -rfv {} \\;\n\n  declare -A desired_opts\n  desired_opts[\"--stream-port\"]=\"${PORT_STREAM}\"\n  desired_opts[\"--profiler-port\"]=\"${PORT_PROFILER}\"\n\n  possible_opts=$(/nginx-ingress-controller --help 2>&1 | awk '/^      --/ { print $1 }')\n\n  extra_opts=()\n  for k in \"${!desired_opts[@]}\"; do\n    if echo \"$possible_opts\" | grep -q -- ^${k}$; then\n      extra_opts+=($k=${desired_opts[$k]})\n    fi\n  done\n\n  exec /usr/bin/dumb-init \\\n      /nginx-ingress-controller \\\n      --watch-namespace ${POD_NAMESPACE} \\\n      --http-port=${PORT_HTTP} \\\n      --https-port=${PORT_HTTPS} \\\n      --healthz-port=${PORT_HEALTHZ} \\\n      --status-port=${PORT_STATUS} \\\n      --default-server-port=${DEFAULT_SERVER_PORT} \\\n      --election-id=${RELEASE_NAME} \\\n      --ingress-class=${INGRESS_CLASS} \\\n      --default-backend-service=${POD_NAMESPACE}/${ERROR_PAGE_SERVICE} \\\n      --configmap=${POD_NAMESPACE}/ingress-conf \\\n      --tcp-services-configmap=${POD_NAMESPACE}/ingress-services-tcp \\\n      --udp-services-configmap=${POD_NAMESPACE}/ingress-services-udp \\\n      \"${extra_opts[@]}\"\n}\n\nfunction stop () {\n  sleep 5\n  kill -TERM 1\n}\n\n$COMMAND\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "ingress-conf"
+    },
+    "data": {
+      "enable-underscores-in-headers": "true",
+      "enable-vts-status": "true",
+      "server-tokens": "false",
+      "ssl-dh-param": "openstack/secret-dhparam"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "ingress-services-tcp"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "ingress-services-udp"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "name": "release-name-ingress"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "configmaps",
+          "endpoints",
+          "nodes",
+          "pods",
+          "secrets"
+        ],
+        "verbs": [
+          "list",
+          "watch"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "nodes"
+        ],
+        "verbs": [
+          "get"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "services"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "events"
+        ],
+        "verbs": [
+          "create",
+          "patch"
+        ]
+      },
+      {
+        "apiGroups": [
+          "extensions",
+          "networking.k8s.io"
+        ],
+        "resources": [
+          "ingresses"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch"
+        ]
+      },
+      {
+        "apiGroups": [
+          "extensions",
+          "networking.k8s.io"
+        ],
+        "resources": [
+          "ingresses/status"
+        ],
+        "verbs": [
+          "update"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "release-name-ingress"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "release-name-ingress"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-ingress",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "release-name-ingress",
+      "namespace": "cT92wHZSq"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "configmaps",
+          "pods",
+          "secrets",
+          "namespaces"
+        ],
+        "verbs": [
+          "get"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "configmaps"
+        ],
+        "resourceNames": [
+          "release-name-nginx"
+        ],
+        "verbs": [
+          "get",
+          "update"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "configmaps"
+        ],
+        "verbs": [
+          "create"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "endpoints"
+        ],
+        "verbs": [
+          "get",
+          "create",
+          "update"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "release-name-ingress",
+      "namespace": "cT92wHZSq"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "release-name-ingress"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-ingress",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "labels": {
+        "release_group": "release-name",
+        "application": "ingress",
+        "component": "error-pages"
+      },
+      "name": "ingress-error-pages"
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "port": 80,
+          "protocol": "TCP",
+          "targetPort": 8080
+        }
+      ],
+      "selector": {
+        "release_group": "release-name",
+        "application": "ingress",
+        "component": "error-pages"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "ingress-exporter",
+      "labels": {
+        "release_group": "release-name",
+        "application": "ingress_exporter",
+        "component": "metrics"
+      },
+      "annotations": {
+        "prometheus.io/scrape": "true",
+        "prometheus.io/port": "10254"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "metrics",
+          "port": 10254
+        }
+      ],
+      "selector": {
+        "release_group": "release-name",
+        "application": "ingress",
+        "component": "server"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "labels": {
+        "release_group": "release-name",
+        "application": "ingress",
+        "component": "server"
+      },
+      "name": "ingress"
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "http",
+          "port": 80,
+          "protocol": "TCP",
+          "targetPort": 80
+        },
+        {
+          "name": "https",
+          "port": 443,
+          "protocol": "TCP",
+          "targetPort": 443
+        },
+        {
+          "name": "status",
+          "port": 10246,
+          "protocol": "TCP",
+          "targetPort": 10246
+        }
+      ],
+      "selector": {
+        "release_group": "release-name",
+        "application": "ingress",
+        "component": "server"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "ingress-error-pages",
+      "annotations": {
+        "openstackhelm.openstack.org/release_uuid": ""
+      },
+      "labels": {
+        "release_group": "release-name",
+        "application": "ingress",
+        "component": "error-pages"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "release_group": "release-name",
+          "application": "ingress",
+          "component": "error-pages"
+        }
+      },
+      "revisionHistoryLimit": 3,
+      "strategy": {
+        "type": "RollingUpdate",
+        "rollingUpdate": {
+          "maxUnavailable": 1,
+          "maxSurge": 3
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "release_group": "release-name",
+            "application": "ingress",
+            "component": "error-pages"
+          },
+          "annotations": {
+            "openstackhelm.openstack.org/release_uuid": "",
+            "configmap-bin-hash": "c19c381491dfcc2096223838843f176b3eb6facd2c45774db3bc03f884f08bb3",
+            "configmap-etc-hash": "084c05cac95676dc864092dea1138d3237b569806e970292b26900f66ff19a62"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "runAsUser": 65534
+          },
+          "shareProcessNamespace": true,
+          "serviceAccountName": "ingress-error-pages",
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "release_group",
+                          "operator": "In",
+                          "values": [
+                            "release-name"
+                          ]
+                        },
+                        {
+                          "key": "application",
+                          "operator": "In",
+                          "values": [
+                            "ingress"
+                          ]
+                        },
+                        {
+                          "key": "component",
+                          "operator": "In",
+                          "values": [
+                            "error-pages"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 10
+                }
+              ]
+            }
+          },
+          "nodeSelector": {
+            "openstack-control-plane": "enabled"
+          },
+          "terminationGracePeriodSeconds": 60,
+          "initContainers": [
+            {
+              "name": "init",
+              "image": "quay.io/airshipit/kubernetes-entrypoint:v1.0.0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 65534
+              },
+              "env": [
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "INTERFACE_NAME",
+                  "value": "eth0"
+                },
+                {
+                  "name": "PATH",
+                  "value": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/"
+                },
+                {
+                  "name": "DEPENDENCY_SERVICE",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_DAEMONSET",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CONTAINER",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_POD_JSON",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CUSTOM_RESOURCE",
+                  "value": ""
+                }
+              ],
+              "command": [
+                "kubernetes-entrypoint"
+              ],
+              "volumeMounts": []
+            }
+          ],
+          "containers": [
+            {
+              "name": "ingress-error-pages",
+              "image": "k8s.gcr.io/defaultbackend:1.4",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": 8080,
+                  "scheme": "HTTP"
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 5
+              },
+              "ports": [
+                {
+                  "containerPort": 8080
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "pod-tmp",
+                  "mountPath": "/tmp"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "pod-tmp",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "ingress",
+      "annotations": {
+        "openstackhelm.openstack.org/release_uuid": ""
+      },
+      "labels": {
+        "release_group": "release-name",
+        "application": "ingress",
+        "component": "server",
+        "app": "ingress-api"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "revisionHistoryLimit": 3,
+      "strategy": {
+        "type": "RollingUpdate",
+        "rollingUpdate": {
+          "maxUnavailable": 1,
+          "maxSurge": 3
+        }
+      },
+      "selector": {
+        "matchLabels": {
+          "release_group": "release-name",
+          "application": "ingress",
+          "component": "server",
+          "app": "ingress-api"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "release_group": "release-name",
+            "application": "ingress",
+            "component": "server",
+            "app": "ingress-api"
+          },
+          "annotations": {
+            "openstackhelm.openstack.org/release_uuid": "",
+            "configmap-bin-hash": "c19c381491dfcc2096223838843f176b3eb6facd2c45774db3bc03f884f08bb3",
+            "configmap-etc-hash": "084c05cac95676dc864092dea1138d3237b569806e970292b26900f66ff19a62"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "runAsUser": 65534
+          },
+          "shareProcessNamespace": true,
+          "serviceAccountName": "release-name-ingress",
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "release_group",
+                          "operator": "In",
+                          "values": [
+                            "release-name"
+                          ]
+                        },
+                        {
+                          "key": "application",
+                          "operator": "In",
+                          "values": [
+                            "ingress"
+                          ]
+                        },
+                        {
+                          "key": "component",
+                          "operator": "In",
+                          "values": [
+                            "server"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 10
+                }
+              ]
+            }
+          },
+          "nodeSelector": {
+            "openstack-control-plane": "enabled"
+          },
+          "dnsPolicy": "ClusterFirstWithHostNet",
+          "terminationGracePeriodSeconds": 60,
+          "initContainers": [
+            {
+              "name": "init",
+              "image": "quay.io/airshipit/kubernetes-entrypoint:v1.0.0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 65534
+              },
+              "env": [
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "INTERFACE_NAME",
+                  "value": "eth0"
+                },
+                {
+                  "name": "PATH",
+                  "value": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/"
+                },
+                {
+                  "name": "DEPENDENCY_SERVICE",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_DAEMONSET",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CONTAINER",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_POD_JSON",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CUSTOM_RESOURCE",
+                  "value": ""
+                }
+              ],
+              "command": [
+                "kubernetes-entrypoint"
+              ],
+              "volumeMounts": []
+            }
+          ],
+          "containers": [
+            {
+              "name": "ingress",
+              "image": "quay.io/kubernetes-ingress-controller/nginx-ingress-controller:0.32.0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 10400,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": 10254,
+                  "scheme": "HTTP"
+                }
+              },
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": 10254,
+                  "scheme": "HTTP"
+                },
+                "initialDelaySeconds": 10,
+                "timeoutSeconds": 1
+              },
+              "env": [
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "POD_NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "PORT_HTTP",
+                  "value": "80"
+                },
+                {
+                  "name": "PORT_HTTPS",
+                  "value": "443"
+                },
+                {
+                  "name": "PORT_STATUS",
+                  "value": "10246"
+                },
+                {
+                  "name": "PORT_STREAM",
+                  "value": "10247"
+                },
+                {
+                  "name": "PORT_PROFILER",
+                  "value": "10245"
+                },
+                {
+                  "name": "PORT_HEALTHZ",
+                  "value": "10254"
+                },
+                {
+                  "name": "DEFAULT_SERVER_PORT",
+                  "value": "8181"
+                },
+                {
+                  "name": "RELEASE_NAME",
+                  "value": "release-name"
+                },
+                {
+                  "name": "ERROR_PAGE_SERVICE",
+                  "value": "ingress-error-pages"
+                },
+                {
+                  "name": "INGRESS_CLASS",
+                  "value": "nginx"
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 80
+                },
+                {
+                  "containerPort": 443
+                },
+                {
+                  "containerPort": 10246
+                },
+                {
+                  "containerPort": 10254
+                },
+                {
+                  "containerPort": 8181
+                }
+              ],
+              "command": [
+                "/tmp/ingress-controller.sh",
+                "start"
+              ],
+              "lifecycle": {
+                "preStop": {
+                  "exec": {
+                    "command": [
+                      "/tmp/ingress-controller.sh",
+                      "stop"
+                    ]
+                  }
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "pod-tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "ingress-bin",
+                  "mountPath": "/tmp/ingress-controller.sh",
+                  "subPath": "ingress-controller.sh",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "pod-tmp",
+              "emptyDir": {}
+            },
+            {
+              "name": "ingress-bin",
+              "configMap": {
+                "name": "ingress-bin",
+                "defaultMode": 365
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1beta1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "default-release-name",
+      "annotations": {
+        "kubernetes.io/ingress.class": "nginx-cluster",
+        "nginx.ingress.kubernetes.io/configuration-snippet": "more_set_headers \"X-Content-Type-Options: nosniff\";\nmore_set_headers \"X-Frame-Options: deny\";\nmore_set_headers \"X-Permitted-Cross-Domain-Policies: none\";\nmore_set_headers \"Content-Security-Policy: script-src 'self'\";\n",
+        "nginx.ingress.kubernetes.io/proxy-body-size": "0"
+      }
+    },
+    "spec": {
+      "rules": [
+        {
+          "host": "*.default.svc.cluster.local",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "backend": {
+                  "serviceName": "ingress",
+                  "servicePort": 80
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

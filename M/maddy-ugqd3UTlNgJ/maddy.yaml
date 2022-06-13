@@ -1,0 +1,146 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-maddy-config
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: maddy
+    app.kubernetes.io/version: v0.5.2
+    helm.sh/chart: maddy-2.2.2
+data:
+  alias: |2
+    ## Replace 'cat' with any domain to 'dog'.
+    ## E.g. cat@example.net -> dog@example.net
+    # cat: dog
+
+    ## Replace cat@example.org with cat@example.com.
+    ## Takes priority over the previous line.
+    #cat@example.org: cat@example.com
+  maddy.conf: "\n## Maddy Mail Server - default configuration file (2021-08-16)\n# Suitable for small-scale deployments. Uses its own format for local users DB,\n# should be managed via maddyctl utility.\n#\n# See tutorials at https://maddy.email for guidance on typical\n# configuration changes.\n#\n# See manual pages (also available at https://maddy.email) for reference\n# documentation.\n\n# ----------------------------------------------------------------------------\n# Base variables\n\n$(hostname) = mx.example.com\n$(primary_domain) = example.com\n$(local_domains) = $(primary_domain) \n$(alias_file) = /config/aliases\n\n# ----------------------------------------------------------------------------\n# Persistency path\n\nstate_dir /data\n\n# ----------------------------------------------------------------------------\n# TLS server certs (IMAP and SMTP)\n\ntls file /certificates/tls.crt /certificates/tls.key\n\n# ----------------------------------------------------------------------------\n# Open Metrics\n\n# Not enabled in Helm\n\n\n# ----------------------------------------------------------------------------\n# Local storage & authentication\n\n# pass_table provides local hashed passwords storage for authentication of\n# users. It can be configured to use any \"table\" module, in default\n# configuration a table in SQLite DB is used.\n# Table can be replaced to use e.g. a file for passwords. Or pass_table module\n# can be replaced altogether to use some external source of credentials (e.g.\n# PAM, /etc/shadow file).\n#\n# If table module supports it (sql_table does) - credentials can be managed\n# using 'maddyctl creds' command.\n\nauth.pass_table local_authdb {\n    table sql_table {\n        driver sqlite3\n        dsn credentials.db\n        table_name passwords\n    }\n}\n\n# imapsql module stores all indexes and metadata necessary for IMAP using a\n# relational database. It is used by IMAP endpoint for mailbox access and\n# also by SMTP & Submission endpoints for delivery of local messages.\n#\n# IMAP accounts, mailboxes and all message metadata can be inspected using\n# imap-* subcommands of maddyctl utility.\n\nstorage.imapsql local_mailboxes {\n    driver sqlite3\n    dsn imapsql.db\n    # Other settings\n}\n\n# ----------------------------------------------------------------------------\n# SMTP endpoints + message routing\n\nhostname $(hostname)\n\n\n## Rule default\n### from file \"default.conf\"\ntable.chain local_rewrites {\n    optional_step regexp \"(.+)\\+(.+)@(.+)\" \"$1@$3\"\n    optional_step static {\n        entry postmaster postmaster@$(primary_domain)\n    }\n    optional_step file $(alias_file)\n}\n\nmsgpipeline local_routing {\n    # Insert handling for special-purpose local domains here.\n    # e.g.\n    # destination lists.example.org {\n    #     deliver_to lmtp tcp://127.0.0.1:8024\n    # }\n\n    destination postmaster $(local_domains) {\n        modify {\n            replace_rcpt &local_rewrites\n        }\n\n        deliver_to &local_mailboxes\n    }\n\n    default_destination {\n        reject 550 5.1.1 \"User doesn't exist\"\n    }\n}\n\nsmtp tcp://0.0.0.0:25 {\n    limits {\n        # Up to 20 msgs/sec across max. 10 SMTP connections.\n        all rate 20 1s\n        all concurrency 10\n    }\n\n    dmarc yes\n    check {\n        require_mx_record\n        dkim\n        spf\n    }\n\n    source $(local_domains) {\n        reject 501 5.1.8 \"Use Submission for outgoing SMTP\"\n    }\n    default_source {\n        destination postmaster $(local_domains) {\n            deliver_to &local_routing\n        }\n        default_destination {\n            reject 550 5.1.1 \"User doesn't exist\"\n        }\n    }\n}\n\n\n# Outgoing email\n\nsubmission tls://0.0.0.0:465 tcp://0.0.0.0:587 {\n    limits {\n        # Up to 50 msgs/sec across any amount of SMTP connections.\n        all rate 50 1s\n    }\n\n    auth &local_authdb\n\n    source $(local_domains) {\n        check {\n            authorize_sender {\n                prepare_email &local_rewrites\n                user_to_email identity\n            }\n        }\n\n        destination postmaster $(local_domains) {\n            deliver_to &local_routing\n        }\n        default_destination {\n            modify {\n                dkim $(primary_domain) $(local_domains) default\n            }\n            deliver_to &remote_queue\n        }\n    }\n    default_source {\n        reject 501 5.1.8 \"Non-local sender domain\"\n    }\n}\n\ntarget.remote outbound_delivery {\n    limits {\n        # Up to 20 msgs/sec across max. 10 SMTP connections\n        # for each recipient domain.\n        destination rate 20 1s\n        destination concurrency 10\n    }\n    mx_auth {\n        dane\n        mtasts {\n            cache fs\n            fs_dir mtasts_cache/\n        }\n        local_policy {\n            min_tls_level encrypted\n            min_mx_level none\n        }\n    }\n}\n\ntarget.queue remote_queue {\n    target &outbound_delivery\n\n    autogenerated_msg_domain $(primary_domain)\n    bounce {\n        destination postmaster $(local_domains) {\n            deliver_to &local_routing\n        }\n        default_destination {\n            reject 550 5.0.0 \"Refusing to send DSNs to non-local addresses\"\n        }\n    }\n}\n\n\n# ----------------------------------------------------------------------------\n# IMAP endpoints\n\nimap tls://0.0.0.0:993 tcp://0.0.0.0:143 {\n    auth &local_authdb\n    storage &local_mailboxes\n    # Other settings\n}\n"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-maddy
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: maddy
+    app.kubernetes.io/version: v0.5.2
+    helm.sh/chart: maddy-2.2.2
+  annotations: null
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  ports:
+    - port: 143
+      targetPort: imap
+      protocol: TCP
+      name: imap
+    - port: 993
+      targetPort: imaps
+      protocol: TCP
+      name: imaps
+    - port: 25
+      targetPort: smtp
+      protocol: TCP
+      name: smtp
+    - port: 587
+      targetPort: starttls
+      protocol: TCP
+      name: starttls
+    - port: 465
+      targetPort: tls
+      protocol: TCP
+      name: tls
+  selector:
+    app.kubernetes.io/name: maddy
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-maddy
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: maddy
+    app.kubernetes.io/version: v0.5.2
+    helm.sh/chart: maddy-2.2.2
+spec:
+  revisionHistoryLimit: 3
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: maddy
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: maddy
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      automountServiceAccountToken: true
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      containers:
+        - name: release-name-maddy
+          image: foxcpp/maddy:v0.5.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/maddy
+            - -config
+            - /config/maddy.conf
+          ports:
+            - name: imap
+              containerPort: 143
+              protocol: TCP
+            - name: imaps
+              containerPort: 993
+              protocol: TCP
+            - name: smtp
+              containerPort: 25
+              protocol: TCP
+            - name: starttls
+              containerPort: 587
+              protocol: TCP
+            - name: tls
+              containerPort: 465
+              protocol: TCP
+          volumeMounts:
+            - name: certificates
+              mountPath: /certificates
+            - name: config
+              mountPath: /config
+          livenessProbe:
+            tcpSocket:
+              port: 25
+            initialDelaySeconds: 0
+            failureThreshold: 3
+            timeoutSeconds: 1
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 25
+            initialDelaySeconds: 0
+            failureThreshold: 3
+            timeoutSeconds: 1
+            periodSeconds: 10
+          startupProbe:
+            tcpSocket:
+              port: 25
+            initialDelaySeconds: 0
+            failureThreshold: 30
+            timeoutSeconds: 1
+            periodSeconds: 5
+      volumes:
+        - name: certificates
+          secret:
+            secretName: myTLSSecret
+        - name: config
+          configMap:
+            name: release-name-maddy-config

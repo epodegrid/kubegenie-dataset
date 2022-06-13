@@ -1,0 +1,349 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-jira",
+      "labels": {
+        "helm.sh/chart": "jira-1.4.1",
+        "app.kubernetes.io/name": "jira",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "8.20.9",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-jira-jvm-config",
+      "labels": {
+        "helm.sh/chart": "jira-1.4.1",
+        "app.kubernetes.io/name": "jira",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "8.20.9",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "additional_jvm_args": "-Datlassian.logging.cloud.enabled=false -XX:ActiveProcessorCount=2",
+      "max_heap": "768m",
+      "min_heap": "384m",
+      "reserved_code_cache": "512m"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-jira",
+      "labels": {
+        "helm.sh/chart": "jira-1.4.1",
+        "app.kubernetes.io/name": "jira",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "8.20.9",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "jira",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-jira",
+      "labels": {
+        "helm.sh/chart": "jira-1.4.1",
+        "app.kubernetes.io/name": "jira",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "8.20.9",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "serviceName": "release-name-jira",
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "jira",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config-jvm": "8c29b14d3e7896d09c7750c26de82984228c5743bb495d88a59806290351dee4"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "jira",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-jira",
+          "terminationGracePeriodSeconds": 30,
+          "securityContext": {
+            "fsGroup": 2001
+          },
+          "initContainers": [
+            {
+              "name": "nfs-permission-fixer",
+              "image": "alpine",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 0
+              },
+              "volumeMounts": [
+                {
+                  "name": "shared-home",
+                  "mountPath": "/shared-home"
+                }
+              ],
+              "command": [
+                "sh",
+                "-c",
+                "(chgrp 2001 /shared-home; chmod g+w /shared-home)"
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "jira",
+              "image": "atlassian/jira-software:8.20.9",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "ATL_TOMCAT_SCHEME",
+                  "value": "https"
+                },
+                {
+                  "name": "ATL_TOMCAT_SECURE",
+                  "value": "true"
+                },
+                {
+                  "name": "SET_PERMISSIONS",
+                  "value": "true"
+                },
+                {
+                  "name": "JIRA_SHARED_HOME",
+                  "value": "/var/atlassian/application-data/shared-home"
+                },
+                {
+                  "name": "JVM_SUPPORT_RECOMMENDED_ARGS",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "key": "additional_jvm_args",
+                      "name": "release-name-jira-jvm-config"
+                    }
+                  }
+                },
+                {
+                  "name": "JVM_MINIMUM_MEMORY",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "key": "min_heap",
+                      "name": "release-name-jira-jvm-config"
+                    }
+                  }
+                },
+                {
+                  "name": "JVM_MAXIMUM_MEMORY",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "key": "max_heap",
+                      "name": "release-name-jira-jvm-config"
+                    }
+                  }
+                },
+                {
+                  "name": "JVM_RESERVED_CODE_CACHE_SIZE",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "key": "reserved_code_cache",
+                      "name": "release-name-jira-jvm-config"
+                    }
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8080,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "ehcache",
+                  "containerPort": 40001,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "ehcacheobject",
+                  "containerPort": 40011,
+                  "protocol": "TCP"
+                }
+              ],
+              "readinessProbe": {
+                "httpGet": {
+                  "port": 8080,
+                  "path": "/status"
+                },
+                "initialDelaySeconds": 10,
+                "periodSeconds": 5,
+                "failureThreshold": 30
+              },
+              "resources": {
+                "requests": {
+                  "cpu": "2",
+                  "memory": "2G"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "local-home",
+                  "mountPath": "/var/atlassian/application-data/jira"
+                },
+                {
+                  "name": "local-home",
+                  "mountPath": "/opt/atlassian/jira/logs",
+                  "subPath": "log"
+                },
+                {
+                  "name": "shared-home",
+                  "mountPath": "/var/atlassian/application-data/shared-home"
+                }
+              ],
+              "lifecycle": {
+                "preStop": {
+                  "exec": {
+                    "command": [
+                      "sh",
+                      "-c",
+                      "/shutdown-wait.sh"
+                    ]
+                  }
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "local-home",
+              "emptyDir": {}
+            },
+            {
+              "name": "shared-home",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-jira-application-status-test",
+      "annotations": {
+        "helm.sh/hook": "test",
+        "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded"
+      },
+      "labels": {
+        "helm.sh/chart": "jira-1.4.1",
+        "app.kubernetes.io/name": "jira",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "8.20.9",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "test",
+          "image": "alpine",
+          "imagePullPolicy": "IfNotPresent",
+          "env": [
+            {
+              "name": "STATUS_URL",
+              "value": "http://release-name-jira:80/status"
+            }
+          ],
+          "command": [
+            "/bin/sh",
+            "-ec",
+            "apk add -q jq curl\nSTATUS=$(curl -s \"$STATUS_URL\")\necho \"Verifying application state is RUNNING or FIRST_RUN: $STATUS\"\necho $STATUS | jq -e '.state|test(\"RUNNING|FIRST_RUN\")'\n"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-jira-shared-home-permissions-test",
+      "annotations": {
+        "helm.sh/hook": "test",
+        "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded"
+      },
+      "labels": {
+        "helm.sh/chart": "jira-1.4.1",
+        "app.kubernetes.io/name": "jira",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "8.20.9",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "test",
+          "image": "debian:stable-slim",
+          "imagePullPolicy": "IfNotPresent",
+          "securityContext": {
+            "runAsUser": 2001,
+            "runAsGroup": 2001
+          },
+          "volumeMounts": [
+            {
+              "name": "shared-home",
+              "mountPath": "/shared-home"
+            }
+          ],
+          "command": [
+            "/bin/sh",
+            "-ec",
+            "ls -ld /shared-home\necho \"Creating temporary file in shared home as user $(id -u):$(id -g)\"\ntouch /shared-home/permissions-test\nls -l /shared-home/permissions-test\nrm /shared-home/permissions-test\n"
+          ]
+        }
+      ],
+      "volumes": [
+        {
+          "name": "shared-home",
+          "emptyDir": {}
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

@@ -1,0 +1,283 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-rethinkdb
+  labels:
+    app: rethinkdb
+    chart: rethinkdb-1.0.0
+    release: release-name
+    heritage: Helm
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-rethinkdb
+  labels:
+    app: rethinkdb
+    chart: rethinkdb-1.0.0
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  rethinkdb-password: cmV0aGlua2Ri
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRole
+metadata:
+  name: release-name-rethinkdb
+  labels:
+    app: rethinkdb
+    chart: rethinkdb-1.0.0
+    release: release-name
+    heritage: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-rethinkdb
+  labels:
+    app: rethinkdb
+    chart: rethinkdb-1.0.0
+    release: release-name
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-rethinkdb
+subjects:
+  - kind: ServiceAccount
+    name: release-name-rethinkdb
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-rethinkdb-admin
+  labels:
+    app: rethinkdb-admin
+    chart: rethinkdb-1.0.0
+    heritage: Helm
+    release: release-name
+spec:
+  clusterIP: None
+  ports:
+    - port: 8080
+      targetPort: admin
+  selector:
+    app: rethinkdb-proxy
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-rethinkdb-cluster
+  labels:
+    app: rethinkdb-cluster
+    chart: rethinkdb-1.0.0
+    heritage: Helm
+    release: release-name
+  annotations:
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+spec:
+  clusterIP: None
+  ports:
+    - port: 29015
+      targetPort: cluster
+  selector:
+    app: rethinkdb-cluster
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-rethinkdb-proxy
+  labels:
+    app: rethinkdb-proxy
+    chart: rethinkdb-1.0.0
+    heritage: Helm
+    release: release-name
+  annotations: null
+spec:
+  type: ClusterIP
+  clusterIP: ""
+  ports:
+    - port: 28015
+      targetPort: driver
+  selector:
+    app: rethinkdb-proxy
+    release: release-name
+---
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: release-name-rethinkdb-proxy
+  labels:
+    app: rethinkdb-proxy
+    chart: rethinkdb-1.0.0
+    heritage: Helm
+    release: release-name
+spec:
+  replicas: 1
+  template:
+    metadata:
+      name: release-name-rethinkdb-proxy
+      labels:
+        app: rethinkdb-proxy
+        heritage: Helm
+        release: release-name
+        chart: rethinkdb-1.0.0
+      annotations: null
+    spec:
+      serviceAccountName: release-name-rethinkdb
+      containers:
+        - name: rethinkdb-proxy
+          image: codylundquist/helm-rethinkdb-cluster:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: cluster
+              containerPort: 29015
+            - name: driver
+              containerPort: 28015
+            - name: admin
+              containerPort: 8080
+          args:
+            - --bind
+            - all
+          volumeMounts:
+            - name: secrets
+              mountPath: /secrets
+          env:
+            - name: PROXY
+              value: "true"
+            - name: RETHINK_CLUSTER_SERVICE
+              value: release-name-rethinkdb-cluster
+            - name: RETHINKDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-rethinkdb
+                  key: rethinkdb-password
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.podIP
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: secrets
+          projected:
+            sources:
+              - secret:
+                  name: release-name-rethinkdb
+---
+apiVersion: apps/v1beta1
+kind: StatefulSet
+metadata:
+  name: release-name-rethinkdb-cluster
+  labels:
+    app: rethinkdb-cluster
+    chart: rethinkdb-1.0.0
+    heritage: Helm
+    release: release-name
+spec:
+  serviceName: release-name-rethinkdb-cluster
+  replicas: 3
+  template:
+    metadata:
+      name: release-name-rethinkdb-cluster
+      labels:
+        app: rethinkdb-cluster
+        heritage: Helm
+        release: release-name
+        chart: rethinkdb-1.0.0
+      annotations: null
+    spec:
+      serviceAccountName: release-name-rethinkdb
+      containers:
+        - name: rethinkdb-cluster
+          image: codylundquist/helm-rethinkdb-cluster:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: cluster
+              containerPort: 29015
+          args:
+            - --directory
+            - /data/db
+            - --bind
+            - all
+            - --no-http-admin
+            - --cache-size
+            - "100"
+          volumeMounts:
+            - name: datadir
+              mountPath: /data
+          env:
+            - name: RETHINK_CLUSTER_SERVICE
+              value: release-name-rethinkdb-cluster
+            - name: RETHINKDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-rethinkdb
+                  key: rethinkdb-password
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.podIP
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          livenessProbe:
+            exec:
+              command:
+                - /rethinkdb-probe
+            failureThreshold: 3
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+                - /rethinkdb-probe
+            failureThreshold: 3
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+  volumeClaimTemplates:
+    - metadata:
+        name: datadir
+        annotations: null
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi

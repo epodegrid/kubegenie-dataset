@@ -1,0 +1,640 @@
+apiVersion: v1
+kind: ServiceAccount
+automountServiceAccountToken: true
+metadata:
+  name: sistas-chatbot-server
+  namespace: sistas-chatbot-master
+  labels:
+    app.kubernetes.io/component: server
+    app.kubernetes.io/name: sistas-chatbot-server
+---
+apiVersion: v1
+stringData:
+  SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_OIDC_CLIENT_SECRET: null
+kind: Secret
+metadata:
+  name: chatbot-keycloak
+---
+apiVersion: v1
+stringData:
+  SPRING_DATASOURCE_PASSWORD: null
+kind: Secret
+metadata:
+  name: chatbot-postgresql
+---
+apiVersion: v1
+stringData:
+  EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://admin:@chatbot-registry.sistas-chatbot-master.svc.cluster.local:8761/eureka
+  SPRING_CLOUD_CONFIG_URI: http://admin:@chatbot-registry.sistas-chatbot-master.svc.cluster.local:8761/config
+kind: Secret
+metadata:
+  name: chatbot-registry
+---
+apiVersion: v1
+stringData:
+  CHATBOT_SECURITY_API_ACCESS_ENABLED: "true"
+  CHATBOT_SECURITY_API_ACCESS_ACCESS_TOKEN: 392347f3-5c5d-4352-a397-cc579cf7f9a2
+kind: Secret
+metadata:
+  name: chatbot-security
+---
+apiVersion: v1
+stringData:
+  STORAGE_AMAZON_S3_SECRET_KEY: null
+kind: Secret
+metadata:
+  name: chatbot-storage
+---
+apiVersion: v1
+data:
+  SPRING_PROFILES_ACTIVE: prod
+kind: ConfigMap
+metadata:
+  name: chatbot-common
+---
+apiVersion: v1
+data:
+  JHIPSTER_CORS_ALLOW_CREDENTIALS: "true"
+  JHIPSTER_CORS_ALLOWED_HEADERS: '*'
+  JHIPSTER_CORS_ALLOWED_METHODS: '*'
+  JHIPSTER_CORS_ALLOWED_ORIGINS: '*'
+  JHIPSTER_CORS_EXPOSED_HEADERS: Authorization,Link,X-Total-Count
+  JHIPSTER_CORS_MAX_AGE: "1800"
+kind: ConfigMap
+metadata:
+  name: chatbot-cors
+---
+apiVersion: v1
+data:
+  CHATBOT_MICROSERVICE_CONFIGURATION_EUREKA_REGISTRATION_VERIFICATION_ENABLED: "true"
+  CHATBOT_MICROSERVICE_CONFIGURATION_HAZELCAST_DISCOVERY_MECHANISM: native_client
+  CHATBOT_MICROSERVICE_CONFIGURATION_HAZELCAST_NATIVE_CLIENT_URL: hazelcast.hazelcast.svc.cluster.local:5701
+kind: ConfigMap
+metadata:
+  name: chatbot-hazelcast
+---
+apiVersion: v1
+data:
+  CHATBOT_INFRASTRUCTURE_TYPE: KUBERNETES
+  CHATBOT_INFRASTRUCTURE_DEPLOYMENT_TYPE: KUBERNETES_DEPLOYMENT
+  CHATBOT_INFRASTRUCTURE_KUBERNETES_NATIVE_CONNECTION_CONNECTION_TYPE: SERVICE_ACCOUNT
+  CHATBOT_INFRASTRUCTURE_KUBERNETES_NATIVE_CONNECTION_ADMIN_GATEWAY_NAMESPACE: sistas-chatbot-master
+  CHATBOT_INFRASTRUCTURE_KUBERNETES_NATIVE_CONNECTION_RASA_SOURCE_PATH: chatbot-helm-chart/rasa
+  CHATBOT_INFRASTRUCTURE_KUBERNETES_NATIVE_CONNECTION_RASA_SOURCE_REPO_URL: https://github.com/SistasYazilimGrubu/SistasChatbot
+  CHATBOT_INFRASTRUCTURE_KUBERNETES_NATIVE_CONNECTION_RASA_SOURCE_TARGET_REVISION: HEAD
+  CHATBOT_INFRASTRUCTURE_RASA_HTTP_PROTOCOL: http
+kind: ConfigMap
+metadata:
+  name: chatbot-infrastructure
+---
+apiVersion: v1
+data:
+  KAFKA_BOOTSTRAP_SERVERS: kafkacluster01-kafka-bootstrap.strimzi-kafka-operator.svc.cluster.local:9092
+kind: ConfigMap
+metadata:
+  name: chatbot-kafka
+---
+apiVersion: v1
+data:
+  SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_OIDC_ISSUER_URI: http://sistas-keycloak.centralus.azurecontainer.io:8080/auth/realms/sistas
+  SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_OIDC_CLIENT_ID: chatbot
+kind: ConfigMap
+metadata:
+  name: chatbot-keycloak
+---
+apiVersion: v1
+data:
+  SPRING_DATASOURCE_URL: jdbc:postgresql://postgresql.postgresql.svc.cluster.local:5432/chatbot
+  SPRING_DATASOURCE_USERNAME: postgres
+  SPRING_JPA_DATABASE: POSTGRESQL
+  SPRING_JPA_DATABASE_PLATFORM: org.hibernate.dialect.PostgreSQL9Dialect
+  SPRING_JPA_PROPERTIES_HIBERNATE_QUERY_FAIL_ON_PAGINATION_OVER_COLLECTION_FETCH: "false"
+kind: ConfigMap
+metadata:
+  name: chatbot-postgresql
+---
+apiVersion: v1
+data:
+  STORAGE_ACTIVE_MODEL_ACCESS_TOKEN: TOKEN!
+  STORAGE_AMAZON_S3_BUCKET_PREFIX: prefix
+  STORAGE_AMAZON_S3_PUBLIC_KEY: null
+  STORAGE_AMAZON_S3_REGION: eu-central-1
+kind: ConfigMap
+metadata:
+  name: chatbot-storage
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/component: server
+    app.kubernetes.io/name: sistas-chatbot-server
+  name: sistas-chatbot-server
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+      - '*'
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: server
+    app.kubernetes.io/name: sistas-chatbot-server
+  name: sistas-chatbot-server
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: sistas-chatbot-server
+subjects:
+  - kind: ServiceAccount
+    name: sistas-chatbot-server
+    namespace: sistas-chatbot-master
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chatbot-adapter-vonage
+spec:
+  ports:
+    - name: http
+      port: 28183
+      protocol: TCP
+      targetPort: 28183
+  selector:
+    app: chatbot-adapter-vonage
+    version: 3.7.0
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chatbot-admin-core
+spec:
+  ports:
+    - name: http
+      port: 28181
+      protocol: TCP
+      targetPort: 28181
+  selector:
+    app: chatbot-admin-core
+    version: 3.7.0
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chatbot-admin-gateway
+spec:
+  ports:
+    - name: http
+      port: 28180
+      protocol: TCP
+      targetPort: 28180
+  selector:
+    app: chatbot-admin-gateway
+    version: 3.7.0
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chatbot-core
+spec:
+  ports:
+    - name: http
+      port: 28081
+      protocol: TCP
+      targetPort: 28081
+  selector:
+    app: chatbot-core
+    version: 3.7.0
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chatbot-gateway
+spec:
+  ports:
+    - name: http
+      port: 28080
+      protocol: TCP
+      targetPort: 28080
+  selector:
+    app: chatbot-gateway
+    version: 3.7.0
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chatbot-registry
+spec:
+  ports:
+    - name: http
+      port: 8761
+      protocol: TCP
+      targetPort: 8761
+  selector:
+    app: chatbot-registry
+    version: latest
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chatbot-adapter-vonage
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chatbot-adapter-vonage
+  template:
+    metadata:
+      labels:
+        app: chatbot-adapter-vonage
+        version: 3.7.0
+    spec:
+      containers:
+        - envFrom:
+            - secretRef:
+                name: chatbot-registry
+                optional: false
+            - secretRef:
+                name: chatbot-security
+                optional: false
+            - configMapRef:
+                name: chatbot-kafka
+                optional: false
+            - configMapRef:
+                name: chatbot-hazelcast
+                optional: false
+            - configMapRef:
+                name: chatbot-cors
+                optional: false
+            - configMapRef:
+                name: chatbot-common
+                optional: false
+          image: harbor.sistas.com.tr/chatbot/chatbotadaptervonage:3.7.0
+          imagePullPolicy: Always
+          livenessProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /management/health
+              port: 28183
+              scheme: HTTP
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 10
+          name: chatbot-adapter-vonage
+          ports:
+            - containerPort: 28183
+              name: http
+              protocol: TCP
+          readinessProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /management/health
+              port: 28183
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 10
+      imagePullSecrets:
+        - name: harbor
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chatbot-admin-core
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chatbot-admin-core
+  template:
+    metadata:
+      labels:
+        app: chatbot-admin-core
+        version: 3.7.0
+    spec:
+      serviceAccount: sistas-chatbot-server
+      serviceAccountName: sistas-chatbot-server
+      containers:
+        - envFrom:
+            - secretRef:
+                name: chatbot-registry
+                optional: false
+            - secretRef:
+                name: chatbot-postgresql
+                optional: false
+            - secretRef:
+                name: chatbot-storage
+                optional: false
+            - secretRef:
+                name: chatbot-security
+                optional: false
+            - configMapRef:
+                name: chatbot-postgresql
+                optional: false
+            - configMapRef:
+                name: chatbot-hazelcast
+                optional: false
+            - configMapRef:
+                name: chatbot-storage
+                optional: false
+            - configMapRef:
+                name: chatbot-kafka
+                optional: false
+            - configMapRef:
+                name: chatbot-infrastructure
+                optional: false
+            - configMapRef:
+                name: chatbot-common
+                optional: false
+          image: harbor.sistas.com.tr/chatbot/chatbotadmincore:3.7.0
+          imagePullPolicy: Always
+          livenessProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /management/health
+              port: 28181
+              scheme: HTTP
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 10
+          name: chatbot-admin-core
+          ports:
+            - containerPort: 28181
+              name: http
+              protocol: TCP
+          readinessProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /management/health
+              port: 28181
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 10
+      imagePullSecrets:
+        - name: harbor
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chatbot-admin-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chatbot-admin-gateway
+  template:
+    metadata:
+      labels:
+        app: chatbot-admin-gateway
+        version: 3.7.0
+    spec:
+      containers:
+        - envFrom:
+            - secretRef:
+                name: chatbot-registry
+                optional: false
+            - secretRef:
+                name: chatbot-security
+                optional: false
+            - configMapRef:
+                name: chatbot-kafka
+                optional: false
+            - configMapRef:
+                name: chatbot-hazelcast
+                optional: false
+            - configMapRef:
+                name: chatbot-cors
+                optional: false
+            - configMapRef:
+                name: chatbot-common
+                optional: false
+          image: harbor.sistas.com.tr/chatbot/chatbotadmingateway:3.7.0
+          imagePullPolicy: Always
+          livenessProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /management/health
+              port: 28180
+              scheme: HTTP
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 10
+          name: chatbot-admin-gateway
+          ports:
+            - containerPort: 28180
+              name: http
+              protocol: TCP
+          readinessProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /management/health
+              port: 28180
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 10
+      imagePullSecrets:
+        - name: harbor
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chatbot-core
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chatbot-core
+  template:
+    metadata:
+      labels:
+        app: chatbot-core
+        version: 3.7.0
+    spec:
+      containers:
+        - envFrom:
+            - secretRef:
+                name: chatbot-registry
+                optional: false
+            - secretRef:
+                name: chatbot-postgresql
+                optional: false
+            - secretRef:
+                name: chatbot-security
+                optional: false
+            - configMapRef:
+                name: chatbot-postgresql
+                optional: false
+            - configMapRef:
+                name: chatbot-hazelcast
+                optional: false
+            - configMapRef:
+                name: chatbot-kafka
+                optional: false
+            - configMapRef:
+                name: chatbot-common
+                optional: false
+          image: harbor.sistas.com.tr/chatbot/chatbotcore:3.7.0
+          imagePullPolicy: Always
+          livenessProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /management/health
+              port: 28081
+              scheme: HTTP
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 10
+          name: chatbot-core
+          ports:
+            - containerPort: 28081
+              name: http
+              protocol: TCP
+          readinessProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /management/health
+              port: 28081
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 10
+      imagePullSecrets:
+        - name: harbor
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chatbot-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chatbot-gateway
+  template:
+    metadata:
+      labels:
+        app: chatbot-gateway
+        version: 3.7.0
+    spec:
+      containers:
+        - env:
+            - name: CHATBOT_GATEWAY_URL
+              value: null
+          envFrom:
+            - secretRef:
+                name: chatbot-registry
+                optional: false
+            - configMapRef:
+                name: chatbot-kafka
+                optional: false
+            - configMapRef:
+                name: chatbot-common
+                optional: false
+          image: harbor.sistas.com.tr/chatbot/chatbotgateway:3.7.0
+          imagePullPolicy: Always
+          livenessProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /management/health
+              port: 28080
+              scheme: HTTP
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 10
+          name: chatbot-gateway
+          ports:
+            - containerPort: 28080
+              name: http
+              protocol: TCP
+          readinessProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /management/health
+              port: 28080
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 10
+      imagePullSecrets:
+        - name: harbor
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chatbot-registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chatbot-registry
+  template:
+    metadata:
+      labels:
+        app: chatbot-registry
+        version: latest
+    spec:
+      containers:
+        - envFrom:
+            - secretRef:
+                name: chatbot-keycloak
+                optional: false
+            - configMapRef:
+                name: chatbot-keycloak
+                optional: false
+          image: jhipster/jhipster-registry
+          imagePullPolicy: Always
+          livenessProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /management/health
+              port: 8761
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 10
+          name: chatbot-registry
+          ports:
+            - containerPort: 8761
+              name: http
+              protocol: TCP
+          readinessProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /management/health
+              port: 8761
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 10

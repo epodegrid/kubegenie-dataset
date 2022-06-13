@@ -1,0 +1,94 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "vepcservice"
+    },
+    "data": {
+      "serviceConfig": "name: vepcservice\naccessor:\n  username: \"admin@opencord.org\"\n  password: \"letmein\"\n  endpoint: xos-core:50051\nevent_bus:\n  endpoint: \"cord-kafka\"\n  kind: kafka\nrequired_models:\n  - VEpcService\n  - VEpcServiceInstance\n  - VEpcResourceInstanceLink\n  - ServiceDependency\n  - KubernetesService\n  - KubernetesResourceInstance\ndependency_graph: \"/opt/xos/synchronizers/vepcservice/model-deps\"\nsteps_dir: \"/opt/xos/synchronizers/vepcservice/steps\"\nevent_steps_dir: \"/opt/xos/synchronizers/vepcservice/event_steps\"\nsys_dir: \"/opt/xos/synchronizers/vepcservice/sys\"\nmodel_policies_dir: \"/opt/xos/synchronizers/vepcservice/model_policies\"\nmodels_dir: \"/opt/xos/synchronizers/vepcservice/models\"\nlogging:\n  version: 1\n  handlers:\n    console:\n      class: logging.StreamHandler\n    file:\n      class: logging.handlers.RotatingFileHandler\n      filename: /var/log/xos.log\n      maxBytes: 10485760\n      backupCount: 5\n  loggers:\n    'multistructlog':\n      handlers:\n          - console\n          - file\n      level: DEBUG\n"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-k8sepcservice",
+      "labels": {
+        "app": "k8sepcservice",
+        "chart": "k8sepcservice-1.0.4",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "k8sepcservice",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "k8sepcservice",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "k8sepcservice",
+              "image": "xosproject/k8sepcservice-synchronizer:1.0.2",
+              "imagePullPolicy": "Always",
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "vepcservice-config",
+                  "mountPath": "/opt/xos/synchronizers/vepcservice/vepcservice_config.yaml",
+                  "subPath": "vepcservice_config.yaml"
+                },
+                {
+                  "name": "certchain-volume",
+                  "mountPath": "/usr/local/share/ca-certificates/local_certs.crt",
+                  "subPath": "config/ca_cert_chain.pem"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "vepcservice-config",
+              "configMap": {
+                "name": "vepcservice",
+                "items": [
+                  {
+                    "key": "serviceConfig",
+                    "path": "vepcservice_config.yaml"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "certchain-volume",
+              "configMap": {
+                "name": "ca-certificates",
+                "items": [
+                  {
+                    "key": "chain",
+                    "path": "config/ca_cert_chain.pem"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

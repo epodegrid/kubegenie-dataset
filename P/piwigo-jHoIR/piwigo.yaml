@@ -1,0 +1,144 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-piwigo-config
+  labels:
+    app.kubernetes.io/name: piwigo
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: piwigo-0.0.6
+    app.kubernetes.io/component: server
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 4Gi
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-piwigo-data
+  labels:
+    app.kubernetes.io/name: piwigo
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: piwigo-0.0.6
+    app.kubernetes.io/component: server
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 256Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-piwigo
+  labels:
+    app.kubernetes.io/name: piwigo
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: piwigo-0.0.6
+    app.kubernetes.io/component: server
+spec:
+  clusterIP: ""
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: http
+  selector:
+    app.kubernetes.io/name: piwigo
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: server
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-piwigo
+  labels:
+    app.kubernetes.io/name: piwigo
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: piwigo-0.0.6
+    app.kubernetes.io/component: server
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: piwigo
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/managed-by: Helm
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: piwigo
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: piwigo-0.0.6
+        app.kubernetes.io/component: server
+    spec:
+      containers:
+        - name: piwigo
+          image: mathieuruellan/piwigo:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            - name: PIWIGO_MYSQL_ENGINE
+              value: MyISAM
+          volumeMounts:
+            - mountPath: /var/www/galleries
+              name: data
+              subPath: galleries
+            - mountPath: /var/www/upload
+              name: data
+              subPath: upload
+            - mountPath: /var/www/_data/i
+              name: data
+              subPath: cache
+            - mountPath: /var/www/_data/combined
+              name: data
+              subPath: combined
+            - mountPath: /config
+              name: config
+              subPath: config
+            - mountPath: /var/www/local
+              name: config
+              subPath: app-config
+            - mountPath: /var/www/plugins
+              name: config
+              subPath: plugins
+            - mountPath: /var/www/themes
+              name: config
+              subPath: themes
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 2
+            failureThreshold: 5
+          resources:
+            limits:
+              cpu: "2"
+              memory: 512Mi
+            requests:
+              cpu: "1"
+              memory: 256Mi
+      nodeSelector: {}
+      affinity: {}
+      tolerations: []
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: release-name-piwigo-data
+        - name: config
+          persistentVolumeClaim:
+            claimName: release-name-piwigo-config

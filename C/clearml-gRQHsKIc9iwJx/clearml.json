@@ -1,0 +1,1603 @@
+[
+  {
+    "apiVersion": "policy/v1beta1",
+    "kind": "PodDisruptionBudget",
+    "metadata": {
+      "name": "clearml-elastic-master-pdb"
+    },
+    "spec": {
+      "maxUnavailable": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "clearml-elastic-master"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-mongodb",
+      "namespace": "gRQHsKIc9iwJx",
+      "labels": {
+        "app.kubernetes.io/name": "mongodb",
+        "helm.sh/chart": "mongodb-10.3.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "secrets": [
+      {
+        "name": "release-name-mongodb"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "agent-group-cpu-conf"
+    },
+    "data": {
+      "clearml.conf": "c2RrIHsKfQ=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "agent-group-gpu-conf"
+    },
+    "data": {
+      "clearml.conf": "c2RrIHsKfQ=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "clearml-conf"
+    },
+    "stringData": {
+      "apiserver_key": "5442F3443MJMORWZA3ZH",
+      "apiserver_secret": "BxapIRo9ZINi8x25CRxz8Wdmr2pQjzuWVB4PNASZqCtTyWgWVQ",
+      "http_session": "9Tw20RbhJ1bLBiHEOWXvhplKGUbTgLzAtwFN2oLQvWwS0uRpD5",
+      "auth_token": "1SCf0ov3Nm544Td2oZ0gXSrsNx5XhMWdVlKz1tOgcx158bD5RV",
+      "tests_user_key": "ENP39EQM4SLACGD5FXB7",
+      "tests_user_secret": "lPcm0imbcBZ8mwgO7tpadutiS3gnJD05x9j7afwXPS35IKbpiQ"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "clearml-elastic-master-config",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "elasticsearch",
+        "app": "clearml-elastic-master"
+      }
+    },
+    "data": {
+      "elasticsearch.yml": "xpack.security.enabled: false\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-redis",
+      "namespace": "gRQHsKIc9iwJx",
+      "labels": {
+        "app": "redis",
+        "chart": "redis-10.9.0",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "data": {
+      "redis.conf": "# User-supplied configuration:\n# Enable AOF https://redis.io/topics/persistence#append-only-file\nappendonly yes\n# Disable RDB persistence, AOF persistence already enabled.\nsave \"\"",
+      "master.conf": "dir /data\nrename-command FLUSHDB \"\"\nrename-command FLUSHALL \"\"",
+      "replica.conf": "dir /data\nslave-read-only yes\nrename-command FLUSHDB \"\"\nrename-command FLUSHALL \"\""
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-redis-health",
+      "namespace": "gRQHsKIc9iwJx",
+      "labels": {
+        "app": "redis",
+        "chart": "redis-10.9.0",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "data": {
+      "ping_readiness_local.sh": "#!/bin/bash\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -h localhost \\\n    -p $REDIS_PORT \\\n    ping\n)\nif [ \"$response\" != \"PONG\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_liveness_local.sh": "#!/bin/bash\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -h localhost \\\n    -p $REDIS_PORT \\\n    ping\n)\nif [ \"$response\" != \"PONG\" ] && [ \"$response\" != \"LOADING Redis is loading the dataset in memory\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_readiness_master.sh": "#!/bin/bash\n response=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -h $REDIS_MASTER_HOST \\\n    -p $REDIS_MASTER_PORT_NUMBER \\\n    ping\n)\nif [ \"$response\" != \"PONG\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_liveness_master.sh": "#!/bin/bash\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -h $REDIS_MASTER_HOST \\\n    -p $REDIS_MASTER_PORT_NUMBER \\\n    ping\n)\nif [ \"$response\" != \"PONG\" ] && [ \"$response\" != \"LOADING Redis is loading the dataset in memory\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_readiness_local_and_master.sh": "script_dir=\"$(dirname \"$0\")\"\nexit_status=0\n\"$script_dir/ping_readiness_local.sh\" $1 || exit_status=$?\n\"$script_dir/ping_readiness_master.sh\" $1 || exit_status=$?\nexit $exit_status",
+      "ping_liveness_local_and_master.sh": "script_dir=\"$(dirname \"$0\")\"\nexit_status=0\n\"$script_dir/ping_liveness_local.sh\" $1 || exit_status=$?\n\"$script_dir/ping_liveness_master.sh\" $1 || exit_status=$?\nexit $exit_status"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "k8sagent-pod-template"
+    },
+    "data": {
+      "template.yaml": "apiVersion: v1\nmetadata:\n  namespace: default\nspec:\n  serviceAccountName: default\n  volumes:\n  containers:\n  - resources:\n      {}\n    ports:\n    - containerPort: 10022\n    volumeMounts:\n    env:\n    - name: CLEARML_API_HOST\n      value: \"http://release-name-clearml-apiserver:8008\"\n    - name: CLEARML_WEB_HOST\n      value: \"http://release-name-clearml-webserver\"\n    - name: CLEARML_FILES_HOST\n      value: \"http://release-name-clearml-fileserver:8081\"\n    - name: CLEARML_API_ACCESS_KEY\n      valueFrom:\n        secretKeyRef:\n          name: clearml-conf\n          key: apiserver_key\n    - name: CLEARML_API_SECRET_KEY\n      valueFrom:\n        secretKeyRef:\n          name: clearml-conf\n          key: apiserver_secret\n"
+    }
+  },
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-mongodb",
+      "namespace": "default",
+      "labels": {
+        "app.kubernetes.io/name": "mongodb",
+        "helm.sh/chart": "mongodb-10.3.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "mongodb"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "50Gi"
+        }
+      }
+    }
+  },
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-clearml-fileserver-data",
+      "labels": {
+        "helm.sh/chart": "clearml-3.10.5",
+        "app.kubernetes.io/name": "clearml",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.4.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "50Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "k8sagent-pods-access"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "pods"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch",
+          "create",
+          "patch",
+          "delete"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "k8sagent-pods-access"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "default",
+        "namespace": "default"
+      }
+    ],
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "k8sagent-pods-access"
+    }
+  },
+  {
+    "kind": "Service",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "clearml-elastic-master",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "elasticsearch",
+        "app": "clearml-elastic-master"
+      },
+      "annotations": {}
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "selector": {
+        "release": "release-name",
+        "chart": "elasticsearch",
+        "app": "clearml-elastic-master"
+      },
+      "ports": [
+        {
+          "name": "http",
+          "protocol": "TCP",
+          "port": 9200
+        },
+        {
+          "name": "transport",
+          "protocol": "TCP",
+          "port": 9300
+        }
+      ]
+    }
+  },
+  {
+    "kind": "Service",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "clearml-elastic-master-headless",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "elasticsearch",
+        "app": "clearml-elastic-master"
+      },
+      "annotations": {
+        "service.alpha.kubernetes.io/tolerate-unready-endpoints": "true"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "publishNotReadyAddresses": true,
+      "selector": {
+        "app": "clearml-elastic-master"
+      },
+      "ports": [
+        {
+          "name": "http",
+          "port": 9200
+        },
+        {
+          "name": "transport",
+          "port": 9300
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-mongodb",
+      "namespace": "gRQHsKIc9iwJx",
+      "labels": {
+        "app.kubernetes.io/name": "mongodb",
+        "helm.sh/chart": "mongodb-10.3.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "mongodb"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "mongo-service",
+          "port": 27017,
+          "targetPort": "mongodb",
+          "nodePort": null
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "mongodb",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "mongodb"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-redis-headless",
+      "namespace": "gRQHsKIc9iwJx",
+      "labels": {
+        "app": "redis",
+        "chart": "redis-10.9.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "redis",
+          "port": 6379,
+          "targetPort": "redis"
+        }
+      ],
+      "selector": {
+        "app": "redis",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-redis-master",
+      "namespace": "gRQHsKIc9iwJx",
+      "labels": {
+        "app": "redis",
+        "chart": "redis-10.9.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "redis",
+          "port": 6379,
+          "targetPort": "redis"
+        }
+      ],
+      "selector": {
+        "app": "redis",
+        "release": "release-name",
+        "role": "master"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-clearml-apiserver",
+      "labels": {
+        "helm.sh/chart": "clearml-3.10.5",
+        "app.kubernetes.io/name": "clearml",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.4.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "NodePort",
+      "ports": [
+        {
+          "port": 8008,
+          "targetPort": 8008,
+          "nodePort": 30008,
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "clearml",
+        "app.kubernetes.io/instance": "release-name-apiserver"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-clearml-fileserver",
+      "labels": {
+        "helm.sh/chart": "clearml-3.10.5",
+        "app.kubernetes.io/name": "clearml",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.4.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "NodePort",
+      "ports": [
+        {
+          "port": 8081,
+          "targetPort": 8081,
+          "nodePort": 30081,
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "clearml",
+        "app.kubernetes.io/instance": "release-name-fileserver"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-clearml-webserver",
+      "labels": {
+        "helm.sh/chart": "clearml-3.10.5",
+        "app.kubernetes.io/name": "clearml",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.4.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "NodePort",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": 80,
+          "nodePort": 30080,
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "clearml",
+        "app.kubernetes.io/instance": "release-name-webserver"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-mongodb",
+      "namespace": "gRQHsKIc9iwJx",
+      "labels": {
+        "app.kubernetes.io/name": "mongodb",
+        "helm.sh/chart": "mongodb-10.3.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "mongodb"
+      }
+    },
+    "spec": {
+      "strategy": {
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "mongodb",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "mongodb"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "mongodb",
+            "helm.sh/chart": "mongodb-10.3.4",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "mongodb"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-mongodb",
+          "affinity": {
+            "podAffinity": null,
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app.kubernetes.io/name": "mongodb",
+                        "app.kubernetes.io/instance": "release-name",
+                        "app.kubernetes.io/component": "mongodb"
+                      }
+                    },
+                    "namespaces": [
+                      "default"
+                    ],
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 1
+                }
+              ]
+            },
+            "nodeAffinity": null
+          },
+          "securityContext": {
+            "fsGroup": 1001,
+            "sysctls": []
+          },
+          "containers": [
+            {
+              "name": "mongodb",
+              "image": "docker.io/bitnami/mongodb:4.4.3-debian-10-r0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsNonRoot": true,
+                "runAsUser": 10477,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "env": [
+                {
+                  "name": "BITNAMI_DEBUG",
+                  "value": "false"
+                },
+                {
+                  "name": "ALLOW_EMPTY_PASSWORD",
+                  "value": "yes"
+                },
+                {
+                  "name": "MONGODB_SYSTEM_LOG_VERBOSITY",
+                  "value": "0"
+                },
+                {
+                  "name": "MONGODB_DISABLE_SYSTEM_LOG",
+                  "value": "no"
+                },
+                {
+                  "name": "MONGODB_ENABLE_IPV6",
+                  "value": "no"
+                },
+                {
+                  "name": "MONGODB_ENABLE_DIRECTORY_PER_DB",
+                  "value": "no"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "mongodb",
+                  "containerPort": 27017
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "mongo",
+                    "--eval",
+                    "db.adminCommand('ping')"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "mongo",
+                    "--eval",
+                    "db.adminCommand('ping')"
+                  ]
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "resources": {
+                "limits": {},
+                "requests": {},
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "datadir",
+                  "mountPath": "/bitnami/mongodb",
+                  "subPath": null
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "datadir",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-mongodb"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-clearml-k8sagent",
+      "labels": {
+        "app": "k8sagent"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "k8sagent"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "k8sagent"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "k8s-glue-container",
+              "image": "allegroai/clearml-agent-k8s:base-1.21",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/bin/bash",
+                "-c",
+                "export PATH=$PATH:$HOME/bin; source /root/.bashrc && /root/entrypoint.sh"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "k8sagent-pod-template",
+                  "mountPath": "/root/template"
+                }
+              ],
+              "env": [
+                {
+                  "name": "CLEARML_API_HOST",
+                  "value": "http://release-name-clearml-apiserver:8008"
+                },
+                {
+                  "name": "CLEARML_WEB_HOST",
+                  "value": "http://release-name-clearml-webserver"
+                },
+                {
+                  "name": "CLEARML_FILES_HOST",
+                  "value": "http://release-name-clearml-fileserver:8081"
+                },
+                {
+                  "name": "K8S_GLUE_MAX_PODS",
+                  "value": "10"
+                },
+                {
+                  "name": "K8S_GLUE_QUEUE",
+                  "value": "default"
+                },
+                {
+                  "name": "K8S_GLUE_EXTRA_ARGS",
+                  "value": "--namespace default --template-yaml /root/template/template.yaml"
+                },
+                {
+                  "name": "K8S_DEFAULT_NAMESPACE",
+                  "value": "default"
+                },
+                {
+                  "name": "CLEARML_API_ACCESS_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "clearml-conf",
+                      "key": "apiserver_key"
+                    }
+                  }
+                },
+                {
+                  "name": "CLEARML_API_SECRET_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "clearml-conf",
+                      "key": "apiserver_secret"
+                    }
+                  }
+                },
+                {
+                  "name": "CLEARML_WORKER_ID",
+                  "value": "k8s-agent"
+                },
+                {
+                  "name": "CLEARML_AGENT_UPDATE_REPO",
+                  "value": ""
+                },
+                {
+                  "name": "FORCE_CLEARML_AGENT_REPO",
+                  "value": ""
+                },
+                {
+                  "name": "CLEARML_DOCKER_IMAGE",
+                  "value": "nvidia/cuda:11.3.1-cudnn8-runtime-ubuntu20.04"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "k8sagent-pod-template",
+              "configMap": {
+                "name": "k8sagent-pod-template"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-clearml-apiserver",
+      "labels": {
+        "helm.sh/chart": "clearml-3.10.5",
+        "app.kubernetes.io/name": "clearml",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.4.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "clearml",
+          "app.kubernetes.io/instance": "release-name-apiserver"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/secret": "433688ca9ee7ff834373203494f2777b5baff8f4e3a7a7ac876b0d82208e5754"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "clearml",
+            "app.kubernetes.io/instance": "release-name-apiserver"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "clearml",
+              "image": "allegroai/clearml:1.4.0",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8008,
+                  "protocol": "TCP"
+                }
+              ],
+              "env": [
+                {
+                  "name": "CLEARML_ELASTIC_SERVICE_HOST",
+                  "value": "clearml-elastic-master"
+                },
+                {
+                  "name": "CLEARML_ELASTIC_SERVICE_PORT",
+                  "value": "9200"
+                },
+                {
+                  "name": "CLEARML_MONGODB_SERVICE_HOST",
+                  "value": "release-name-mongodb"
+                },
+                {
+                  "name": "CLEARML_MONGODB_SERVICE_PORT",
+                  "value": "27017"
+                },
+                {
+                  "name": "CLEARML_REDIS_SERVICE_HOST",
+                  "value": "release-name-redis-master"
+                },
+                {
+                  "name": "CLEARML_REDIS_SERVICE_PORT",
+                  "value": "6379"
+                },
+                {
+                  "name": "CLEARML__APISERVER__PRE_POPULATE__ENABLED",
+                  "value": "true"
+                },
+                {
+                  "name": "CLEARML__APISERVER__PRE_POPULATE__ZIP_FILES",
+                  "value": "/opt/clearml/db-pre-populate"
+                },
+                {
+                  "name": "CLEARML_SERVER_DEPLOYMENT_TYPE",
+                  "value": "helm-cloud"
+                },
+                {
+                  "name": "CLEARML__APISERVER__AUTH__COOKIES__MAX_AGE",
+                  "value": "864000"
+                },
+                {
+                  "name": "CLEARML_CONFIG_DIR",
+                  "value": "/opt/clearml/config"
+                },
+                {
+                  "name": "CLEARML__APISERVER__DEFAULT_COMPANY",
+                  "value": "d1bd92a3b039400cbafc60a7a5b1e52b"
+                },
+                {
+                  "name": "CLEARML__SECURE__HTTP__SESSION_SECRET__APISERVER",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "clearml-conf",
+                      "key": "http_session"
+                    }
+                  }
+                },
+                {
+                  "name": "CLEARML__SECURE__AUTH__TOKEN_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "clearml-conf",
+                      "key": "auth_token"
+                    }
+                  }
+                },
+                {
+                  "name": "CLEARML__SECURE__CREDENTIALS__APISERVER__USER_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "clearml-conf",
+                      "key": "apiserver_key"
+                    }
+                  }
+                },
+                {
+                  "name": "CLEARML__SECURE__CREDENTIALS__APISERVER__USER_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "clearml-conf",
+                      "key": "apiserver_secret"
+                    }
+                  }
+                },
+                {
+                  "name": "CLEARML__SECURE__CREDENTIALS__TESTS__USER_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "clearml-conf",
+                      "key": "tests_user_key"
+                    }
+                  }
+                },
+                {
+                  "name": "CLEARML__SECURE__CREDENTIALS__TESTS__USER_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "clearml-conf",
+                      "key": "tests_user_secret"
+                    }
+                  }
+                }
+              ],
+              "args": [
+                "apiserver"
+              ],
+              "livenessProbe": {
+                "initialDelaySeconds": 60,
+                "httpGet": {
+                  "path": "/debug.ping",
+                  "port": 8008
+                }
+              },
+              "readinessProbe": {
+                "initialDelaySeconds": 60,
+                "failureThreshold": 8,
+                "httpGet": {
+                  "path": "/debug.ping",
+                  "port": 8008
+                }
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-clearml-fileserver",
+      "labels": {
+        "helm.sh/chart": "clearml-3.10.5",
+        "app.kubernetes.io/name": "clearml",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.4.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "clearml",
+          "app.kubernetes.io/instance": "release-name-fileserver"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "clearml",
+            "app.kubernetes.io/instance": "release-name-fileserver"
+          }
+        },
+        "spec": {
+          "volumes": [
+            {
+              "name": "fileserver-data",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-clearml-fileserver-data"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "clearml",
+              "image": "allegroai/clearml:1.4.0",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8081,
+                  "protocol": "TCP"
+                }
+              ],
+              "env": [
+                {
+                  "name": "CLEARML_CONFIG_DIR",
+                  "value": "/opt/clearml/config"
+                }
+              ],
+              "args": [
+                "fileserver"
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "curl",
+                    "-X OPTIONS",
+                    "http://localhost:8081/"
+                  ]
+                }
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "curl",
+                    "-X OPTIONS",
+                    "http://localhost:8081/"
+                  ]
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "fileserver-data",
+                  "mountPath": "/mnt/fileserver"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-clearml-webserver",
+      "labels": {
+        "helm.sh/chart": "clearml-3.10.5",
+        "app.kubernetes.io/name": "clearml",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.4.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "clearml",
+          "app.kubernetes.io/instance": "release-name-webserver"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "clearml",
+            "app.kubernetes.io/instance": "release-name-webserver"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "clearml",
+              "image": "allegroai/clearml:1.4.0",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 80,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "curl",
+                    "-X OPTIONS",
+                    "http://0.0.0.0:80/"
+                  ]
+                }
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "curl",
+                    "-X OPTIONS",
+                    "http://0.0.0.0:80/"
+                  ]
+                }
+              },
+              "env": [
+                {
+                  "name": "NGINX_APISERVER_ADDRESS",
+                  "value": "http://release-name-clearml-apiserver:8008"
+                },
+                {
+                  "name": "NGINX_FILESERVER_ADDRESS",
+                  "value": "http://release-name-clearml-fileserver:8081"
+                }
+              ],
+              "args": [
+                "webserver"
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "clearml-elastic-master",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "elasticsearch",
+        "app": "clearml-elastic-master"
+      },
+      "annotations": {
+        "esMajorVersion": "7"
+      }
+    },
+    "spec": {
+      "serviceName": "clearml-elastic-master-headless",
+      "selector": {
+        "matchLabels": {
+          "app": "clearml-elastic-master"
+        }
+      },
+      "replicas": 1,
+      "podManagementPolicy": "Parallel",
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "clearml-elastic-master"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "50Gi"
+              }
+            }
+          }
+        }
+      ],
+      "template": {
+        "metadata": {
+          "name": "clearml-elastic-master",
+          "labels": {
+            "release": "release-name",
+            "chart": "elasticsearch",
+            "app": "clearml-elastic-master"
+          },
+          "annotations": {
+            "configchecksum": "ed9ffd83f65796053f10223a192f985d13ea7026fd2f83632d687e739155b74"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1000,
+            "runAsUser": 1000
+          },
+          "automountServiceAccountToken": true,
+          "affinity": {
+            "podAntiAffinity": {
+              "requiredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "labelSelector": {
+                    "matchExpressions": [
+                      {
+                        "key": "app",
+                        "operator": "In",
+                        "values": [
+                          "clearml-elastic-master"
+                        ]
+                      }
+                    ]
+                  },
+                  "topologyKey": "kubernetes.io/hostname"
+                }
+              ]
+            }
+          },
+          "terminationGracePeriodSeconds": 120,
+          "volumes": [
+            {
+              "name": "esconfig",
+              "configMap": {
+                "name": "clearml-elastic-master-config"
+              }
+            }
+          ],
+          "enableServiceLinks": true,
+          "initContainers": [
+            {
+              "name": "configure-sysctl",
+              "securityContext": {
+                "runAsUser": 10949,
+                "privileged": true,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "image": "docker.elastic.co/elasticsearch/elasticsearch:7.16.2",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "sysctl",
+                "-w",
+                "vm.max_map_count=262144"
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "elasticsearch",
+              "securityContext": {
+                "capabilities": {
+                  "drop": [
+                    "ALL"
+                  ]
+                },
+                "runAsNonRoot": true,
+                "runAsUser": 10095,
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true
+              },
+              "image": "docker.elastic.co/elasticsearch/elasticsearch:7.16.2",
+              "imagePullPolicy": "IfNotPresent",
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "bash",
+                    "-c",
+                    "set -e\n# If the node is starting up wait for the cluster to be ready (request params: \"wait_for_status=yellow&timeout=1s\" )\n# Once it has started only check that the node itself is responding\nSTART_FILE=/tmp/.es_start_file\n\n# Disable nss cache to avoid filling dentry cache when calling curl\n# This is required with Elasticsearch Docker using nss < 3.52\nexport NSS_SDB_USE_CACHE=no\n\nhttp () {\n  local path=\"${1}\"\n  local args=\"${2}\"\n  set -- -XGET -s\n\n  if [ \"$args\" != \"\" ]; then\n    set -- \"$@\" $args\n  fi\n\n  if [ -n \"${ELASTIC_PASSWORD}\" ]; then\n    set -- \"$@\" -u \"elastic:${ELASTIC_PASSWORD}\"\n  fi\n\n  curl --output /dev/null -k \"$@\" \"http://127.0.0.1:9200${path}\"\n}\n\nif [ -f \"${START_FILE}\" ]; then\n  echo 'Elasticsearch is already running, lets check the node is healthy'\n  HTTP_CODE=$(http \"/\" \"-w %{http_code}\")\n  RC=$?\n  if [[ ${RC} -ne 0 ]]; then\n    echo \"curl --output /dev/null -k -XGET -s -w '%{http_code}' \\${BASIC_AUTH} http://127.0.0.1:9200/ failed with RC ${RC}\"\n    exit ${RC}\n  fi\n  # ready if HTTP code 200, 503 is tolerable if ES version is 6.x\n  if [[ ${HTTP_CODE} == \"200\" ]]; then\n    exit 0\n  elif [[ ${HTTP_CODE} == \"503\" && \"7\" == \"6\" ]]; then\n    exit 0\n  else\n    echo \"curl --output /dev/null -k -XGET -s -w '%{http_code}' \\${BASIC_AUTH} http://127.0.0.1:9200/ failed with HTTP code ${HTTP_CODE}\"\n    exit 1\n  fi\n\nelse\n  echo 'Waiting for elasticsearch cluster to become ready (request params: \"wait_for_status=yellow&timeout=1s\" )'\n  if http \"/_cluster/health?wait_for_status=yellow&timeout=1s\" \"--fail\" ; then\n    touch ${START_FILE}\n    exit 0\n  else\n    echo 'Cluster is not yet ready (request params: \"wait_for_status=yellow&timeout=1s\" )'\n    exit 1\n  fi\nfi\n"
+                  ]
+                },
+                "failureThreshold": 3,
+                "initialDelaySeconds": 10,
+                "periodSeconds": 10,
+                "successThreshold": 3,
+                "timeoutSeconds": 5
+              },
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 9200
+                },
+                {
+                  "name": "transport",
+                  "containerPort": 9300
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "1000m",
+                  "memory": "4Gi"
+                },
+                "requests": {
+                  "cpu": "1000m",
+                  "memory": "4Gi"
+                }
+              },
+              "env": [
+                {
+                  "name": "node.name",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "cluster.initial_master_nodes",
+                  "value": "clearml-elastic-master-0,"
+                },
+                {
+                  "name": "discovery.seed_hosts",
+                  "value": "clearml-elastic-master-headless"
+                },
+                {
+                  "name": "cluster.name",
+                  "value": "clearml-elastic"
+                },
+                {
+                  "name": "network.host",
+                  "value": "0.0.0.0"
+                },
+                {
+                  "name": "cluster.deprecation_indexing.enabled",
+                  "value": "false"
+                },
+                {
+                  "name": "ES_JAVA_OPTS",
+                  "value": "-Xmx2g -Xms2g"
+                },
+                {
+                  "name": "node.data",
+                  "value": "true"
+                },
+                {
+                  "name": "node.ingest",
+                  "value": "true"
+                },
+                {
+                  "name": "node.master",
+                  "value": "true"
+                },
+                {
+                  "name": "node.ml",
+                  "value": "true"
+                },
+                {
+                  "name": "node.remote_cluster_client",
+                  "value": "true"
+                },
+                {
+                  "name": "bootstrap.memory_lock",
+                  "value": "false"
+                },
+                {
+                  "name": "cluster.routing.allocation.node_initial_primaries_recoveries",
+                  "value": "500"
+                },
+                {
+                  "name": "cluster.routing.allocation.disk.watermark.low",
+                  "value": "500mb"
+                },
+                {
+                  "name": "cluster.routing.allocation.disk.watermark.high",
+                  "value": "500mb"
+                },
+                {
+                  "name": "cluster.routing.allocation.disk.watermark.flood_stage",
+                  "value": "500mb"
+                },
+                {
+                  "name": "http.compression_level",
+                  "value": "7"
+                },
+                {
+                  "name": "reindex.remote.whitelist",
+                  "value": "*.*"
+                },
+                {
+                  "name": "xpack.monitoring.enabled",
+                  "value": "false"
+                },
+                {
+                  "name": "xpack.security.enabled",
+                  "value": "false"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "clearml-elastic-master",
+                  "mountPath": "/usr/share/elasticsearch/data"
+                },
+                {
+                  "name": "esconfig",
+                  "mountPath": "/usr/share/elasticsearch/config/elasticsearch.yml",
+                  "subPath": "elasticsearch.yml"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-redis-master",
+      "namespace": "gRQHsKIc9iwJx",
+      "labels": {
+        "app": "redis",
+        "chart": "redis-10.9.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "redis",
+          "release": "release-name",
+          "role": "master"
+        }
+      },
+      "serviceName": "release-name-redis-headless",
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "redis",
+            "chart": "redis-10.9.0",
+            "release": "release-name",
+            "role": "master"
+          },
+          "annotations": {
+            "checksum/health": "50cc3fa79aea874421210782f7fd33a3cc099276b5ea7ac9b60fb1845e18cc1c",
+            "checksum/configmap": "374806e2e65f0db8ca4a369575d3b5360d06ecb32667b9dfab88dd63f56623ba",
+            "checksum/secret": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "serviceAccountName": "default",
+          "containers": [
+            {
+              "name": "redis",
+              "image": "docker.io/bitnami/redis:6.0.8-debian-10-r0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 10822,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "command": [
+                "/bin/bash",
+                "-c",
+                "if [[ -n $REDIS_PASSWORD_FILE ]]; then\n  password_aux=`cat ${REDIS_PASSWORD_FILE}`\n  export REDIS_PASSWORD=$password_aux\nfi\nif [[ ! -f /opt/bitnami/redis/etc/master.conf ]];then\n  cp /opt/bitnami/redis/mounted-etc/master.conf /opt/bitnami/redis/etc/master.conf\nfi\nif [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then\n  cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf\nfi\nARGS=(\"--port\" \"${REDIS_PORT}\")\nARGS+=(\"--protected-mode\" \"no\")\nARGS+=(\"--include\" \"/opt/bitnami/redis/etc/redis.conf\")\nARGS+=(\"--include\" \"/opt/bitnami/redis/etc/master.conf\")\n/run.sh ${ARGS[@]}\n"
+              ],
+              "env": [
+                {
+                  "name": "REDIS_REPLICATION_MODE",
+                  "value": "master"
+                },
+                {
+                  "name": "ALLOW_EMPTY_PASSWORD",
+                  "value": "yes"
+                },
+                {
+                  "name": "REDIS_TLS_ENABLED",
+                  "value": "no"
+                },
+                {
+                  "name": "REDIS_PORT",
+                  "value": "6379"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "redis",
+                  "containerPort": 6379
+                }
+              ],
+              "livenessProbe": {
+                "initialDelaySeconds": 5,
+                "periodSeconds": 5,
+                "timeoutSeconds": 6,
+                "successThreshold": 1,
+                "failureThreshold": 5,
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "/health/ping_liveness_local.sh 5"
+                  ]
+                }
+              },
+              "readinessProbe": {
+                "initialDelaySeconds": 5,
+                "periodSeconds": 5,
+                "timeoutSeconds": 2,
+                "successThreshold": 1,
+                "failureThreshold": 5,
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "/health/ping_readiness_local.sh 1"
+                  ]
+                }
+              },
+              "resources": null,
+              "volumeMounts": [
+                {
+                  "name": "health",
+                  "mountPath": "/health"
+                },
+                {
+                  "name": "redis-data",
+                  "mountPath": "/data",
+                  "subPath": null
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/opt/bitnami/redis/mounted-etc"
+                },
+                {
+                  "name": "redis-tmp-conf",
+                  "mountPath": "/opt/bitnami/redis/etc/"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "health",
+              "configMap": {
+                "name": "release-name-redis-health",
+                "defaultMode": 493
+              }
+            },
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-redis"
+              }
+            },
+            {
+              "name": "redis-tmp-conf",
+              "emptyDir": {}
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "redis-data",
+            "labels": {
+              "app": "redis",
+              "release": "release-name",
+              "heritage": "Helm",
+              "component": "master"
+            }
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "5Gi"
+              }
+            },
+            "selector": null
+          }
+        }
+      ],
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-uwebp-test",
+      "annotations": {
+        "helm.sh/hook": "test",
+        "helm.sh/hook-delete-policy": "hook-succeeded"
+      }
+    },
+    "spec": {
+      "securityContext": {
+        "fsGroup": 1000,
+        "runAsUser": 1000
+      },
+      "containers": [
+        {
+          "name": "release-name-rduuq-test",
+          "image": "docker.elastic.co/elasticsearch/elasticsearch:7.16.2",
+          "imagePullPolicy": "IfNotPresent",
+          "command": [
+            "sh",
+            "-c",
+            "#!/usr/bin/env bash -e\ncurl -XGET --fail 'clearml-elastic-master:9200/_cluster/health?wait_for_status=yellow&timeout=1s'\n"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

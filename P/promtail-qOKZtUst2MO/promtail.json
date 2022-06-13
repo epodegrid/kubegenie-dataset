@@ -1,0 +1,339 @@
+[
+  {
+    "apiVersion": "policy/v1beta1",
+    "kind": "PodSecurityPolicy",
+    "metadata": {
+      "name": "release-name-promtail",
+      "labels": {
+        "app": "promtail",
+        "chart": "promtail-2.0.2",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "spec": {
+      "allowPrivilegeEscalation": false,
+      "fsGroup": {
+        "rule": "RunAsAny"
+      },
+      "hostIPC": false,
+      "hostNetwork": false,
+      "hostPID": false,
+      "privileged": false,
+      "readOnlyRootFilesystem": true,
+      "requiredDropCapabilities": [
+        "ALL"
+      ],
+      "runAsUser": {
+        "rule": "RunAsAny"
+      },
+      "seLinux": {
+        "rule": "RunAsAny"
+      },
+      "supplementalGroups": {
+        "rule": "RunAsAny"
+      },
+      "volumes": [
+        "secret",
+        "configMap",
+        "hostPath",
+        "projected",
+        "downwardAPI",
+        "emptyDir"
+      ],
+      "rule": "MustRunAsNonRoot"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "labels": {
+        "app": "promtail",
+        "chart": "promtail-2.0.2",
+        "heritage": "Helm",
+        "release": "release-name"
+      },
+      "name": "release-name-promtail",
+      "namespace": "qOKZtUst2MO"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-promtail",
+      "namespace": "qOKZtUst2MO",
+      "labels": {
+        "app": "promtail",
+        "chart": "promtail-2.0.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "promtail.yaml": "client:\n  backoff_config:\n    max_period: 5m\n    max_retries: 10\n    min_period: 500ms\n  batchsize: 1048576\n  batchwait: 1s\n  external_labels: {}\n  timeout: 10s\npositions:\n  filename: /run/promtail/positions.yaml\nserver:\n  http_listen_port: 3101\ntarget_config:\n  sync_period: 10s\nscrape_configs:\n- job_name: kubernetes-pods-name\n  pipeline_stages:\n    - docker: {}\n  kubernetes_sd_configs:\n  - role: pod\n  relabel_configs:\n  - source_labels:\n    - __meta_kubernetes_pod_label_name\n    target_label: __service__\n  - source_labels:\n    - __meta_kubernetes_pod_node_name\n    target_label: __host__\n  - action: drop\n    regex: ''\n    source_labels:\n    - __service__\n  - action: labelmap\n    regex: __meta_kubernetes_pod_label_(.+)\n  - action: replace\n    replacement: $1\n    separator: /\n    source_labels:\n    - __meta_kubernetes_namespace\n    - __service__\n    target_label: job\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_namespace\n    target_label: namespace\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_pod_name\n    target_label: pod\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_pod_container_name\n    target_label: container\n  - replacement: /var/log/pods/*$1/*.log\n    separator: /\n    source_labels:\n    - __meta_kubernetes_pod_uid\n    - __meta_kubernetes_pod_container_name\n    target_label: __path__\n- job_name: kubernetes-pods-app\n  pipeline_stages:\n    - docker: {}\n  kubernetes_sd_configs:\n  - role: pod\n  relabel_configs:\n  - action: drop\n    regex: .+\n    source_labels:\n    - __meta_kubernetes_pod_label_name\n  - source_labels:\n    - __meta_kubernetes_pod_label_app\n    target_label: __service__\n  - source_labels:\n    - __meta_kubernetes_pod_node_name\n    target_label: __host__\n  - action: drop\n    regex: ''\n    source_labels:\n    - __service__\n  - action: labelmap\n    regex: __meta_kubernetes_pod_label_(.+)\n  - action: replace\n    replacement: $1\n    separator: /\n    source_labels:\n    - __meta_kubernetes_namespace\n    - __service__\n    target_label: job\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_namespace\n    target_label: namespace\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_pod_name\n    target_label: pod\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_pod_container_name\n    target_label: container\n  - replacement: /var/log/pods/*$1/*.log\n    separator: /\n    source_labels:\n    - __meta_kubernetes_pod_uid\n    - __meta_kubernetes_pod_container_name\n    target_label: __path__\n- job_name: kubernetes-pods-direct-controllers\n  pipeline_stages:\n    - docker: {}\n  kubernetes_sd_configs:\n  - role: pod\n  relabel_configs:\n  - action: drop\n    regex: .+\n    separator: ''\n    source_labels:\n    - __meta_kubernetes_pod_label_name\n    - __meta_kubernetes_pod_label_app\n  - action: drop\n    regex: '[0-9a-z-.]+-[0-9a-f]{8,10}'\n    source_labels:\n    - __meta_kubernetes_pod_controller_name\n  - source_labels:\n    - __meta_kubernetes_pod_controller_name\n    target_label: __service__\n  - source_labels:\n    - __meta_kubernetes_pod_node_name\n    target_label: __host__\n  - action: drop\n    regex: ''\n    source_labels:\n    - __service__\n  - action: labelmap\n    regex: __meta_kubernetes_pod_label_(.+)\n  - action: replace\n    replacement: $1\n    separator: /\n    source_labels:\n    - __meta_kubernetes_namespace\n    - __service__\n    target_label: job\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_namespace\n    target_label: namespace\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_pod_name\n    target_label: pod\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_pod_container_name\n    target_label: container\n  - replacement: /var/log/pods/*$1/*.log\n    separator: /\n    source_labels:\n    - __meta_kubernetes_pod_uid\n    - __meta_kubernetes_pod_container_name\n    target_label: __path__\n- job_name: kubernetes-pods-indirect-controller\n  pipeline_stages:\n    - docker: {}\n  kubernetes_sd_configs:\n  - role: pod\n  relabel_configs:\n  - action: drop\n    regex: .+\n    separator: ''\n    source_labels:\n    - __meta_kubernetes_pod_label_name\n    - __meta_kubernetes_pod_label_app\n  - action: keep\n    regex: '[0-9a-z-.]+-[0-9a-f]{8,10}'\n    source_labels:\n    - __meta_kubernetes_pod_controller_name\n  - action: replace\n    regex: '([0-9a-z-.]+)-[0-9a-f]{8,10}'\n    source_labels:\n    - __meta_kubernetes_pod_controller_name\n    target_label: __service__\n  - source_labels:\n    - __meta_kubernetes_pod_node_name\n    target_label: __host__\n  - action: drop\n    regex: ''\n    source_labels:\n    - __service__\n  - action: labelmap\n    regex: __meta_kubernetes_pod_label_(.+)\n  - action: replace\n    replacement: $1\n    separator: /\n    source_labels:\n    - __meta_kubernetes_namespace\n    - __service__\n    target_label: job\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_namespace\n    target_label: namespace\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_pod_name\n    target_label: pod\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_pod_container_name\n    target_label: container\n  - replacement: /var/log/pods/*$1/*.log\n    separator: /\n    source_labels:\n    - __meta_kubernetes_pod_uid\n    - __meta_kubernetes_pod_container_name\n    target_label: __path__\n- job_name: kubernetes-pods-static\n  pipeline_stages:\n    - docker: {}\n  kubernetes_sd_configs:\n  - role: pod\n  relabel_configs:\n  - action: drop\n    regex: ''\n    source_labels:\n    - __meta_kubernetes_pod_annotation_kubernetes_io_config_mirror\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_pod_label_component\n    target_label: __service__\n  - source_labels:\n    - __meta_kubernetes_pod_node_name\n    target_label: __host__\n  - action: drop\n    regex: ''\n    source_labels:\n    - __service__\n  - action: labelmap\n    regex: __meta_kubernetes_pod_label_(.+)\n  - action: replace\n    replacement: $1\n    separator: /\n    source_labels:\n    - __meta_kubernetes_namespace\n    - __service__\n    target_label: job\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_namespace\n    target_label: namespace\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_pod_name\n    target_label: pod\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_pod_container_name\n    target_label: container\n  - replacement: /var/log/pods/*$1/*.log\n    separator: /\n    source_labels:\n    - __meta_kubernetes_pod_annotation_kubernetes_io_config_mirror\n    - __meta_kubernetes_pod_container_name\n    target_label: __path__\n"
+    }
+  },
+  {
+    "kind": "ClusterRole",
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "metadata": {
+      "labels": {
+        "app": "promtail",
+        "chart": "promtail-2.0.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "name": "release-name-promtail-clusterrole"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "nodes",
+          "nodes/proxy",
+          "services",
+          "endpoints",
+          "pods"
+        ],
+        "verbs": [
+          "get",
+          "watch",
+          "list"
+        ]
+      }
+    ]
+  },
+  {
+    "kind": "ClusterRoleBinding",
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "metadata": {
+      "name": "release-name-promtail-clusterrolebinding",
+      "labels": {
+        "app": "promtail",
+        "chart": "promtail-2.0.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-promtail",
+        "namespace": "default"
+      }
+    ],
+    "roleRef": {
+      "kind": "ClusterRole",
+      "name": "release-name-promtail-clusterrole",
+      "apiGroup": "rbac.authorization.k8s.io"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "release-name-promtail",
+      "namespace": "qOKZtUst2MO",
+      "labels": {
+        "app": "promtail",
+        "chart": "promtail-2.0.2",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "extensions"
+        ],
+        "resources": [
+          "podsecuritypolicies"
+        ],
+        "verbs": [
+          "use"
+        ],
+        "resourceNames": [
+          "release-name-promtail"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "release-name-promtail",
+      "namespace": "qOKZtUst2MO",
+      "labels": {
+        "app": "promtail",
+        "chart": "promtail-2.0.2",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "release-name-promtail"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-promtail"
+      }
+    ]
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "DaemonSet",
+    "metadata": {
+      "name": "release-name-promtail",
+      "namespace": "qOKZtUst2MO",
+      "labels": {
+        "app": "promtail",
+        "chart": "promtail-2.0.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": {}
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "promtail",
+          "release": "release-name"
+        }
+      },
+      "updateStrategy": {},
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "promtail",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "619b15e56fa2ffde3f7138d4ed10af801ff7ebca38cdca8083fbc4f789ecbb6a",
+            "prometheus.io/port": "http-metrics",
+            "prometheus.io/scrape": "true"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-promtail",
+          "containers": [
+            {
+              "name": "promtail",
+              "image": "grafana/promtail:2.0.0",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "-config.file=/etc/promtail/promtail.yaml",
+                "-client.url=http://release-name-loki:3100/loki/api/v1/push"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/etc/promtail"
+                },
+                {
+                  "name": "run",
+                  "mountPath": "/run/promtail"
+                },
+                {
+                  "mountPath": "/var/lib/docker/containers",
+                  "name": "docker",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/var/log/pods",
+                  "name": "pods",
+                  "readOnly": true
+                }
+              ],
+              "env": [
+                {
+                  "name": "HOSTNAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "spec.nodeName"
+                    }
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 3101,
+                  "name": "http-metrics"
+                }
+              ],
+              "securityContext": {
+                "readOnlyRootFilesystem": true,
+                "runAsGroup": 0,
+                "runAsUser": 11838,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "readinessProbe": {
+                "failureThreshold": 5,
+                "httpGet": {
+                  "path": "/ready",
+                  "port": "http-metrics"
+                },
+                "initialDelaySeconds": 10,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 1
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "nodeSelector": {},
+          "affinity": {},
+          "tolerations": [
+            {
+              "effect": "NoSchedule",
+              "key": "node-role.kubernetes.io/master",
+              "operator": "Exists"
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-promtail"
+              }
+            },
+            {
+              "name": "run",
+              "hostPath": {
+                "path": "/run/promtail"
+              }
+            },
+            {
+              "hostPath": {
+                "path": "/var/lib/docker/containers"
+              },
+              "name": "docker"
+            },
+            {
+              "hostPath": {
+                "path": "/var/log/pods"
+              },
+              "name": "pods"
+            }
+          ]
+        }
+      }
+    }
+  }
+]

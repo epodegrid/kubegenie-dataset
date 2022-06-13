@@ -1,0 +1,210 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: plex-secret
+  labels:
+    helm.sh/chart: plex-0.5
+    app-name: plex
+    component: media-server
+    hostNetwork: "true"
+    internal-service: "false"
+    managed-by: chynten
+    created-by: chynten
+    version: 1.23.5.4862-0f739d462
+type: Opaque
+stringData:
+  claim-ref: null
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: plex-media-pv
+spec:
+  volumeMode: Filesystem
+  capacity:
+    storage: 1G
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-path
+  local:
+    fsType: ""
+    path: /opt/data/plex/media
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - example-node
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: plex-config-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1G
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: plex-media-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  volumeName: plex-media-pv
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1G
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: plex-svc
+  labels:
+    helm.sh/chart: plex-0.5
+    app-name: plex
+    component: media-server
+    hostNetwork: "true"
+    internal-service: "false"
+    managed-by: chynten
+    created-by: chynten
+    version: 1.23.5.4862-0f739d462
+spec:
+  type: ClusterIP
+  ports:
+    - name: pms
+      protocol: TCP
+      port: 32400
+      targetPort: 32400
+  selector:
+    app-name: plex
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: plex-deployment
+  labels:
+    helm.sh/chart: plex-0.5
+    app-name: plex
+    component: media-server
+    hostNetwork: "true"
+    internal-service: "false"
+    managed-by: chynten
+    created-by: chynten
+    version: 1.23.5.4862-0f739d462
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app-name: plex
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app-name: plex
+    spec:
+      hostNetwork: true
+      restartPolicy: Always
+      containers:
+        - name: plex
+          image: plexinc/pms-docker:1.23.6.4881-e2e58f321
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: TZ
+              value: UTC
+            - name: PLEX_CLAIM
+              valueFrom:
+                secretKeyRef:
+                  name: plex-secret
+                  key: claim-ref
+          readinessProbe:
+            httpGet:
+              path: /identity
+              port: 32400
+            failureThreshold: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /identity
+              port: 32400
+            failureThreshold: 5
+            periodSeconds: 10
+          startupProbe:
+            httpGet:
+              path: /identity
+              port: 32400
+            failureThreshold: 30
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: media
+              mountPath: /movies
+              subPath: Media
+            - name: config
+              mountPath: /config
+              subPath: plex
+            - name: transcode-volume
+              mountPath: /transcode
+      securityContext: {}
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: plex-media-pvc
+        - name: config
+          persistentVolumeClaim:
+            claimName: plex-config-pvc
+        - name: transcode-volume
+          emptyDir: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: plex-ingress
+  labels:
+    helm.sh/chart: plex-0.5
+    app-name: plex
+    component: media-server
+    hostNetwork: "true"
+    internal-service: "false"
+    managed-by: chynten
+    created-by: chynten
+    version: 1.23.5.4862-0f739d462
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    kubernetes.io/ingress.class: nginx
+spec:
+  tls:
+    - hosts:
+        - plex.example.com
+      secretName: plex-letsencrypt-certificate
+  rules:
+    - host: plex.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: plex-svc
+                port:
+                  number: 32400

@@ -1,0 +1,102 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-powerdns-admin
+  labels:
+    helm.sh/chart: powerdns-admin-0.2.0
+    app.kubernetes.io/name: powerdns-admin
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.2.3
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: main
+      protocol: TCP
+      name: main
+  selector:
+    app.kubernetes.io/name: powerdns-admin
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-powerdns-admin
+  labels:
+    helm.sh/chart: powerdns-admin-0.2.0
+    app.kubernetes.io/name: powerdns-admin
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.2.3
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: powerdns-admin
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: powerdns-admin
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      securityContext: {}
+      containers:
+        - name: powerdns-admin
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: ngoduykhanh/powerdns-admin:0.2.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SQLALCHEMY_DATABASE_URI
+              value: postgresql://:@/
+          ports:
+            - name: main
+              containerPort: 80
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: main
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: main
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-powerdns-admin-test-connection
+  labels:
+    helm.sh/chart: powerdns-admin-0.2.0
+    app.kubernetes.io/name: powerdns-admin
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.2.3
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-powerdns-admin:80
+  restartPolicy: Never

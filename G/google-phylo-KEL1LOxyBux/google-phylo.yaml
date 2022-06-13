@@ -1,0 +1,330 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: phylo
+  namespace: KEL1LOxyBux
+  labels:
+    release: release-name
+    app: phylo
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: phylo
+  labels:
+    release: release-name
+    app: phylo
+data:
+  run-video-analytics-server.sh: |
+    #!/bin/bash
+    #
+    # Copyright 2020-present Open Networking Foundation
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    # http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+
+    /google/video_analytics_server_main \
+            --mediapipe_graph_path=/google/demo_graph.pbtxt \
+            --person_detection_tf_saved_model_dir=/google/saved_model/ \
+            --camera_scene_geometry_path=/google/camera_scene_geometry.pbtxt \
+            --grpc_port=50051 \
+            --mq_address=localhost:5672 \
+            --mediapipe_detection_topic_name=phylo.mediapipe_detection \
+            --person_detection_topic_name=phylo.person_detection \
+            --bbox_decoded_video_frame_topic_name=phylo.bbox_decoded_video_frame \
+            --publish_to_mq=true \
+            --publish_to_log=true
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: Role
+metadata:
+  name: phylo
+  namespace: KEL1LOxyBux
+  labels:
+    release: release-name
+    app: phylo
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - batch
+      - apps
+    verbs:
+      - get
+      - list
+    resources:
+      - statefulsets
+      - daemonsets
+      - jobs
+      - pods
+      - services
+      - endpoints
+      - configmaps
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: RoleBinding
+metadata:
+  name: phylo
+  namespace: KEL1LOxyBux
+  labels:
+    release: release-name
+    app: phylo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: phylo
+subjects:
+  - kind: ServiceAccount
+    name: phylo
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq-mystream-external
+  labels:
+    release: release-name
+    app: phylo-mystream
+spec:
+  selector:
+    release: release-name
+    app: phylo-mystream
+  ports:
+    - port: 15672
+      targetPort: 15672
+      protocol: TCP
+      name: tcp-15672
+    - port: 5672
+      targetPort: 5672
+      protocol: TCP
+      name: tcp-5672
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rtsp-server-mystream-external
+  labels:
+    release: release-name
+    app: phylo-mystream
+spec:
+  selector:
+    release: release-name
+    app: phylo-mystream
+  ports:
+    - port: 8554
+      targetPort: 8554
+      protocol: TCP
+      name: tcp-8554
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wowza
+  labels:
+    release: release-name
+    app: wowza
+spec:
+  selector:
+    release: release-name
+    app: wowza
+  ports:
+    - port: 554
+      targetPort: 554
+      protocol: TCP
+      name: tcp-554
+    - port: 1935
+      targetPort: 1935
+      protocol: TCP
+      name: tcp-1935
+    - port: 8084
+      targetPort: 8084
+      protocol: TCP
+      name: tcp-8084
+    - port: 8085
+      targetPort: 8085
+      protocol: TCP
+      name: tcp-8085
+    - port: 8086
+      targetPort: 8086
+      protocol: TCP
+      name: tcp-8086
+    - port: 8087
+      targetPort: 8087
+      protocol: TCP
+      name: tcp-8087
+    - port: 8088
+      targetPort: 8088
+      protocol: TCP
+      name: tcp-8088
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wowza-external
+  labels:
+    release: release-name
+    app: wowza
+spec:
+  selector:
+    release: release-name
+    app: wowza
+  type: NodePort
+  ports:
+    - name: management
+      port: 8088
+      protocol: TCP
+      nodePort: 30088
+    - name: rtmp
+      port: 1935
+      targetPort: 1935
+      protocol: TCP
+      nodePort: 31935
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: phylo-mystream
+  labels:
+    release: release-name
+    app: phylo-mystream
+spec:
+  selector:
+    matchLabels:
+      release: release-name
+      app: phylo-mystream
+  template:
+    metadata:
+      labels:
+        release: release-name
+        app: phylo-mystream
+    spec:
+      nodeSelector:
+        google-phylo: enabled
+      serviceAccountName: phylo
+      initContainers:
+        - name: phylo-dep-check
+          image: registry.central.aetherproject.net/kubernetes-entrypoint:v0.3.1
+          imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: COMMAND
+              value: echo done
+            - name: DEPENDENCY_POD_JSON
+              value: '[{"labels": {"app": "wowza"}, "requireSameNode": false}]'
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+      containers:
+        - name: rabbitmq
+          image: registry.central.aetherproject.net/google/phylo-rabbitmq:latest
+          imagePullPolicy: Always
+        - name: video-analytics-server
+          image: registry.central.aetherproject.net/google/phylo-video-analytics-server:latest
+          imagePullPolicy: Always
+          env:
+            - name: GLOG_logtostderr
+              value: "1"
+          command:
+            - /bin/bash
+            - -xc
+            - sleep 60 && /bin/run-video-analytics-server.sh
+          resources: null
+          volumeMounts:
+            - name: script
+              mountPath: /bin/run-video-analytics-server.sh
+              readOnly: true
+              subPath: run-video-analytics-server.sh
+        - name: camera-ingestion
+          image: registry.central.aetherproject.net/google/phylo-camera-ingestion-client:latest
+          imagePullPolicy: Always
+          env:
+            - name: GLOG_logtostderr
+              value: "1"
+            - name: SOURCE_URI
+              value: rtmp://10.93.1.30:31935/live/myStream
+          command:
+            - /bin/bash
+            - -xc
+            - sleep 90 && /google/run.sh
+        - name: phylo-rabbitmq-pubsub
+          image: registry.central.aetherproject.net/google/phylo-rmq-pubsub:latest
+          imagePullPolicy: Always
+          env:
+            - name: SOURCE_URI
+              value: rtmp://10.93.1.30:31935/live/myStream
+            - name: RMQ_HOST_NAME
+              value: 0.0.0.0
+          command:
+            - /bin/bash
+            - -xc
+            - sleep 120 && /google/run.sh
+        - name: phylo-rtsp-server
+          image: registry.central.aetherproject.net/google/phylo_rmq-rtsp-server:0.2.0
+          imagePullPolicy: Always
+          command:
+            - /bin/bash
+            - -xc
+            - sleep 150 && /google/rmq_rtsp_server_main --rmq_broker_address=localhost:5672 --rmq_exchange_name=phylo.bbox_decoded_video_frame --resize_width=640 --resize_height=480 --rtsp_port=8554 --rtsp_url_suffix=/live
+      volumes:
+        - name: script
+          configMap:
+            defaultMode: 448
+            name: phylo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wowza
+  labels:
+    release: release-name
+    app: wowza
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      release: release-name
+      app: wowza
+  template:
+    metadata:
+      labels:
+        release: release-name
+        app: wowza
+    spec:
+      nodeSelector:
+        google-phylo: enabled
+      containers:
+        - name: wowza
+          image: registry.central.aetherproject.net/google/wowza:latest
+          imagePullPolicy: Always
+          volumeMounts:
+            - mountPath: /usr/local/WowzaStreamingEngine/data
+              name: wowza
+      volumes:
+        - name: wowza
+          emptyDir: {}

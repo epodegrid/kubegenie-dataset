@@ -1,0 +1,92 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name"
+    },
+    "spec": {
+      "type": "NodePort",
+      "selector": {
+        "name": "release-name"
+      },
+      "ports": [
+        {
+          "name": "dhcp",
+          "protocol": "UDP",
+          "port": 67,
+          "targetPort": 67
+        },
+        {
+          "name": "tftp",
+          "protocol": "UDP",
+          "port": 69,
+          "targetPort": 69
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name"
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "type": "Recreate",
+        "rollingUpdate": null
+      },
+      "selector": {
+        "matchLabels": {
+          "name": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "name": "release-name"
+          },
+          "annotations": {
+            "checksum/attributes": "98796ad9a63bcab7ae6dfa78911163097e8d7ad5886524d64626fc5cd95edb17"
+          }
+        },
+        "spec": {
+          "hostNetwork": false,
+          "containers": [
+            {
+              "name": "dnsmasq",
+              "image": "quay.io/coreos/dnsmasq:v0.5.0",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "--no-daemon",
+                "--no-hosts",
+                "--no-resolv",
+                "--no-poll",
+                "--port=0",
+                "--bind-interfaces",
+                "--dhcp-range=192.168.0.50,192.168.0.99",
+                "--enable-tftp",
+                "--tftp-root=/var/lib/tftpboot",
+                "--dhcp-match=set:bios,option:client-arch,0",
+                "--dhcp-boot=tag:bios,undionly.kpxe",
+                "--dhcp-match=set:efi32,option:client-arch,6",
+                "--dhcp-boot=tag:efi32,ipxe.efi",
+                "--dhcp-match=set:efibc,option:client-arch,7",
+                "--dhcp-boot=tag:efibc,ipxe.efi",
+                "--dhcp-match=set:efi64,option:client-arch,9",
+                "--dhcp-boot=tag:efi64,ipxe.efi",
+                "--dhcp-userclass=set:ipxe,iPXE",
+                "--dhcp-boot=tag:ipxe,http://192.168.0.1:8080/boot.ipxe",
+                "--dhcp-broadcast",
+                "--log-queries",
+                "--log-dhcp"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+]

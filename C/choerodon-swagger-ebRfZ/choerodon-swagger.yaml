@@ -1,0 +1,202 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-choerodon-swagger
+  namespace: ebRfZ
+  labels:
+    app.kubernetes.io/name: choerodon-swagger
+    helm.sh/chart: choerodon-swagger-2.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: server
+      port: 8050
+      targetPort: server
+      nodePort: null
+    - name: actuator
+      port: 8051
+      targetPort: actuator
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: choerodon-swagger
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-choerodon-swagger
+  namespace: ebRfZ
+  labels:
+    app.kubernetes.io/name: choerodon-swagger
+    helm.sh/chart: choerodon-swagger-2.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate:
+      maxSurge: 100%
+      maxUnavailable: 0
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: choerodon-swagger
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: choerodon-swagger
+        helm.sh/chart: choerodon-swagger-2.0.0
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      serviceAccountName: default
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: choerodon-swagger
+                    app.kubernetes.io/instance: release-name
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 33
+      initContainers:
+        - name: server-volume
+          image: registry.cn-shanghai.aliyuncs.com/c7n/choerodon-swagger:2.0.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ecx
+            - |
+              cp -rfp /choerodon/* /opt/choerodon
+          securityContext:
+            runAsUser: 33
+          volumeMounts:
+            - name: volume
+              mountPath: /opt/choerodon
+      containers:
+        - name: choerodon-swagger
+          image: registry.cn-shanghai.aliyuncs.com/c7n/javabase:jdk8u282-b08
+          imagePullPolicy: IfNotPresent
+          workingDir: /opt/choerodon
+          securityContext:
+            runAsUser: 11763
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          args:
+            - /bin/sh
+            - -ecx
+            - java $SKYWALKING_OPTS $JAVA_OPTS -jar /opt/choerodon/choerodon-swagger.jar
+          env:
+            - name: SERVER_PORT
+              value: "8050"
+            - name: MANAGEMENT_SERVER_PORT
+              value: "8051"
+            - name: CHART_VERSION
+              value: 2.0.0
+            - name: EUREKA_DEFAULT_ZONE
+              value: http://dev.hzero.org:8000/eureka/
+            - name: EUREKA_INSTANCE_PREFER_IP_ADDRESS
+              value: "true"
+            - name: FEIGN_CLIENT_CONFIG_DEFAULT_CONNECT_TIMEOUT
+              value: "2000"
+            - name: FEIGN_CLIENT_CONFIG_DEFAULT_READ_TIMEOUT
+              value: "5000"
+            - name: HZERO_GATEWAY_DOMAIN
+              value: dev.hzero.org:8080
+            - name: HZERO_OAUTH_URL
+              value: http://dev.hzero.org/oauth/oauth/authorize
+            - name: HZERO_SWAGGER_BASE_URL
+              value: http://api.example.com/swagger
+            - name: HZERO_SWAGGER_CLIENT
+              value: client
+            - name: HZERO_SWAGGER_FETCH_SECONDS
+              value: "30"
+            - name: HZERO_SWAGGER_FETCH_TIME
+              value: "20"
+            - name: HZERO_SWAGGER_PROTOCOLS
+              value: http
+            - name: HZERO_SWAGGER_SKIP_SERVICE
+              value: register, gateway, oauth
+            - name: LOG_LEVEL
+              value: info
+            - name: SPRING_CLOUD_CONFIG_ENABLED
+              value: "false"
+            - name: SPRING_CLOUD_CONFIG_URI
+              value: http://dev.hzero.org:8010/
+            - name: SPRING_DATASOURCE_CONNECTION_TIMEOUT
+              value: "30000"
+            - name: SPRING_DATASOURCE_MAXIMUM_POOL_SIZE
+              value: "200"
+            - name: SPRING_DATASOURCE_MINIMUM_IDLE
+              value: "20"
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: hzero
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:mysql://db.hzero.org:3306/hzero_admin?useUnicode=true&characterEncoding=utf-8&useSSL=false
+            - name: SPRING_DATASOURCE_USERNAME
+              value: hzero
+            - name: SPRING_REDIS_DATABASE
+              value: "1"
+            - name: SPRING_REDIS_HOST
+              value: redis.hzero.org
+            - name: SPRING_REDIS_POOL_MAX_ACTIVE
+              value: "50"
+            - name: SPRING_REDIS_POOL_MAX_IDLE
+              value: "50"
+            - name: SPRING_REDIS_POOL_MAX_WAIT
+              value: "5000"
+            - name: SPRING_REDIS_PORT
+              value: "6379"
+          envFrom: null
+          ports:
+            - name: server
+              containerPort: 8050
+              protocol: TCP
+            - name: actuator
+              containerPort: 8051
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: server
+            initialDelaySeconds: 480
+            periodSeconds: 5
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: actuator
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 5
+          resources:
+            limits:
+              memory: 2Gi
+            requests:
+              memory: 2Gi
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: volume
+              mountPath: /opt/choerodon
+      volumes:
+        - name: volume
+          emptyDir: {}

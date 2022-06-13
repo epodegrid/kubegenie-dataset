@@ -1,0 +1,1107 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "automountServiceAccountToken": true,
+    "metadata": {
+      "name": "release-name-redis",
+      "namespace": "uetnuvL9ikhHHc",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-15.7.6",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-10.16.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "namespace": "uetnuvL9ikhHHc"
+    },
+    "type": "Opaque",
+    "data": {
+      "postgresql-postgres-password": "b2diTnpONWVRUw==",
+      "postgresql-password": "WTBjQ1JqMWJmWg=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-redis",
+      "namespace": "uetnuvL9ikhHHc",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-15.7.6",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "redis-password": "WDRaVTdsalg2ZA=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-netbox",
+      "labels": {
+        "app.kubernetes.io/name": "netbox",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "helm.sh/chart": "netbox-4.2.0"
+      }
+    },
+    "data": {
+      "SECRET_KEY": "Um5lMlVNOWtwc1dUU1J0cFRHRlNjMENOSGM5NWhYWXVyUlplbTRqc0ZjcDV3dzdFdEo="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-redis-configuration",
+      "namespace": "uetnuvL9ikhHHc",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-15.7.6",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "redis.conf": "# User-supplied common configuration:\n# Enable AOF https://redis.io/topics/persistence#append-only-file\nappendonly yes\n# Disable RDB persistence, AOF persistence already enabled.\nsave \"\"\n# End of common configuration",
+      "master.conf": "dir /data\n# User-supplied master configuration:\nrename-command FLUSHDB \"\"\nrename-command FLUSHALL \"\"\n# End of master configuration",
+      "replica.conf": "dir /data\nslave-read-only yes\n# User-supplied replica configuration:\nrename-command FLUSHDB \"\"\nrename-command FLUSHALL \"\"\n# End of replica configuration"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-redis-health",
+      "namespace": "uetnuvL9ikhHHc",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-15.7.6",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "ping_readiness_local.sh": "#!/bin/bash\n\n[[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD=\"$(< \"${REDIS_PASSWORD_FILE}\")\"\n[[ -n \"$REDIS_PASSWORD\" ]] && export REDISCLI_AUTH=\"$REDIS_PASSWORD\"\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -h localhost \\\n    -p $REDIS_PORT \\\n    ping\n)\nif [ \"$response\" != \"PONG\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_liveness_local.sh": "#!/bin/bash\n\n[[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD=\"$(< \"${REDIS_PASSWORD_FILE}\")\"\n[[ -n \"$REDIS_PASSWORD\" ]] && export REDISCLI_AUTH=\"$REDIS_PASSWORD\"\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -h localhost \\\n    -p $REDIS_PORT \\\n    ping\n)\nif [ \"$response\" != \"PONG\" ] && [ \"$response\" != \"LOADING Redis is loading the dataset in memory\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_readiness_master.sh": "#!/bin/bash\n\n[[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD=\"$(< \"${REDIS_MASTER_PASSWORD_FILE}\")\"\n[[ -n \"$REDIS_MASTER_PASSWORD\" ]] && export REDISCLI_AUTH=\"$REDIS_MASTER_PASSWORD\"\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -h $REDIS_MASTER_HOST \\\n    -p $REDIS_MASTER_PORT_NUMBER \\\n    ping\n)\nif [ \"$response\" != \"PONG\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_liveness_master.sh": "#!/bin/bash\n\n[[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD=\"$(< \"${REDIS_MASTER_PASSWORD_FILE}\")\"\n[[ -n \"$REDIS_MASTER_PASSWORD\" ]] && export REDISCLI_AUTH=\"$REDIS_MASTER_PASSWORD\"\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -h $REDIS_MASTER_HOST \\\n    -p $REDIS_MASTER_PORT_NUMBER \\\n    ping\n)\nif [ \"$response\" != \"PONG\" ] && [ \"$response\" != \"LOADING Redis is loading the dataset in memory\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_readiness_local_and_master.sh": "script_dir=\"$(dirname \"$0\")\"\nexit_status=0\n\"$script_dir/ping_readiness_local.sh\" $1 || exit_status=$?\n\"$script_dir/ping_readiness_master.sh\" $1 || exit_status=$?\nexit $exit_status",
+      "ping_liveness_local_and_master.sh": "script_dir=\"$(dirname \"$0\")\"\nexit_status=0\n\"$script_dir/ping_liveness_local.sh\" $1 || exit_status=$?\n\"$script_dir/ping_liveness_master.sh\" $1 || exit_status=$?\nexit $exit_status"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-redis-scripts",
+      "namespace": "uetnuvL9ikhHHc",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-15.7.6",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "start-master.sh": "#!/bin/bash\n\n[[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD=\"$(< \"${REDIS_PASSWORD_FILE}\")\"\nif [[ ! -f /opt/bitnami/redis/etc/master.conf ]];then\n    cp /opt/bitnami/redis/mounted-etc/master.conf /opt/bitnami/redis/etc/master.conf\nfi\nif [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then\n    cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf\nfi\nARGS=(\"--port\" \"${REDIS_PORT}\")\nARGS+=(\"--requirepass\" \"${REDIS_PASSWORD}\")\nARGS+=(\"--masterauth\" \"${REDIS_PASSWORD}\")\nARGS+=(\"--include\" \"/opt/bitnami/redis/etc/redis.conf\")\nARGS+=(\"--include\" \"/opt/bitnami/redis/etc/master.conf\")\nexec redis-server \"${ARGS[@]}\"\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-netbox",
+      "labels": {
+        "app.kubernetes.io/name": "netbox",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "helm.sh/chart": "netbox-4.2.0"
+      }
+    },
+    "data": {
+      "DB_NAME": "netbox",
+      "DB_USER": "netbox",
+      "DB_HOST": "release-name-postgresql",
+      "DB_PORT": "5432",
+      "REDIS_HOST": "release-name-redis-master",
+      "REDIS_PORT": "6379",
+      "REDIS_SSL": "false"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "netbox-config-files",
+      "labels": {
+        "app.kubernetes.io/name": "netbox",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "helm.sh/chart": "netbox-4.2.0"
+      }
+    },
+    "data": {
+      "nginx.conf": "daemon off;\nworker_processes 1;\n\nerror_log /dev/stderr info;\n\nevents {\n    worker_connections 1024;\n}\n\nhttp {\n    include              /etc/nginx/mime.types;\n    default_type         application/octet-stream;\n    sendfile             on;\n    tcp_nopush           on;\n    keepalive_timeout    65;\n    gzip                 on;\n    server_tokens        off;\n    client_max_body_size 10M;\n\n    upstream netbox {\n      server localhost:8001 fail_timeout=0;\n    }\n\n    server {\n        listen      8080;\n        access_log  off;\n\n        location /static/ {\n            alias /opt/netbox/netbox/static/;\n        }\n\n        location / {\n            proxy_pass http://netbox;\n            proxy_set_header X-Forwarded-Host $http_host;\n            proxy_set_header X-Real-IP $remote_addr;\n            proxy_set_header X-Forwarded-Proto $scheme;\n            add_header P3P 'CP=\"ALL DSP COR PSAa PSDa OUR NOR ONL UNI COM NAV\"';\n        }\n    }\n\n    server {\n        listen      8081;\n        access_log  off;\n\n        location = /stub_status {\n            stub_status;\n        }\n    }\n}"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-postgresql-headless",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-10.16.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "service.alpha.kubernetes.io/tolerate-unready-endpoints": "true"
+      },
+      "namespace": "uetnuvL9ikhHHc"
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "publishNotReadyAddresses": true,
+      "ports": [
+        {
+          "name": "tcp-postgresql",
+          "port": 5432,
+          "targetPort": "tcp-postgresql"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "postgresql",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-10.16.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": null,
+      "namespace": "uetnuvL9ikhHHc"
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "tcp-postgresql",
+          "port": 5432,
+          "targetPort": "tcp-postgresql"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "postgresql",
+        "app.kubernetes.io/instance": "release-name",
+        "role": "primary"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-redis-headless",
+      "namespace": "uetnuvL9ikhHHc",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-15.7.6",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "tcp-redis",
+          "port": 6379,
+          "targetPort": "redis"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "redis",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-redis-master",
+      "namespace": "uetnuvL9ikhHHc",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-15.7.6",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "master"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "tcp-redis",
+          "port": 6379,
+          "targetPort": "redis",
+          "nodePort": null
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "redis",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "master"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-netbox",
+      "labels": {
+        "app.kubernetes.io/name": "netbox",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "helm.sh/chart": "netbox-4.2.0"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "netbox",
+        "app.kubernetes.io/instance": "release-name",
+        "component": "app"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-netbox-housekeeping",
+      "labels": {
+        "app.kubernetes.io/name": "netbox",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "helm.sh/chart": "netbox-4.2.0"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "netbox",
+          "app.kubernetes.io/instance": "release-name",
+          "component": "housekeeping"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config": "a247583861d6785d85939502e7ef6ff4fe76a7e0aeea03c08efa4b2b68121538",
+            "checksum/secrets": "dc198d39e522765f0d902e4e5c14f7fc467d47ccd989fc716ed4a4f98f24863c"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "netbox",
+            "app.kubernetes.io/instance": "release-name",
+            "component": "housekeeping"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "netbox-housekeeping",
+              "command": [
+                "/opt/netbox/housekeeping.sh"
+              ],
+              "image": "netboxcommunity/netbox:v3.1.0",
+              "imagePullPolicy": "Always",
+              "env": [
+                {
+                  "name": "REDIS_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-redis",
+                      "key": "redis-password"
+                    }
+                  }
+                },
+                {
+                  "name": "DB_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-postgresql",
+                      "key": "postgresql-password"
+                    }
+                  }
+                }
+              ],
+              "envFrom": [
+                {
+                  "configMapRef": {
+                    "name": "release-name-netbox"
+                  }
+                },
+                {
+                  "secretRef": {
+                    "name": "release-name-netbox"
+                  }
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-netbox-worker",
+      "labels": {
+        "app.kubernetes.io/name": "netbox",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "helm.sh/chart": "netbox-4.2.0"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "netbox",
+          "app.kubernetes.io/instance": "release-name",
+          "component": "worker"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config": "a247583861d6785d85939502e7ef6ff4fe76a7e0aeea03c08efa4b2b68121538",
+            "checksum/secrets": "0f17421c9673cf21067adfb2fce01a4527ee27ca9fe3ee65dbc3a5e4b2683d36"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "netbox",
+            "app.kubernetes.io/instance": "release-name",
+            "component": "worker"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "netbox-worker",
+              "command": [
+                "/opt/netbox/venv/bin/python3",
+                "/opt/netbox/netbox/manage.py",
+                "rqworker"
+              ],
+              "image": "netboxcommunity/netbox:v3.1.0",
+              "imagePullPolicy": "Always",
+              "env": [
+                {
+                  "name": "REDIS_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-redis",
+                      "key": "redis-password"
+                    }
+                  }
+                },
+                {
+                  "name": "DB_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-postgresql",
+                      "key": "postgresql-password"
+                    }
+                  }
+                }
+              ],
+              "envFrom": [
+                {
+                  "configMapRef": {
+                    "name": "release-name-netbox"
+                  }
+                },
+                {
+                  "secretRef": {
+                    "name": "release-name-netbox"
+                  }
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-netbox",
+      "labels": {
+        "app.kubernetes.io/name": "netbox",
+        "helm.sh/chart": "netbox-4.2.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "netbox",
+          "app.kubernetes.io/instance": "release-name",
+          "component": "app"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config": "a247583861d6785d85939502e7ef6ff4fe76a7e0aeea03c08efa4b2b68121538",
+            "checksum/secrets": "7993a035d8adce28b92032559f923dd593e51037b84d875ac96c1d57f6b1662d"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "netbox",
+            "app.kubernetes.io/instance": "release-name",
+            "component": "app"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "netbox",
+              "image": "netboxcommunity/netbox:v3.1.0",
+              "imagePullPolicy": "Always",
+              "env": [
+                {
+                  "name": "REDIS_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-redis",
+                      "key": "redis-password"
+                    }
+                  }
+                },
+                {
+                  "name": "DB_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-postgresql",
+                      "key": "postgresql-password"
+                    }
+                  }
+                }
+              ],
+              "envFrom": [
+                {
+                  "configMapRef": {
+                    "name": "release-name-netbox"
+                  }
+                },
+                {
+                  "secretRef": {
+                    "name": "release-name-netbox"
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8080,
+                  "protocol": "TCP"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/etc/netbox/media"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "netbox-config-files",
+              "configMap": {
+                "name": "netbox-config-files"
+              }
+            },
+            {
+              "name": "data",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-10.16.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "primary"
+      },
+      "annotations": null,
+      "namespace": "uetnuvL9ikhHHc"
+    },
+    "spec": {
+      "serviceName": "release-name-postgresql-headless",
+      "replicas": 1,
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "postgresql",
+          "app.kubernetes.io/instance": "release-name",
+          "role": "primary"
+        }
+      },
+      "template": {
+        "metadata": {
+          "name": "release-name-postgresql",
+          "labels": {
+            "app.kubernetes.io/name": "postgresql",
+            "helm.sh/chart": "postgresql-10.16.2",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "role": "primary",
+            "app.kubernetes.io/component": "primary"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "podAffinity": null,
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app.kubernetes.io/name": "postgresql",
+                        "app.kubernetes.io/instance": "release-name",
+                        "app.kubernetes.io/component": "primary"
+                      }
+                    },
+                    "namespaces": [
+                      "default"
+                    ],
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 1
+                }
+              ]
+            },
+            "nodeAffinity": null
+          },
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "automountServiceAccountToken": false,
+          "containers": [
+            {
+              "name": "release-name-postgresql",
+              "image": "docker.io/bitnami/postgresql:11.14.0-debian-10-r28",
+              "imagePullPolicy": "IfNotPresent",
+              "resources": {
+                "requests": {
+                  "cpu": "250m",
+                  "memory": "256Mi"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "securityContext": {
+                "runAsUser": 10178,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "env": [
+                {
+                  "name": "BITNAMI_DEBUG",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_PORT_NUMBER",
+                  "value": "5432"
+                },
+                {
+                  "name": "POSTGRESQL_VOLUME_DIR",
+                  "value": "/bitnami/postgresql"
+                },
+                {
+                  "name": "PGDATA",
+                  "value": "/bitnami/postgresql/data"
+                },
+                {
+                  "name": "POSTGRES_POSTGRES_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-postgresql",
+                      "key": "postgresql-postgres-password"
+                    }
+                  }
+                },
+                {
+                  "name": "POSTGRES_USER",
+                  "value": "netbox"
+                },
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-postgresql",
+                      "key": "postgresql-password"
+                    }
+                  }
+                },
+                {
+                  "name": "POSTGRES_DB",
+                  "value": "netbox"
+                },
+                {
+                  "name": "POSTGRESQL_ENABLE_LDAP",
+                  "value": "no"
+                },
+                {
+                  "name": "POSTGRESQL_ENABLE_TLS",
+                  "value": "no"
+                },
+                {
+                  "name": "POSTGRESQL_LOG_HOSTNAME",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_LOG_CONNECTIONS",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_LOG_DISCONNECTIONS",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_PGAUDIT_LOG_CATALOG",
+                  "value": "off"
+                },
+                {
+                  "name": "POSTGRESQL_CLIENT_MIN_MESSAGES",
+                  "value": "error"
+                },
+                {
+                  "name": "POSTGRESQL_SHARED_PRELOAD_LIBRARIES",
+                  "value": "pgaudit"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "tcp-postgresql",
+                  "containerPort": 5432
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/sh",
+                    "-c",
+                    "exec pg_isready -U \"netbox\" -d \"dbname=netbox\" -h 127.0.0.1 -p 5432"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/sh",
+                    "-c",
+                    "-e",
+                    "exec pg_isready -U \"netbox\" -d \"dbname=netbox\" -h 127.0.0.1 -p 5432\n[ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]\n"
+                  ]
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "volumeMounts": [
+                {
+                  "name": "dshm",
+                  "mountPath": "/dev/shm"
+                },
+                {
+                  "name": "data",
+                  "mountPath": "/bitnami/postgresql",
+                  "subPath": null
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "dshm",
+              "emptyDir": {
+                "medium": "Memory"
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "8Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-redis-master",
+      "namespace": "uetnuvL9ikhHHc",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-15.7.6",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "master"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "redis",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "master"
+        }
+      },
+      "serviceName": "release-name-redis-headless",
+      "updateStrategy": {
+        "rollingUpdate": {},
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "redis",
+            "helm.sh/chart": "redis-15.7.6",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "master"
+          },
+          "annotations": {
+            "checksum/configmap": "37d1b9b6c7d7fae21c6536b02822996160fe5ce021edbe71a1c854e376b86de9",
+            "checksum/health": "fbad1d01596211141d99b8f7c2d82767d233eb545fc5fe167232e4595fc546fa",
+            "checksum/scripts": "2855ab954933b3464754970d4e86f8a0212308f4f0402869b8a70b5ee0f0b5f9",
+            "checksum/secret": "c67da80c8e35b6709f98b9a4b39c1b8965c51d5b594196482024d8ceebf7eaf9"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "serviceAccountName": "release-name-redis",
+          "affinity": {
+            "podAffinity": null,
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app.kubernetes.io/name": "redis",
+                        "app.kubernetes.io/instance": "release-name",
+                        "app.kubernetes.io/component": "master"
+                      }
+                    },
+                    "namespaces": [
+                      "default"
+                    ],
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 1
+                }
+              ]
+            },
+            "nodeAffinity": null
+          },
+          "terminationGracePeriodSeconds": 30,
+          "containers": [
+            {
+              "name": "redis",
+              "image": "docker.io/bitnami/redis:6.2.6-debian-10-r97",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 10198,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "command": [
+                "/bin/bash"
+              ],
+              "args": [
+                "-c",
+                "/opt/bitnami/scripts/start-scripts/start-master.sh"
+              ],
+              "env": [
+                {
+                  "name": "BITNAMI_DEBUG",
+                  "value": "false"
+                },
+                {
+                  "name": "REDIS_REPLICATION_MODE",
+                  "value": "master"
+                },
+                {
+                  "name": "ALLOW_EMPTY_PASSWORD",
+                  "value": "no"
+                },
+                {
+                  "name": "REDIS_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-redis",
+                      "key": "redis-password"
+                    }
+                  }
+                },
+                {
+                  "name": "REDIS_TLS_ENABLED",
+                  "value": "no"
+                },
+                {
+                  "name": "REDIS_PORT",
+                  "value": "6379"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "redis",
+                  "containerPort": 6379
+                }
+              ],
+              "livenessProbe": {
+                "initialDelaySeconds": 20,
+                "periodSeconds": 5,
+                "timeoutSeconds": 6,
+                "successThreshold": 1,
+                "failureThreshold": 5,
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "/health/ping_liveness_local.sh 5"
+                  ]
+                }
+              },
+              "readinessProbe": {
+                "initialDelaySeconds": 20,
+                "periodSeconds": 5,
+                "timeoutSeconds": 2,
+                "successThreshold": 1,
+                "failureThreshold": 5,
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "/health/ping_readiness_local.sh 1"
+                  ]
+                }
+              },
+              "resources": {
+                "limits": {},
+                "requests": {},
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "start-scripts",
+                  "mountPath": "/opt/bitnami/scripts/start-scripts"
+                },
+                {
+                  "name": "health",
+                  "mountPath": "/health"
+                },
+                {
+                  "name": "redis-data",
+                  "mountPath": "/data",
+                  "subPath": null
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/opt/bitnami/redis/mounted-etc"
+                },
+                {
+                  "name": "redis-tmp-conf",
+                  "mountPath": "/opt/bitnami/redis/etc/"
+                },
+                {
+                  "name": "tmp",
+                  "mountPath": "/tmp"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "start-scripts",
+              "configMap": {
+                "name": "release-name-redis-scripts",
+                "defaultMode": 493
+              }
+            },
+            {
+              "name": "health",
+              "configMap": {
+                "name": "release-name-redis-health",
+                "defaultMode": 493
+              }
+            },
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-redis-configuration"
+              }
+            },
+            {
+              "name": "redis-tmp-conf",
+              "emptyDir": {}
+            },
+            {
+              "name": "tmp",
+              "emptyDir": {}
+            },
+            {
+              "name": "redis-data",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-netbox-test-connection",
+      "labels": {
+        "app.kubernetes.io/name": "netbox",
+        "helm.sh/chart": "netbox-4.2.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test-success"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "wget",
+          "image": "busybox",
+          "command": [
+            "wget"
+          ],
+          "args": [
+            "release-name-netbox:80"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

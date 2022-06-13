@@ -1,0 +1,212 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-gotosocial",
+      "labels": {
+        "helm.sh/chart": "gotosocial-0.1.4",
+        "app.kubernetes.io/name": "gotosocial",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.3.4",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-gotosocial"
+    },
+    "data": {
+      "config.yaml": "###########################\n##### GENERAL CONFIG ######\n###########################\nlog-level: info\nlog-db-queries: false\napplication-name: gotosocial\nhost: \naccount-domain: \nprotocol: https\nbind-address: 0.0.0.0\nport: 8080\ntrusted-proxies:\n  - \"127.0.0.1/32\"\n  - 10.0.0.0/8\n  - 172.16.0.0/12\n  - 192.168.0.0/16\n#\n######################\n##### WEB CONFIG #####\n######################\nweb-template-base-dir: ./web/template/\nweb-asset-base-dir: ./web/assets/\n###########################\n##### ACCOUNTS CONFIG #####\n###########################\naccounts-registration-open:  true\naccounts-approval-required:  true\naccounts-reason-required:  true\n########################\n##### MEDIA CONFIG #####\n########################\nmedia-image-max-size: 2097152\nmedia-video-max-size: 10485760\nmedia-description-min-chars: 0\nmedia-description-max-chars: 500\nmedia-remote-cache-days: 30\n##########################\n##### STORAGE CONFIG #####\n##########################\nstorage-backend: local\nstorage-local-base-path: \"/gotosocial/storage\"\n###########################\n##### STATUSES CONFIG #####\n###########################\nstatuses-max-chars: 5000\nstatuses-cw-max-chars: 100\nstatuses-poll-max-options: 6\nstatuses-poll-option-max-chars: 50\nstatuses-media-max-files: 6\n##############################\n##### LETSENCRYPT CONFIG #####\n##############################\nletsencrypt-enabled: false\nletsencrypt-port: 80\nletsencrypt-cert-dir: /gotosocial/storage/certs\nletsencrypt-email-address: \n#######################\n##### OIDC CONFIG #####\n#######################\noidc-enabled: false\noidc-idp-name: \noidc-skip-verification: false\noidc-issuer: \noidc-client-id: \noidc-client-secret: \noidc-scopes:\n  - openid\n  - email\n  - profile\n  - groups\n#######################\n##### SMTP CONFIG #####\n#######################\nsmtp-host: \nsmtp-port: 0\nsmtp-username: \nsmtp-password: \nsmtp-from: \n#########################\n##### SYSLOG CONFIG #####\n#########################\nsyslog-enabled: false\nsyslog-protocol: udp\nsyslog-address: localhost:514\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-gotosocial",
+      "labels": {
+        "helm.sh/chart": "gotosocial-0.1.4",
+        "app.kubernetes.io/name": "gotosocial",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.3.4",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 8080,
+          "targetPort": "gotosocial",
+          "protocol": "TCP",
+          "name": "gotosocial"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "gotosocial",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-gotosocial",
+      "labels": {
+        "helm.sh/chart": "gotosocial-0.1.4",
+        "app.kubernetes.io/name": "gotosocial",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.3.4",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "type": "Recreate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "gotosocial",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "gotosocial",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-gotosocial",
+          "securityContext": {
+            "fsGroup": 1000,
+            "runAsGroup": 1000,
+            "runAsUser": 1000
+          },
+          "containers": [
+            {
+              "name": "gotosocial",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true,
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "image": "superseriousbusiness/gotosocial:0.3.4",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "--config-path",
+                "/config/config.yaml"
+              ],
+              "ports": [
+                {
+                  "name": "gotosocial",
+                  "containerPort": 8080,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "gotosocial"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "gotosocial"
+                }
+              },
+              "resources": {
+                "limits": {
+                  "cpu": "500m",
+                  "memory": "512Mi"
+                },
+                "requests": {
+                  "cpu": "500m",
+                  "memory": "512Mi"
+                }
+              },
+              "env": [
+                {
+                  "name": "GTS_DB_TYPE",
+                  "value": "sqlite"
+                },
+                {
+                  "name": "GTS_DB_ADDRESS",
+                  "value": "/gotosocial/storage/sqlite.db"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "gotosocial-config",
+                  "mountPath": "/config/",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "gotosocial-config",
+              "configMap": {
+                "name": "release-name-gotosocial",
+                "items": [
+                  {
+                    "key": "config.yaml",
+                    "path": "config.yaml"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-gotosocial-test-connection",
+      "labels": {
+        "helm.sh/chart": "gotosocial-0.1.4",
+        "app.kubernetes.io/name": "gotosocial",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.3.4",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "wget",
+          "image": "busybox",
+          "command": [
+            "wget"
+          ],
+          "args": [
+            "release-name-gotosocial:8080"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

@@ -1,0 +1,474 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-trino-connectors",
+      "labels": {
+        "app": "trino",
+        "chart": "trino-0.1.23",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "connectors"
+      }
+    },
+    "data": {
+      "memory.properties": "connector.name=memory",
+      "tpcds.properties": "connector.name=tpcds\ntpcds.splits-per-node=4"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-trino-coordinator",
+      "labels": {
+        "app": "trino",
+        "chart": "trino-0.1.23",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "coordinator"
+      }
+    },
+    "data": {
+      "node.properties": "node.environment=production\nnode.data-dir=/data/trino\nplugin.dir=/usr/lib/trino/plugin\n",
+      "jvm.config": "-server\n-XX:MaxRAMPercentage=80\n-XX:MinRAMPercentage=70\n-XX:+UseG1GC\n-XX:G1HeapRegionSize=32M\n-XX:+UseGCOverheadLimit\n-XX:+ExplicitGCInvokesConcurrent\n-XX:+HeapDumpOnOutOfMemoryError\n-XX:+ExitOnOutOfMemoryError\n-Djdk.attach.allowAttachSelf=true\n\n-Dcom.sun.management.jmxremote\n-Dcom.sun.management.jmxremote.local.only=false\n-Dcom.sun.management.jmxremote.authenticate=false\n-Dcom.sun.management.jmxremote.ssl=false\n-Dcom.sun.management.jmxremote.port=9080\n-Dcom.sun.management.jmxremote.rmi.port=9081\n",
+      "config.properties": "coordinator=true\nnode-scheduler.include-coordinator=false\nhttp-server.http.port=8080\nquery.max-memory=4GB\nquery.max-memory-per-node=1GB\ndiscovery-server.enabled=true\ndiscovery.uri=http://localhost:8080\n\njmx.rmiregistry.port=9080\njmx.rmiserver.port=9081\n",
+      "log.properties": "io.trinosql=INFO\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-trino-jmx-exporter",
+      "labels": {
+        "app": "trino",
+        "chart": "trino-0.1.23",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "exporter"
+      }
+    },
+    "data": {
+      "config.yml": "jmxUrl: service:jmx:rmi:///jndi/rmi://localhost:9080/jmxrmi\nlowercaseOutputLabelNames: true\nlowercaseOutputName: true\nrules:\n- help: Number of HTTP requests made\n  labels:\n    client: $1\n    code: $2\n  name: trino_http_requests_total\n  pattern: io.airlift.http.client<type=HttpClient, name=For(.+)><>(\\dxx)Response.TotalCount\n  type: COUNTER\n- help: Bytes transferred for HTTP requests\n  labels:\n    client: $1\n    direction: $2\n  name: trino_http_bytes_total\n  pattern: io.airlift.http.client<type=HttpClient, name=For(.+)><>ConnectionStats.(Received|Sent)Bytes\n  type: COUNTER\n- help: Number of open HTTP connections\n  labels:\n    client: $1\n  name: trino_http_open_connections\n  pattern: io.airlift.http.client<type=HttpClient, name=For(.+)><>ConnectionStats.OpenConnectionCount\n  type: GAUGE\n- help: Maximum observed number of open HTTP connections\n  labels:\n    client: $1\n  name: trino_http_open_connections_max\n  pattern: io.airlift.http.client<type=HttpClient, name=For(.+)><>ConnectionStats.MaxOpenConnections\n  type: GAUGE\n- help: Number of HTTP requests queued per destination\n  labels:\n    client: $1\n  name: trino_http_queued_requests_per_destination\n  pattern: io.airlift.http.client<type=HttpClient, name=For(.+)><>QueuedRequestsPerDestination.Count\n  type: GAUGE\n- help: Maximum observed number of HTTP requests queued per destination\n  labels:\n    client: $1\n  name: trino_http_queued_requests_per_destination_max\n  pattern: io.airlift.http.client<type=HttpClient, name=For(.+)><>QueuedRequestsPerDestination.Max\n  type: GAUGE\n- help: $2 threads in HTTP client thread pool\n  labels:\n    client: $1\n  name: trino_http_thread_pool_$2_threads\n  pattern: io.airlift.http.client<type=HttpClient, name=For(.+)><>ThreadPool.(Max|Min|Busy|Idle|)Threads\n  type: GAUGE\n- help: Number of days until server certificate expiry\n  name: trino_http_server_certificate_expiry_days\n  pattern: io.airlift.http.server<name=HttpServer><>DaysUntilCertificateExpiration\n  type: GAUGE\n- help: Bytes transferred for serving HTTP requests\n  labels:\n    direction: $1\n  name: trino_http_server_bytes_total\n  pattern: io.airlift.http.server<type=HttpServer><>HttpConnectionStats.(Received|Sent)Bytes\n  type: COUNTER\n- help: Number of open connections on the HTTP server\n  name: trino_http_server_open_connections\n  pattern: io.airlift.http.server<name=HttpServer><>HttpConnectionStats.OpenConnectionCount\n  type: GAUGE\n- help: Maximum observed number of open connections on the HTTP server\n  name: trino_http_server_open_connections_max\n  pattern: io.airlift.http.server<name=HttpServer><>HttpConnectionStats.MaxOpenConnections\n  type: GAUGE\n- help: A metric with constant 1 value labelled with node information\n  labels:\n    $1: $2\n  name: trino_node_info\n  pattern: 'io.airlift.node<name=NodeInfo><>(Environment|ExternalAddress|InstanceId|InternalAddress|NodeId|StartTime):\n    (.+)'\n  type: GAUGE\n  value: 1\n- help: Total number of JVM pauses\n  labels:\n    bucket: $1\n  name: trino_pauses_total\n  pattern: io.airlift.stats<name=PauseMeter><>(.+)Pauses\n  type: COUNTER\n- help: Total time in seconds for which JVM was paused\n  name: trino_pause_seconds_total\n  pattern: io.airlift.stats<name=PauseMeter><>TotalPauseSeconds\n  type: COUNTER\n- help: Total number of garbage collections\n  labels:\n    name: $1\n  name: jvm_gc_total\n  pattern: java.lang<name=(.+), type=GarbageCollector><>CollectionCount\n  type: COUNTER\n- help: Total time in seconds spent on garbage collections\n  labels:\n    name: $1\n  name: jvm_gc_time_seconds_total\n  pattern: java.lang<name=(.+), type=GarbageCollector><>CollectionTime\n  type: COUNTER\n  valueFactor: 0.001\n- help: Garbage collection duration in seconds\n  labels:\n    name: $1\n  name: jvm_gc_duration_seconds\n  pattern: java.lang<name=(.+), type=GarbageCollector><LastGcInfo>duration\n  type: GAUGE\n  valueFactor: 1e-06\n- help: Garbage collection threads used\n  labels:\n    name: $1\n  name: jvm_gc_threads\n  pattern: java.lang<name=(.+), type=GarbageCollector><LastGcInfo>GcThreadCount\n  type: GAUGE\n- help: $2 bytes in $1 memory\n  labels:\n    area: $1\n  name: jvm_memory_$2_bytes\n  pattern: java.lang<type=Memory><(Heap|NonHeap)MemoryUsage>(max|init|committed|used)\n  type: GAUGE\n- help: Number of CPU cores available\n  name: jvm_os_processors\n  pattern: java.lang<type=OperatingSystem><>AvailableProcessors\n  type: GAUGE\n- help: $1 in bytes\n  name: jvm_os_$1_bytes\n  pattern: java.lang<type=OperatingSystem><>(CommittedVirtualMemory|FreePhysicalMemory|TotalPhysicalMemory|FreeSwapSpace|TotalSwapSpace)Size\n  type: GAUGE\n- help: $1 file descriptors\n  name: jvm_os_$1_file_descriptors\n  pattern: java.lang<type=OperatingSystem><>(Max|Open)FileDescriptorCount\n  type: GAUGE\n- help: $1 cpu load\n  name: jvm_os_$1_cpu_load\n  pattern: java.lang<type=OperatingSystem><>(Process|System)CpuLoad\n  type: GAUGE\n- help: $1 cpu time in seconds\n  name: jvm_os_$1_cpu_time_seconds\n  pattern: java.lang<type=OperatingSystem><>(Process|System)CpuTime\n  type: COUNTER\n- help: System load average\n  name: jvm_os_system_load_avg\n  pattern: java.lang<type=OperatingSystem><>SystemLoadAverage\n  type: GAUGE\n- help: A metric with constant 1 value labelled with OS information\n  labels:\n    $1: $2\n  name: jvm_os_info\n  pattern: 'java.lang<type=OperatingSystem><>(Arch|Name|Version): (.+)'\n  type: GAUGE\n  value: 1\n- help: JVM uptime in seconds\n  name: jvm_runtime_uptime_seconds\n  pattern: java.lang<type=Runtime><>Uptime\n  type: COUNTER\n  valueFactor: 0.001\n- help: JVM $1 thread count\n  name: jvm_threading_$1_threads\n  pattern: java.lang<type=Threading><>(Daemon|Peak|TotalStarted|)ThreadCount\n  type: GAUGE\n- help: Number of buffers in NIO buffer pool\n  labels:\n    pool: $1\n  name: jvm_nio_buffer_pool_buffers\n  pattern: java.nio<name=(.+), type=BufferPool><>Count\n  type: GAUGE\n- help: NIO buffer pool $2 in bytes\n  labels:\n    pool: $1\n  name: jvm_nio_buffer_pool_$2_bytes\n  pattern: java.nio<name=(.+), type=BufferPool><>(MemoryUsed|TotalCapacity)\n  type: GAUGE\n- help: Number of workers required in cluster\n  name: trino_cluster_size_monitor_required_workers\n  pattern: trino.execution<name=ClusterSizeMonitor><>RequiredWorkers\n  type: GAUGE\n- help: Total number of queries\n  labels:\n    state: $1\n  name: trino_query_manager_queries_total\n  pattern: trino.execution<name=QueryManager><>(Abandoned|Canceled|Completed|Failed|Started|Submitted)Queries.TotalCount\n  type: COUNTER\n- help: Number of queries currently in the labelled state\n  labels:\n    state: $1\n  name: trino_query_manager_queries\n  pattern: trino.execution<name=QueryManager><>(Queued|Running)Queries\n  type: GAUGE\n- help: Total CPU time consumed across all queries in seconds\n  name: trino_query_manager_consumed_cpu_time_seconds_total\n  pattern: trino.execution<name=QueryManager><>ConsumedCpuTimeSecs.TotalCount\n  type: COUNTER\n- help: Total input bytes consumed across all queries in bytes\n  name: trino_query_manager_consumed_input_bytes_total\n  pattern: trino.execution<name=QueryManager><>ConsumedInputBytes.TotalCount\n  type: COUNTER\n- help: Total number of input rows consumed across all queries\n  name: trino_query_manager_consumed_input_rows_total\n  pattern: trino.execution<name=QueryManager><>ConsumedInputRows.TotalCount\n  type: COUNTER\n- help: $2 rate $1\n  name: trino_query_manager_$1_rate_$2\n  pattern: trino.execution<name=QueryManager><>(CpuInputByte|WallInputBytes)Rate.AllTime.(Avg|Min|Max)\n  type: GAUGE\n- help: $1 rate for the labelled quantile\n  labels:\n    quantile: 0.$2\n  name: trino_query_manager_$1_rate\n  pattern: trino.execution<name=QueryManager><>(CpuInputByte|WallInputBytes)Rate.AllTime.P(\\d+)\n  type: GAUGE\n- help: $1 rate count\n  name: trino_query_manager_$1_rate_count\n  pattern: trino.execution<name=QueryManager><>(CpuInputByte|WallInputBytes)Rate.AllTime.Count\n  type: COUNTER\n- help: $2 $1 time in seconds\n  name: trino_query_manager_$1_seconds_$2\n  pattern: trino.execution<name=QueryManager><>(Execution|Queued)Time.AllTime.(Avg|Min|Max)\n  type: GAUGE\n  valueFactor: 0.001\n- help: $1 time in seconds for the labelled quantile\n  labels:\n    quantile: 0.$2\n  name: trino_query_manager_$1_seconds\n  pattern: trino.execution<name=QueryManager><>(Execution|Queued)Time.AllTime.P(\\d+)\n  type: GAUGE\n  valueFactor: 0.001\n- help: $1 time count\n  name: trino_query_manager_$1_seconds_count\n  pattern: trino.execution<name=QueryManager><>(Execution|Queued)Time.AllTime.Count\n  type: COUNTER\n  valueFactor: 0.001\n- help: Total number of failures with the labelled type\n  labels:\n    type: $1\n  name: trino_query_manager_failures_total\n  pattern: trino.execution<name=QueryManager><>(External|InsufficientResources|Internal|UserError)Failures.TotalCount\n  type: COUNTER\n- help: Total time spent in the labelled level of the MLFQ in seconds\n  labels:\n    level: $1\n  name: trino_multilevel_split_queue_level_time_seconds_total\n  pattern: trino.execution.executor<name=MultilevelSplitQueue><>Level(\\d)Time\n  type: COUNTER\n  valueFactor: 1e-09\n- help: Total number of times the labelled level was selected\n  labels:\n    level: $1\n  name: trino_multilevel_split_queue_level_selected_total\n  pattern: trino.execution.executor<name=MultilevelSplitQueue><>SelectedCountLevel(\\d).TotalCount\n  type: COUNTER\n- help: $2 $1 in seconds\n  name: trino_task_executor_$1_seconds_$2\n  pattern: trino.execution.executor<name=TaskExecutor><>(BlockedQuantaWallTime|SplitQueuedTime|SplitWallTime|UnblockedQuantaWallTime).AllTime.(Avg|Min|Max)\n  type: GAUGE\n  valueFactor: 1e-06\n- help: $1 in seconds for the labelled quantile\n  labels:\n    quantile: 0.$2\n  name: trino_task_executor_$1_seconds\n  pattern: trino.execution.executor<name=TaskExecutor><>(BlockedQuantaWallTime|SplitQueuedTime|SplitWallTime|UnblockedQuantaWallTime).AllTime.P(\\d+)\n  type: GAUGE\n  valueFactor: 1e-06\n- help: $1 in seconds count\n  name: trino_task_executor_$1_seconds_count\n  pattern: trino.execution.executor<name=TaskExecutor><>(BlockedQuantaWallTime|SplitQueuedTime|SplitWallTime|UnblockedQuantaWallTime).AllTime.Count\n  type: COUNTER\n  valueFactor: 1e-06\n- help: Number of splits in the labelled state\n  labels:\n    state: $1\n  name: trino_task_executor_splits\n  pattern: trino.execution.executor<name=TaskExecutor><>(Blocked|Intermediate|Running|Waiting)Splits\n  type: GAUGE\n- help: Total number of splits\n  name: trino_task_executor_splits_total\n  pattern: trino.execution.executor<name=TaskExecutor><>TotalSplits\n  type: COUNTER\n- help: $2 $1 in seconds\n  name: trino_task_executor_$1_seconds_$2\n  pattern: trino.execution.executor<name=TaskExecutor><>(IntermediateSplitCpu|IntermediateSplitScheduled|IntermediateSplitWait|IntermediateSplitWall|LeafSplitCpu|LeafSplitScheduled|LeafSplitWait|LeafSplitWall)Time.(Avg|Min|Max)\n  type: GAUGE\n  valueFactor: 1e-06\n- help: $1 in seconds for the labelled quantile\n  labels:\n    quantile: 0.$2\n  name: trino_task_executor_$1_seconds\n  pattern: trino.execution.executor<name=TaskExecutor><>(IntermediateSplitCpu|IntermediateSplitScheduled|IntermediateSplitWait|IntermediateSplitWall|LeafSplitCpu|LeafSplitScheduled|LeafSplitWait|LeafSplitWall)Time.P(\\d+)\n  type: GAUGE\n  valueFactor: 1e-06\n- help: $1 in seconds count\n  name: trino_task_executor_$1_seconds_count\n  pattern: trino.execution.executor<name=TaskExecutor><>(IntermediateSplitCpu|IntermediateSplitScheduled|IntermediateSplitWait|IntermediateSplitWall|LeafSplitCpu|LeafSplitScheduled|LeafSplitWait|LeafSplitWall)Time.Count\n  type: COUNTER\n  valueFactor: 1e-06\n- help: $2 for the labelled resource group name\n  labels:\n    group: $1\n  name: trino_resourcegroups_$2\n  pattern: trino.execution.resourcegroups<type=InternalResourceGroup, name=(.+)><>(HardConcurrencyLimit|MaxQueuedQueries|QueuedQueries|RunningQueries|WaitingQueuedQueries)\n  type: GAUGE\n- help: Number of $1 nodes observed by the failure detector\n  name: trino_failuredetector_$1_nodes\n  pattern: trino.failuredetector<name=HeartbeatFailureDetector><>(Active|Failed|Total)Count\n  type: GAUGE\n- help: Cluster $1 in bytes\n  name: trino_cluster_memory_manager_$1_bytes\n  pattern: trino.memory<name=ClusterMemoryManager><>Cluster(MemoryBytes|TotalMemoryReservation|UserMemoryReservation)\n  type: GAUGE\n- help: Cluster total available CPU cores\n  name: trino_cluster_memory_manager_available_processors\n  pattern: trino.memory<name=ClusterMemoryManager><>TotalAvailableProcessors\n  type: GAUGE\n- help: Total $1\n  name: trino_cluster_memory_manager_$1_total\n  pattern: trino.memory<name=ClusterMemoryManager><>(NumberOfLeakedQueries|QueriesKilledDueToOutOfMemory)\n  type: COUNTER\n- help: $1 in the labelled cluster memory pool\n  labels:\n    pool: $1\n  name: trino_cluster_memory_pool_$2\n  pattern: trino.memory<type=ClusterMemoryPool, name=(.+)><>(AssignedQueries|BlockedNodes|Nodes)\n  type: GAUGE\n- help: $1 distributed memory in the labelled cluster memory pool in bytes\n  labels:\n    pool: $1\n  name: trino_cluster_memory_pool_$2_distributed_bytes\n  pattern: trino.memory<type=ClusterMemoryPool, name=(.+)><>(Free|Reserved|ReservedRevocable|Total)DistributedBytes\n  type: GAUGE\n- help: $1 memory in the labelled memory pool in bytes\n  labels:\n    pool: $1\n  name: trino_memory_pool_$2_bytes\n  pattern: trino.memory<type=MemoryPool, name=(.+)><>(Free|Max|Reserved|ReservedRevocable)Bytes\n  type: GAUGE\n- help: Number of $1 nodes as seen by discovery service\n  name: trino_metadata_$1_nodes\n  pattern: trino.metadata<name=DiscoveryNodeManager><>(Active|Inactive|ShuttingDown)NodeCount\n  type: GAUGE\n- help: $2 count of the CachingDirectoryLister for the labelled catalog\n  labels:\n    catalog: $1\n  name: trino_plugin_hive_caching_directory_lister_$2_count_total\n  pattern: trino.plugin.hive<type=CachingDirectoryLister, name=(.+)><>(Hit|Miss|Request)Count\n  type: COUNTER\n- help: Total number of files observed with the labelled sizes for the labelled catalog\n  labels:\n    bucket: $2\n    catalog: $1\n  name: trino_plugin_hive_file_format_stats_count_total\n  pattern: trino.plugin.hive<type=FileFormatDataSourceStats, name=(.+)><>(0Bto100KB|100KBto1MB|1MBto10MB|10MBPlus).AllTime.Count\n  type: COUNTER\n- help: $2 bytes read from the labelled catalog\n  labels:\n    catalog: $1\n  name: trino_plugin_hive_file_format_stats_read_bytes_$2\n  pattern: trino.plugin.hive<type=FileFormatDataSourceStats, name=(.+)><>ReadBytes.AllTime.(Avg|Min|Max)\n  type: GAUGE\n- help: Bytes read from the labelled catalog for the labelled quantile\n  labels:\n    catalog: $1\n    quantile: 0.$2\n  name: trino_plugin_hive_file_format_stats_read_bytes_$2\n  pattern: trino.plugin.hive<type=FileFormatDataSourceStats, name=(.+)><>ReadBytes.AllTime.P(\\d+)\n  type: GAUGE\n- help: Total bytes read from the labelled catalog\n  labels:\n    catalog: $1\n  name: trino_plugin_hive_file_format_stats_read_bytes_sum\n  pattern: trino.plugin.hive<type=FileFormatDataSourceStats, name=(.+)><>ReadBytes.AllTime.Total\n  type: COUNTER\n- help: $3 time taken by $2 in seconds for the labelled catalog\n  labels:\n    catalog: $1\n  name: trino_plugin_hive_namenode_$2_seconds_$3\n  pattern: trino.plugin.hive<type=NamenodeStats, name=(.+)><>(ListLocatedStatus|RemoteIteratorNext).Time.AllTime.(Avg|Min|Max)\n  type: GAUGE\n- help: Time taken by $2 in seconds for the labelled quantile for the labelled catalog\n  labels:\n    catalog: $1\n    quantile: 0.$3\n  name: trino_plugin_hive_namenode_$2_seconds\n  pattern: trino.plugin.hive<type=NamenodeStats, name=(.+)><>(ListLocatedStatus|RemoteIteratorNext).Time.AllTime.P(\\d+)\n  type: GAUGE\n- help: Count of $2 for the labelled catalog\n  labels:\n    catalog: $1\n  name: trino_plugin_hive_namenode_$1_seconds_count\n  pattern: trino.plugin.hive<type=NamenodeStats, name=(.+)><>(ListLocatedStatus|RemoteIteratorNext).Time.AllTime.Count\n  type: COUNTER\n- help: $3 rate for the labelled catalog and operation\n  labels:\n    catalog: $1\n    operation: $2\n  name: trino_plugin_hive_metastore_$2_rate\n  pattern: trino.plugin.hive.metastore.cache<type=CachingHiveMetastore, name=(.+)><>(.+)Stats.(Hit|Miss)Rate\n  type: GAUGE\n- help: $3 rate for the labelled catalog and operation\n  labels:\n    catalog: $1\n    operation: $2\n  name: trino_plugin_hive_metastore_$2_rate\n  pattern: trino.plugin.hive.metastore.glue<type=GlueHiveMetastore, name=(.+)><>(.+)Stats.(Hit|Miss)Rate\n  type: GAUGE\n- help: Total count of $3 for the labelled catalog\n  labels:\n    catalog: $2\n  name: trino_plugin_hive_s3_$3_count_total\n  pattern: trino.plugin.hive.s3<type=PrestoS3FileSystem, name=(.+), catalog=(.+)><>(.+).TotalCount\n  type: COUNTER\n- help: $4 $3 in seconds for the labelled catalog\n  labels:\n    catalog: $2\n  name: trino_plugin_hive_s3_$3_seconds_$4\n  pattern: trino.plugin.hive.s3<type=PrestoS3FileSystem, name=(.+), catalog=(.+)><>(.+).AllTime.(Avg|Min|Max)\n  type: GAUGE\n  valueFactor: 0.001\n- help: $3 in seconds for the labelled quantile and catalog\n  labels:\n    catalog: $2\n    quantile: 0.$4\n  name: trino_plugin_hive_s3_$3_seconds\n  pattern: trino.plugin.hive.s3<type=PrestoS3FileSystem, name=(.+), catalog=(.+)><>(.+).AllTime.P(\\d+)\n  type: GAUGE\n  valueFactor: 0.001\n- help: $3 in seconds count for the labelled catalog\n  labels:\n    catalog: $2\n  name: trino_plugin_hive_s3_$3_seconds_count\n  pattern: trino.plugin.hive.s3<type=PrestoS3FileSystem, name=(.+), catalog=(.+)><>(.+).AllTime.Count\n  type: COUNTER\n  valueFactor: 0.001\n- help: Number of $1\n  name: trino_security_$1_count_total\n  pattern: trino.security<name=AccessControlManager><>(.+).TotalCount\n  type: COUNTER\n- name: trino_sql_gen_$1_$2_$3_rate\n  pattern: trino.sql.gen<name=(.+)><>(.+).(Hit|Miss)Rate\n  type: GAUGE\n- name: trino_sql_gen_$1_$2_request_count\n  pattern: trino.sql.gen<name=(.+)><>(.+).RequestCount\n  type: COUNTER\n- labels:\n    rule: $3\n  name: trino_sql_planner_$2_$4\n  pattern: trino.sql.planner.(.+)<name=(.+), rule=(.+)><>(Failures|Hits)\n  type: COUNTER\n- labels:\n    rule: $3\n  name: trino_sql_planner_$2_seconds_$4\n  pattern: trino.sql.planner.(.+)<name=(.+), rule=(.+)><>Time.(Avg|Min|Max)\n  type: GAUGE\n  valueFactor: 1e-06\n- labels:\n    quantile: 0.$4\n    rule: $3\n  name: trino_sql_planner_$2_seconds\n  pattern: trino.sql.planner.(.+)<name=(.+), rule=(.+)><>Time.P(\\d+)\n  type: GAUGE\n  valueFactor: 1e-06\n- labels:\n    rule: $3\n  name: trino_sql_planner_$2_seconds_count\n  pattern: trino.sql.planner.(.+)<name=(.+), rule=(.+)><>Time.Count\n  type: COUNTER\nstartDelaySeconds: 30\nwhitelistObjectNames:\n- io.airlift.http.client:*\n- io.airlift.http.server:*\n- io.airlift.node:*\n- io.airlift.stats:*\n- java.lang:*\n- java.nio:*\n- trino.execution:*\n- trino.execution.executor:*\n- trino.execution.resourcegroups:*\n- trino.failuredetector:*\n- trino.memory:*\n- trino.metadata:*\n- trino.plugin.hive:*\n- trino.plugin.hive.metastore.cache:*\n- trino.plugin.hive.metastore.glue:*\n- trino.plugin.hive.s3:*\n- trino.security:*\n- trino.sql.gen:*\n- trino.sql.planner.iterative:*\n- trino.sql.planner.optimizations:*"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-trino-worker",
+      "labels": {
+        "app": "trino",
+        "chart": "trino-0.1.23",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "worker"
+      }
+    },
+    "data": {
+      "node.properties": "node.environment=production\nnode.data-dir=/data/trino\nplugin.dir=/usr/lib/trino/plugin\n",
+      "jvm.config": "-server\n-XX:MaxRAMPercentage=80\n-XX:MinRAMPercentage=70\n-XX:+UseG1GC\n-XX:G1HeapRegionSize=32M\n-XX:+UseGCOverheadLimit\n-XX:+ExplicitGCInvokesConcurrent\n-XX:+HeapDumpOnOutOfMemoryError\n-XX:+ExitOnOutOfMemoryError\n-Djdk.attach.allowAttachSelf=true\n\n-Dcom.sun.management.jmxremote\n-Dcom.sun.management.jmxremote.local.only=false\n-Dcom.sun.management.jmxremote.authenticate=false\n-Dcom.sun.management.jmxremote.ssl=false\n-Dcom.sun.management.jmxremote.port=9080\n-Dcom.sun.management.jmxremote.rmi.port=9081\n",
+      "config.properties": "coordinator=false\nhttp-server.http.port=8080\nquery.max-memory=4GB\nquery.max-memory-per-node=1GB\ndiscovery.uri=http://release-name-trino:8080\n\njmx.rmiregistry.port=9080\njmx.rmiserver.port=9081\n",
+      "log.properties": "io.trinosql=INFO\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-trino",
+      "labels": {
+        "app": "trino",
+        "chart": "trino-0.1.23",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "coordinator"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 8080,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app": "trino",
+        "release": "release-name",
+        "component": "coordinator"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-trino-jmx",
+      "labels": {
+        "app": "trino",
+        "monitoring.service": "jmx",
+        "release": "release-name",
+        "chart": "trino-0.1.23",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 9999,
+          "targetPort": "prom-exporter",
+          "protocol": "TCP",
+          "name": "exporter"
+        }
+      ],
+      "selector": {
+        "app": "trino",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-trino-coordinator",
+      "labels": {
+        "app": "trino",
+        "chart": "trino-0.1.23",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "coordinator"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "trino",
+          "release": "release-name",
+          "component": "coordinator"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "trino",
+            "release": "release-name",
+            "component": "coordinator"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "runAsUser": 1000,
+            "runAsGroup": 1000
+          },
+          "volumes": [
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "release-name-trino-coordinator"
+              }
+            },
+            {
+              "name": "connectors-config-volume",
+              "configMap": {
+                "name": "release-name-trino-connectors"
+              }
+            },
+            {
+              "name": "config-jmx-exporter",
+              "configMap": {
+                "name": "release-name-trino-jmx-exporter"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "trino-coordinator",
+              "image": "trinodb/trino:376",
+              "imagePullPolicy": "IfNotPresent",
+              "volumeMounts": [
+                {
+                  "mountPath": "/etc/trino",
+                  "name": "config-volume"
+                },
+                {
+                  "mountPath": "/etc/trino/catalog",
+                  "name": "connectors-config-volume"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8080,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/v1/info",
+                  "port": "http"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/v1/info",
+                  "port": "http"
+                }
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            },
+            {
+              "name": "jmx-exporter",
+              "image": "sscaling/jmx-prometheus-exporter:0.3.0",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "containerPort": 9999,
+                  "protocol": "TCP",
+                  "name": "prom-exporter"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/metrics",
+                  "port": "prom-exporter"
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 15,
+                "timeoutSeconds": 60,
+                "failureThreshold": 8,
+                "successThreshold": 1
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/metrics",
+                  "port": "prom-exporter"
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 15,
+                "timeoutSeconds": 60,
+                "failureThreshold": 8,
+                "successThreshold": 1
+              },
+              "env": [
+                {
+                  "name": "SERVICE_PORT",
+                  "value": "9999"
+                }
+              ],
+              "resources": {},
+              "volumeMounts": [
+                {
+                  "name": "config-jmx-exporter",
+                  "mountPath": "/opt/jmx_exporter/config.yml",
+                  "subPath": "config.yml"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-trino-worker",
+      "labels": {
+        "app": "trino",
+        "chart": "trino-0.1.23",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "worker"
+      }
+    },
+    "spec": {
+      "replicas": 2,
+      "selector": {
+        "matchLabels": {
+          "app": "trino",
+          "release": "release-name",
+          "component": "worker"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "trino",
+            "release": "release-name",
+            "component": "worker"
+          }
+        },
+        "spec": {
+          "volumes": [
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "release-name-trino-worker"
+              }
+            },
+            {
+              "name": "connectors-config-volume",
+              "configMap": {
+                "name": "release-name-trino-connectors"
+              }
+            },
+            {
+              "name": "config-jmx-exporter",
+              "configMap": {
+                "name": "release-name-trino-jmx-exporter"
+              }
+            }
+          ],
+          "terminationGracePeriodSeconds": 10,
+          "containers": [
+            {
+              "name": "trino-worker",
+              "image": "trinodb/trino:376",
+              "imagePullPolicy": "IfNotPresent",
+              "volumeMounts": [
+                {
+                  "mountPath": "/etc/trino",
+                  "name": "config-volume"
+                },
+                {
+                  "mountPath": "/etc/trino/catalog",
+                  "name": "connectors-config-volume"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8080,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/v1/info",
+                  "port": "http"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/v1/info",
+                  "port": "http"
+                }
+              },
+              "lifecycle": {
+                "preStop": {
+                  "exec": {
+                    "command": [
+                      "sh",
+                      "-c",
+                      "curl -v  -H \"X-Trino-User: admin\" -X PUT -d '\"SHUTTING_DOWN\"' -H \"Content-type: application/json\" http://localhost:8080/v1/info/state && sleep 10"
+                    ]
+                  }
+                }
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            },
+            {
+              "name": "jmx-exporter",
+              "image": "sscaling/jmx-prometheus-exporter:0.3.0",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "containerPort": 9999,
+                  "protocol": "TCP",
+                  "name": "prom-exporter"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/metrics",
+                  "port": "prom-exporter"
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 15,
+                "timeoutSeconds": 60,
+                "failureThreshold": 8,
+                "successThreshold": 1
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/metrics",
+                  "port": "prom-exporter"
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 15,
+                "timeoutSeconds": 60,
+                "failureThreshold": 8,
+                "successThreshold": 1
+              },
+              "env": [
+                {
+                  "name": "SERVICE_PORT",
+                  "value": "9999"
+                }
+              ],
+              "resources": {},
+              "volumeMounts": [
+                {
+                  "name": "config-jmx-exporter",
+                  "mountPath": "/opt/jmx_exporter/config.yml",
+                  "subPath": "config.yml"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "monitoring.coreos.com/v1",
+    "kind": "ServiceMonitor",
+    "metadata": {
+      "name": "release-name-trino",
+      "labels": {
+        "app": "trino",
+        "chart": "trino-0.1.23",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "namespaceSelector": {
+        "matchNames": [
+          "default"
+        ]
+      },
+      "selector": {
+        "matchLabels": {
+          "app": "trino",
+          "monitoring.service": "jmx",
+          "release": "release-name",
+          "chart": "trino-0.1.23"
+        }
+      },
+      "endpoints": [
+        {
+          "port": "exporter",
+          "path": "/metrics",
+          "interval": "10s"
+        }
+      ]
+    }
+  }
+]

@@ -1,0 +1,979 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-job",
+      "namespace": "dxOCwox"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "vc-release-name",
+      "namespace": "dxOCwox",
+      "labels": {
+        "app": "vcluster",
+        "chart": "vcluster-eks-0.9.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "vc-workload-release-name",
+      "namespace": "dxOCwox",
+      "labels": {
+        "app": "vcluster",
+        "chart": "vcluster-eks-0.9.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "custom-deployments",
+      "namespace": "dxOCwox"
+    },
+    "data": {
+      "coredns.yaml": "apiVersion: v1\nkind: ServiceAccount\nmetadata:\n  name: coredns\n  namespace: kube-system\n---\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRole\nmetadata:\n  labels:\n    kubernetes.io/bootstrapping: rbac-defaults\n  name: system:coredns\nrules:\n- apiGroups:\n  - \"\"\n  resources:\n  - endpoints\n  - services\n  - pods\n  - namespaces\n  verbs:\n  - list\n  - watch\n- apiGroups:\n  - discovery.k8s.io\n  resources:\n  - endpointslices\n  verbs:\n  - list\n  - watch\n---\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRoleBinding\nmetadata:\n  annotations:\n    rbac.authorization.kubernetes.io/autoupdate: \"true\"\n  labels:\n    kubernetes.io/bootstrapping: rbac-defaults\n  name: system:coredns\nroleRef:\n  apiGroup: rbac.authorization.k8s.io\n  kind: ClusterRole\n  name: system:coredns\nsubjects:\n- kind: ServiceAccount\n  name: coredns\n  namespace: kube-system\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: coredns\n  namespace: kube-system\ndata:\n  Corefile: |\n    .:1053 {\n        \n        errors\n        health\n        ready\n        kubernetes cluster.local in-addr.arpa ip6.arpa {\n          pods insecure\n          fallthrough in-addr.arpa ip6.arpa\n        }\n        hosts /etc/coredns/NodeHosts {\n          ttl 60\n          reload 15s\n          fallthrough\n        }\n        prometheus :9153\n        forward . /etc/resolv.conf\n        cache 30\n        loop\n        reload\n        loadbalance\n    }\n    import /etc/coredns/custom/*.server\n  NodeHosts: \"\"\n---\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: coredns\n  namespace: kube-system\n  labels:\n    k8s-app: kube-dns\n    kubernetes.io/name: \"CoreDNS\"\nspec:\n  replicas: 1\n  strategy:\n    type: RollingUpdate\n    rollingUpdate:\n      maxUnavailable: 1\n  selector:\n    matchLabels:\n      k8s-app: kube-dns\n  template:\n    metadata:\n      labels:\n        k8s-app: kube-dns\n    spec:\n      priorityClassName: \"system-cluster-critical\"\n      serviceAccountName: coredns\n      tolerations:\n        - key: \"CriticalAddonsOnly\"\n          operator: \"Exists\"\n        - key: \"node-role.kubernetes.io/control-plane\"\n          operator: \"Exists\"\n          effect: \"NoSchedule\"\n        - key: \"node-role.kubernetes.io/master\"\n          operator: \"Exists\"\n          effect: \"NoSchedule\"\n      nodeSelector:\n        kubernetes.io/os: linux\n      topologySpreadConstraints:\n        - maxSkew: 1\n          topologyKey: kubernetes.io/hostname\n          whenUnsatisfiable: DoNotSchedule\n          labelSelector:\n            matchLabels:\n              k8s-app: kube-dns\n      containers:\n      - name: coredns\n        image: \"public.ecr.aws/eks-distro/coredns/coredns:v1.8.4-eks-1-21-8\"\n        imagePullPolicy: IfNotPresent\n        resources:\n          limits:\n            cpu: 1000m\n            memory: 170Mi\n          requests:\n            cpu: 100m\n            memory: 70Mi\n        args: [ \"-conf\", \"/etc/coredns/Corefile\" ]\n        volumeMounts:\n        - name: config-volume\n          mountPath: /etc/coredns\n          readOnly: true\n        - name: custom-config-volume\n          mountPath: /etc/coredns/custom\n          readOnly: true\n        ports:\n        - containerPort: 1053\n          name: dns\n          protocol: UDP\n        - containerPort: 1053\n          name: dns-tcp\n          protocol: TCP\n        - containerPort: 9153\n          name: metrics\n          protocol: TCP\n        securityContext:\n          runAsUser: \n          runAsNonRoot: \n          allowPrivilegeEscalation: false\n          capabilities:\n            drop:\n            - all\n          readOnlyRootFilesystem: true\n        livenessProbe:\n          httpGet:\n            path: /health\n            port: 8080\n            scheme: HTTP\n          initialDelaySeconds: 60\n          periodSeconds: 10\n          timeoutSeconds: 1\n          successThreshold: 1\n          failureThreshold: 3\n        readinessProbe:\n          httpGet:\n            path: /ready\n            port: 8181\n            scheme: HTTP\n          initialDelaySeconds: 0\n          periodSeconds: 2\n          timeoutSeconds: 1\n          successThreshold: 1\n          failureThreshold: 3\n      dnsPolicy: Default\n      volumes:\n        - name: config-volume\n          configMap:\n            name: coredns\n            items:\n            - key: Corefile\n              path: Corefile\n            - key: NodeHosts\n              path: NodeHosts\n        - name: custom-config-volume\n          configMap:\n            name: coredns-custom\n            optional: true\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: kube-dns\n  namespace: kube-system\n  annotations:\n    prometheus.io/port: \"9153\"\n    prometheus.io/scrape: \"true\"\n  labels:\n    k8s-app: kube-dns\n    kubernetes.io/cluster-service: \"true\"\n    kubernetes.io/name: \"CoreDNS\"\nspec:\n  selector:\n    k8s-app: kube-dns\n  ports:\n  - name: dns\n    port: 53\n    targetPort: 1053\n    protocol: UDP\n  - name: dns-tcp\n    port: 53\n    targetPort: 1053\n    protocol: TCP\n  - name: metrics\n    port: 9153\n    protocol: TCP"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-init-manifests",
+      "namespace": "dxOCwox",
+      "labels": {
+        "app": "vcluster",
+        "chart": "vcluster-eks-0.9.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "initmanifests.yaml": "---"
+    }
+  },
+  {
+    "kind": "Role",
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "metadata": {
+      "name": "release-name-job",
+      "namespace": "dxOCwox"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "secrets",
+          "configmaps"
+        ],
+        "verbs": [
+          "create",
+          "get",
+          "list"
+        ]
+      }
+    ]
+  },
+  {
+    "kind": "Role",
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "metadata": {
+      "name": "release-name",
+      "namespace": "dxOCwox",
+      "labels": {
+        "app": "vcluster",
+        "chart": "vcluster-eks-0.9.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "configmaps",
+          "secrets",
+          "services",
+          "pods",
+          "pods/attach",
+          "pods/portforward",
+          "pods/exec",
+          "persistentvolumeclaims"
+        ],
+        "verbs": [
+          "create",
+          "delete",
+          "patch",
+          "update",
+          "get",
+          "list",
+          "watch"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "endpoints"
+        ],
+        "verbs": [
+          "create",
+          "delete",
+          "patch",
+          "update"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "endpoints",
+          "events",
+          "pods/log"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch"
+        ]
+      },
+      {
+        "apiGroups": [
+          "networking.k8s.io"
+        ],
+        "resources": [
+          "ingresses"
+        ],
+        "verbs": [
+          "create",
+          "delete",
+          "patch",
+          "update",
+          "get",
+          "list",
+          "watch"
+        ]
+      },
+      {
+        "apiGroups": [
+          "apps"
+        ],
+        "resources": [
+          "statefulsets",
+          "replicasets",
+          "deployments"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch"
+        ]
+      }
+    ]
+  },
+  {
+    "kind": "RoleBinding",
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "metadata": {
+      "name": "release-name-job",
+      "namespace": "dxOCwox"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-job",
+        "namespace": "default"
+      }
+    ],
+    "roleRef": {
+      "kind": "Role",
+      "name": "release-name-job",
+      "apiGroup": "rbac.authorization.k8s.io"
+    }
+  },
+  {
+    "kind": "RoleBinding",
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "metadata": {
+      "name": "release-name",
+      "namespace": "dxOCwox",
+      "labels": {
+        "app": "vcluster",
+        "chart": "vcluster-eks-0.9.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "vc-release-name",
+        "namespace": "default"
+      }
+    ],
+    "roleRef": {
+      "kind": "Role",
+      "name": "release-name",
+      "apiGroup": "rbac.authorization.k8s.io"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-api",
+      "namespace": "dxOCwox",
+      "labels": {
+        "app": "vcluster-api",
+        "chart": "vcluster-eks-0.9.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "https",
+          "port": 443,
+          "targetPort": 6443,
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app": "vcluster-api",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-etcd",
+      "namespace": "dxOCwox",
+      "labels": {
+        "app": "vcluster-etcd",
+        "chart": "vcluster-eks-0.9.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "etcd",
+          "port": 2379,
+          "targetPort": 2379,
+          "protocol": "TCP"
+        },
+        {
+          "name": "peer",
+          "port": 2380,
+          "targetPort": 2380,
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app": "vcluster-etcd",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-etcd-headless",
+      "namespace": "dxOCwox",
+      "labels": {
+        "app": "vcluster-etcd",
+        "chart": "vcluster-eks-0.9.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "publishNotReadyAddresses": true,
+      "ports": [
+        {
+          "name": "etcd",
+          "port": 2379,
+          "targetPort": 2379,
+          "protocol": "TCP"
+        },
+        {
+          "name": "peer",
+          "port": 2380,
+          "targetPort": 2380,
+          "protocol": "TCP"
+        }
+      ],
+      "clusterIP": "None",
+      "selector": {
+        "app": "vcluster-etcd",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name",
+      "namespace": "dxOCwox",
+      "labels": {
+        "app": "vcluster",
+        "chart": "vcluster-eks-0.9.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "https",
+          "port": 443,
+          "targetPort": 8443,
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app": "vcluster",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-api",
+      "namespace": "dxOCwox",
+      "labels": {
+        "app": "vcluster-api",
+        "chart": "vcluster-eks-0.9.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "rollingUpdate": {
+          "maxSurge": 1,
+          "maxUnavailable": 0
+        },
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app": "vcluster-api",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "vcluster-api",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "terminationGracePeriodSeconds": 10,
+          "nodeSelector": {},
+          "affinity": {},
+          "tolerations": [],
+          "automountServiceAccountToken": false,
+          "volumes": [
+            {
+              "name": "certs",
+              "secret": {
+                "secretName": "release-name-certs"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "kube-apiserver",
+              "image": "public.ecr.aws/eks-distro/kubernetes/kube-apiserver:v1.21.5-eks-1-21-8",
+              "command": [
+                "kube-apiserver",
+                "--advertise-address=0.0.0.0",
+                "--allow-privileged=true",
+                "--audit-log-maxage=30",
+                "--audit-log-maxbackup=10",
+                "--audit-log-maxsize=512",
+                "--cloud-provider=external",
+                "--authorization-mode=Node,RBAC",
+                "--client-ca-file=/run/config/pki/ca.crt",
+                "--enable-admission-plugins=NodeRestriction",
+                "--enable-bootstrap-token-auth=true",
+                "--etcd-cafile=/run/config/pki/etcd-ca.crt",
+                "--etcd-certfile=/run/config/pki/apiserver-etcd-client.crt",
+                "--etcd-keyfile=/run/config/pki/apiserver-etcd-client.key",
+                "--etcd-servers=https://release-name-etcd:2379",
+                "--insecure-port=0",
+                "--kubelet-client-certificate=/run/config/pki/apiserver-kubelet-client.crt",
+                "--kubelet-client-key=/run/config/pki/apiserver-kubelet-client.key",
+                "--kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname",
+                "--profiling=false",
+                "--proxy-client-cert-file=/run/config/pki/front-proxy-client.crt",
+                "--proxy-client-key-file=/run/config/pki/front-proxy-client.key",
+                "--requestheader-allowed-names=front-proxy-client",
+                "--requestheader-client-ca-file=/run/config/pki/front-proxy-ca.crt",
+                "--requestheader-extra-headers-prefix=X-Remote-Extra-",
+                "--requestheader-group-headers=X-Remote-Group",
+                "--requestheader-username-headers=X-Remote-User",
+                "--secure-port=6443",
+                "--service-account-issuer=https://kubernetes.default.svc.cluster.local",
+                "--service-account-key-file=/run/config/pki/sa.pub",
+                "--service-account-signing-key-file=/run/config/pki/sa.key",
+                "--service-cluster-ip-range=$(SERVICE_CIDR)",
+                "--tls-cert-file=/run/config/pki/apiserver.crt",
+                "--tls-private-key-file=/run/config/pki/apiserver.key",
+                "--watch-cache=false",
+                "--endpoint-reconciler-type=none"
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/livez",
+                  "port": 6443,
+                  "scheme": "HTTPS"
+                },
+                "initialDelaySeconds": 10,
+                "timeoutSeconds": 15,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "failureThreshold": 8
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/readyz",
+                  "port": 6443,
+                  "scheme": "HTTPS"
+                },
+                "timeoutSeconds": 15,
+                "periodSeconds": 1,
+                "successThreshold": 1,
+                "failureThreshold": 3
+              },
+              "securityContext": null,
+              "env": [
+                {
+                  "name": "SERVICE_CIDR",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "name": "vc-cidr-release-name",
+                      "key": "cidr"
+                    }
+                  }
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/run/config/pki",
+                  "name": "certs",
+                  "readOnly": true
+                }
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "200m"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-controller",
+      "namespace": "dxOCwox",
+      "labels": {
+        "app": "vcluster-controller",
+        "chart": "vcluster-eks-0.9.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "rollingUpdate": {
+          "maxSurge": 1,
+          "maxUnavailable": 0
+        },
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app": "vcluster-controller",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "vcluster-controller",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "terminationGracePeriodSeconds": 10,
+          "nodeSelector": {},
+          "affinity": {},
+          "tolerations": [],
+          "automountServiceAccountToken": false,
+          "volumes": [
+            {
+              "name": "certs",
+              "secret": {
+                "secretName": "release-name-certs"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "kube-controller-manager",
+              "image": "public.ecr.aws/eks-distro/kubernetes/kube-controller-manager:v1.21.5-eks-1-21-8",
+              "command": [
+                "kube-controller-manager",
+                "--authentication-kubeconfig=/run/config/pki/controller-manager.conf",
+                "--authorization-kubeconfig=/run/config/pki/controller-manager.conf",
+                "--bind-address=0.0.0.0",
+                "--client-ca-file=/run/config/pki/ca.crt",
+                "--cluster-name=kubernetes",
+                "--cluster-signing-cert-file=/run/config/pki/ca.crt",
+                "--cluster-signing-key-file=/run/config/pki/ca.key",
+                "--controllers=*,-nodeipam,-nodelifecycle,-persistentvolume-binder,-attachdetach,-persistentvolume-expander,-cloud-node-lifecycle",
+                "--horizontal-pod-autoscaler-sync-period=60s",
+                "--kubeconfig=/run/config/pki/controller-manager.conf",
+                "--port=0",
+                "--profiling=false",
+                "--service-cluster-ip-range=$(SERVICE_CIDR)",
+                "--tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+                "--use-service-account-credentials=true",
+                "--leader-elect=false",
+                "--node-monitor-grace-period=180s",
+                "--node-monitor-period=30s",
+                "--port=0",
+                "--pvclaimbinder-sync-period=60s",
+                "--requestheader-client-ca-file=/run/config/pki/front-proxy-ca.crt",
+                "--root-ca-file=/run/config/pki/ca.crt",
+                "--service-account-private-key-file=/run/config/pki/sa.key",
+                "--use-service-account-credentials=true"
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": 10257,
+                  "scheme": "HTTPS"
+                },
+                "initialDelaySeconds": 10,
+                "timeoutSeconds": 15,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "failureThreshold": 8
+              },
+              "startupProbe": {
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": 10257,
+                  "scheme": "HTTPS"
+                },
+                "initialDelaySeconds": 10,
+                "timeoutSeconds": 15,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "failureThreshold": 24
+              },
+              "securityContext": null,
+              "env": [
+                {
+                  "name": "SERVICE_CIDR",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "name": "vc-cidr-release-name",
+                      "key": "cidr"
+                    }
+                  }
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/run/config/pki",
+                  "name": "certs",
+                  "readOnly": true
+                }
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "200m"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name",
+      "namespace": "dxOCwox",
+      "labels": {
+        "app": "vcluster",
+        "chart": "vcluster-eks-0.9.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "rollingUpdate": {
+          "maxSurge": 1,
+          "maxUnavailable": 0
+        },
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app": "vcluster",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "vcluster",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "terminationGracePeriodSeconds": 10,
+          "nodeSelector": {},
+          "affinity": {},
+          "tolerations": [],
+          "serviceAccountName": "vc-release-name",
+          "volumes": [
+            {
+              "name": "coredns",
+              "configMap": {
+                "name": "custom-deployments"
+              }
+            },
+            {
+              "name": "certs",
+              "secret": {
+                "secretName": "release-name-certs"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "syncer",
+              "image": "loftsh/vcluster:0.9.1",
+              "args": [
+                "--name=release-name",
+                "--request-header-ca-cert=/pki/ca.crt",
+                "--client-ca-cert=/pki/ca.crt",
+                "--server-ca-cert=/pki/ca.crt",
+                "--server-ca-key=/pki/ca.key",
+                "--kube-config=/pki/admin.conf",
+                "--service-account=vc-workload-release-name",
+                "--leader-elect=false"
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": 8443,
+                  "scheme": "HTTPS"
+                },
+                "failureThreshold": 10,
+                "initialDelaySeconds": 60,
+                "periodSeconds": 2
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/readyz",
+                  "port": 8443,
+                  "scheme": "HTTPS"
+                },
+                "failureThreshold": 30,
+                "periodSeconds": 2
+              },
+              "securityContext": null,
+              "env": [],
+              "volumeMounts": [
+                {
+                  "mountPath": "/manifests/coredns",
+                  "name": "coredns",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/pki",
+                  "name": "certs",
+                  "readOnly": true
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "memory": "1Gi"
+                },
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "128Mi"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-etcd",
+      "namespace": "dxOCwox",
+      "labels": {
+        "app": "vcluster-etcd",
+        "chart": "vcluster-eks-0.9.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "serviceName": "release-name-etcd-headless",
+      "replicas": 1,
+      "podManagementPolicy": "Parallel",
+      "selector": {
+        "matchLabels": {
+          "app": "vcluster-etcd",
+          "release": "release-name"
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "storageClassName": null,
+            "resources": {
+              "requests": {
+                "storage": "5Gi"
+              }
+            }
+          }
+        }
+      ],
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "vcluster-etcd",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "terminationGracePeriodSeconds": 10,
+          "nodeSelector": {},
+          "affinity": {},
+          "tolerations": [],
+          "automountServiceAccountToken": false,
+          "volumes": [
+            {
+              "name": "certs",
+              "secret": {
+                "secretName": "release-name-certs"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "etcd",
+              "image": "public.ecr.aws/eks-distro/etcd-io/etcd:v3.4.16-eks-1-21-8",
+              "command": [
+                "etcd",
+                "--cert-file=/run/config/pki/etcd-server.crt",
+                "--client-cert-auth=true",
+                "--data-dir=/var/lib/etcd",
+                "--advertise-client-urls=https://$(NAME).release-name-etcd-headless.default:2379",
+                "--initial-advertise-peer-urls=https://$(NAME).release-name-etcd-headless.default:2380",
+                "--initial-cluster=release-name-etcd-0=https://release-name-etcd-0.release-name-etcd-headless.default:2380",
+                "--initial-cluster-token=release-name",
+                "--initial-cluster-state=new",
+                "--listen-client-urls=https://0.0.0.0:2379",
+                "--listen-metrics-urls=http://0.0.0.0:2381",
+                "--listen-peer-urls=https://0.0.0.0:2380",
+                "--key-file=/run/config/pki/etcd-server.key",
+                "--name=$(NAME)",
+                "--peer-cert-file=/run/config/pki/etcd-peer.crt",
+                "--peer-client-cert-auth=true",
+                "--peer-key-file=/run/config/pki/etcd-peer.key",
+                "--peer-trusted-ca-file=/run/config/pki/etcd-ca.crt",
+                "--snapshot-count=10000",
+                "--trusted-ca-file=/run/config/pki/etcd-ca.crt"
+              ],
+              "securityContext": null,
+              "env": [
+                {
+                  "name": "NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/var/lib/etcd"
+                },
+                {
+                  "mountPath": "/run/config/pki",
+                  "name": "certs",
+                  "readOnly": true
+                }
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "100Mi"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": 2381,
+                  "scheme": "HTTP"
+                },
+                "initialDelaySeconds": 10,
+                "timeoutSeconds": 15,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "failureThreshold": 8
+              },
+              "startupProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": 2381,
+                  "scheme": "HTTP"
+                },
+                "initialDelaySeconds": 10,
+                "timeoutSeconds": 15,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "failureThreshold": 24
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+      "name": "release-name-job",
+      "namespace": "dxOCwox"
+    },
+    "spec": {
+      "backoffLimit": 3,
+      "template": {
+        "metadata": {
+          "name": "release-name-job"
+        },
+        "spec": {
+          "serviceAccountName": "release-name-job",
+          "restartPolicy": "OnFailure",
+          "nodeSelector": {},
+          "affinity": {},
+          "tolerations": [],
+          "containers": [
+            {
+              "name": "certs",
+              "image": "loftsh/vcluster:0.9.1",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/vcluster",
+                "certs"
+              ],
+              "args": [
+                "--prefix=release-name",
+                "--etcd-replicas=1"
+              ],
+              "securityContext": {
+                "capabilities": {
+                  "drop": [
+                    "ALL"
+                  ]
+                },
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "runAsNonRoot": true,
+                "runAsUser": 1000,
+                "runAsGroup": 1000
+              },
+              "volumeMounts": [
+                {
+                  "name": "cert-storage",
+                  "mountPath": "/certs"
+                }
+              ],
+              "resources": null
+            }
+          ],
+          "volumes": [
+            {
+              "name": "cert-storage",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  }
+]

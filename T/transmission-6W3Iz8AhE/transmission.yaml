@@ -1,0 +1,164 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-data-pvc
+  namespace: default
+  annotations:
+    helm.sh/resource-policy: keep
+  labels:
+    app: release-name
+    chart: transmission-1.4.8
+    release: release-name
+    heritage: Helm
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: rook-cephfs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name
+  labels:
+    app: release-name
+spec:
+  type: ClusterIP
+  selector:
+    app: release-name
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name
+  labels:
+    app: release-name
+spec:
+  selector:
+    matchLabels:
+      app: release-name
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: release-name
+    spec:
+      initContainers:
+        - name: delete-settings-json
+          image: busybox
+          volumeMounts:
+            - mountPath: /data
+              name: torrents
+          args:
+            - rm
+            - -f
+            - /data/transmission-home/settings.json
+            - /data/transmission-home/settings.json.tmp.*
+      containers:
+        - image: haugene/transmission-openvpn:3.6
+          name: transmission
+          resources:
+            limits:
+              cpu: 350m
+              memory: 350Mi
+            requests:
+              cpu: 200m
+              memory: 200Mi
+          securityContext:
+            privileged: true
+            capabilities:
+              drop:
+                "": NET_RAW
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          ports:
+            - containerPort: 9091
+              name: http
+          livenessProbe:
+            exec:
+              command:
+                - /etc/scripts/healthcheck.sh
+            initialDelaySeconds: 60
+            periodSeconds: 15
+          env:
+            - name: OPENVPN_PROVIDER
+              value: MULLVAD
+            - name: OPENVPN_CONFIG
+              value: us_all
+            - name: OPENVPN_USERNAME
+              value: ""
+            - name: OPENVPN_PASSWORD
+              value: ""
+            - name: OPENVPN_OPTS
+              value: --mssfix 1450 --mute-replay-warnings
+            - name: LOCAL_NETWORK
+              value: 10.0.0.0/8,192.168.1.0/24
+            - name: WEBPROXY_ENABLED
+              value: "false"
+            - name: TRANSMISSION_WEB_UI
+              value: kettu
+            - name: CREATE_TUN_DEVICE
+              value: "true"
+            - name: OVERRIDE_DNS_1
+              value: 10.8.0.1
+            - name: OVERRIDE_DNS_2
+              value: 1.1.1.1
+            - name: TRANSMISSION_PEER_LIMIT_GLOBAL
+              value: "50"
+            - name: TRANSMISSION_DOWNLOAD_QUEUE_ENABLED
+              value: "false"
+            - name: TRANSMISSION_QUEUE_STALLED_ENABLED
+              value: "false"
+            - name: TRANSMISSION_SEED_QUEUE_ENABLED
+              value: "false"
+            - name: TRANSMISSION_PREALLOCATION
+              value: "0"
+            - name: TRANSMISSION_PEER_SOCKET_TOS
+              value: lowcost
+            - name: TRANSMISSION_ENCRYPTION
+              value: "2"
+            - name: TRANSMISSION_INCOMPLETE_DIR_ENABLED
+              value: "true"
+            - name: TRANSMISSION_DHT_ENABLED
+              value: "true"
+            - name: TRANSMISSION_PEX_ENABLED
+              value: "true"
+            - name: TRANSMISSION_LPD_ENABLED
+              value: "false"
+            - name: TRANSMISSION_UTP_ENABLED
+              value: "true"
+            - name: TRANSMISSION_PORT_FORWARDING_ENABLED
+              value: "true"
+            - name: TRANSMISSION_PEER_PORT
+              value: "51413"
+            - name: TRANSMISSION_RPC_URL
+              value: /release-name/
+            - name: TRANSMISSION_RPC_USERNAME
+              value: admin
+            - name: TRANSMISSION_RPC_PASSWORD
+              value: password
+          volumeMounts:
+            - mountPath: /data
+              name: torrents
+            - mountPath: /etc/localtime
+              name: localtime
+              readOnly: true
+      restartPolicy: Always
+      volumes:
+        - name: torrents
+          persistentVolumeClaim:
+            claimName: release-name-data-pvc
+        - name: localtime
+          hostPath:
+            path: /etc/localtime
+        - name: ovpn
+          configMap:
+            name: release-name-ovpn-file

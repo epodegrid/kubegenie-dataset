@@ -1,0 +1,301 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-ubooquity-books
+  labels:
+    helm.sh/chart: ubooquity-3.0.3
+    app.kubernetes.io/name: ubooquity
+    app.kubernetes.io/instance: release-name
+    helm-revision: "1"
+    app.kubernetes.io/version: 2.1.2
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 999Gi
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-ubooquity-comics
+  labels:
+    helm.sh/chart: ubooquity-3.0.3
+    app.kubernetes.io/name: ubooquity
+    app.kubernetes.io/instance: release-name
+    helm-revision: "1"
+    app.kubernetes.io/version: 2.1.2
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 999Gi
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-ubooquity-config
+  labels:
+    helm.sh/chart: ubooquity-3.0.3
+    app.kubernetes.io/name: ubooquity
+    app.kubernetes.io/instance: release-name
+    helm-revision: "1"
+    app.kubernetes.io/version: 2.1.2
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 999Gi
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-ubooquity-files
+  labels:
+    helm.sh/chart: ubooquity-3.0.3
+    app.kubernetes.io/name: ubooquity
+    app.kubernetes.io/instance: release-name
+    helm-revision: "1"
+    app.kubernetes.io/version: 2.1.2
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 999Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-ubooquity-admin
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: ubooquity
+    app.kubernetes.io/version: 2.1.2
+    helm-revision: "1"
+    helm.sh/chart: ubooquity-3.0.3
+  annotations: null
+spec:
+  type: ClusterIP
+  ports:
+    - port: 2203
+      targetPort: 2203
+      protocol: TCP
+      name: admin
+  selector:
+    app.kubernetes.io/name: ubooquity
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-ubooquity
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: ubooquity
+    app.kubernetes.io/version: 2.1.2
+    helm-revision: "1"
+    helm.sh/chart: ubooquity-3.0.3
+  annotations: null
+spec:
+  type: ClusterIP
+  ipFamilyPolicy: SingleStack
+  ports:
+    - port: 2202
+      targetPort: 2202
+      protocol: TCP
+      name: main
+  selector:
+    app.kubernetes.io/name: ubooquity
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-ubooquity
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: ubooquity
+    app.kubernetes.io/version: 2.1.2
+    helm-revision: "1"
+    helm.sh/chart: ubooquity-3.0.3
+spec:
+  revisionHistoryLimit: 3
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ubooquity
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations: null
+      labels:
+        app.kubernetes.io/name: ubooquity
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      securityContext:
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 0
+        runAsUser: 0
+        supplementalGroups:
+          - 568
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 10
+      initContainers:
+        - name: autopermissions
+          image: ghcr.io/truecharts/alpine:v3.15.2@sha256:29ed3480a0ee43f7af681fed5d4fc215516abf1c41eade6938b26d8c9c2c7583
+          securityContext:
+            runAsUser: 11971
+            privileged: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+          command:
+            - /bin/sh
+            - -c
+            - |
+              /bin/bash <<'EOF'
+              echo "Automatically correcting permissions..."
+              echo "increasing inotify limits..."
+              ( sysctl -w fs.inotify.max_user_watches=524288 || echo "error setting inotify") && ( sysctl -w fs.inotify.max_user_instances=512 || echo "error setting inotify")
+              EOF
+          volumeMounts: null
+      containers:
+        - name: release-name-ubooquity
+          image: tccr.io/truecharts/ubooquity:v2.1.2
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: false
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: PUID
+              value: "568"
+            - name: USER_ID
+              value: "568"
+            - name: UID
+              value: "568"
+            - name: UMASK
+              value: "2"
+            - name: UMASK_SET
+              value: "2"
+            - name: PGID
+              value: "568"
+            - name: GROUP_ID
+              value: "568"
+            - name: GID
+              value: "568"
+            - name: S6_READ_ONLY_ROOT
+              value: "1"
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: void
+            - name: TZ
+              value: UTC
+            - name: MAXMEM
+              value: "512"
+          envFrom: null
+          ports:
+            - name: admin
+              containerPort: 2203
+              protocol: TCP
+            - name: main
+              containerPort: 2202
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /books
+              name: books
+            - mountPath: /comics
+              name: comics
+            - mountPath: /config
+              name: config
+            - mountPath: /files
+              name: files
+            - mountPath: /shared
+              name: shared
+            - mountPath: /tmp
+              name: temp
+            - mountPath: /var/logs
+              name: varlogs
+            - mountPath: /var/run
+              name: varrun
+          livenessProbe:
+            tcpSocket:
+              port: 2202
+            initialDelaySeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 2202
+            initialDelaySeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 5
+            periodSeconds: 10
+          startupProbe:
+            tcpSocket:
+              port: 2202
+            initialDelaySeconds: 10
+            failureThreshold: 60
+            timeoutSeconds: 2
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+      volumes:
+        - name: books
+          persistentVolumeClaim:
+            claimName: release-name-ubooquity-books
+        - name: comics
+          persistentVolumeClaim:
+            claimName: release-name-ubooquity-comics
+        - name: config
+          persistentVolumeClaim:
+            claimName: release-name-ubooquity-config
+        - name: files
+          persistentVolumeClaim:
+            claimName: release-name-ubooquity-files
+        - name: shared
+          emptyDir: {}
+        - name: temp
+          emptyDir:
+            medium: Memory
+        - name: varlogs
+          emptyDir: {}
+        - name: varrun
+          emptyDir:
+            medium: Memory

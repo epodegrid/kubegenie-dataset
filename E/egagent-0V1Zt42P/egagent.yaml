@@ -1,0 +1,217 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: egagent
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: egagent
+  namespace: egagent
+  labels:
+    helm.sh/chart: egagent-0.3.0
+    app.kubernetes.io/name: egagent
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 7.2.2
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: egagent-role
+  namespace: egagent
+  labels:
+    helm.sh/chart: egagent-0.3.0
+    app.kubernetes.io/name: egagent
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 7.2.2
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - nonResourceURLs:
+      - /version
+      - /healthz
+    verbs:
+      - get
+    apiGroups: []
+    resources: []
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
+      - cronjobs
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - extensions
+    resources:
+      - deployments
+      - replicasets
+      - ingresses
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - replicasets
+      - daemonsets
+      - statefulsets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+      - events
+      - services
+      - endpoints
+      - nodes
+      - pods
+      - replicationcontrollers
+      - componentstatuses
+      - resourcequotas
+      - persistentvolumes
+      - persistentvolumeclaims
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+    verbs:
+      - create
+      - update
+      - patch
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - ingresses
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps.openshift.io
+    resources:
+      - deploymentconfigs
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - security.openshift.io
+    resourceNames:
+      - privileged
+    resources:
+      - securitycontextconstraints
+    verbs:
+      - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: egagent-role-binding
+  namespace: egagent
+  labels:
+    helm.sh/chart: egagent-0.3.0
+    app.kubernetes.io/name: egagent
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 7.2.2
+    app.kubernetes.io/managed-by: Helm
+subjects:
+  - kind: ServiceAccount
+    name: egagent
+    namespace: egagent
+roleRef:
+  kind: ClusterRole
+  name: egagent-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: egagent
+  namespace: egagent
+  labels:
+    app: egagent
+    helm.sh/chart: egagent-0.3.0
+    app.kubernetes.io/name: egagent
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 7.2.2
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app: egagent
+      app.kubernetes.io/name: egagent
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app: egagent
+        app.kubernetes.io/name: egagent
+        app.kubernetes.io/instance: release-name
+    spec:
+      volumes:
+        - name: var-run
+          hostPath:
+            path: /var/run
+        - name: process
+          hostPath:
+            path: /proc
+        - name: host-root
+          hostPath:
+            path: /
+      imagePullSecrets:
+        - name: your-registry-secret-name
+      containers:
+        - name: egagent
+          image: docker.io/eginnovations/agent:7.2.2
+          imagePullPolicy: Always
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: EG_MANAGER
+              value: xyz.egmonitoringhost.com
+            - name: EG_MANAGER_PORT
+              value: "443"
+            - name: EG_MANAGER_SSL
+              value: "true"
+            - name: JVM_MEMORY
+              value: "1024"
+            - name: EG_AGENT_IDENTIFIER_ID
+              value: ""
+            - name: DEBUG
+              value: "false"
+            - name: NAMESPACES_TO_INCLUDE
+              value: '*'
+            - name: NAMESPACES_TO_EXCLUDE
+              value: none
+            - name: EG_HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+          volumeMounts:
+            - name: var-run
+              mountPath: /var/run
+            - name: process
+              mountPath: /media/proc
+            - name: host-root
+              mountPath: /mnt
+      hostIPC: true
+      hostNetwork: true
+      hostPID: true
+      serviceAccountName: egagent

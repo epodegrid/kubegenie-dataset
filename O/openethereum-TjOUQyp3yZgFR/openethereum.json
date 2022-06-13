@@ -1,0 +1,395 @@
+[
+  {
+    "apiVersion": "policy/v1",
+    "kind": "PodDisruptionBudget",
+    "metadata": {
+      "name": "release-name-openethereum",
+      "labels": {
+        "app.kubernetes.io/name": "openethereum",
+        "helm.sh/chart": "openethereum-1.0.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "maxUnavailable": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "openethereum",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-openethereum",
+      "labels": {
+        "app.kubernetes.io/name": "openethereum",
+        "helm.sh/chart": "openethereum-1.0.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-openethereum",
+      "labels": {
+        "app.kubernetes.io/name": "openethereum",
+        "helm.sh/chart": "openethereum-1.0.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "entrypoint.sh": "#!/bin/sh\nEXT_IP=$(nslookup myip.opendns.com resolver1.opendns.com| awk '/^Address: / { print $2 }')\n/home/openethereum/openethereum --nat \"extip:$EXT_IP\" $@\n"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "release-name-openethereum",
+      "labels": {
+        "app.kubernetes.io/name": "openethereum",
+        "helm.sh/chart": "openethereum-1.0.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "configmap"
+        ],
+        "verbs": [
+          "get"
+        ],
+        "resourceNames": [
+          "release-name-openethereum"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "release-name-openethereum",
+      "labels": {
+        "app.kubernetes.io/name": "openethereum",
+        "helm.sh/chart": "openethereum-1.0.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "release-name-openethereum"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-openethereum",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-openethereum",
+      "labels": {
+        "app.kubernetes.io/name": "openethereum",
+        "helm.sh/chart": "openethereum-1.0.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "app.kubernetes.io/name": "openethereum",
+        "app.kubernetes.io/instance": "release-name"
+      },
+      "sessionAffinity": "ClientIP",
+      "sessionAffinityConfig": {
+        "clientIP": {
+          "timeoutSeconds": 86400
+        }
+      },
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "rpc",
+          "port": 8545,
+          "targetPort": "rpc"
+        },
+        {
+          "name": "ws",
+          "port": 8546,
+          "targetPort": "ws"
+        },
+        {
+          "name": "metrics",
+          "port": 3000,
+          "targetPort": "metrics"
+        }
+      ]
+    }
+  },
+  {
+    "kind": "StatefulSet",
+    "apiVersion": "apps/v1",
+    "metadata": {
+      "name": "release-name-openethereum",
+      "labels": {
+        "app.kubernetes.io/name": "openethereum",
+        "helm.sh/chart": "openethereum-1.0.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "openethereum",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "serviceName": "release-name-openethereum",
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "openethereum",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1001,
+            "runAsUser": 1001
+          },
+          "serviceAccountName": "release-name-openethereum",
+          "priorityClassName": "",
+          "initContainers": [
+            {
+              "name": "init-chown",
+              "image": "busybox:1.34",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 0
+              },
+              "command": [
+                "chown",
+                "-R",
+                "1001:1001",
+                "/data"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/data"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "node",
+              "image": "openethereum/openethereum:v3.3.5",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/bin/sh",
+                "/data/scripts/entrypoint.sh"
+              ],
+              "args": [
+                "-d",
+                "/data/openethereum",
+                "--chain",
+                "mainnet",
+                "--jsonrpc-interface",
+                "all",
+                "--jsonrpc-hosts",
+                "all",
+                "--jsonrpc-port",
+                "8545",
+                "--ws-interface",
+                "all",
+                "--ws-hosts",
+                "all",
+                "--ws-port",
+                "8546",
+                "--min-peers",
+                "50",
+                "--max-peers",
+                "100",
+                "--metrics",
+                "--metrics-port",
+                "3000",
+                "--metrics-interface",
+                "all"
+              ],
+              "env": [
+                {
+                  "name": "POD_IP",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "status.podIP"
+                    }
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 8545,
+                  "name": "rpc",
+                  "protocol": "TCP"
+                },
+                {
+                  "containerPort": 8546,
+                  "name": "ws",
+                  "protocol": "TCP"
+                },
+                {
+                  "containerPort": 3000,
+                  "name": "metrics",
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/data/openethereum"
+                },
+                {
+                  "name": "scripts",
+                  "mountPath": "/data/scripts"
+                }
+              ]
+            },
+            {
+              "name": "sidecar",
+              "image": "europe-west4-docker.pkg.dev/stakewiselabs/public/ethnode-sidecar:v1.0.3",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "SERVER_BINDADDR",
+                  "value": "0.0.0.0:3001"
+                },
+                {
+                  "name": "CLIENT_PORT",
+                  "value": "8545"
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 3001,
+                  "name": "sidecar",
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "initialDelaySeconds": 900,
+                "timeoutSeconds": 3,
+                "periodSeconds": 30,
+                "failureThreshold": 3,
+                "successThreshold": 1,
+                "httpGet": {
+                  "path": "/eth1/liveness",
+                  "port": "sidecar",
+                  "scheme": "HTTP"
+                }
+              },
+              "readinessProbe": {
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 3,
+                "periodSeconds": 30,
+                "failureThreshold": 30,
+                "successThreshold": 1,
+                "httpGet": {
+                  "path": "/eth1/readiness",
+                  "port": "sidecar",
+                  "scheme": "HTTP"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "scripts",
+              "configMap": {
+                "name": "release-name-openethereum"
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data",
+            "labels": {
+              "app.kubernetes.io/name": "openethereum",
+              "helm.sh/chart": "openethereum-1.0.2",
+              "app.kubernetes.io/instance": "release-name",
+              "app.kubernetes.io/managed-by": "Helm"
+            }
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "storageClassName": null,
+            "resources": {
+              "requests": {
+                "storage": "250Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-openethereum-test-connection",
+      "labels": {
+        "app.kubernetes.io/name": "openethereum",
+        "helm.sh/chart": "openethereum-1.0.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "wget",
+          "image": "busybox",
+          "command": [
+            "wget"
+          ],
+          "args": [
+            "release-name-openethereum:8545"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

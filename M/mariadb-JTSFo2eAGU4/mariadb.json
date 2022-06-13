@@ -1,0 +1,262 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-mariadb",
+      "labels": {
+        "app": "release-name-mariadb",
+        "chart": "mariadb-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "mariadb-root-password": "SE83MkYydzdsUA==",
+      "mariadb-password": "cDhMM2F6SWJkTw=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-mariadb",
+      "labels": {
+        "app": "release-name-mariadb",
+        "chart": "mariadb-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "my.cnf": ""
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-mariadb-tests"
+    },
+    "data": {
+      "run.sh": "@test \"Testing MariaDB is accessible\" {\n  mysql -h release-name-mariadb -p$MARIADB_ROOT_PASSWORD -e 'show databases;'\n}"
+    }
+  },
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-mariadb",
+      "labels": {
+        "app": "release-name-mariadb",
+        "chart": "mariadb-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "8Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-mariadb",
+      "labels": {
+        "app": "release-name-mariadb",
+        "chart": "mariadb-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "mysql",
+          "port": 3306,
+          "targetPort": "mysql"
+        }
+      ],
+      "selector": {
+        "app": "release-name-mariadb"
+      }
+    }
+  },
+  {
+    "apiVersion": "extensions/v1beta1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-mariadb",
+      "labels": {
+        "app": "release-name-mariadb",
+        "chart": "mariadb-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "release-name-mariadb"
+          },
+          "annotations": {
+            "pod.alpha.kubernetes.io/init-containers": " [ { \"name\": \"copy-custom-config\", \"image\": \"bitnami/mariadb:10.1.23-r2\", \"imagePullPolicy\": \"IfNotPresent\", \"command\": [\"sh\", \"-c\", \"mkdir -p /bitnami/mariadb/conf && cp -n /bitnami/mariadb_config/my.cnf /bitnami/mariadb/conf/my_custom.cnf\"], \"volumeMounts\": [ { \"name\": \"config\", \"mountPath\": \"/bitnami/mariadb_config\" }, { \"name\": \"data\", \"mountPath\": \"/bitnami/mariadb\" } ] } ]"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "release-name-mariadb",
+              "image": "bitnami/mariadb:10.1.23-r2",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "MARIADB_ROOT_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-mariadb",
+                      "key": "mariadb-root-password"
+                    }
+                  }
+                },
+                {
+                  "name": "MARIADB_USER",
+                  "value": ""
+                },
+                {
+                  "name": "MARIADB_DATABASE",
+                  "value": ""
+                }
+              ],
+              "ports": [
+                {
+                  "name": "mysql",
+                  "containerPort": 3306
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "mysqladmin",
+                    "ping"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 5
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "mysqladmin",
+                    "ping"
+                  ]
+                },
+                "initialDelaySeconds": 5,
+                "timeoutSeconds": 1
+              },
+              "resources": {
+                "requests": {
+                  "cpu": "250m",
+                  "memory": "256Mi"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/bitnami/mariadb"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-mariadb"
+              }
+            },
+            {
+              "name": "data",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-mariadb"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-mariadb-test-mfrpm",
+      "annotations": {
+        "helm.sh/hook": "test-success",
+        "pod.beta.kubernetes.io/init-containers": "[ { \"name\": \"test-framework\", \"image\": \"dduportal/bats:0.4.0\", \"command\": [\"bash\", \"-c\", \" set -ex\\n # copy bats to tools dir\\n cp -R /usr/local/libexec/ /tools/bats/\\n \"], \"volumeMounts\": [ {\"name\": \"tools\", \"mountPath\": \"/tools\"} ] } ]"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "mariadb-test",
+          "image": "bitnami/mariadb:10.1.23-r2",
+          "command": [
+            "/tools/bats/bats",
+            "-t",
+            "/tests/run.sh"
+          ],
+          "env": [
+            {
+              "name": "MARIADB_ROOT_PASSWORD",
+              "valueFrom": {
+                "secretKeyRef": {
+                  "name": "release-name-mariadb",
+                  "key": "mariadb-root-password"
+                }
+              }
+            }
+          ],
+          "volumeMounts": [
+            {
+              "mountPath": "/tests",
+              "name": "tests",
+              "readOnly": true
+            },
+            {
+              "mountPath": "/tools",
+              "name": "tools"
+            }
+          ]
+        }
+      ],
+      "volumes": [
+        {
+          "name": "tests",
+          "configMap": {
+            "name": "release-name-mariadb-tests"
+          }
+        },
+        {
+          "name": "tools",
+          "emptyDir": {}
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

@@ -1,0 +1,428 @@
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: release-name-zookeeper
+  namespace: default
+  labels:
+    app.kubernetes.io/name: zookeeper
+    helm.sh/chart: zookeeper-5.23.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: zookeeper
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: zookeeper
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: zookeeper
+  maxUnavailable: 1
+---
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: release-name-solr
+  labels:
+    app.kubernetes.io/name: solr
+    helm.sh/chart: solr-3.2.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: solr
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: server
+  maxUnavailable: 1
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-zookeeper-headless
+  namespace: sVenFUJTM61
+  labels:
+    app.kubernetes.io/name: zookeeper
+    helm.sh/chart: zookeeper-5.23.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: zookeeper
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: tcp-client
+      port: 2181
+      targetPort: client
+    - name: follower
+      port: 2888
+      targetPort: follower
+    - name: tcp-election
+      port: 3888
+      targetPort: election
+  selector:
+    app.kubernetes.io/name: zookeeper
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: zookeeper
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-zookeeper
+  namespace: sVenFUJTM61
+  labels:
+    app.kubernetes.io/name: zookeeper
+    helm.sh/chart: zookeeper-5.23.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: zookeeper
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-client
+      port: 2181
+      targetPort: client
+    - name: follower
+      port: 2888
+      targetPort: follower
+    - name: tcp-election
+      port: 3888
+      targetPort: election
+  selector:
+    app.kubernetes.io/name: zookeeper
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: zookeeper
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-solr-headless
+  labels:
+    app.kubernetes.io/name: solr
+    helm.sh/chart: solr-3.2.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  clusterIP: None
+  ports:
+    - port: 8983
+      name: solr-headless
+  selector:
+    app.kubernetes.io/name: solr
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: server
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-solr-svc
+  labels:
+    app.kubernetes.io/name: solr
+    helm.sh/chart: solr-3.2.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: {}
+spec:
+  type: ClusterIP
+  ports:
+    - name: solr-client
+      port: 8983
+      protocol: TCP
+      targetPort: 8983
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: solr
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: server
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-zookeeper
+  namespace: sVenFUJTM61
+  labels:
+    app.kubernetes.io/name: zookeeper
+    helm.sh/chart: zookeeper-5.23.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: zookeeper
+    role: zookeeper
+spec:
+  serviceName: release-name-zookeeper-headless
+  replicas: 3
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: zookeeper
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: zookeeper
+  template:
+    metadata:
+      name: release-name-zookeeper
+      labels:
+        app.kubernetes.io/name: zookeeper
+        helm.sh/chart: zookeeper-5.23.0
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: zookeeper
+    spec:
+      serviceAccountName: default
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: zookeeper
+          image: docker.io/bitnami/zookeeper:3.6.2-debian-10-r37
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 10524
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          command:
+            - bash
+            - -ec
+            - |
+              # Execute entrypoint as usual after obtaining ZOO_SERVER_ID based on POD hostname
+              HOSTNAME=`hostname -s`
+              if [[ $HOSTNAME =~ (.*)-([0-9]+)$ ]]; then
+                ORD=${BASH_REMATCH[2]}
+                export ZOO_SERVER_ID=$((ORD+1))
+              else
+                echo "Failed to get index from hostname $HOST"
+                exit 1
+              fi
+              exec /entrypoint.sh /run.sh
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: ZOO_DATA_LOG_DIR
+              value: ""
+            - name: ZOO_PORT_NUMBER
+              value: "2181"
+            - name: ZOO_TICK_TIME
+              value: "2000"
+            - name: ZOO_INIT_LIMIT
+              value: "10"
+            - name: ZOO_SYNC_LIMIT
+              value: "5"
+            - name: ZOO_MAX_CLIENT_CNXNS
+              value: "60"
+            - name: ZOO_4LW_COMMANDS_WHITELIST
+              value: srvr, mntr, ruok, conf
+            - name: ZOO_LISTEN_ALLIPS_ENABLED
+              value: "no"
+            - name: ZOO_AUTOPURGE_INTERVAL
+              value: "0"
+            - name: ZOO_AUTOPURGE_RETAIN_COUNT
+              value: "3"
+            - name: ZOO_MAX_SESSION_TIMEOUT
+              value: "40000"
+            - name: ZOO_SERVERS
+              value: release-name-zookeeper-0.release-name-zookeeper-headless.default.svc.cluster.local:2888:3888 release-name-zookeeper-1.release-name-zookeeper-headless.default.svc.cluster.local:2888:3888 release-name-zookeeper-2.release-name-zookeeper-headless.default.svc.cluster.local:2888:3888
+            - name: ZOO_ENABLE_AUTH
+              value: "no"
+            - name: ZOO_HEAP_SIZE
+              value: "1024"
+            - name: ZOO_LOG_LEVEL
+              value: ERROR
+            - name: ALLOW_ANONYMOUS_LOGIN
+              value: "yes"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+          ports:
+            - name: client
+              containerPort: 2181
+            - name: follower
+              containerPort: 2888
+            - name: election
+              containerPort: 3888
+          livenessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - echo "ruok" | timeout 2 nc -w 2 localhost 2181 | grep imok
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - echo "ruok" | timeout 2 nc -w 2 localhost 2181 | grep imok
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/zookeeper
+      volumes: null
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        annotations: null
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-solr
+  labels:
+    app.kubernetes.io/name: solr
+    helm.sh/chart: solr-3.2.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: server
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: solr
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: server
+  serviceName: release-name-solr-headless
+  replicas: 3
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: solr
+        helm.sh/chart: solr-3.2.0
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: server
+      annotations: {}
+    spec:
+      affinity: {}
+      tolerations: []
+      securityContext:
+        runAsUser: 8983
+        fsGroup: 8983
+      terminationGracePeriodSeconds: 180
+      initContainers:
+        - name: check-zk
+          image: busybox:stable-glibc
+          resources:
+            limits: {}
+            requests: {}
+          command:
+            - sh
+            - -c
+            - |
+              COUNTER=0;
+              while [  $COUNTER -lt 120 ]; do
+                addr=$(nslookup -type=a release-name-zookeeper-headless | grep "Address:" | awk 'NR>1 {print $2}')
+                if [ ! -z "$addr" ]; then
+                  while read -r line; do
+                    echo $line;
+                    mode=$(echo srvr | nc $line 2181 | grep "Mode");
+                    echo $mode;
+                    if [ "$mode" = "Mode: leader" ] || [ "$mode" = "Mode: standalone" ]; then
+                      echo "Found a leader!";
+                      exit 0;
+                    fi;
+                  done <<EOF
+              $addr
+              EOF
+                fi;
+                let COUNTER=COUNTER+1;
+                sleep 2;
+              done;
+              echo "Did NOT see a ZK leader after 240 secs!";
+              exit 1;
+        - name: cp-solr-xml
+          image: docker.io/solr:8.7.0
+          resources:
+            limits: {}
+            requests: {}
+          command:
+            - sh
+            - -c
+            - cp /var/solr/data/solr.xml /tmp/solr-home/solr.xml
+          volumeMounts:
+            - name: release-name-solr-pvc
+              mountPath: /tmp/solr-home
+      containers:
+        - name: solr
+          image: docker.io/solr:8.7.0
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            - containerPort: 8983
+              name: solr-client
+          env:
+            - name: SOLR_JAVA_MEM
+              value: -Xms2g -Xmx3g
+            - name: SOLR_HOME
+              value: /opt/solr/server/home
+            - name: SOLR_PORT
+              value: "8983"
+            - name: POD_HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: SOLR_HOST
+              value: $(POD_HOSTNAME).release-name-solr-headless.default
+            - name: ZK_HOST
+              value: release-name-zookeeper-headless:2181,release-name-zookeeper-headless:2181
+            - name: SOLR_LOG_LEVEL
+              value: INFO
+          livenessProbe:
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+            httpGet:
+              scheme: HTTP
+              path: /solr/admin/info/system
+              port: 8983
+          readinessProbe:
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+            httpGet:
+              scheme: HTTP
+              path: /solr/admin/info/system
+              port: 8983
+          volumeMounts:
+            - name: release-name-solr-pvc
+              mountPath: /opt/solr/server/home
+      volumes: null
+  volumeClaimTemplates:
+    - metadata:
+        name: release-name-solr-pvc
+        annotations:
+          pv.beta.kubernetes.io/gid: "8983"
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 20Gi

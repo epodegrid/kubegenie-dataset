@@ -1,0 +1,202 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: eventstreams-release-name
+  labels:
+    chart: eventstreams
+    app: eventstreams
+    release: release-name
+    heritage: Helm
+spec:
+  podSelector:
+    matchLabels:
+      chart: eventstreams
+      app: eventstreams
+      release: release-name
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 8092
+          protocol: TCP
+        - port: 9102
+          protocol: TCP
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: eventstreams-release-name-secret-config
+  labels:
+    chart: eventstreams
+    app: eventstreams
+    release: release-name
+    heritage: Helm
+type: Opaque
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: eventstreams-release-name-config
+  labels:
+    chart: eventstreams
+    app: eventstreams
+    release: release-name
+    heritage: Helm
+data:
+  config.yaml: |-
+    # service-runner EventStreams app config.yaml.
+
+    # Number of worker processes to spawn.
+    # Set to 0 to run everything in a single process without clustering.
+    # Use 'ncpu' to run as many workers as there are CPU units
+    num_workers: 1
+
+    # Log error messages and gracefully restart a worker if v8 reports that it
+    # uses more heap (note: not RSS) than this many mb.
+    worker_heap_limit_mb: 750
+
+    # Logger info
+    logging:
+      level:  info
+      streams:
+        - type: stdout
+          named_levels: true
+    # Statsd metrics reporter
+    metrics:
+      - type: prometheus
+        port: 9102
+
+    services:
+      - name: eventstreams
+        module: app.js
+        conf:
+          port: 8092
+          cors: '*'
+          csp: "default-src 'none'; script-src 'self' 'unsafe-inline'; connect-src *; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'"
+          spec: ./spec.yaml
+          user_agent: eventstreams-release-name
+
+          # eventstreams app settings
+          kafka:
+            metadata.broker.list: kafka.default.svc.cluster.local:31092
+            ssl.ca.location: /etc/eventstreams/puppetca.crt.pem
+            ssl.cipher.suites: ECDHE-ECDSA-AES256-GCM-SHA384
+            ssl.curves.list: P-256
+            ssl.sigalgs.list: ECDSA+SHA256
+            statistics.interval.ms: 5000
+          schema_base_uris:
+          - https://schema.discovery.wmnet/repositories/primary/jsonschema
+          - https://schema.discovery.wmnet/repositories/secondary/jsonschema
+          schema_latest_version: latest
+  puppetca.crt.pem: snakeoil
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eventstreams-release-name
+  labels:
+    chart: eventstreams
+    app: eventstreams
+    release: release-name
+    heritage: Helm
+spec:
+  type: NodePort
+  selector:
+    chart: eventstreams
+    app: eventstreams
+    routing_tag: release-name
+  ports:
+    - name: eventstreams-http
+      targetPort: 8092
+      port: 8092
+      nodePort: 30892
+    - name: prometheus-eventstreams
+      targetPort: 9102
+      port: 9102
+      nodePort: 31102
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eventstreams-release-name
+  labels:
+    chart: eventstreams
+    app: eventstreams
+    release: release-name
+    heritage: Helm
+spec:
+  selector:
+    matchLabels:
+      chart: eventstreams
+      app: eventstreams
+      release: release-name
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        chart: eventstreams
+        app: eventstreams
+        release: release-name
+        routing_tag: release-name
+      annotations:
+        checksum/config: 86f40e1616042acd6dad48897b38f105e35bd77f31bb43c042dee6f69daa4ee1
+        checksum/secrets: d63bf8fea5738148af68018f350556934d77d686b6015f50ff8e45d2e9eb25f8
+        prometheus.io/port: "9102"
+        prometheus.io/scrape: "true"
+    spec:
+      containers:
+        - name: eventstreams
+          image: docker-registry.wikimedia.org/wikimedia/mediawiki-services-eventstreams:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - nodejs
+          args:
+            - /srv/service/server.js
+            - -c
+            - /etc/eventstreams/config.yaml
+          ports:
+            - containerPort: 8092
+          livenessProbe:
+            tcpSocket:
+              port: 8092
+          readinessProbe:
+            httpGet:
+              path: /_info
+              port: 8092
+          env:
+            - name: SERVICE_IDENTIFIER
+              value: eventstreams
+          resources:
+            requests:
+              cpu: 100m
+              memory: 500Mi
+            limits:
+              cpu: 1000m
+              memory: 1000Mi
+          volumeMounts:
+            - name: eventstreams-config-volume
+              mountPath: /etc/eventstreams
+      volumes:
+        - name: eventstreams-config-volume
+          configMap:
+            name: eventstreams-release-name-config
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: eventstreams-service-checker
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  containers:
+    - name: eventstreams-service-checker
+      image: docker-registry.wikimedia.org/service-checker
+      imagePullPolicy: IfNotPresent
+      args:
+        - -t
+        - "5"
+        - $(EVENTSTREAMS_RELEASE_NAME_SERVICE_HOST)
+        - http://eventstreams-release-name:8092
+  dnsPolicy: ClusterFirst
+  restartPolicy: Never

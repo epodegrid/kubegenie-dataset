@@ -1,0 +1,292 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "clamav",
+      "labels": {
+        "app.kubernetes.io/name": "clamav",
+        "helm.sh/chart": "clamav-2.4.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 3310,
+          "targetPort": 3310,
+          "protocol": "TCP",
+          "name": "clamavport"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "clamav",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-clamapi",
+      "labels": {
+        "app.kubernetes.io/name": "clamapi",
+        "helm.sh/chart": "clamapi-1.4.0",
+        "app.kubernetes.io/instance": "release-name",
+        "release": "release-name",
+        "app.kubernetes.io/version": "2.1.6",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "clamapi",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-clamapi",
+      "labels": {
+        "app.kubernetes.io/name": "clamapi",
+        "helm.sh/chart": "clamapi-1.4.0",
+        "app.kubernetes.io/instance": "release-name",
+        "release": "release-name",
+        "app.kubernetes.io/version": "2.1.6",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "clamapi",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "clamapi",
+            "app.kubernetes.io/instance": "release-name"
+          },
+          "annotations": {}
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "clamapi",
+              "image": "audig/clamapi:2.1.6",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8080,
+                  "protocol": "TCP"
+                }
+              ],
+              "env": [
+                {
+                  "name": "SERVICES_CLAMAV_HOST",
+                  "value": "clamav"
+                },
+                {
+                  "name": "SERVICES_CLAMAV_TIMEOUT",
+                  "value": "1000"
+                },
+                {
+                  "name": "SERVICES_CLAMAV_PORT",
+                  "value": "3310"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/actuator/health/liveness",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 10,
+                "periodSeconds": 10
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/actuator/health/readiness",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 10,
+                "periodSeconds": 10
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "autoscaling/v2beta1",
+    "kind": "HorizontalPodAutoscaler",
+    "metadata": {
+      "name": "clamav"
+    },
+    "spec": {
+      "scaleTargetRef": {
+        "apiVersion": "apps/v1",
+        "kind": "StatefulSet",
+        "name": "clamav"
+      },
+      "minReplicas": 1,
+      "maxReplicas": 5,
+      "metrics": [
+        {
+          "type": "Resource",
+          "resource": {
+            "name": "cpu",
+            "targetAverageUtilization": 80
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "clamav",
+      "labels": {
+        "app.kubernetes.io/name": "clamav",
+        "helm.sh/chart": "clamav-2.4.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.9",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "serviceName": "clamav",
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "clamav",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "clamav",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "clamav",
+              "image": "mailu/clamav:1.9",
+              "imagePullPolicy": "IfNotPresent",
+              "volumeMounts": [
+                {
+                  "name": "clamav-data",
+                  "mountPath": "/data"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "clamavport",
+                  "containerPort": 3310,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "initialDelaySeconds": 300,
+                "failureThreshold": 3,
+                "periodSeconds": 10,
+                "tcpSocket": {
+                  "port": "clamavport"
+                },
+                "timeoutSeconds": 1
+              },
+              "readinessProbe": {
+                "initialDelaySeconds": 90,
+                "failureThreshold": 3,
+                "periodSeconds": 10,
+                "tcpSocket": {
+                  "port": "clamavport"
+                },
+                "timeoutSeconds": 1
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                },
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "clamav-data",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-clamapi-test-connection",
+      "labels": {
+        "app.kubernetes.io/name": "clamapi",
+        "helm.sh/chart": "clamapi-1.4.0",
+        "app.kubernetes.io/instance": "release-name",
+        "release": "release-name",
+        "app.kubernetes.io/version": "2.1.6",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test-success"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "wget",
+          "image": "busybox",
+          "command": [
+            "wget"
+          ],
+          "args": [
+            "release-name-clamapi:80/actuator/health"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

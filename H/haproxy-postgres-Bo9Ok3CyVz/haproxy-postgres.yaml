@@ -1,0 +1,342 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name
+  labels:
+    app.kubernetes.io/name: haproxy-postgres
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "2.3"
+    app.kubernetes.io/component: LoadBalancer
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: haproxy-postgres-0.3.1
+data:
+  haproxy.cfg: |
+    global
+        maxconn 4096
+
+    defaults
+        log global
+        timeout connect  5000
+        timeout client  10000
+        timeout server  10000
+
+    resolvers dns
+        nameserver google 8.8.8.8:53
+        hold valid 1s
+
+    listen statistics
+        bind *:8008
+        mode http
+        option http-use-htx
+        http-request use-service prometheus-exporter if { path /metrics }
+        stats enable
+        stats uri /stats
+
+    listen postgres_master
+        bind *:5432
+        mode tcp
+        option tcp-smart-connect
+        timeout client  1d
+        timeout server  1d
+        balance leastconn
+
+        server-template postgres-node 1-8 postgres-nodes.example.com:5432 resolvers dns check fastinter 1s
+
+        option tcp-check
+
+        # https://www.postgresql.org/docs/10/protocol-flow.html
+        # https://www.postgresql.org/docs/devel/static/protocol-message-formats.html can help you understand the following
+
+        # Send A StartUp message with the following arguments:
+        # * Size(Int32): 2F
+        # * Protocol Version(Int32): 3.0
+        # * user=healthcheck
+        # * database=healthcheck
+        tcp-check comment     Sending\ StartUp\ message
+        tcp-check send-binary 0000002f # Size of StartUp message
+        tcp-check send-binary 00030000 # Protocol version 3.0
+        tcp-check send-binary 75736572006865616c7468636865636b00         # user\00healthcheck\00
+        tcp-check send-binary 6461746162617365006865616c7468636865636b00 # database\00healthcheck\00
+        tcp-check send-binary 00 # end message with \00
+        tcp-check comment     StartUp\ message\ sent.
+
+        # Send a Query message with the followwing arguments:
+        # * Message Type(Byte1): Q
+        # * Size(Int32): 53
+        # * Query: SELECT CASE WHEN pg_is_in_recovery() THEN 'i_am_slave' ELSE 'i_am_master' END;
+        tcp-check comment     Sending\ QUERY\ slave\ or\ master?
+        tcp-check send-binary 51 # Message Type Query 'Q'
+        tcp-check send-binary 00000053
+        # SELECT CASE WHEN pg_is_in_recovery() THEN 'i_am_slave' ELSE 'i_am_master' END;
+        tcp-check send-binary 53454c4543542043415345205748454e2070675f69735f696e5f7265
+        tcp-check send-binary 636f766572792829205448454e2027695f616d5f736c617665272045
+        tcp-check send-binary 4c53452027695f616d5f6d61737465722720454e443b
+        tcp-check send-binary 00 # end message with \00
+
+        # Send a Terminate message with the following arguments:
+        # * Message Type(Byte1): X
+        # * Size(Int32): 4
+        tcp-check send-binary 58 # Message type Terminate 'X'
+        tcp-check send-binary 00000004 # Size of the message
+        tcp-check comment     Query\ sent.\ Waiting\ response.
+
+        # Test node state
+        tcp-check expect string i_am_master
+
+
+    listen postgres_slave
+        bind *:5433
+        mode tcp
+        option tcp-smart-connect
+        timeout client  10800s
+        timeout server  10800s
+        balance leastconn
+
+        server-template postgres-node 1-8 postgres-nodes.example.com:5432 resolvers dns check fastinter 1s
+
+        option tcp-check
+
+        # Send A StartUp message with the following arguments:
+        # * Size(Int32): 2F
+        # * Protocol Version(Int32): 3.0
+        # * user=healthcheck
+        # * database=healthcheck
+        tcp-check comment     Sending\ StartUp\ message
+        tcp-check send-binary 0000002f # Size of StartUp message
+        tcp-check send-binary 00030000 # Protocol version 3.0
+        tcp-check send-binary 75736572006865616c7468636865636b00         # user\00healthcheck\00
+        tcp-check send-binary 6461746162617365006865616c7468636865636b00 # database\00healthcheck\00
+        tcp-check send-binary 00 # end message with \00
+        tcp-check comment     StartUp\ message\ sent.
+
+        # Send a Query message with the followwing arguments:
+        # * Message Type(Byte1): Q
+        # * Size(Int32): 53
+        # * Query: SELECT CASE WHEN pg_is_in_recovery() THEN 'i_am_slave' ELSE 'i_am_master' END;
+        tcp-check comment     Sending\ QUERY\ slave\ or\ master?
+        tcp-check send-binary 51 # Message Type Query 'Q'
+        tcp-check send-binary 00000053
+        # SELECT CASE WHEN pg_is_in_recovery() THEN 'i_am_slave' ELSE 'i_am_master' END;
+        tcp-check send-binary 53454c4543542043415345205748454e2070675f69735f696e5f7265
+        tcp-check send-binary 636f766572792829205448454e2027695f616d5f736c617665272045
+        tcp-check send-binary 4c53452027695f616d5f6d61737465722720454e443b
+        tcp-check send-binary 00 # end message with \00
+
+        # Send a Terminate message with the following arguments:
+        # * Message Type(Byte1): X
+        # * Size(Int32): 4
+        tcp-check send-binary 58 # Message type Terminate 'X'
+        tcp-check send-binary 00000004 # Size of the message
+        tcp-check comment     Query\ sent.\ Waiting\ response.
+
+        # Test node state
+        tcp-check expect string i_am_slave
+
+    listen postgres_all
+        bind *:5434
+        mode tcp
+        option tcp-smart-connect
+        timeout client  10800s
+        timeout server  10800s
+        balance leastconn
+
+        server-template postgres-node 1-8 postgres-nodes.example.com:5432 resolvers dns check fastinter 1s
+
+        option pgsql-check user healthcheck
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-stats
+  labels:
+    app.kubernetes.io/name: haproxy-postgres
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "2.3"
+    app.kubernetes.io/component: LoadBalancer
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: haproxy-postgres-0.3.1
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 80
+      targetPort: stats
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: haproxy-postgres
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-master
+  labels:
+    app.kubernetes.io/name: haproxy-postgres
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "2.3"
+    app.kubernetes.io/component: LoadBalancer
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: haproxy-postgres-0.3.1
+spec:
+  type: NodePort
+  ports:
+    - name: pgsql
+      port: 5432
+      targetPort: pgsql-master
+      protocol: TCP
+      nodePort: 30000
+  selector:
+    app.kubernetes.io/name: haproxy-postgres
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-slave
+  labels:
+    app.kubernetes.io/name: haproxy-postgres
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "2.3"
+    app.kubernetes.io/component: LoadBalancer
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: haproxy-postgres-0.3.1
+spec:
+  type: NodePort
+  ports:
+    - name: pgsql
+      port: 5432
+      targetPort: pgsql-slave
+      protocol: TCP
+      nodePort: 30001
+  selector:
+    app.kubernetes.io/name: haproxy-postgres
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-all
+  labels:
+    app.kubernetes.io/name: haproxy-postgres
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "2.3"
+    app.kubernetes.io/component: LoadBalancer
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: haproxy-postgres-0.3.1
+spec:
+  type: ClusterIP
+  ports:
+    - name: pgsql
+      port: 5432
+      targetPort: pgsql-all
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: haproxy-postgres
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: release-name
+  labels:
+    app.kubernetes.io/name: haproxy-postgres
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "2.3"
+    app.kubernetes.io/component: LoadBalancer
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: haproxy-postgres-0.3.1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: haproxy-postgres
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: haproxy-postgres
+        app.kubernetes.io/instance: release-name
+        config-hash: a8a4da9d
+    spec:
+      containers:
+        - name: haproxy
+          image: haproxy:2.3
+          imagePullPolicy: Always
+          ports:
+            - name: stats
+              containerPort: 8008
+              protocol: TCP
+            - name: pgsql-master
+              containerPort: 5432
+              protocol: TCP
+            - name: pgsql-slave
+              containerPort: 5433
+              protocol: TCP
+            - name: pgsql-all
+              containerPort: 5434
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /usr/local/etc/haproxy/
+          livenessProbe:
+            tcpSocket:
+              port: pgsql-master
+            initialDelaySeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: config
+          configMap:
+            name: release-name
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: release-name
+  labels:
+    app.kubernetes.io/name: haproxy-postgres
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "2.3"
+    app.kubernetes.io/component: LoadBalancer
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: haproxy-postgres-0.3.1
+spec:
+  groups:
+    - name: release-name
+      rules:
+        - alert: MasterDown
+          expr: haproxy_backend_active_servers{namespace="default",service="release-name-stats",proxy="postgres_master"} < 1
+        - alert: SlaveDown
+          expr: haproxy_backend_active_servers{namespace="default",service="release-name-stats",proxy="postgres_slave"} < 1
+        - alert: MoreThanOneMaster
+          expr: haproxy_backend_active_servers{namespace="default",service="release-name-stats",proxy="postgres_master"} > 1
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: release-name
+  labels:
+    app.kubernetes.io/name: haproxy-postgres
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "2.3"
+    app.kubernetes.io/component: LoadBalancer
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: haproxy-postgres-0.3.1
+spec:
+  endpoints:
+    - port: metrics
+      relabelings:
+        - targetLabel: customLabel1
+          replacement: value1
+        - targetLabel: customLabel2
+          replacement: value2
+  namespaceSelector:
+    matchNames:
+      - default
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: haproxy-postgres
+      app.kubernetes.io/instance: release-name

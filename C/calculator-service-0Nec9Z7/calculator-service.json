@@ -1,0 +1,270 @@
+[
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "NetworkPolicy",
+    "metadata": {
+      "name": "calculator-service-release-name",
+      "labels": {
+        "app": "calculator-service",
+        "chart": "calculator-service-0.1.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "podSelector": {
+        "matchLabels": {
+          "app": "calculator-service",
+          "release": "release-name"
+        }
+      },
+      "policyTypes": [
+        "Ingress"
+      ],
+      "ingress": [
+        {
+          "ports": [
+            {
+              "port": 8080,
+              "protocol": "TCP"
+            },
+            {
+              "port": 4667,
+              "protocol": "TCP"
+            },
+            {
+              "port": 9361,
+              "protocol": "TCP"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "calculator-service-release-name-secret-config",
+      "labels": {
+        "app": "calculator-service",
+        "chart": "calculator-service-0.1.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "type": "Opaque"
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "calculator-service-release-name-tls-proxy-certs",
+      "labels": {
+        "app": "calculator-service",
+        "chart": "calculator-service-0.1.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "service.crt": "snakeoil",
+      "service.key": "snakeoil"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "calculator-service-release-name-envoy-config-volume",
+      "labels": {
+        "app": "calculator-service",
+        "chart": "calculator-service-0.1.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "envoy.yaml": "admin:\n  access_log_path: /var/log/envoy/admin-access.log\n  address:\n    socket_address: {address: 127.0.0.1, port_value: 1666}\nstatic_resources:\n  clusters:\n  - name: local_service\n    common_http_protocol_options:\n      idle_timeout: 4.5s\n    connect_timeout: 1.0s\n    lb_policy: round_robin\n    load_assignment:\n      cluster_name: local_service\n      endpoints:\n      - lb_endpoints:\n        - endpoint:\n            address:\n              socket_address: {address: 127.0.0.1, port_value: 8080 }\n    type: strict_dns\n  - name: admin_interface\n    connect_timeout: 1.0s\n    lb_policy: round_robin\n    load_assignment:\n      cluster_name: admin_interface\n      endpoints:\n      - lb_endpoints:\n        - endpoint:\n            address:\n              socket_address: {address: 127.0.0.1, port_value: 1666 }\n    type: strict_dns\n  listeners:\n  - address:\n      socket_address:\n        address: 0.0.0.0\n        port_value: 9361\n    filter_chains:\n    - filters:\n      - name: envoy.filters.network.http_connection_manager\n        typed_config:\n          \"@type\": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager\n          http_filters:\n          - name: envoy.filters.http.router\n            typed_config: {}\n          http_protocol_options: {accept_http_10: true}\n          route_config:\n            virtual_hosts:\n            - domains: ['*']\n              name: admin_interface\n              routes:\n              - match: {prefix: /stats }\n                route:\n                  cluster: admin_interface\n                  timeout: 5.0s\n              - match: {prefix: /healthz}\n                direct_response:\n                  status: 200\n                  body: {inline_string: \"OK\"}\n              - match: {prefix: /}\n                direct_response:\n                  status: 403\n                  body: {inline_string: \"You can't access this url.\"}\n          stat_prefix: admin_interface\n  - address:\n      socket_address: {address: 0.0.0.0, port_value: 4667 }\n    filter_chains:\n    - filters:\n      - name: envoy.filters.network.http_connection_manager\n        typed_config:\n          \"@type\": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager\n          access_log:\n          - filter:\n              status_code_filter:\n                comparison:\n                  op: \"GE\"\n                  value:\n                    default_value: 500\n                    runtime_key: tls_terminator_min_log_code\n            # TODO: use a stream logger once we upgrade from 1.15\n            typed_config:\n              \"@type\": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog\n              path: \"/dev/stdout\"\n          http_filters:\n          - name: envoy.filters.http.router\n            typed_config: {}\n          http_protocol_options: {accept_http_10: true}\n          route_config:\n            virtual_hosts:\n            - domains: ['*']\n              name: tls_termination\n              routes:\n              - match: {prefix: /}\n                route:\n                  cluster: local_service\n                  timeout: 180.0s\n          stat_prefix: ingress_https_release-name\n          server_name: release-name-tls\n          server_header_transformation: APPEND_IF_ABSENT\n      transport_socket:\n        name: envoy.transport_sockets.tls\n        typed_config:\n          \"@type\": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext\n          common_tls_context:\n            tls_certificates:\n              - certificate_chain: {filename: /etc/envoy/ssl/service.crt}\n                private_key: {filename: /etc/envoy/ssl/service.key}\n    listener_filters:\n    - name: envoy.filters.listener.tls_inspector\n      typed_config: {}"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "calculator-service-release-name-tls-service",
+      "labels": {
+        "app": "calculator-service",
+        "chart": "calculator-service-0.1.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "NodePort",
+      "selector": {
+        "app": "calculator-service",
+        "routed_via": "release-name"
+      },
+      "ports": [
+        {
+          "name": "calculator-service-release-name-https",
+          "protocol": "TCP",
+          "port": 4667,
+          "nodePort": 4667
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "calculator-service-release-name",
+      "labels": {
+        "app": "calculator-service",
+        "chart": "calculator-service-0.1.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "calculator-service",
+          "release": "release-name"
+        }
+      },
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "calculator-service",
+            "release": "release-name",
+            "routed_via": "release-name"
+          },
+          "annotations": {
+            "checksum/secrets": "3a29e85a0ab8117b645fcac457a2e8285f8a7a52776d8de46367d3f7187ab48e",
+            "prometheus.io/port": "9102",
+            "prometheus.io/scrape": "false",
+            "checksum/tls-config": "a50c6f2b44aa328bd611ada09e498f868599a35d9900c84c24b74be3d10b5e7e",
+            "checksum/tls-certs": "42a19feb2b4c240132bebca84767d33b025ea276ddbf21ee93683e21c5dabcf7",
+            "envoyproxy.io/scrape": "true",
+            "envoyproxy.io/port": "9361"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "calculator-service-release-name",
+              "image": "docker-registry.wikimedia.org/blubber-doc-example-calculator-service:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "containerPort": 8080
+                }
+              ],
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": 8080
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": 8080
+                }
+              },
+              "env": [
+                {
+                  "name": "SERVICE_IDENTIFIER",
+                  "value": "calculator-service-release-name"
+                },
+                {
+                  "name": "CALC_TESTMODE",
+                  "value": "OFF"
+                },
+                {
+                  "name": "CALC_VERSION",
+                  "value": "0.3"
+                }
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "200Mi"
+                },
+                "limits": {
+                  "cpu": "100m",
+                  "memory": "200Mi"
+                }
+              }
+            },
+            {
+              "name": "calculator-service-release-name-tls-proxy",
+              "image": "docker-registry.wikimedia.org/envoy:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "SERVICE_NAME",
+                  "value": "release-name"
+                },
+                {
+                  "name": "SERVICE_ZONE",
+                  "value": "default"
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 4667
+                }
+              ],
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": 9361
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "envoy-config-volume",
+                  "mountPath": "/etc/envoy/",
+                  "readOnly": true
+                },
+                {
+                  "name": "tls-certs-volume",
+                  "mountPath": "/etc/envoy/ssl",
+                  "readOnly": true
+                }
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "200m",
+                  "memory": "100Mi"
+                },
+                "limits": {
+                  "cpu": "500m",
+                  "memory": "500Mi"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "envoy-config-volume",
+              "configMap": {
+                "name": "calculator-service-release-name-envoy-config-volume"
+              }
+            },
+            {
+              "name": "tls-certs-volume",
+              "configMap": {
+                "name": "calculator-service-release-name-tls-proxy-certs"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

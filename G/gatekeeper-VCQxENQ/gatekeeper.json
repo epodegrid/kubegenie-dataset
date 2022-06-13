@@ -1,0 +1,170 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-gatekeeper",
+      "labels": {
+        "helm.sh/chart": "gatekeeper-0.1.18",
+        "app.kubernetes.io/name": "gatekeeper",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.4.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-gatekeeper",
+      "labels": {
+        "helm.sh/chart": "gatekeeper-0.1.18",
+        "app.kubernetes.io/name": "gatekeeper",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.4.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "stringData": {
+      "config.yaml": "enable-metrics: false\nlisten: :3000\nlisten-admin: :4000\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-gatekeeper",
+      "labels": {
+        "helm.sh/chart": "gatekeeper-0.1.18",
+        "app.kubernetes.io/name": "gatekeeper",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.4.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 3000,
+          "targetPort": "proxy",
+          "protocol": "TCP",
+          "name": "proxy"
+        },
+        {
+          "port": 4000,
+          "targetPort": "admin",
+          "protocol": "TCP",
+          "name": "admin"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "gatekeeper",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-gatekeeper",
+      "labels": {
+        "helm.sh/chart": "gatekeeper-0.1.18",
+        "app.kubernetes.io/name": "gatekeeper",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.4.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "type": "Recreate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "gatekeeper",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config": "0114963221db7f053a8b35dc10b8adb47391e68a29e92e6c4d56ad835a50b910"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "gatekeeper",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "automountServiceAccountToken": false,
+          "serviceAccountName": "release-name-gatekeeper",
+          "containers": [
+            {
+              "name": "gatekeeper",
+              "securityContext": {
+                "capabilities": {
+                  "drop": [
+                    "ALL"
+                  ]
+                },
+                "readOnlyRootFilesystem": true,
+                "runAsNonRoot": true,
+                "allowPrivilegeEscalation": false
+              },
+              "image": "quay.io/gogatekeeper/gatekeeper:1.4.2",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "--config",
+                "/etc/gatekeeper/config.yaml"
+              ],
+              "ports": [
+                {
+                  "name": "proxy",
+                  "containerPort": 3000,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "admin",
+                  "containerPort": 4000,
+                  "protocol": "TCP"
+                }
+              ],
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/oauth/health",
+                  "port": "admin"
+                }
+              },
+              "resources": {
+                "limits": {},
+                "requests": {},
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/etc/gatekeeper",
+                  "name": "config"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "secret": {
+                "secretName": "release-name-gatekeeper"
+              },
+              "name": "config"
+            }
+          ]
+        }
+      }
+    }
+  }
+]

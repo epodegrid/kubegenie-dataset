@@ -1,0 +1,98 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-clair
+  labels:
+    heritage: Helm
+    release: release-name
+    chart: clair-0.1.5
+    app: release-name-clair
+type: Opaque
+data:
+  config.yaml: aW50cm9zcGVjdGlvbl9hZGRyOiA6NjA2MQpodHRwX2xpc3Rlbl9hZGRyOiA6NjA2MApsb2dfbGV2ZWw6IGRlYnVnCmluZGV4ZXI6CiAgY29ubnN0cmluZzogImhvc3Q9Y2xhaXItcGctcG9zdGdyZXNxbCBwb3J0PTU0MzIgZGJuYW1lPWNsYWlydjQgdXNlcj1jbGFpciBwYXNzd29yZD1jbGFpciBzc2xtb2RlPWRpc2FibGUiCiAgc2NhbmxvY2tfcmV0cnk6IDEwCiAgbGF5ZXJfc2Nhbl9jb25jdXJyZW5jeTogNQogIG1pZ3JhdGlvbnM6IHRydWUKCm1hdGNoZXI6CiAgaW5kZXhlcl9hZGRyOiAiOjYwNjAiCiAgY29ubnN0cmluZzogImhvc3Q9Y2xhaXItcGctcG9zdGdyZXNxbCBwb3J0PTU0MzIgZGJuYW1lPWNsYWlydjQgdXNlcj1jbGFpciBwYXNzd29yZD1jbGFpciBzc2xtb2RlPWRpc2FibGUiCiAgbWF4X2Nvbm5fcG9vbDogMTAwCiAgcnVuOiAiIgogIG1pZ3JhdGlvbnM6IHRydWUKICB1cGRhdGVyX3NldHM6CiAgLSAiYWxwaW5lIgogIC0gImF3cyIKICAtICJkZWJpYW4iCiAgLSAib3JhY2xlIgogIC0gInBob3RvbiIKICAtICJweXVwaW8iCiAgLSAicmhlbCIKICAtICJzdXNlIgogIC0gInVidW50dSIKICAgIApub3RpZmllcjoKICBjb25uc3RyaW5nOiAiaG9zdD1jbGFpci1wZy1wb3N0Z3Jlc3FsIHBvcnQ9NTQzMiBkYm5hbWU9Y2xhaXJ2NCB1c2VyPWNsYWlyIHBhc3N3b3JkPWNsYWlyIHNzbG1vZGU9ZGlzYWJsZSIKICBkZWxpdmVyeV9pbnRlcnZhbDogMW0KICBwb2xsX2ludGVydmFsOiA1bQogIG1pZ3JhdGlvbnM6IHRydWU=
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-clair
+  labels:
+    heritage: Helm
+    release: release-name
+    chart: clair-0.1.5
+    app: release-name-clair
+spec:
+  type: ClusterIP
+  ports:
+    - name: clair-api
+      port: 6060
+      targetPort: 6060
+      protocol: TCP
+    - name: clair-health
+      port: 6061
+      targetPort: 6061
+      protocol: TCP
+  selector:
+    app: release-name-clair
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-clair
+  labels:
+    heritage: Helm
+    release: release-name
+    chart: clair-0.1.5
+    app: release-name-clair
+    component: clair
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: release-name-clair
+  template:
+    metadata:
+      labels:
+        app: release-name-clair
+        component: clair
+    spec:
+      volumes:
+        - name: clair-config
+          secret:
+            secretName: release-name-clair
+      initContainers:
+        - name: pg-ready-wait
+          image: postgres:11.3
+          command:
+            - sh
+            - -c
+            - until pg_isready -h  -p 5432; do echo waiting for database; sleep 1; done;
+      containers:
+        - name: clair
+          image: clair-local:latest
+          imagePullPolicy: Never
+          ports:
+            - name: clair-api
+              containerPort: 6060
+              protocol: TCP
+            - name: clair-health
+              containerPort: 6061
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 6061
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 6061
+          volumeMounts:
+            - name: clair-config
+              mountPath: /etc/clair
+              readOnly: true
+          resources:
+            limits:
+              cpu: 200m
+              memory: 1500Mi
+            requests:
+              cpu: 100m
+              memory: 500Mi

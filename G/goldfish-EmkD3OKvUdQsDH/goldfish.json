@@ -1,0 +1,142 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-goldfish",
+      "labels": {
+        "app": "goldfish",
+        "release": "release-name",
+        "heritage": "Helm",
+        "chart": "goldfish-0.2.7"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "vault-token": ""
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-goldfish",
+      "labels": {
+        "app": "goldfish",
+        "release": "release-name",
+        "heritage": "Helm",
+        "chart": "goldfish-0.2.7"
+      }
+    },
+    "data": {
+      "config": "{\"disable_mlock\":1,\"listener\":{\"tcp\":{\"address\":\"0.0.0.0:8000\",\"tls_disable\":1}},\"vault\":{\"address\":\"http://vault:8200\",\"approle_id\":\"goldfish\",\"approle_login\":\"auth/approle/login\",\"runtime_config\":\"secret/goldfish\",\"tls_skip_verify\":1}}"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-goldfish",
+      "labels": {
+        "app": "goldfish",
+        "release": "release-name",
+        "heritage": "Helm",
+        "chart": "goldfish-0.2.7"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": 8000,
+          "protocol": "TCP",
+          "name": "goldfish"
+        }
+      ],
+      "selector": {
+        "app": "goldfish",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "extensions/v1beta1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-goldfish",
+      "labels": {
+        "app": "goldfish",
+        "release": "release-name",
+        "heritage": "Helm",
+        "chart": "goldfish-0.2.7"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "goldfish",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "goldfish",
+              "image": "caiyeon/goldfish:0.9.0",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "containerPort": 8000
+                }
+              ],
+              "env": [
+                {
+                  "name": "GOLDFISH_PORT",
+                  "value": "8000"
+                },
+                {
+                  "name": "GOLDFISH_CONFIG",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "name": "release-name-goldfish",
+                      "key": "config"
+                    }
+                  }
+                },
+                {
+                  "name": "VAULT_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-goldfish",
+                      "key": "vault-token"
+                    }
+                  }
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": 8000
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": 8000
+                }
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

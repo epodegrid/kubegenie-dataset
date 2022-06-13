@@ -1,0 +1,392 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-mysql
+  namespace: Sc96xCqve
+  labels:
+    app.kubernetes.io/name: mysql
+    helm.sh/chart: mysql-8.5.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+secrets:
+  - name: release-name-mysql
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-mysql
+  namespace: Sc96xCqve
+  labels:
+    app.kubernetes.io/name: mysql
+    helm.sh/chart: mysql-8.5.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+  mysql-root-password: cm9vdHBhc3N3b3Jk
+  mysql-password: cGFzc3dvcmQ=
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-mysql
+  namespace: Sc96xCqve
+  labels:
+    app.kubernetes.io/name: mysql
+    helm.sh/chart: mysql-8.5.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+data:
+  my.cnf: |2-
+    [mysqld]
+    default_authentication_plugin=mysql_native_password
+    skip-name-resolve
+    explicit_defaults_for_timestamp
+    basedir=/opt/bitnami/mysql
+    plugin_dir=/opt/bitnami/mysql/plugin
+    port=3306
+    socket=/opt/bitnami/mysql/tmp/mysql.sock
+    datadir=/bitnami/mysql/data
+    tmpdir=/opt/bitnami/mysql/tmp
+    max_allowed_packet=16M
+    bind-address=0.0.0.0
+    pid-file=/opt/bitnami/mysql/tmp/mysqld.pid
+    log-error=/opt/bitnami/mysql/logs/mysqld.log
+    character-set-server=UTF8
+    collation-server=utf8_general_ci
+
+    [client]
+    port=3306
+    socket=/opt/bitnami/mysql/tmp/mysql.sock
+    default-character-set=UTF8
+    plugin_dir=/opt/bitnami/mysql/plugin
+
+    [manager]
+    port=3306
+    socket=/opt/bitnami/mysql/tmp/mysql.sock
+    pid-file=/opt/bitnami/mysql/tmp/mysqld.pid
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-data
+  namespace: default
+  labels:
+    app: release-name
+    chart: bookstack-0.1.5
+    release: release-name
+    heritage: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-mysql-headless
+  namespace: Sc96xCqve
+  labels:
+    app.kubernetes.io/name: mysql
+    helm.sh/chart: mysql-8.5.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+  annotations: null
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+  selector:
+    app.kubernetes.io/name: mysql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: primary
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-mysql
+  namespace: Sc96xCqve
+  labels:
+    app.kubernetes.io/name: mysql
+    helm.sh/chart: mysql-8.5.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+  annotations: null
+spec:
+  type: ClusterIP
+  ports:
+    - name: mysql
+      port: 3306
+      protocol: TCP
+      targetPort: mysql
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: mysql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: primary
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-bookstack
+spec:
+  type: ClusterIP
+  ports:
+    - name: 80tcp
+      port: 80
+      protocol: TCP
+      targetPort: 80
+  selector:
+    app: release-name-bookstack
+    release: release-name
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-mysql
+  namespace: Sc96xCqve
+  labels:
+    app.kubernetes.io/name: mysql
+    helm.sh/chart: mysql-8.5.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mysql
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: primary
+  serviceName: release-name-mysql
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        checksum/configuration: c916c4f2f9f010ae9c5bcf9278674ef153267899770c9f3ced6ab9262086ae22
+      labels:
+        app.kubernetes.io/name: mysql
+        helm.sh/chart: mysql-8.5.1
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: primary
+    spec:
+      serviceAccountName: release-name-mysql
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: mysql
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: primary
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: mysql
+          image: docker.io/bitnami/mysql:8.0.18-r70
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 10589
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-mysql
+                  key: mysql-root-password
+            - name: MYSQL_USER
+              value: bookstack
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-mysql
+                  key: mysql-password
+            - name: MYSQL_DATABASE
+              value: bookstackapp
+          ports:
+            - name: mysql
+              containerPort: 3306
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - |
+                  password_aux="${MYSQL_ROOT_PASSWORD:-}"
+                  if [[ -f "${MYSQL_ROOT_PASSWORD_FILE:-}" ]]; then
+                      password_aux=$(cat "$MYSQL_ROOT_PASSWORD_FILE")
+                  fi
+                  mysqladmin status -uroot -p"${password_aux}"
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - |
+                  password_aux="${MYSQL_ROOT_PASSWORD:-}"
+                  if [[ -f "${MYSQL_ROOT_PASSWORD_FILE:-}" ]]; then
+                      password_aux=$(cat "$MYSQL_ROOT_PASSWORD_FILE")
+                  fi
+                  mysqladmin status -uroot -p"${password_aux}"
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/mysql
+            - name: config
+              mountPath: /opt/bitnami/mysql/conf/my.cnf
+              subPath: my.cnf
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-mysql
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: mysql
+          app.kubernetes.io/instance: release-name
+          app.kubernetes.io/component: primary
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 20Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-bookstack
+  labels:
+    app: release-name-bookstack
+    chart: bookstack-0.1.5
+    heritage: Helm
+    release: release-name
+    app.kubernetes.io/name: bookstack
+    helm.sh/chart: bookstack-0.1.5
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 21.12.4
+    app.kubernetes.io/managed-by: Helm
+spec:
+  serviceName: release-name
+  replicas: 1
+  selector:
+    matchLabels:
+      app: release-name-bookstack
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: release-name-bookstack
+        release: release-name
+      annotations:
+        rollme: SIQZZ
+    spec:
+      containers:
+        - name: bookstack
+          image: lscr.io/linuxserver/bookstack:21.12.4
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            - name: APP_URL
+              value: https://bookstack.compagny.com
+            - name: DB_USER
+              value: bookstack
+            - name: DB_PASS
+              value: password
+            - name: DB_DATABASE
+              value: bookstackapp
+            - name: TZ
+              value: Europe/Paris
+            - name: FILE_UPLOAD_SIZE_LIMIT
+              value: "50"
+            - name: DB_HOST
+              value: release-name-mysql
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+              name: 80tcp
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /config
+              name: release-name-data
+      volumes:
+        - name: release-name-data
+          persistentVolumeClaim:
+            claimName: release-name-data
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bookstack
+  labels:
+    app: bookstack
+    chart: bookstack-0.1.5
+    heritage: Helm
+    release: release-name
+  annotations:
+    nginx.ingress.kubernetes.io/affinity: cookie
+    nginx.ingress.kubernetes.io/client-body-timeout: "3600"
+    nginx.ingress.kubernetes.io/client-header-timeout: "3600"
+    nginx.ingress.kubernetes.io/client_max_body_size: 5000m
+    nginx.ingress.kubernetes.io/proxy-body-size: 5000m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/session-cookie-expires: "86400"
+    nginx.ingress.kubernetes.io/session-cookie-max-age: "86400"
+spec:
+  tls:
+    - hosts:
+        - bookstack.company.com
+      secretName: bookstack
+  rules:
+    - host: bookstack.compagny.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: release-name-bookstack
+                port:
+                  name: 80tcp

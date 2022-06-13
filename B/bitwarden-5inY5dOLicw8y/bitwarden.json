@@ -1,0 +1,235 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "name": "bitwarden-pvc"
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "5G"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "bitwarden-svc",
+      "labels": {
+        "helm.sh/chart": "bitwarden-0.9",
+        "app-name": "bitwarden",
+        "component": "password-manager",
+        "managed-by": "chynten",
+        "created-by": "chynten",
+        "version": "1.24.0"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "pms",
+          "protocol": "TCP",
+          "port": 80,
+          "targetPort": 80
+        }
+      ],
+      "selector": {
+        "app-name": "bitwarden"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "bitwarden-deployment",
+      "labels": {
+        "helm.sh/chart": "bitwarden-0.9",
+        "app-name": "bitwarden",
+        "component": "password-manager",
+        "managed-by": "chynten",
+        "created-by": "chynten",
+        "version": "1.24.0"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "revisionHistoryLimit": null,
+      "selector": {
+        "matchLabels": {
+          "app-name": "bitwarden"
+        }
+      },
+      "strategy": {
+        "type": "Recreate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app-name": "bitwarden"
+          }
+        },
+        "spec": {
+          "restartPolicy": "Always",
+          "containers": [
+            {
+              "name": "bitwarden",
+              "image": "vaultwarden/server:1.23.1",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "env": [
+                {
+                  "name": "DATABASE_URL",
+                  "value": "mysql://bitwarden:bitwarden%40321@mysql-svc.internal.svc.cluster.local/vaultwarden"
+                },
+                {
+                  "name": "SMTP_HOST",
+                  "value": "smtp.gmail.com"
+                },
+                {
+                  "name": "SMTP_PORT",
+                  "value": "587"
+                },
+                {
+                  "name": "SMTP_SSL",
+                  "value": "true"
+                },
+                {
+                  "name": "SMTP_USERNAME",
+                  "value": null
+                },
+                {
+                  "name": "SMTP_PASSWORD",
+                  "value": null
+                },
+                {
+                  "name": "SMTP_FROM",
+                  "value": null
+                },
+                {
+                  "name": "SIGNUPS_ALLOWED",
+                  "value": "false"
+                },
+                {
+                  "name": "DOMAIN",
+                  "value": "https://bw.example.com"
+                }
+              ],
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": 80
+                },
+                "failureThreshold": 5,
+                "periodSeconds": 10
+              },
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": 80
+                },
+                "failureThreshold": 5,
+                "periodSeconds": 10
+              },
+              "startupProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": 80
+                },
+                "failureThreshold": 30,
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10
+              },
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/data",
+                  "subPath": "bitwarden"
+                }
+              ]
+            }
+          ],
+          "securityContext": {},
+          "volumes": [
+            {
+              "name": "data",
+              "persistentVolumeClaim": {
+                "claimName": "bitwarden-pvc"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "bitwarden-ingress",
+      "labels": {
+        "helm.sh/chart": "bitwarden-0.9",
+        "app-name": "bitwarden",
+        "component": "password-manager",
+        "managed-by": "chynten",
+        "created-by": "chynten",
+        "version": "1.24.0"
+      },
+      "annotations": {
+        "cert-manager.io/cluster-issuer": "letsencrypt",
+        "kubernetes.io/ingress.class": "nginx"
+      }
+    },
+    "spec": {
+      "tls": [
+        {
+          "hosts": [
+            "bw.example.com"
+          ],
+          "secretName": "bitwarden-letsencrypt-certificate"
+        }
+      ],
+      "rules": [
+        {
+          "host": "bw.example.com",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "pathType": "Prefix",
+                "backend": {
+                  "service": {
+                    "name": "bitwarden-svc",
+                    "port": {
+                      "number": 80
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

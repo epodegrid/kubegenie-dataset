@@ -1,0 +1,384 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-pghoard",
+      "labels": {
+        "app": "pghoard",
+        "chart": "pghoard-0.8.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "PG_HOST": "Q0hBTkdFTUU=",
+      "PG_PORT": "NTQzMg==",
+      "PG_USER": "Q0hBTkdFTUU=",
+      "PG_PASSWORD": "Q0hBTkdFTUU="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-pghoard",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "pghoard-0.8.1",
+        "app": "pghoard"
+      }
+    },
+    "data": {
+      "PGHOARD_STORAGE_TYPE": "local",
+      "PGHOARD_BASEBACKUP_COUNT": "30",
+      "PGHOARD_BASEBACKUP_HOUR": "4",
+      "PGHOARD_BASEBACKUP_INTERVAL_HOURS": "24",
+      "PGHOARD_DIRECTORY": "/var/lib/pghoard",
+      "PGHOARD_ACTIVE_BACKUP_MODE": "pg_receivexlog",
+      "HOSTNAME": "release-name-pghoard"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-pghoard-headless",
+      "labels": {
+        "app.kubernetes.io/name": "pghoard",
+        "helm.sh/chart": "pghoard-0.8.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "backup"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "pghoard",
+          "port": 16000,
+          "targetPort": "pghoard"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "pghoard",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "backup"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-pghoard-restore",
+      "labels": {
+        "app.kubernetes.io/name": "pghoard",
+        "helm.sh/chart": "pghoard-0.8.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "restore"
+      }
+    },
+    "spec": {
+      "replicas": 0,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "pghoard",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "restore"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "pghoard",
+            "helm.sh/chart": "pghoard-0.8.1",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "restore",
+            "release-name-postgresql-client": "true"
+          },
+          "annotations": {
+            "checksum/config": "1395d6760961a8ae8eb3735a4896f2893c0ad13c5a291edbae830c8dd94440a7"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "pghoard-restore",
+              "image": "wiremind/pghoard:12-2019-11-26",
+              "command": [
+                "/bin/bash",
+                "/restore.sh"
+              ],
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "PGHOARD_RESTORE_SITE",
+                  "value": "release-name-pghoard"
+                }
+              ],
+              "envFrom": [
+                {
+                  "secretRef": {
+                    "name": "release-name-pghoard"
+                  }
+                },
+                {
+                  "configMapRef": {
+                    "name": "release-name-pghoard"
+                  }
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "pghoard",
+                  "mountPath": "/var/lib/pghoard"
+                }
+              ]
+            }
+          ],
+          "restartPolicy": "Always",
+          "volumes": [
+            {
+              "name": "pghoard",
+              "persistentVolumeClaim": {
+                "claimName": "data-release-name-pghoard-0",
+                "readOnly": false
+              }
+            }
+          ],
+          "affinity": {
+            "podAffinity": {
+              "requiredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "labelSelector": {
+                    "matchLabels": {
+                      "app.kubernetes.io/name": "pghoard",
+                      "app.kubernetes.io/instance": "release-name",
+                      "app.kubernetes.io/component": "backup"
+                    }
+                  },
+                  "topologyKey": "kubernetes.io/hostname"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-pghoard",
+      "labels": {
+        "app.kubernetes.io/name": "pghoard",
+        "helm.sh/chart": "pghoard-0.8.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "backup"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "serviceName": "release-name-pghoard-headless",
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "pghoard",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "backup"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "pghoard",
+            "helm.sh/chart": "pghoard-0.8.1",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "backup",
+            "release-name-postgresql-client": "true"
+          },
+          "annotations": {
+            "checksum/config": "1395d6760961a8ae8eb3735a4896f2893c0ad13c5a291edbae830c8dd94440a7"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "pghoard",
+              "image": "wiremind/pghoard:12-2019-11-26",
+              "imagePullPolicy": "IfNotPresent",
+              "envFrom": [
+                {
+                  "secretRef": {
+                    "name": "release-name-pghoard"
+                  }
+                },
+                {
+                  "configMapRef": {
+                    "name": "release-name-pghoard"
+                  }
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/var/lib/pghoard"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "pghoard",
+                  "containerPort": 16000
+                }
+              ]
+            }
+          ],
+          "restartPolicy": "Always"
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "1Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "release-name-pghoard-check",
+      "labels": {
+        "app.kubernetes.io/name": "pghoard",
+        "helm.sh/chart": "pghoard-0.8.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "restore-autocheck"
+      }
+    },
+    "spec": {
+      "schedule": "0 12 * * *",
+      "startingDeadlineSeconds": 600,
+      "concurrencyPolicy": "Forbid",
+      "failedJobsHistoryLimit": 1,
+      "successfulJobsHistoryLimit": 1,
+      "jobTemplate": {
+        "spec": {
+          "backoffLimit": 0,
+          "template": {
+            "metadata": {
+              "labels": {
+                "app.kubernetes.io/name": "pghoard",
+                "helm.sh/chart": "pghoard-0.8.1",
+                "app.kubernetes.io/instance": "release-name",
+                "app.kubernetes.io/managed-by": "Helm",
+                "app.kubernetes.io/component": "restore-autocheck",
+                "release-name-postgresql-client": "true"
+              },
+              "annotations": {
+                "checksum/config": "1395d6760961a8ae8eb3735a4896f2893c0ad13c5a291edbae830c8dd94440a7"
+              }
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "pghoard-restore",
+                  "image": "wiremind/pghoard:12-2019-11-26",
+                  "command": [
+                    "/bin/bash",
+                    "/restore.sh"
+                  ],
+                  "imagePullPolicy": "IfNotPresent",
+                  "env": [
+                    {
+                      "name": "PGHOARD_RESTORE_SITE",
+                      "value": "release-name-pghoard"
+                    },
+                    {
+                      "name": "RESTORE_CHECK_COMMAND",
+                      "value": "SELECT * FROM my_table;"
+                    }
+                  ],
+                  "envFrom": [
+                    {
+                      "secretRef": {
+                        "name": "release-name-pghoard"
+                      }
+                    },
+                    {
+                      "configMapRef": {
+                        "name": "release-name-pghoard"
+                      }
+                    }
+                  ],
+                  "volumeMounts": [
+                    {
+                      "name": "pghoard",
+                      "mountPath": "/var/lib/pghoard"
+                    }
+                  ]
+                }
+              ],
+              "restartPolicy": "Never",
+              "volumes": [
+                {
+                  "name": "pghoard",
+                  "persistentVolumeClaim": {
+                    "claimName": "data-release-name-pghoard-0",
+                    "readOnly": false
+                  }
+                }
+              ],
+              "affinity": {
+                "podAffinity": {
+                  "requiredDuringSchedulingIgnoredDuringExecution": [
+                    {
+                      "labelSelector": {
+                        "matchLabels": {
+                          "app.kubernetes.io/name": "pghoard",
+                          "app.kubernetes.io/instance": "release-name",
+                          "app.kubernetes.io/component": "backup"
+                        }
+                      },
+                      "topologyKey": "kubernetes.io/hostname"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+]

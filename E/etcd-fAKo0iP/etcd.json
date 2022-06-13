@@ -1,0 +1,255 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-etcd",
+      "namespace": "fAKo0iP"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-etcd-bin"
+    },
+    "data": {
+      "etcd.sh": "#!/bin/sh\n\n\n\nset -ex\n\nexec etcd \\\n  --listen-client-urls http://0.0.0.0:2379 \\\n  --advertise-client-urls http://etcd.default.svc.cluster.local:2379\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "etcd"
+    },
+    "spec": {
+      "sessionAffinity": "ClientIP",
+      "ports": [
+        {
+          "port": 2379
+        }
+      ],
+      "selector": {
+        "release_group": "release-name",
+        "application": "etcd",
+        "component": "server"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-etcd",
+      "annotations": {
+        "openstackhelm.openstack.org/release_uuid": ""
+      },
+      "labels": {
+        "release_group": "release-name",
+        "application": "etcd",
+        "component": "server"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "release_group": "release-name",
+          "application": "etcd",
+          "component": "server"
+        }
+      },
+      "revisionHistoryLimit": 3,
+      "strategy": {
+        "type": "RollingUpdate",
+        "rollingUpdate": {
+          "maxUnavailable": 1,
+          "maxSurge": 3
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "release_group": "release-name",
+            "application": "etcd",
+            "component": "server"
+          },
+          "annotations": {
+            "openstackhelm.openstack.org/release_uuid": "",
+            "container.apparmor.security.beta.kubernetes.io/init": "runtime/default",
+            "container.apparmor.security.beta.kubernetes.io/etcd": "runtime/default",
+            "configmap-bin-hash": "669046d768931fc7d7f8eedc298fe8407e4abec2d6ccbbb8639bea71306a804f"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "runAsUser": 65534
+          },
+          "serviceAccountName": "release-name-etcd",
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "release_group",
+                          "operator": "In",
+                          "values": [
+                            "release-name"
+                          ]
+                        },
+                        {
+                          "key": "application",
+                          "operator": "In",
+                          "values": [
+                            "etcd"
+                          ]
+                        },
+                        {
+                          "key": "component",
+                          "operator": "In",
+                          "values": [
+                            "server"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 10
+                }
+              ]
+            }
+          },
+          "nodeSelector": {
+            "openstack-control-plane": "enabled"
+          },
+          "initContainers": [
+            {
+              "name": "init",
+              "image": "quay.io/airshipit/kubernetes-entrypoint:v1.0.0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 65534
+              },
+              "env": [
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "INTERFACE_NAME",
+                  "value": "eth0"
+                },
+                {
+                  "name": "PATH",
+                  "value": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/"
+                },
+                {
+                  "name": "DEPENDENCY_SERVICE",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_DAEMONSET",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CONTAINER",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_POD_JSON",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CUSTOM_RESOURCE",
+                  "value": ""
+                }
+              ],
+              "command": [
+                "kubernetes-entrypoint"
+              ],
+              "volumeMounts": []
+            }
+          ],
+          "containers": [
+            {
+              "name": "etcd",
+              "image": "k8s.gcr.io/etcd-amd64:3.4.3",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 11179,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "command": [
+                "/tmp/etcd.sh"
+              ],
+              "ports": [
+                {
+                  "containerPort": 2379
+                }
+              ],
+              "readinessProbe": {
+                "tcpSocket": {
+                  "port": 2379
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "pod-tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "etcd-bin",
+                  "mountPath": "/tmp/etcd.sh",
+                  "subPath": "etcd.sh",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "pod-tmp",
+              "emptyDir": {}
+            },
+            {
+              "name": "etcd-bin",
+              "configMap": {
+                "name": "release-name-etcd-bin",
+                "defaultMode": 365
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  null,
+  null
+]

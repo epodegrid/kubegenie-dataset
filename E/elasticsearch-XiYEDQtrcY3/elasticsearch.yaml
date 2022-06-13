@@ -1,0 +1,96 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-elasticsearch
+  labels:
+    app: elasticsearch
+    chart: elasticsearch-1.0.0
+    release: release-name
+    heritage: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-elasticsearch
+  labels:
+    app: elasticsearch
+    release: release-name
+    chart: elasticsearch-1.0.0
+    heritage: Helm
+  annotations: {}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 9200
+      targetPort: http
+    - name: transport
+      port: 9300
+      targetPort: transport
+  selector:
+    app: elasticsearch
+    release: release-name
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: release-name-elasticsearch
+  labels:
+    app: elasticsearch
+    release: release-name
+    chart: elasticsearch-1.0.0
+    heritage: Helm
+spec:
+  revisionHistoryLimit: 0
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+        release: release-name
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+      containers:
+        - name: elasticsearch
+          image: docker.elastic.co/elasticsearch/elasticsearch:6.2.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ES_JAVA_OPTS
+              value: '-Djava.net.preferIPv4Stack=true -Xms512m -Xmx512m '
+            - name: discovery.type
+              value: single-node
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 9200
+            initialDelaySeconds: 30
+            timeoutSeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 9200
+            initialDelaySeconds: 15
+            timeoutSeconds: 5
+          ports:
+            - name: http
+              containerPort: 9200
+            - name: transport
+              containerPort: 9300
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/elasticsearch/data
+              subPath: null
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: release-name-elasticsearch

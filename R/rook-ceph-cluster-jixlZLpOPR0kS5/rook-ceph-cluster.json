@@ -1,0 +1,235 @@
+[
+  {
+    "apiVersion": "storage.k8s.io/v1",
+    "kind": "StorageClass",
+    "metadata": {
+      "name": "rbd"
+    },
+    "provisioner": "rook-ceph.rbd.csi.ceph.com",
+    "parameters": {
+      "clusterID": "rook-ceph",
+      "pool": "taco",
+      "imageFormat": "2",
+      "imageFeatures": "layering",
+      "csi.storage.k8s.io/provisioner-secret-name": "rook-csi-rbd-provisioner",
+      "csi.storage.k8s.io/provisioner-secret-namespace": "rook-ceph",
+      "csi.storage.k8s.io/controller-expand-secret-name": "rook-csi-rbd-provisioner",
+      "csi.storage.k8s.io/controller-expand-secret-namespace": "rook-ceph",
+      "csi.storage.k8s.io/node-stage-secret-name": "rook-csi-rbd-node",
+      "csi.storage.k8s.io/node-stage-secret-namespace": "rook-ceph",
+      "csi.storage.k8s.io/fstype": "ext4"
+    },
+    "allowVolumeExpansion": true,
+    "reclaimPolicy": "Delete"
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "rook-ceph-tools",
+      "namespace": "rook-ceph",
+      "labels": {
+        "app": "rook-ceph-tools"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "rook-ceph-tools"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "rook-ceph-tools"
+          }
+        },
+        "spec": {
+          "dnsPolicy": "ClusterFirstWithHostNet",
+          "containers": [
+            {
+              "name": "rook-ceph-tools",
+              "image": "rook/ceph:v1.6.7",
+              "command": [
+                "/tini"
+              ],
+              "args": [
+                "-g",
+                "--",
+                "/usr/local/bin/toolbox.sh"
+              ],
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "ROOK_CEPH_USERNAME",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "rook-ceph-mon",
+                      "key": "ceph-username"
+                    }
+                  }
+                },
+                {
+                  "name": "ROOK_CEPH_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "rook-ceph-mon",
+                      "key": "ceph-secret"
+                    }
+                  }
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/etc/ceph",
+                  "name": "ceph-config"
+                },
+                {
+                  "name": "mon-endpoint-volume",
+                  "mountPath": "/etc/rook"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "mon-endpoint-volume",
+              "configMap": {
+                "name": "rook-ceph-mon-endpoints",
+                "items": [
+                  {
+                    "key": "data",
+                    "path": "mon-endpoints"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "ceph-config",
+              "emptyDir": {}
+            }
+          ],
+          "tolerations": [
+            {
+              "key": "node.kubernetes.io/unreachable",
+              "operator": "Exists",
+              "effect": "NoExecute",
+              "tolerationSeconds": 5
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "ceph.rook.io/v1",
+    "kind": "CephBlockPool",
+    "metadata": {
+      "name": "taco",
+      "namespace": "rook-ceph"
+    },
+    "spec": {
+      "failureDomain": "host",
+      "replicated": {
+        "size": 3,
+        "requireSafeReplicaSize": true
+      }
+    }
+  },
+  {
+    "apiVersion": "ceph.rook.io/v1",
+    "kind": "CephCluster",
+    "metadata": {
+      "name": "rook-ceph",
+      "namespace": "rook-ceph"
+    },
+    "spec": {
+      "cephVersion": {
+        "image": "ceph/ceph:v15.2.13",
+        "allowUnsupported": false
+      },
+      "dataDirHostPath": "/var/lib/rook",
+      "skipUpgradeChecks": false,
+      "continueUpgradeAfterChecksEvenIfNotHealthy": false,
+      "waitTimeoutForHealthyOSDInMinutes": 10,
+      "mon": {
+        "count": 3,
+        "allowMultiplePerNode": false
+      },
+      "mgr": {
+        "count": 1,
+        "modules": [
+          {
+            "name": "pg_autoscaler",
+            "enabled": true
+          }
+        ]
+      },
+      "dashboard": {
+        "enabled": true,
+        "ssl": true
+      },
+      "monitoring": {
+        "enabled": false,
+        "rulesNamespace": "rook-ceph"
+      },
+      "network": null,
+      "crashCollector": {
+        "disable": false
+      },
+      "cleanupPolicy": {
+        "confirmation": "",
+        "sanitizeDisks": {
+          "method": "quick",
+          "dataSource": "zero",
+          "iteration": 1
+        },
+        "allowUninstallWithVolumes": false
+      },
+      "annotations": null,
+      "labels": null,
+      "resources": null,
+      "removeOSDsIfOutAndSafeToRemove": false,
+      "storage": {
+        "useAllNodes": true,
+        "useAllDevices": true,
+        "config": null
+      },
+      "disruptionManagement": {
+        "managePodBudgets": true,
+        "osdMaintenanceTimeout": 30,
+        "pgHealthCheckTimeout": 0,
+        "manageMachineDisruptionBudgets": false,
+        "machineDisruptionBudgetNamespace": "openshift-machine-api"
+      },
+      "healthCheck": {
+        "daemonHealth": {
+          "mon": {
+            "disabled": false,
+            "interval": "45s"
+          },
+          "osd": {
+            "disabled": false,
+            "interval": "60s"
+          },
+          "status": {
+            "disabled": false,
+            "interval": "60s"
+          }
+        },
+        "livenessProbe": {
+          "mon": {
+            "disabled": false
+          },
+          "mgr": {
+            "disabled": false
+          },
+          "osd": {
+            "disabled": false
+          }
+        }
+      }
+    }
+  }
+]

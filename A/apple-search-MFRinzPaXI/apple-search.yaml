@@ -1,0 +1,199 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: apple-search-release-name
+  labels:
+    app: apple-search
+    chart: apple-search-0.1.1
+    release: release-name
+    heritage: Helm
+spec:
+  podSelector:
+    matchLabels:
+      app: apple-search
+      release: release-name
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 4013
+          protocol: TCP
+        - port: 9102
+          protocol: TCP
+        - port: 9117
+          protocol: TCP
+        - port: 9118
+          protocol: TCP
+        - port: 9181
+          protocol: TCP
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apple-search-release-name-secret-config
+  labels:
+    app: apple-search
+    chart: apple-search-0.1.1
+    release: release-name
+    heritage: Helm
+type: Opaque
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apple-search-config
+  labels:
+    app: apple-search
+    chart: apple-search-0.1.1
+    release: release-name
+    heritage: Helm
+data:
+  config.json: |-
+    {
+      "proxy": "https://dyna.wikimedia.org"
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: apple-search-release-name
+  labels:
+    app: apple-search
+    chart: apple-search-0.1.1
+    release: release-name
+    heritage: Helm
+spec:
+  type: NodePort
+  selector:
+    app: apple-search
+    release: release-name
+    routed_via: release-name
+  ports:
+    - name: http
+      targetPort: 8080
+      port: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apple-search-release-name
+  labels:
+    app: apple-search
+    chart: apple-search-0.1.1
+    release: release-name
+    heritage: Helm
+spec:
+  selector:
+    matchLabels:
+      app: apple-search
+      release: release-name
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: apple-search
+        release: release-name
+        routed_via: release-name
+      annotations:
+        checksum/secrets: 319a2c5919c799617f7b90d583b45edd3b79b50ca4e7bbecd0a995bf1d6568e9
+        prometheus.io/scrape: "true"
+    spec:
+      containers:
+        - name: apple-search-release-name-httpd
+          image: docker-registry.wikimedia.org/httpd-fcgi:2.4.38-4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: FCGI_MODE
+              value: FCGI_TCP
+            - name: SERVERGROUP
+              value: main
+            - name: APACHE_RUN_PORT
+              value: "8080"
+          ports:
+            - name: httpd
+              containerPort: 8080
+            - name: php-metrics
+              containerPort: 9181
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: php-metrics
+          resources:
+            requests:
+              cpu: 200m
+              memory: 200Mi
+            limits:
+              cpu: 1
+              memory: 400Mi
+        - name: apple-search-release-name-app
+          image: docker-registry.wikimedia.org/wikimedia/mediawiki-services-apple-search:production
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SERVERGROUP
+              value: main
+            - name: FCGI_MODE
+              value: FCGI_TCP
+            - name: PHP__opcache__memory_consumption
+              value: "200"
+            - name: PHP__opcache__max_accelerated_files
+              value: "1000"
+            - name: FPM__request_slowlog_timeout
+              value: "0"
+            - name: FPM__request_terminate_timeout
+              value: "60"
+            - name: PHP__apc__shm_size
+              value: 200M
+            - name: FPM__pm__max_children
+              value: "2"
+            - name: FCGI_URL
+              value: 0.0.0.0:9000
+            - name: FCGI_ALLOW
+              value: 127.0.0.1
+          livenessProbe:
+            tcpSocket:
+              port: 9000
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 200Mi
+            limits:
+              cpu: 1
+              memory: 400Mi
+          volumeMounts:
+            - mountPath: /srv/app/config
+              name: apple-search-config
+              readOnly: true
+        - name: apple-search-release-name-httpd-exporter
+          image: docker-registry.wikimedia.org/prometheus-apache-exporter:0.0.3
+          imagePullPolicy: IfNotPresent
+          args:
+            - -scrape_uri
+            - http://127.0.0.1:9181/server-status?auto
+          ports:
+            - name: httpd-metrics
+              containerPort: 9117
+          livenessProbe:
+            tcpSocket:
+              port: 9117
+        - name: apple-search-release-name-php-fpm-exporter
+          image: docker-registry.wikimedia.org/prometheus-php-fpm-exporter:0.0.2
+          args:
+            - --endpoint=http://127.0.0.1:9181/fpm-status
+            - --addr=0.0.0.0:9118
+          ports:
+            - name: fpm-metrics
+              containerPort: 9118
+          livenessProbe:
+            tcpSocket:
+              port: 9118
+      volumes:
+        - name: shared-socket
+          emptyDir: {}
+        - name: apple-search-config
+          configMap:
+            name: apple-search-config

@@ -1,0 +1,926 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "juice-cleaner",
+      "labels": {
+        "helm.sh/chart": "juicy-ctf-1.3.1"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "juice-balancer",
+      "labels": {
+        "helm.sh/chart": "juicy-ctf-1.3.1"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-redis",
+      "labels": {
+        "app": "redis",
+        "chart": "redis-9.2.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "redis-password": "aXFHYXVKcHVvdg=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "juice-balancer-secret",
+      "labels": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "helm.sh/chart": "juicy-ctf-1.3.1"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "cookieParserSecret": "a3F5b3Vvd05pUlVOZmdHQ3pZeGluVVhW",
+      "adminPassword": "WUpPR0tUVk4="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-redis",
+      "labels": {
+        "app": "redis",
+        "chart": "redis-9.2.2",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "data": {
+      "redis.conf": "# User-supplied configuration:\n# Enable AOF https://redis.io/topics/persistence#append-only-file\nappendonly yes\n# Disable RDB persistence, AOF persistence already enabled.\nsave \"\"",
+      "master.conf": "dir /data\nrename-command FLUSHDB \"\"\nrename-command FLUSHALL \"\"",
+      "replica.conf": "dir /data\nslave-read-only yes\nrename-command FLUSHDB \"\"\nrename-command FLUSHALL \"\""
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-redis-health",
+      "labels": {
+        "app": "redis",
+        "chart": "redis-9.2.2",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "data": {
+      "ping_readiness_local.sh": "response=$(\n  timeout -s 9 $1 \\\n  redis-cli \\\n    -a $REDIS_PASSWORD --no-auth-warning \\\n    -h localhost \\\n    -p $REDIS_PORT \\\n    ping\n)\nif [ \"$response\" != \"PONG\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_liveness_local.sh": "response=$(\n  timeout -s 9 $1 \\\n  redis-cli \\\n    -a $REDIS_PASSWORD --no-auth-warning \\\n    -h localhost \\\n    -p $REDIS_PORT \\\n    ping\n)\nif [ \"$response\" != \"PONG\" ] && [ \"$response\" != \"LOADING Redis is loading the dataset in memory\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_readiness_master.sh": "response=$(\n  timeout -s 9 $1 \\\n  redis-cli \\\n    -a $REDIS_MASTER_PASSWORD --no-auth-warning \\\n    -h $REDIS_MASTER_HOST \\\n    -p $REDIS_MASTER_PORT_NUMBER \\\n    ping\n)\nif [ \"$response\" != \"PONG\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_liveness_master.sh": "response=$(\n  timeout -s 9 $1 \\\n  redis-cli \\\n    -a $REDIS_MASTER_PASSWORD --no-auth-warning \\\n    -h $REDIS_MASTER_HOST \\\n    -p $REDIS_MASTER_PORT_NUMBER \\\n    ping\n)\nif [ \"$response\" != \"PONG\" ] && [ \"$response\" != \"LOADING Redis is loading the dataset in memory\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_readiness_local_and_master.sh": "script_dir=\"$(dirname \"$0\")\"\nexit_status=0\n\"$script_dir/ping_readiness_local.sh\" $1 || exit_status=$?\n\"$script_dir/ping_readiness_master.sh\" $1 || exit_status=$?\nexit $exit_status",
+      "ping_liveness_local_and_master.sh": "script_dir=\"$(dirname \"$0\")\"\nexit_status=0\n\"$script_dir/ping_liveness_local.sh\" $1 || exit_status=$?\n\"$script_dir/ping_liveness_master.sh\" $1 || exit_status=$?\nexit $exit_status"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "juice-balancer-config",
+      "labels": {
+        "helm.sh/chart": "juicy-ctf-1.3.1"
+      }
+    },
+    "data": {
+      "config.json": "{\n  \"port\": 3000,\n  \"namespace\": \"default\",\n  \"deploymentContext\": \"release-name\",\n  \"maxJuiceShopInstances\": 10,\n  \"redis\": {\n    \"host\": \"release-name-redis-master\",\n    \"port\": 6379,\n    \"redis-secret-name\": \"release-name-ctf-redis\"\n  },\n  \"cookieParser\": {\n    \"cookieName\": \"balancer\",\n    \"secure\": false\n  },\n  \"admin\": {\n    \"username\": \"admin\"\n  },\n  \"juiceShop\": {\n    \"image\": \"bkimminich/juice-shop\",\n    \"tag\": \"latest\",\n    \"imagePullPolicy\": \"Always\",\n    \"ctfKey\": \"zLp@.-6fMW6L-7R3b!9uR_K!NfkkTr\",\n    \"nodeEnv\": \"juicy-ctf\",\n    \"resources\": {\"limits\":{\"cpu\":\"200m\",\"memory\":\"200Mi\"},\"requests\":{\"cpu\":\"200m\",\"memory\":\"200Mi\"}}\n  }\n}\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "juice-shop-config",
+      "labels": {
+        "helm.sh/chart": "juicy-ctf-1.3.1"
+      }
+    },
+    "data": {
+      "juicy-ctf.yaml": "application:\n  logo: JuiceShopCTF_Logo.png\n  favicon: favicon_ctf.ico\n  # showChallengeHints: false\n  showVersionNumber: false\n  # showHackingInstructor: false\n  gitHubRibbon: false\nctf:\n  # showFlagsInNotifications: true"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "namespace": "mMp1p2R0Ym",
+      "name": "juice-cleaner",
+      "labels": {
+        "helm.sh/chart": "juicy-ctf-1.3.1"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "apps"
+        ],
+        "resources": [
+          "deployments"
+        ],
+        "verbs": [
+          "get",
+          "delete",
+          "list"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "services"
+        ],
+        "verbs": [
+          "get",
+          "delete"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "namespace": "mMp1p2R0Ym",
+      "name": "juice-balancer",
+      "labels": {
+        "helm.sh/chart": "juicy-ctf-1.3.1"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "apps"
+        ],
+        "resources": [
+          "deployments"
+        ],
+        "verbs": [
+          "get",
+          "create",
+          "list",
+          "delete"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "services"
+        ],
+        "verbs": [
+          "get",
+          "create",
+          "delete"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "pods"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "delete"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "juice-cleaner",
+      "namespace": "mMp1p2R0Ym",
+      "labels": {
+        "helm.sh/chart": "juicy-ctf-1.3.1"
+      }
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "juice-cleaner"
+      }
+    ],
+    "roleRef": {
+      "kind": "Role",
+      "name": "juice-cleaner",
+      "apiGroup": "rbac.authorization.k8s.io"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "juice-balancer",
+      "namespace": "mMp1p2R0Ym",
+      "labels": {
+        "helm.sh/chart": "juicy-ctf-1.3.1"
+      }
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "juice-balancer"
+      }
+    ],
+    "roleRef": {
+      "kind": "Role",
+      "name": "juice-balancer",
+      "apiGroup": "rbac.authorization.k8s.io"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-redis-headless",
+      "labels": {
+        "app": "redis",
+        "chart": "redis-9.2.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "redis",
+          "port": 6379,
+          "targetPort": "redis"
+        }
+      ],
+      "selector": {
+        "app": "redis",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-redis-master",
+      "labels": {
+        "app": "redis",
+        "chart": "redis-9.2.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "redis",
+          "port": 6379,
+          "targetPort": "redis"
+        }
+      ],
+      "selector": {
+        "app": "redis",
+        "release": "release-name",
+        "role": "master"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-redis-slave",
+      "labels": {
+        "app": "redis",
+        "chart": "redis-9.2.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "redis",
+          "port": 6379,
+          "targetPort": "redis"
+        }
+      ],
+      "selector": {
+        "app": "redis",
+        "release": "release-name",
+        "role": "slave"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "juice-balancer",
+      "labels": {
+        "app": "juice-balancer",
+        "helm.sh/chart": "juicy-ctf-1.3.1"
+      }
+    },
+    "spec": {
+      "selector": {
+        "app.kubernetes.io/name": "juice-balancer",
+        "app.kubernetes.io/instance": "release-name"
+      },
+      "ports": [
+        {
+          "port": 3000,
+          "name": "web"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "juice-balancer",
+      "labels": {
+        "app": "juice-balancer",
+        "helm.sh/chart": "juicy-ctf-1.3.1"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "juice-balancer",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config": "17128940d4a6acf44ccbabc40ec5aba43356a50fc91b170ae845beea10e13ebd",
+            "checksum/secret": "8c860ad0bbe81afdbdb20f1cad4b15fdbadf0b7e1a508aeef3af78c74c958ba3"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "juice-balancer",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "juice-balancer",
+          "containers": [
+            {
+              "name": "juice-balancer",
+              "image": "iteratec/juice-balancer:latest",
+              "imagePullPolicy": "Always",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 3000
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/balancer/",
+                  "port": "http"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/balancer/",
+                  "port": "http"
+                }
+              },
+              "env": [
+                {
+                  "name": "REDIS_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-redis",
+                      "key": "redis-password"
+                    }
+                  }
+                },
+                {
+                  "name": "COOKIEPARSER_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "juice-balancer-secret",
+                      "key": "cookieParserSecret"
+                    }
+                  }
+                },
+                {
+                  "name": "ADMIN_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "juice-balancer-secret",
+                      "key": "adminPassword"
+                    }
+                  }
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config-volume",
+                  "mountPath": "/home/app/config/"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "400m",
+                  "memory": "256Mi"
+                },
+                "requests": {
+                  "cpu": "400m",
+                  "memory": "256Mi"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "juice-balancer-config"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-redis-master",
+      "labels": {
+        "app": "redis",
+        "chart": "redis-9.2.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "redis",
+          "release": "release-name",
+          "role": "master"
+        }
+      },
+      "serviceName": "release-name-redis-headless",
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "redis",
+            "chart": "redis-9.2.2",
+            "release": "release-name",
+            "role": "master"
+          },
+          "annotations": {
+            "checksum/health": "11cb1ff6c1ec33f67b119810b1eed648d019c7bed9dcf2f9cfc094d9eee59ceb",
+            "checksum/configmap": "550b49591ae956359668190c04d0c4f81fb49e38b6b920476dd6101b0de398d6",
+            "checksum/secret": "72e7372b6b27f98854f4f82bdee882e6caba4c396dd6d8dcaf1cbdd62556508c"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "serviceAccountName": "default",
+          "containers": [
+            {
+              "name": "release-name-redis",
+              "image": "docker.io/bitnami/redis:5.0.5-debian-9-r141",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 10175,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "command": [
+                "/bin/bash",
+                "-c",
+                "if [[ -n $REDIS_PASSWORD_FILE ]]; then\n  password_aux=`cat ${REDIS_PASSWORD_FILE}`\n  export REDIS_PASSWORD=$password_aux\nfi\nif [[ ! -f /opt/bitnami/redis/etc/master.conf ]];then\n  cp /opt/bitnami/redis/mounted-etc/master.conf /opt/bitnami/redis/etc/master.conf\nfi\nif [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then\n  cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf\nfi\nARGS=(\"--port\" \"${REDIS_PORT}\")\nARGS+=(\"--requirepass\" \"${REDIS_PASSWORD}\")\nARGS+=(\"--masterauth\" \"${REDIS_PASSWORD}\")\nARGS+=(\"--include\" \"/opt/bitnami/redis/etc/redis.conf\")\nARGS+=(\"--include\" \"/opt/bitnami/redis/etc/master.conf\")\n/run.sh ${ARGS[@]}\n"
+              ],
+              "env": [
+                {
+                  "name": "REDIS_REPLICATION_MODE",
+                  "value": "master"
+                },
+                {
+                  "name": "REDIS_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-redis",
+                      "key": "redis-password"
+                    }
+                  }
+                },
+                {
+                  "name": "REDIS_PORT",
+                  "value": "6379"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "redis",
+                  "containerPort": 6379
+                }
+              ],
+              "livenessProbe": {
+                "initialDelaySeconds": 5,
+                "periodSeconds": 5,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 5,
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "/health/ping_liveness_local.sh 5"
+                  ]
+                }
+              },
+              "readinessProbe": {
+                "initialDelaySeconds": 5,
+                "periodSeconds": 5,
+                "timeoutSeconds": 1,
+                "successThreshold": 1,
+                "failureThreshold": 5,
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "/health/ping_readiness_local.sh 5"
+                  ]
+                }
+              },
+              "resources": null,
+              "volumeMounts": [
+                {
+                  "name": "health",
+                  "mountPath": "/health"
+                },
+                {
+                  "name": "redis-data",
+                  "mountPath": "/data",
+                  "subPath": null
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/opt/bitnami/redis/mounted-etc"
+                },
+                {
+                  "name": "redis-tmp-conf",
+                  "mountPath": "/opt/bitnami/redis/etc/"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "health",
+              "configMap": {
+                "name": "release-name-redis-health",
+                "defaultMode": 493
+              }
+            },
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-redis"
+              }
+            },
+            {
+              "name": "redis-tmp-conf",
+              "emptyDir": {}
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "redis-data",
+            "labels": {
+              "app": "redis",
+              "release": "release-name",
+              "heritage": "Helm",
+              "component": "master"
+            }
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "8Gi"
+              }
+            }
+          }
+        }
+      ],
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-redis-slave",
+      "labels": {
+        "app": "redis",
+        "chart": "redis-9.2.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "serviceName": "release-name-redis-headless",
+      "selector": {
+        "matchLabels": {
+          "app": "redis",
+          "release": "release-name",
+          "role": "slave"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "redis",
+            "release": "release-name",
+            "chart": "redis-9.2.2",
+            "role": "slave"
+          },
+          "annotations": {
+            "checksum/health": "11cb1ff6c1ec33f67b119810b1eed648d019c7bed9dcf2f9cfc094d9eee59ceb",
+            "checksum/configmap": "550b49591ae956359668190c04d0c4f81fb49e38b6b920476dd6101b0de398d6",
+            "checksum/secret": "f448a3ebbd7976e173fe4e6ca546545c067b3df15d1bcd002cf25f73dd0e639d"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "serviceAccountName": "default",
+          "containers": [
+            {
+              "name": "release-name-redis",
+              "image": "docker.io/bitnami/redis:5.0.5-debian-9-r141",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 10261,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "command": [
+                "/bin/bash",
+                "-c",
+                "if [[ -n $REDIS_PASSWORD_FILE ]]; then\n  password_aux=`cat ${REDIS_PASSWORD_FILE}`\n  export REDIS_PASSWORD=$password_aux\nfi\nif [[ -n $REDIS_MASTER_PASSWORD_FILE ]]; then\n  password_aux=`cat ${REDIS_MASTER_PASSWORD_FILE}`\n  export REDIS_MASTER_PASSWORD=$password_aux\nfi\nif [[ ! -f /opt/bitnami/redis/etc/replica.conf ]];then\n  cp /opt/bitnami/redis/mounted-etc/replica.conf /opt/bitnami/redis/etc/replica.conf\nfi\nif [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then\n  cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf\nfi\nARGS=(\"--port\" \"${REDIS_PORT}\")\nARGS+=(\"--slaveof\" \"${REDIS_MASTER_HOST}\" \"${REDIS_MASTER_PORT_NUMBER}\")\nARGS+=(\"--requirepass\" \"${REDIS_PASSWORD}\")\nARGS+=(\"--masterauth\" \"${REDIS_MASTER_PASSWORD}\")\nARGS+=(\"--include\" \"/opt/bitnami/redis/etc/redis.conf\")\nARGS+=(\"--include\" \"/opt/bitnami/redis/etc/replica.conf\")\n/run.sh \"${ARGS[@]}\"\n"
+              ],
+              "env": [
+                {
+                  "name": "REDIS_REPLICATION_MODE",
+                  "value": "slave"
+                },
+                {
+                  "name": "REDIS_MASTER_HOST",
+                  "value": "release-name-redis-master-0.release-name-redis-headless.default.svc.cluster.local"
+                },
+                {
+                  "name": "REDIS_PORT",
+                  "value": "6379"
+                },
+                {
+                  "name": "REDIS_MASTER_PORT_NUMBER",
+                  "value": "6379"
+                },
+                {
+                  "name": "REDIS_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-redis",
+                      "key": "redis-password"
+                    }
+                  }
+                },
+                {
+                  "name": "REDIS_MASTER_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-redis",
+                      "key": "redis-password"
+                    }
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "name": "redis",
+                  "containerPort": 6379
+                }
+              ],
+              "livenessProbe": {
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 5,
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "/health/ping_liveness_local_and_master.sh 5"
+                  ]
+                }
+              },
+              "readinessProbe": {
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10,
+                "timeoutSeconds": 10,
+                "successThreshold": 1,
+                "failureThreshold": 5,
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "/health/ping_readiness_local_and_master.sh 5"
+                  ]
+                }
+              },
+              "resources": null,
+              "volumeMounts": [
+                {
+                  "name": "health",
+                  "mountPath": "/health"
+                },
+                {
+                  "name": "redis-data",
+                  "mountPath": "/data"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/opt/bitnami/redis/mounted-etc"
+                },
+                {
+                  "name": "redis-tmp-conf",
+                  "mountPath": "/opt/bitnami/redis/etc"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "health",
+              "configMap": {
+                "name": "release-name-redis-health",
+                "defaultMode": 493
+              }
+            },
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-redis"
+              }
+            },
+            {
+              "name": "sentinel-tmp-conf",
+              "emptyDir": {}
+            },
+            {
+              "name": "redis-tmp-conf",
+              "emptyDir": {}
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "redis-data",
+            "labels": {
+              "app": "redis",
+              "release": "release-name",
+              "heritage": "Helm",
+              "component": "slave"
+            }
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "8Gi"
+              }
+            }
+          }
+        }
+      ],
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "cleanup-job"
+    },
+    "spec": {
+      "schedule": "0 * * * *",
+      "successfulJobsHistoryLimit": 10,
+      "failedJobsHistoryLimit": 10,
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "metadata": {
+              "labels": {
+                "name": "cleanup-job",
+                "helm.sh/chart": "juicy-ctf-1.3.1"
+              }
+            },
+            "spec": {
+              "serviceAccountName": "juice-cleaner",
+              "containers": [
+                {
+                  "image": "iteratec/juice-cleaner:latest",
+                  "imagePullPolicy": "Always",
+                  "name": "cleanup-job",
+                  "env": [
+                    {
+                      "name": "NAMESPACE",
+                      "value": "default"
+                    },
+                    {
+                      "name": "MAX_INACTIVE_DURATION",
+                      "value": "1d"
+                    },
+                    {
+                      "name": "REDIS_HOST",
+                      "value": "release-name-redis-master"
+                    },
+                    {
+                      "name": "REDIS_PORT",
+                      "value": "6379"
+                    },
+                    {
+                      "name": "REDIS_PASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "release-name-redis",
+                          "key": "redis-password"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ],
+              "restartPolicy": "Never"
+            }
+          }
+        }
+      }
+    }
+  }
+]

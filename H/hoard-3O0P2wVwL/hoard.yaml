@@ -1,0 +1,252 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-hoard-controller
+  labels:
+    app.kubernetes.io/name: hoard
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hoard-0.7.0
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-hoard
+  labels:
+    app.kubernetes.io/name: hoard
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hoard-0.7.0
+data:
+  hoard.conf: |
+    listenaddress: tcp://:53431
+    logging:
+      channels:
+      - info
+      - trace
+      loggingtype: json
+    secrets:
+      openpgp:
+        file: keyring
+        privateid: ""
+      symmetric: []
+    storage:
+      addressencoding: base64
+      cloudconfig:
+        bucket: ""
+        prefix: ""
+        region: ""
+      filesystemconfig:
+        rootdirectory: /data
+      ipfsconfig:
+        remoteapi: ""
+      storagetype: filesystem
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-hoard
+  labels:
+    app.kubernetes.io/name: hoard
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hoard-0.7.0
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+---
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: sharedsecrets.monax.io
+  annotations:
+    helm.sh/resource-policy: keep
+  labels:
+    app.kubernetes.io/name: hoard
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hoard-0.7.0
+spec:
+  group: monax.io
+  names:
+    kind: SharedSecret
+    listKind: SharedSecretList
+    plural: sharedsecrets
+    shortNames:
+      - ss
+    singular: sharedsecret
+  scope: Namespaced
+  version: v1
+  versions:
+    - name: v1
+      served: true
+      storage: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-hoard-controller
+  labels:
+    app.kubernetes.io/name: hoard
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hoard-0.7.0
+rules:
+  - apiGroups:
+      - monax.io
+    resources:
+      - sharedsecrets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - create
+      - update
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-hoard-controller
+  labels:
+    app.kubernetes.io/name: hoard
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hoard-0.7.0
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-hoard-controller
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: release-name-hoard-controller
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-hoard
+  labels:
+    app.kubernetes.io/name: hoard
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hoard-0.7.0
+spec:
+  type: ClusterIP
+  ports:
+    - port: 53431
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: hoard
+    release: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-hoard-controller
+  labels:
+    app.kubernetes.io/name: hoard
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hoard-0.7.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hoard-controller
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: hoard-controller
+        release: release-name
+    spec:
+      serviceAccount: release-name-hoard-controller
+      initContainers:
+        - name: hoard-wait
+          image: busybox:1.28
+          command:
+            - sh
+            - -c
+            - until nslookup release-name-hoard; do sleep 2; done;
+      containers:
+        - name: controller
+          image: registry.cn-hangzhou.aliyuncs.com/kubeapps/quay-hoard:controller
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: HOARD_URL
+              value: release-name-hoard:53431
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-hoard
+  labels:
+    app.kubernetes.io/name: hoard
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hoard-0.7.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hoard
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: hoard
+        release: release-name
+    spec:
+      containers:
+        - name: hoard
+          image: registry.cn-hangzhou.aliyuncs.com/kubeapps/quay-hoard:3.0.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - hoard
+            - --config
+            - /conf/hoard.conf
+          volumeMounts:
+            - name: config-file
+              mountPath: /conf
+            - mountPath: /data
+              name: data-dir
+          ports:
+            - containerPort: 53431
+              name: http
+          env: null
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - '[ $(echo "marmottes" | hoarctl put | hoarctl get) = "marmottes" ]'
+            initialDelaySeconds: 5
+            periodSeconds: 45
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: config-file
+          configMap:
+            name: release-name-hoard
+        - name: data-dir
+          persistentVolumeClaim:
+            claimName: release-name-hoard

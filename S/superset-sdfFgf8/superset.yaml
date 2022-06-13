@@ -1,0 +1,350 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-superset
+  labels:
+    helm.sh/chart: superset-1.0.9
+    app.kubernetes.io/name: superset
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data: null
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-superset
+  labels:
+    helm.sh/chart: superset-1.0.9
+    app.kubernetes.io/name: superset
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+data:
+  superset_config.py: |-
+    import os
+    from cachelib.redis import RedisCache
+
+    def env(key, default=None):
+      return os.getenv(key, default)
+
+    MAPBOX_API_KEY = env('MAPBOX_API_KEY', '')
+
+    CACHE_CONFIG = {
+      'CACHE_TYPE': 'redis',
+      'CACHE_DEFAULT_TIMEOUT': 300,
+      'CACHE_KEY_PREFIX': 'superset_',
+      'CACHE_REDIS_HOST': "",
+      'CACHE_REDIS_PORT': "6379",
+      'CACHE_REDIS_DB': "0",
+      'CACHE_REDIS_URL': f"redis://:6379/0"
+    }
+
+    DATA_CACHE_CONFIG = CACHE_CONFIG
+    SQLALCHEMY_DATABASE_URI = f"postgresql+psycopg2://{env('DB_USERNAME')}:{env('DB_PASSWORD')}@:5432/"
+    SQLALCHEMY_TRACK_MODIFICATIONS = True
+    SECRET_KEY = env('SECRET_KEY', '')
+    # Flask-WTF flag for CSRF
+    WTF_CSRF_ENABLED = True
+    # Add endpoints that need to be exempt from CSRF protection
+    WTF_CSRF_EXEMPT_LIST = []
+    # A CSRF token that expires in 1 year
+    WTF_CSRF_TIME_LIMIT = 60 * 60 * 24 * 365
+
+    class CeleryConfig(object):
+      BROKER_URL = f"redis://:6379/1"
+      CELERY_IMPORTS = ('superset.sql_lab', )
+      CELERY_RESULT_BACKEND = f"redis://:6379/1"
+      CELERY_ANNOTATIONS = {'tasks.add': {'rate_limit': '10/s'}}
+
+    CELERY_CONFIG = CeleryConfig
+
+    RESULTS_BACKEND = RedisCache(
+      host="",
+      port="6379",
+      key_prefix='superset_results'
+    )
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-superset
+  labels:
+    helm.sh/chart: superset-1.0.9
+    app.kubernetes.io/name: superset
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: superset
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-superset-celery
+  labels:
+    helm.sh/chart: superset-1.0.9
+    app.kubernetes.io/name: superset
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: superset-celery-beat
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config: 68e06925e9b906f2daf2715bcef90ee9fabf9783a2e1b10175d0cf0514d1ac9f
+      labels:
+        app.kubernetes.io/name: superset-celery-beat
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: null
+      securityContext:
+        runAsUser: 0
+      containers:
+        - name: superset-celery
+          image: apache/superset:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - celery
+            - beat
+            - --app=superset.tasks.celery_app:app
+            - --pidfile
+            - /tmp/celerybeat.pid
+            - --schedule
+            - /tmp/celerybeat-schedule
+          envFrom:
+            - secretRef:
+                name: release-name-superset
+          env:
+            - name: SUPERSET_PORT
+              value: "8088"
+          volumeMounts:
+            - name: release-name-superset
+              mountPath: /app/pythonpath
+              readOnly: true
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: release-name-superset
+          configMap:
+            name: release-name-superset
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-superset
+  labels:
+    helm.sh/chart: superset-1.0.9
+    app.kubernetes.io/name: superset
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: superset
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config: 68e06925e9b906f2daf2715bcef90ee9fabf9783a2e1b10175d0cf0514d1ac9f
+      labels:
+        app.kubernetes.io/name: superset
+        app.kubernetes.io/instance: release-name
+    spec:
+      securityContext:
+        runAsUser: 0
+      containers:
+        - name: superset
+          image: apache/superset:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: release-name-superset
+          env:
+            - name: SUPERSET_PORT
+              value: "8088"
+          volumeMounts:
+            - name: release-name-superset
+              mountPath: /app/pythonpath
+              readOnly: true
+          ports:
+            - name: http
+              containerPort: 8088
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 3
+            successThreshold: 2
+            failureThreshold: 6
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 3
+            successThreshold: 1
+            failureThreshold: 6
+            timeoutSeconds: 5
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: release-name-superset
+          configMap:
+            name: release-name-superset
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-superset-worker
+  labels:
+    helm.sh/chart: superset-1.0.9
+    app.kubernetes.io/name: superset
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: superset-worker
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config: 68e06925e9b906f2daf2715bcef90ee9fabf9783a2e1b10175d0cf0514d1ac9f
+      labels:
+        app.kubernetes.io/name: superset-worker
+        app.kubernetes.io/instance: release-name
+    spec:
+      securityContext:
+        runAsUser: 0
+      containers:
+        - name: superset-worker
+          image: apache/superset:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - celery
+            - --app=superset.tasks.celery_app:app
+            - worker
+          envFrom:
+            - secretRef:
+                name: release-name-superset
+          env:
+            - name: SUPERSET_PORT
+              value: "8088"
+          volumeMounts:
+            - name: release-name-superset
+              mountPath: /app/pythonpath
+              readOnly: true
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: release-name-superset
+          configMap:
+            name: release-name-superset
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-superset-init-db
+  labels:
+    helm.sh/chart: superset-1.0.9
+    app.kubernetes.io/name: superset
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded,hook-failed
+    helm.sh/hook-weight: "2"
+spec:
+  template:
+    metadata:
+      name: release-name-superset-init-db
+    spec:
+      securityContext:
+        runAsUser: 0
+      containers:
+        - name: superset-init-db
+          image: apache/superset:latest
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: release-name-superset
+              mountPath: /app/pythonpath
+              readOnly: true
+          envFrom:
+            - secretRef:
+                name: release-name-superset
+          command:
+            - superset
+            - init
+      volumes:
+        - name: release-name-superset
+          configMap:
+            name: release-name-superset
+      restartPolicy: Never
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-superset-db-upgrade
+  labels:
+    helm.sh/chart: superset-1.0.9
+    app.kubernetes.io/name: superset
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded,hook-failed
+    helm.sh/hook-weight: "1"
+spec:
+  template:
+    metadata:
+      name: release-name-superset-db-upgrade
+    spec:
+      securityContext:
+        runAsUser: 0
+      containers:
+        - name: superset-db-upgrade
+          image: apache/superset:latest
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: release-name-superset
+              mountPath: /app/pythonpath
+              readOnly: true
+          envFrom:
+            - secretRef:
+                name: release-name-superset
+          command:
+            - superset
+            - db
+            - upgrade
+      volumes:
+        - name: release-name-superset
+          configMap:
+            name: release-name-superset
+      restartPolicy: Never

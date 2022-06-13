@@ -1,0 +1,913 @@
+[
+  {
+    "apiVersion": "policy/v1beta1",
+    "kind": "PodDisruptionBudget",
+    "metadata": {
+      "name": "zk-pdb"
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "zk"
+        }
+      },
+      "maxUnavailable": 1
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "dremio-config"
+    },
+    "data": {
+      "core-site.xml": "<?xml version=\"1.0\"?>\n<configuration>\n  <!-- If you are editing any content in this file, please remove lines with double curly braces around them -->\n</configuration>",
+      "dremio-env": "#\n# Copyright (C) 2017-2018 Dremio Corporation\n#\n# Licensed under the Apache License, Version 2.0 (the \"License\");\n# you may not use this file except in compliance with the License.\n# You may obtain a copy of the License at\n#\n#     http://www.apache.org/licenses/LICENSE-2.0\n#\n# Unless required by applicable law or agreed to in writing, software\n# distributed under the License is distributed on an \"AS IS\" BASIS,\n# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n# See the License for the specific language governing permissions and\n# limitations under the License.\n#\n\n#\n# Dremio environment variables used by Dremio daemon\n#\n\n#\n# Directory where Dremio logs are written\n# Default to $DREMIO_HOME/log\n#\n#DREMIO_LOG_DIR=${DREMIO_HOME}/log\n\n#\n# Send logs to console and not to log files. The DREMIO_LOG_DIR is ignored if set.\n#\n#DREMIO_LOG_TO_CONSOLE=1\n\n#\n# Directory where Dremio pidfiles are written\n# Default to $DREMIO_HOME/run\n#\n#DREMIO_PID_DIR=${DREMIO_HOME}/run\n\n#\n# Max total memory size (in MB) for the Dremio process\n#\n# If not set, default to using max heap and max direct.\n#\n# If both max heap and max direct are set, this is not used\n# If one is set, the other is calculated as difference\n# of max memory and the one that is set.\n#\n#DREMIO_MAX_MEMORY_SIZE_MB=\n\n#\n# Max heap memory size (in MB) for the Dremio process\n#\n# Default to 4096 for server\n#\n#DREMIO_MAX_HEAP_MEMORY_SIZE_MB=4096\n\n#\n# Max direct memory size (in MB) for the Dremio process\n#\n# Default to 8192 for server\n#\n#DREMIO_MAX_DIRECT_MEMORY_SIZE_MB=8192\n\n#\n# Max permanent generation memory size (in MB) for the Dremio process\n# (Only used for Java 7)\n#\n# Default to 512 for server\n#\n#DREMIO_MAX_PERMGEN_MEMORY_SIZE_MB=512\n\n#\n# Garbage collection logging is enabled by default. Set the following\n# parameter to \"no\" to disable garbage collection logging.\n#\n#DREMIO_GC_LOGS_ENABLED=\"yes\"\n\n#\n# The scheduling priority for the server\n#\n# Default to 0\n#\n# DREMIO_NICENESS=0\n#\n\n#\n# Number of seconds after which the server is killed forcibly it it hasn't stopped\n#\n# Default to 120\n#\n#DREMIO_STOP_TIMEOUT=120\n\n# Extra Java options - shared between dremio and dremio-admin commands\n#\n#DREMIO_JAVA_EXTRA_OPTS=\n\n# Extra Java options - client only (dremio-admin command)\n#\n#DREMIO_JAVA_CLIENT_EXTRA_OPTS=\n\n# Warning: Do not set DREMIO_JAVA_SERVER_EXTRA_OPTS in dremio-env.\n# Please see the values.yaml extraStartParams for setting additional options for Dremio process startup.\n",
+      "dremio.conf": "#\n# Copyright (C) 2017-2018 Dremio Corporation\n#\n# Licensed under the Apache License, Version 2.0 (the \"License\");\n# you may not use this file except in compliance with the License.\n# You may obtain a copy of the License at\n#\n#     http://www.apache.org/licenses/LICENSE-2.0\n#\n# Unless required by applicable law or agreed to in writing, software\n# distributed under the License is distributed on an \"AS IS\" BASIS,\n# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n# See the License for the specific language governing permissions and\n# limitations under the License.\n#\n\npaths: {\n  # Local path for dremio to store data.\n  local: ${DREMIO_HOME}\"/data\"\n  # Distributed path Dremio data including job results, downloads,\n  # uploads, etc\n  dist: \"pdfs://\"${paths.local}\"/pdfs\"\n}\n\nservices: {\n  # The services running are controlled via command line options passed in\n  # while starting the services via kubernetes. Updating the values listed below will not\n  # impact what is running:\n  # - coordinator.enabled\n  # - coordinator.master.enabled\n  # - coordinator.master.embedded-zookeeper.enabled\n  # - executor.enabled\n  #\n  # Other service parameters can be customized via this file.\n  executor: {\n    cache: {\n      path.db: \"/opt/dremio/cloudcache/c0\"\n      pctquota.db: 100\n\n      path.fs: [\"/opt/dremio/cloudcache/c0\"]\n      pctquota.fs: [100]\n      ensurefreespace.fs: [0]\n      \n    }\n  }\n}\n",
+      "logback-access.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<!--\n\n    Copyright (C) 2017-2018 Dremio Corporation\n\n    Licensed under the Apache License, Version 2.0 (the \"License\");\n    you may not use this file except in compliance with the License.\n    You may obtain a copy of the License at\n\n        http://www.apache.org/licenses/LICENSE-2.0\n\n    Unless required by applicable law or agreed to in writing, software\n    distributed under the License is distributed on an \"AS IS\" BASIS,\n    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n    See the License for the specific language governing permissions and\n    limitations under the License.\n\n-->\n<configuration>\n\n  <!-- The following appender is only available if dremio.log.path is defined -->\n  <if condition='isDefined(\"dremio.log.path\")'>\n    <then>\n      <appender name=\"access-text\" class=\"ch.qos.logback.core.rolling.RollingFileAppender\">\n        <file>${dremio.log.path}/access.log</file>\n        <rollingPolicy class=\"ch.qos.logback.core.rolling.TimeBasedRollingPolicy\">\n          <fileNamePattern>${dremio.log.path}/archive/access.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>\n          <maxHistory>30</maxHistory>\n          <timeBasedFileNamingAndTriggeringPolicy class=\"ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP\">\n            <maxFileSize>100MB</maxFileSize>\n          </timeBasedFileNamingAndTriggeringPolicy>\n        </rollingPolicy>\n\n        <encoder>\n          <pattern>combined</pattern>\n        </encoder>\n      </appender>\n\n      <appender-ref ref=\"access-text\" />\n    </then>\n    <else>\n      <appender name=\"console\" class=\"ch.qos.logback.core.ConsoleAppender\">\n        <encoder>\n          <pattern>combined</pattern>\n        </encoder>\n      </appender>\n\n      <appender-ref ref=\"console\"/>\n    </else>\n  </if>\n</configuration>\n",
+      "logback-admin.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<!--\n\n    Copyright (C) 2017-2018 Dremio Corporation\n\n    Licensed under the Apache License, Version 2.0 (the \"License\");\n    you may not use this file except in compliance with the License.\n    You may obtain a copy of the License at\n\n        http://www.apache.org/licenses/LICENSE-2.0\n\n    Unless required by applicable law or agreed to in writing, software\n    distributed under the License is distributed on an \"AS IS\" BASIS,\n    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n    See the License for the specific language governing permissions and\n    limitations under the License.\n\n-->\n<configuration>\n  <appender name=\"STDOUT\" class=\"ch.qos.logback.core.ConsoleAppender\">\n    <encoder>\n      <pattern>%msg%n%ex{0}%n</pattern>\n    </encoder>\n  </appender>\n\n\n  <appender name=\"CONSOLE\" class=\"ch.qos.logback.core.ConsoleAppender\">\n    <filter class=\"ch.qos.logback.classic.filter.ThresholdFilter\">\n      <level>${dremio.admin.log.verbosity:-OFF}</level>\n    </filter>\n    <encoder>\n      <pattern>%date{ISO8601} [%thread] %-5level %logger{30} - %msg%n</pattern>\n    </encoder>\n  </appender>\n\n\n  <if condition='isDefined(\"dremio.admin.log.path\")'>\n    <then>\n      <appender name=\"ADMINLOG\" class=\"ch.qos.logback.core.FileAppender\">\n        <filter class=\"ch.qos.logback.classic.filter.ThresholdFilter\">\n          <level>${dremio.admin.log.verbosity:-OFF}</level>\n        </filter>\n        <file>${dremio.admin.log.path}</file>\n        <encoder>\n          <pattern>%date{ISO8601} [%thread] %-5level %logger{36} - %msg%n</pattern>\n        </encoder>\n      </appender>\n    </then>\n  </if>\n\n  <logger name=\"admin\" level=\"INFO\" additivity=\"true\">\n    <appender-ref ref=\"STDOUT\"/>\n  </logger>\n\n  <root>\n    <level value=\"${dremio.admin.log.verbosity:-OFF}\"/>\n    <if condition='isDefined(\"dremio.admin.log.path\")'>\n      <then>\n        <appender-ref ref=\"ADMINLOG\"/>\n      </then>\n      <else>\n        <appender-ref ref=\"CONSOLE\"/>\n      </else>\n    </if>\n  </root>\n\n</configuration>\n",
+      "logback.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<!--\n\n    Copyright (C) 2017-2018 Dremio Corporation\n\n    Licensed under the Apache License, Version 2.0 (the \"License\");\n    you may not use this file except in compliance with the License.\n    You may obtain a copy of the License at\n\n        http://www.apache.org/licenses/LICENSE-2.0\n\n    Unless required by applicable law or agreed to in writing, software\n    distributed under the License is distributed on an \"AS IS\" BASIS,\n    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n    See the License for the specific language governing permissions and\n    limitations under the License.\n\n-->\n<configuration>\n  <contextListener class=\"ch.qos.logback.classic.jul.LevelChangePropagator\"/>\n  <appender name=\"console\" class=\"ch.qos.logback.core.ConsoleAppender\">\n    <encoder>\n      <pattern>%date{ISO8601} [%thread] %-5level %logger{36} - %msg%n</pattern>\n    </encoder>\n  </appender>\n\n  <!-- The following appenders are only available if dremio.log.path is defined -->\n  <if condition='isDefined(\"dremio.log.path\")'>\n    <then>\n      <appender name=\"text\" class=\"ch.qos.logback.core.rolling.RollingFileAppender\">\n        <file>${dremio.log.path}/server.log</file>\n        <rollingPolicy class=\"ch.qos.logback.core.rolling.TimeBasedRollingPolicy\">\n          <fileNamePattern>${dremio.log.path}/archive/server.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>\n          <maxHistory>30</maxHistory>\n          <timeBasedFileNamingAndTriggeringPolicy class=\"ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP\">\n            <maxFileSize>100MB</maxFileSize>\n          </timeBasedFileNamingAndTriggeringPolicy>\n        </rollingPolicy>\n\n        <encoder>\n          <pattern>%date{ISO8601} [%thread] %-5level %logger{36} - %msg%n</pattern>\n        </encoder>\n      </appender>\n\n      <appender name=\"metadata_refresh\" class=\"ch.qos.logback.core.rolling.RollingFileAppender\">\n        <file>${dremio.log.path}/metadata_refresh.log</file>\n        <rollingPolicy class=\"ch.qos.logback.core.rolling.TimeBasedRollingPolicy\">\n          <fileNamePattern>${dremio.log.path}/archive/metadata_refresh.%d{yyyy-MM-dd}.log.gz</fileNamePattern>\n          <maxHistory>30</maxHistory>\n        </rollingPolicy>\n\n        <encoder>\n          <pattern>%date{ISO8601} [%thread] %-5level %logger{36} - %msg%n</pattern>\n        </encoder>\n      </appender>\n\n      <appender name=\"json\" class=\"ch.qos.logback.core.rolling.RollingFileAppender\">\n        <file>${dremio.log.path}/json/server.json</file>\n        <rollingPolicy class=\"ch.qos.logback.core.rolling.TimeBasedRollingPolicy\">\n          <fileNamePattern>${dremio.log.path}/json/archive/server.%d{yyyy-MM-dd}.%i.json.gz</fileNamePattern>\n          <maxHistory>30</maxHistory>\n          <timeBasedFileNamingAndTriggeringPolicy class=\"ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP\">\n            <maxFileSize>100MB</maxFileSize>\n          </timeBasedFileNamingAndTriggeringPolicy>\n        </rollingPolicy>\n\n        <encoder class=\"net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder\">\n          <providers>\n            <pattern><pattern>{\"timestamp\": \"%date{ISO8601}\", \"host\":\"${HOSTNAME}\" }</pattern></pattern>\n            <threadName><fieldName>thread</fieldName></threadName>\n            <logLevel><fieldName>levelName</fieldName></logLevel>\n            <logLevelValue><fieldName>levelValue</fieldName></logLevelValue>\n            <loggerName><fieldName>logger</fieldName></loggerName>\n            <message><fieldName>message</fieldName></message>\n            <arguments />\n            <stackTrace />\n          </providers>\n        </encoder>\n      </appender>\n\n      <appender name=\"query\" class=\"ch.qos.logback.core.rolling.RollingFileAppender\">\n        <file>${dremio.log.path}/queries.json</file>\n        <rollingPolicy class=\"ch.qos.logback.core.rolling.TimeBasedRollingPolicy\">\n          <fileNamePattern>${dremio.log.path}/archive/queries.%d{yyyy-MM-dd}.%i.json.gz</fileNamePattern>\n          <maxHistory>30</maxHistory>\n          <timeBasedFileNamingAndTriggeringPolicy class=\"ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP\">\n            <maxFileSize>100MB</maxFileSize>\n          </timeBasedFileNamingAndTriggeringPolicy>\n        </rollingPolicy>\n\n        <encoder class=\"net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder\">\n          <providers>\n            <arguments />\n          </providers>\n        </encoder>\n      </appender>\n\n      <appender name=\"audit\" class=\"ch.qos.logback.core.rolling.RollingFileAppender\">\n        <file>${dremio.log.path}/audit.json</file>\n        <rollingPolicy class=\"ch.qos.logback.core.rolling.TimeBasedRollingPolicy\">\n          <fileNamePattern>${dremio.log.path}/archive/audit.%d{yyyy-MM-dd}.%i.json.gz</fileNamePattern>\n          <maxHistory>30</maxHistory>\n          <timeBasedFileNamingAndTriggeringPolicy class=\"ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP\">\n            <maxFileSize>100MB</maxFileSize>\n          </timeBasedFileNamingAndTriggeringPolicy>\n        </rollingPolicy>\n\n        <encoder class=\"net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder\">\n          <providers>\n            <pattern><pattern>{\"timestamp\": \"%date{ISO8601}\"}</pattern></pattern>\n            <arguments />\n          </providers>\n        </encoder>\n      </appender>\n\n      <appender name=\"tracker\" class=\"ch.qos.logback.core.rolling.RollingFileAppender\">\n        <file>${dremio.log.path}/tracker.json</file>\n        <rollingPolicy class=\"ch.qos.logback.core.rolling.TimeBasedRollingPolicy\">\n          <fileNamePattern>${dremio.log.path}/archive/tracker.%d{yyyy-MM-dd}.%i.json.gz</fileNamePattern>\n          <maxHistory>30</maxHistory>\n          <timeBasedFileNamingAndTriggeringPolicy class=\"ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP\">\n              <maxFileSize>100MB</maxFileSize>\n          </timeBasedFileNamingAndTriggeringPolicy>\n        </rollingPolicy>\n\n        <encoder>\n          <pattern>%date{ISO8601} [%thread] %-5level %logger{36} - %msg%n</pattern>\n        </encoder>\n      </appender>\n\n    </then>\n  </if>\n\n  <logger name=\"com.dremio\">\n    <level value=\"${dremio.log.level:-info}\"/>\n  </logger>\n\n  <logger name=\"query.logger\">\n    <level value=\"${dremio.log.level:-info}\"/>\n    <if condition='isDefined(\"dremio.log.path\")'>\n      <then>\n        <appender-ref ref=\"query\"/>\n      </then>\n    </if>\n  </logger>\n\n  <logger name=\"audit.logger\">\n    <level value=\"${dremio.log.level:-info}\"/>\n    <if condition='isDefined(\"dremio.log.path\")'>\n      <then>\n        <appender-ref ref=\"audit\"/>\n      </then>\n    </if>\n  </logger>\n\n  <logger name=\"tracker.logger\">\n      <level value=\"{dremio.log.level: -info}\"/>\n      <if condition='isDefined(\"dremio.log.path\")'>\n          <then>\n              <additivity value =\"false\"/>\n              <appender-ref ref=\"tracker\"/>\n          </then>\n      </if>\n  </logger>\n\n  <logger name=\"com.dremio.exec.catalog.SourceMetadataManager\" additivity=\"false\">\n    <level value=\"${dremio.log.level:-info}\"/>\n    <if condition='isDefined(\"dremio.log.path\")'>\n      <then>\n        <appender-ref ref=\"metadata_refresh\"/>\n      </then>\n    </if>\n  </logger>\n\n  <logger name=\"com.dremio.exec.store.hive.HiveClient\" additivity=\"false\">\n    <level value=\"${dremio.log.level:-info}\"/>\n    <if condition='isDefined(\"dremio.log.path\")'>\n      <then>\n        <appender-ref ref=\"metadata_refresh\"/>\n      </then>\n    </if>\n  </logger>\n\n  <logger name=\"hive.deprecated.function.warning.logger\" level=\"warn\">\n    <if condition='isDefined(\"dremio.log.path\")'>\n      <then>\n        <additivity value =\"false\"/>\n        <appender name=\"text\" class=\"ch.qos.logback.core.rolling.RollingFileAppender\">\n          <file>${dremio.log.path}/hive.deprecated.function.warning.log</file>\n          <rollingPolicy class=\"ch.qos.logback.core.rolling.TimeBasedRollingPolicy\">\n            <fileNamePattern>${dremio.log.path}/archive/hive.deprecated.function.warning.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>\n            <maxHistory>30</maxHistory>\n            <timeBasedFileNamingAndTriggeringPolicy class=\"ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP\">\n              <maxFileSize>100MB</maxFileSize>\n            </timeBasedFileNamingAndTriggeringPolicy>\n          </rollingPolicy>\n\n          <encoder>\n            <pattern>%date{ISO8601} [%thread] %-5level %logger{36} - %msg%n</pattern>\n          </encoder>\n        </appender>\n      </then>\n    </if>\n  </logger>\n\n  <logger name=\"org.apache.hadoop.hdfs.DFSClient\">\n    <level value=\"warn\"/>\n  </logger>\n\n  <root>\n    <level value=\"${dremio.log.root.level:-error}\"/>\n    <if condition='isDefined(\"dremio.log.path\")'>\n      <then>\n        <appender-ref ref=\"text\"/>\n        <appender-ref ref=\"json\"/>\n      </then>\n      <else>\n        <appender-ref ref=\"console\"/>\n      </else>\n    </if>\n  </root>\n\n</configuration>\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "dremio-hive2-config"
+    },
+    "data": {
+      "README.md": "### Hive 2 Configuration Files\nThis directory is used to store Hive 2 configuration files to be deployed to Dremio."
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "dremio-hive3-config"
+    },
+    "data": {
+      "README.md": "### Hive 3 Configuration Files\nThis directory is used to store Hive 3 configuration files to be deployed to Dremio."
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "dremio-client",
+      "labels": {
+        "app": "dremio-client"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "port": 31010,
+          "targetPort": "client",
+          "name": "client"
+        },
+        {
+          "port": 9047,
+          "targetPort": "web",
+          "name": "web"
+        },
+        {
+          "port": 32010,
+          "targetPort": "flight",
+          "name": "flight"
+        }
+      ],
+      "selector": {
+        "app": "dremio-coordinator"
+      },
+      "type": "LoadBalancer"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "dremio-cluster-pod"
+    },
+    "spec": {
+      "ports": [
+        {
+          "port": 9999
+        }
+      ],
+      "clusterIP": "None",
+      "selector": {
+        "role": "dremio-cluster-pod"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "zk-hs",
+      "labels": {
+        "app": "zk"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "port": 2181,
+          "name": "client"
+        },
+        {
+          "port": 2888,
+          "name": "server"
+        },
+        {
+          "port": 3888,
+          "name": "leader-election"
+        }
+      ],
+      "clusterIP": "None",
+      "selector": {
+        "app": "zk"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "zk-cs",
+      "labels": {
+        "app": "zk"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "port": 2181,
+          "name": "client"
+        }
+      ],
+      "selector": {
+        "app": "zk"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "dremio-coordinator"
+    },
+    "spec": {
+      "serviceName": "dremio-cluster-pod",
+      "replicas": 0,
+      "podManagementPolicy": "Parallel",
+      "revisionHistoryLimit": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "dremio-coordinator"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "dremio-coordinator",
+            "role": "dremio-cluster-pod"
+          },
+          "annotations": {
+            "dremio-configmap/checksum": "de4726fe57f2e1250cbf29fbffd4b3bd36c6ae27d4776abc59103d3b0a4a725c"
+          }
+        },
+        "spec": {
+          "terminationGracePeriodSeconds": 120,
+          "containers": [
+            {
+              "name": "dremio-coordinator",
+              "image": "dremio/dremio-oss:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "resources": {
+                "requests": {
+                  "cpu": 15,
+                  "memory": "122800M"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "dremio-config",
+                  "mountPath": "/opt/dremio/conf"
+                },
+                {
+                  "name": "dremio-hive2-config",
+                  "mountPath": "/opt/dremio/plugins/connectors/hive2.d"
+                },
+                {
+                  "name": "dremio-hive2-config",
+                  "mountPath": "/opt/dremio/plugins/connectors/hive2-ee.d"
+                },
+                {
+                  "name": "dremio-hive3-config",
+                  "mountPath": "/opt/dremio/plugins/connectors/hive3.d"
+                },
+                {
+                  "name": "dremio-hive3-config",
+                  "mountPath": "/opt/dremio/plugins/connectors/hive3-ee.d"
+                }
+              ],
+              "env": [
+                {
+                  "name": "DREMIO_MAX_HEAP_MEMORY_SIZE_MB",
+                  "value": "16384"
+                },
+                {
+                  "name": "DREMIO_MAX_DIRECT_MEMORY_SIZE_MB",
+                  "value": "106416"
+                },
+                {
+                  "name": "DREMIO_JAVA_SERVER_EXTRA_OPTS",
+                  "value": "-Dzookeeper=zk-hs:2181 -Dservices.coordinator.enabled=true -Dservices.coordinator.master.enabled=false -Dservices.coordinator.master.embedded-zookeeper.enabled=false -Dservices.executor.enabled=false -Dservices.conduit.port=45679"
+                },
+                {
+                  "name": "AWS_CREDENTIAL_PROFILES_FILE",
+                  "value": "/opt/dremio/aws/credentials"
+                },
+                {
+                  "name": "AWS_SHARED_CREDENTIALS_FILE",
+                  "value": "/opt/dremio/aws/credentials"
+                }
+              ],
+              "command": [
+                "/opt/dremio/bin/dremio"
+              ],
+              "args": [
+                "start-fg"
+              ],
+              "ports": [
+                {
+                  "containerPort": 31010,
+                  "name": "client"
+                },
+                {
+                  "containerPort": 32010,
+                  "name": "flight"
+                },
+                {
+                  "containerPort": 45678,
+                  "name": "server-fabric"
+                },
+                {
+                  "containerPort": 45679,
+                  "name": "server-conduit"
+                }
+              ],
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": 9047
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 5
+              }
+            }
+          ],
+          "initContainers": [
+            {
+              "name": "wait-for-dremio-master",
+              "image": "busybox",
+              "command": [
+                "sh",
+                "-c",
+                "until nc -z dremio-client 9047 > /dev/null; do echo Waiting for Dremio master.; sleep 2; done;"
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "dremio-config",
+              "configMap": {
+                "name": "dremio-config"
+              }
+            },
+            {
+              "name": "dremio-hive2-config",
+              "configMap": {
+                "name": "dremio-hive2-config"
+              }
+            },
+            {
+              "name": "dremio-hive3-config",
+              "configMap": {
+                "name": "dremio-hive3-config"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "dremio-executor"
+    },
+    "spec": {
+      "serviceName": "dremio-cluster-pod",
+      "replicas": 3,
+      "podManagementPolicy": "Parallel",
+      "revisionHistoryLimit": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "dremio-executor"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "dremio-executor",
+            "role": "dremio-cluster-pod"
+          },
+          "annotations": {
+            "dremio-configmap/checksum": "de4726fe57f2e1250cbf29fbffd4b3bd36c6ae27d4776abc59103d3b0a4a725c"
+          }
+        },
+        "spec": {
+          "terminationGracePeriodSeconds": 120,
+          "containers": [
+            {
+              "name": "dremio-executor",
+              "image": "dremio/dremio-oss:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "resources": {
+                "requests": {
+                  "cpu": 15,
+                  "memory": "122800M"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "dremio-default-executor-volume",
+                  "mountPath": "/opt/dremio/data"
+                },
+                {
+                  "name": "dremio-config",
+                  "mountPath": "/opt/dremio/conf"
+                },
+                {
+                  "name": "dremio-hive2-config",
+                  "mountPath": "/opt/dremio/plugins/connectors/hive2.d"
+                },
+                {
+                  "name": "dremio-hive2-config",
+                  "mountPath": "/opt/dremio/plugins/connectors/hive2-ee.d"
+                },
+                {
+                  "name": "dremio-hive3-config",
+                  "mountPath": "/opt/dremio/plugins/connectors/hive3.d"
+                },
+                {
+                  "name": "dremio-hive3-config",
+                  "mountPath": "/opt/dremio/plugins/connectors/hive3-ee.d"
+                },
+                {
+                  "name": "dremio-default-executor-c3-0",
+                  "mountPath": "/opt/dremio/cloudcache/c0"
+                }
+              ],
+              "env": [
+                {
+                  "name": "DREMIO_MAX_HEAP_MEMORY_SIZE_MB",
+                  "value": "8192"
+                },
+                {
+                  "name": "DREMIO_MAX_DIRECT_MEMORY_SIZE_MB",
+                  "value": "114608"
+                },
+                {
+                  "name": "DREMIO_JAVA_SERVER_EXTRA_OPTS",
+                  "value": "-Dzookeeper=zk-hs:2181 -Dservices.coordinator.enabled=false -Dservices.coordinator.master.enabled=false -Dservices.coordinator.master.embedded-zookeeper.enabled=false -Dservices.executor.enabled=true -Dservices.conduit.port=45679 -Dservices.node-tag=default"
+                },
+                {
+                  "name": "AWS_CREDENTIAL_PROFILES_FILE",
+                  "value": "/opt/dremio/aws/credentials"
+                },
+                {
+                  "name": "AWS_SHARED_CREDENTIALS_FILE",
+                  "value": "/opt/dremio/aws/credentials"
+                }
+              ],
+              "command": [
+                "/opt/dremio/bin/dremio"
+              ],
+              "args": [
+                "start-fg"
+              ],
+              "ports": [
+                {
+                  "containerPort": 45678,
+                  "name": "server-fabric"
+                },
+                {
+                  "containerPort": 45679,
+                  "name": "server-conduit"
+                }
+              ]
+            }
+          ],
+          "initContainers": [
+            {
+              "name": "chown-data-directory",
+              "image": "dremio/dremio-oss:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 0
+              },
+              "volumeMounts": [
+                {
+                  "name": "dremio-default-executor-volume",
+                  "mountPath": "/opt/dremio/data"
+                }
+              ],
+              "command": [
+                "chown"
+              ],
+              "args": [
+                "dremio:dremio",
+                "/opt/dremio/data"
+              ]
+            },
+            {
+              "name": "chown-cloudcache-directory",
+              "image": "dremio/dremio-oss:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 0
+              },
+              "volumeMounts": [
+                {
+                  "name": "dremio-default-executor-c3-0",
+                  "mountPath": "/opt/dremio/cloudcache/c0"
+                }
+              ],
+              "command": [
+                "bash"
+              ],
+              "args": [
+                "-c",
+                "chown dremio:dremio /opt/dremio/cloudcache/c*"
+              ]
+            },
+            {
+              "name": "wait-for-zookeeper",
+              "image": "busybox",
+              "command": [
+                "sh",
+                "-c",
+                "until ping -c 1 -W 1 zk-hs > /dev/null; do echo Waiting for Zookeeper to be ready.; sleep 2; done;"
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "dremio-config",
+              "configMap": {
+                "name": "dremio-config"
+              }
+            },
+            {
+              "name": "dremio-hive2-config",
+              "configMap": {
+                "name": "dremio-hive2-config"
+              }
+            },
+            {
+              "name": "dremio-hive3-config",
+              "configMap": {
+                "name": "dremio-hive3-config"
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "dremio-default-executor-volume"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "128Gi"
+              }
+            }
+          }
+        },
+        {
+          "metadata": {
+            "name": "dremio-default-executor-c3-0"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "100Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "dremio-master"
+    },
+    "spec": {
+      "serviceName": "dremio-cluster-pod",
+      "podManagementPolicy": "Parallel",
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "dremio-coordinator"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "dremio-coordinator",
+            "role": "dremio-cluster-pod"
+          },
+          "annotations": {
+            "dremio-configmap/checksum": "de4726fe57f2e1250cbf29fbffd4b3bd36c6ae27d4776abc59103d3b0a4a725c"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "podAntiAffinity": {
+              "requiredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "labelSelector": {
+                    "matchExpressions": [
+                      {
+                        "key": "app",
+                        "operator": "In",
+                        "values": [
+                          "dremio-coordinator"
+                        ]
+                      }
+                    ]
+                  },
+                  "topologyKey": "kubernetes.io/hostname"
+                }
+              ]
+            }
+          },
+          "terminationGracePeriodSeconds": 120,
+          "containers": [
+            {
+              "name": "dremio-master-coordinator",
+              "image": "dremio/dremio-oss:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "resources": {
+                "requests": {
+                  "cpu": 15,
+                  "memory": "122800M"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "dremio-master-volume",
+                  "mountPath": "/opt/dremio/data"
+                },
+                {
+                  "name": "dremio-config",
+                  "mountPath": "/opt/dremio/conf"
+                },
+                {
+                  "name": "dremio-hive2-config",
+                  "mountPath": "/opt/dremio/plugins/connectors/hive2.d"
+                },
+                {
+                  "name": "dremio-hive2-config",
+                  "mountPath": "/opt/dremio/plugins/connectors/hive2-ee.d"
+                },
+                {
+                  "name": "dremio-hive3-config",
+                  "mountPath": "/opt/dremio/plugins/connectors/hive3.d"
+                },
+                {
+                  "name": "dremio-hive3-config",
+                  "mountPath": "/opt/dremio/plugins/connectors/hive3-ee.d"
+                }
+              ],
+              "env": [
+                {
+                  "name": "DREMIO_MAX_HEAP_MEMORY_SIZE_MB",
+                  "value": "16384"
+                },
+                {
+                  "name": "DREMIO_MAX_DIRECT_MEMORY_SIZE_MB",
+                  "value": "106416"
+                },
+                {
+                  "name": "DREMIO_JAVA_SERVER_EXTRA_OPTS",
+                  "value": "-Dzookeeper=zk-hs:2181 -Dservices.coordinator.enabled=true -Dservices.coordinator.master.enabled=true -Dservices.coordinator.master.embedded-zookeeper.enabled=false -Dservices.executor.enabled=false -Dservices.conduit.port=45679"
+                },
+                {
+                  "name": "AWS_CREDENTIAL_PROFILES_FILE",
+                  "value": "/opt/dremio/aws/credentials"
+                },
+                {
+                  "name": "AWS_SHARED_CREDENTIALS_FILE",
+                  "value": "/opt/dremio/aws/credentials"
+                }
+              ],
+              "command": [
+                "/opt/dremio/bin/dremio"
+              ],
+              "args": [
+                "start-fg"
+              ],
+              "ports": [
+                {
+                  "containerPort": 9047,
+                  "name": "web"
+                },
+                {
+                  "containerPort": 31010,
+                  "name": "client"
+                },
+                {
+                  "containerPort": 32010,
+                  "name": "flight"
+                },
+                {
+                  "containerPort": 45678,
+                  "name": "server-fabric"
+                },
+                {
+                  "containerPort": 45679,
+                  "name": "server-conduit"
+                }
+              ],
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": 9047
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 5
+              }
+            }
+          ],
+          "initContainers": [
+            {
+              "name": "start-only-one-dremio-master",
+              "image": "busybox",
+              "command": [
+                "sh",
+                "-c",
+                "INDEX=${HOSTNAME##*-}; if [ $INDEX -ne 0 ]; then echo Only one master should be running.; exit 1; fi; "
+              ]
+            },
+            {
+              "name": "wait-for-zookeeper",
+              "image": "busybox",
+              "command": [
+                "sh",
+                "-c",
+                "until ping -c 1 -W 1 zk-hs > /dev/null; do echo Waiting for Zookeeper to be ready.; sleep 2; done;"
+              ]
+            },
+            {
+              "name": "chown-data-directory",
+              "image": "dremio/dremio-oss:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 0
+              },
+              "volumeMounts": [
+                {
+                  "name": "dremio-master-volume",
+                  "mountPath": "/opt/dremio/data"
+                }
+              ],
+              "command": [
+                "chown"
+              ],
+              "args": [
+                "dremio:dremio",
+                "/opt/dremio/data"
+              ]
+            },
+            {
+              "name": "upgrade-task",
+              "image": "dremio/dremio-oss:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "volumeMounts": [
+                {
+                  "name": "dremio-master-volume",
+                  "mountPath": "/opt/dremio/data"
+                },
+                {
+                  "name": "dremio-config",
+                  "mountPath": "/opt/dremio/conf"
+                }
+              ],
+              "command": [
+                "/opt/dremio/bin/dremio-admin"
+              ],
+              "args": [
+                "upgrade"
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "dremio-config",
+              "configMap": {
+                "name": "dremio-config"
+              }
+            },
+            {
+              "name": "dremio-hive2-config",
+              "configMap": {
+                "name": "dremio-hive2-config"
+              }
+            },
+            {
+              "name": "dremio-hive3-config",
+              "configMap": {
+                "name": "dremio-hive3-config"
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "dremio-master-volume"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "128Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "zk"
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "zk"
+        }
+      },
+      "serviceName": "zk-hs",
+      "replicas": 3,
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "podManagementPolicy": "Parallel",
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "zk"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "podAntiAffinity": {
+              "requiredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "labelSelector": {
+                    "matchExpressions": [
+                      {
+                        "key": "app",
+                        "operator": "In",
+                        "values": [
+                          "zk"
+                        ]
+                      }
+                    ]
+                  },
+                  "topologyKey": "kubernetes.io/hostname"
+                }
+              ]
+            }
+          },
+          "containers": [
+            {
+              "name": "kubernetes-zookeeper",
+              "imagePullPolicy": "Always",
+              "image": "k8s.gcr.io/kubernetes-zookeeper:1.0-3.4.10",
+              "resources": {
+                "requests": {
+                  "cpu": 0.5,
+                  "memory": "1024M"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "ports": [
+                {
+                  "containerPort": 2181,
+                  "name": "client"
+                },
+                {
+                  "containerPort": 2888,
+                  "name": "server"
+                },
+                {
+                  "containerPort": 3888,
+                  "name": "leader-election"
+                }
+              ],
+              "command": [
+                "sh",
+                "-c",
+                "start-zookeeper --servers=3 --data_dir=/var/lib/zookeeper/data --data_log_dir=/var/lib/zookeeper/data/log --conf_dir=/opt/zookeeper/conf --client_port=2181 --election_port=3888 --server_port=2888 --tick_time=2000 --init_limit=10 --sync_limit=5 --heap=924M --max_client_cnxns=60 --snap_retain_count=3 --purge_interval=12 --max_session_timeout=40000 --min_session_timeout=4000 --log_level=INFO"
+              ],
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "zookeeper-ready 2181"
+                  ]
+                },
+                "initialDelaySeconds": 10,
+                "timeoutSeconds": 5
+              },
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "zookeeper-ready 2181"
+                  ]
+                },
+                "initialDelaySeconds": 10,
+                "timeoutSeconds": 5
+              },
+              "volumeMounts": [
+                {
+                  "name": "datadir",
+                  "mountPath": "/var/lib/zookeeper"
+                }
+              ]
+            }
+          ],
+          "securityContext": {
+            "runAsUser": 1000,
+            "fsGroup": 1000
+          }
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "datadir"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "10Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+]

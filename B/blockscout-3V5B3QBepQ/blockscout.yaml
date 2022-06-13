@@ -1,0 +1,413 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-blockscout
+  labels:
+    helm.sh/chart: blockscout-0.1.0
+    app.kubernetes.io/name: blockscout
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  namespace: 3V5B3QBepQ
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-postgresql
+  labels:
+    app.kubernetes.io/name: postgresql
+    helm.sh/chart: postgresql-10.12.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  namespace: 3V5B3QBepQ
+type: Opaque
+data:
+  postgresql-password: cG9zdGdyZXM=
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-blockscout-env
+  labels:
+    helm.sh/chart: blockscout-0.1.0
+    app.kubernetes.io/name: blockscout
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data: null
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-postgresql-init-scripts
+  labels:
+    app.kubernetes.io/name: postgresql
+    helm.sh/chart: postgresql-10.12.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  namespace: 3V5B3QBepQ
+data:
+  init_01.sql: |
+    CREATE DATABASE explorer;
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-blockscout-env
+  labels:
+    helm.sh/chart: blockscout-0.1.0
+    app.kubernetes.io/name: blockscout
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  DATABASE_URL: postgresql://postgres:postgres@blockscout-postgresql:5432/explorer?ssl=false
+  ETHEREUM_JSONRPC_HTTP_URL: http://geth:8545
+  ETHEREUM_JSONRPC_VARIANT: geth
+  ETHEREUM_JSONRPC_WS_URL: ws://geth:8546
+  MIX_ENV: prod
+  NETWORK: Ethereum
+  SECRET_KEY_BASE: RMgI4C1HSkxsEjdhtGMfwAHfyT6CKWXOgzCboJflfSm4jeAlic52io05KB6mqzc5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-postgresql-headless
+  labels:
+    app.kubernetes.io/name: postgresql
+    helm.sh/chart: postgresql-10.12.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+  namespace: 3V5B3QBepQ
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-postgresql
+  labels:
+    app.kubernetes.io/name: postgresql
+    helm.sh/chart: postgresql-10.12.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+  namespace: 3V5B3QBepQ
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: release-name
+    role: primary
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-blockscout-headless
+  labels:
+    helm.sh/chart: blockscout-0.1.0
+    app.kubernetes.io/name: blockscout
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  clusterIP: None
+  ports:
+    - port: 4000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: blockscout
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-blockscout
+  labels:
+    helm.sh/chart: blockscout-0.1.0
+    app.kubernetes.io/name: blockscout
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 4000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: blockscout
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-postgresql
+  labels:
+    app.kubernetes.io/name: postgresql
+    helm.sh/chart: postgresql-10.12.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+  annotations: null
+  namespace: 3V5B3QBepQ
+spec:
+  serviceName: release-name-postgresql-headless
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/instance: release-name
+      role: primary
+  template:
+    metadata:
+      name: release-name-postgresql
+      labels:
+        app.kubernetes.io/name: postgresql
+        helm.sh/chart: postgresql-10.12.3
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        role: primary
+        app.kubernetes.io/component: primary
+    spec:
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: postgresql
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: primary
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+      automountServiceAccountToken: false
+      containers:
+        - name: release-name-postgresql
+          image: docker.io/bitnami/postgresql:11.13.0-debian-10-r58
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            seccompProfile:
+              type: RuntimeDefault
+          securityContext:
+            runAsUser: 10410
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: POSTGRESQL_PORT_NUMBER
+              value: "5432"
+            - name: POSTGRESQL_VOLUME_DIR
+              value: /bitnami/postgresql
+            - name: POSTGRESQL_INITSCRIPTS_USERNAME
+              value: postgres
+            - name: POSTGRESQL_INITSCRIPTS_PASSWORD
+              value: postgres
+            - name: PGDATA
+              value: /bitnami/postgresql/data
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql
+                  key: postgresql-password
+            - name: POSTGRES_DB
+              value: explorer
+            - name: POSTGRESQL_ENABLE_LDAP
+              value: "no"
+            - name: POSTGRESQL_ENABLE_TLS
+              value: "no"
+            - name: POSTGRESQL_LOG_HOSTNAME
+              value: "false"
+            - name: POSTGRESQL_LOG_CONNECTIONS
+              value: "false"
+            - name: POSTGRESQL_LOG_DISCONNECTIONS
+              value: "false"
+            - name: POSTGRESQL_PGAUDIT_LOG_CATALOG
+              value: "off"
+            - name: POSTGRESQL_CLIENT_MIN_MESSAGES
+              value: error
+            - name: POSTGRESQL_SHARED_PRELOAD_LIBRARIES
+              value: pgaudit
+          ports:
+            - name: tcp-postgresql
+              containerPort: 5432
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - exec pg_isready -U "postgres" -d "dbname=explorer" -h 127.0.0.1 -p 5432
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - -e
+                - |
+                  exec pg_isready -U "postgres" -d "dbname=explorer" -h 127.0.0.1 -p 5432
+                  [ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          volumeMounts:
+            - name: custom-init-scripts
+              mountPath: /docker-entrypoint-initdb.d/
+            - name: dshm
+              mountPath: /dev/shm
+            - name: data
+              mountPath: /bitnami/postgresql
+              subPath: null
+      volumes:
+        - name: custom-init-scripts
+          configMap:
+            name: release-name-postgresql-init-scripts
+        - name: dshm
+          emptyDir:
+            medium: Memory
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-blockscout
+  labels:
+    helm.sh/chart: blockscout-0.1.0
+    app.kubernetes.io/name: blockscout
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: {}
+spec:
+  podManagementPolicy: OrderedReady
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: blockscout
+      app.kubernetes.io/instance: release-name
+  serviceName: release-name-blockscout-headless
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: blockscout
+        app.kubernetes.io/instance: release-name
+      annotations:
+        checksum/config: 1154582e7967cf4fd585f94db6aa80a6aecc04831cbb34a5096dea2ac003e8f8
+        checksum/secrets: 6c0f38ab29c8d15881f3852d06189026f919f986444e2114d09ac8b2969b575b
+    spec:
+      serviceAccountName: release-name-blockscout
+      securityContext:
+        fsGroup: 0
+        runAsGroup: 0
+        runAsNonRoot: false
+        runAsUser: 0
+      initContainers: null
+      containers:
+        - name: blockscout
+          image: skylenet/blockscout:v4.0.0-beta
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ace
+            - |
+              mix do ecto.create, ecto.migrate; exec mix phx.server;
+          volumeMounts: null
+          ports:
+            - name: http
+              containerPort: 4000
+              protocol: TCP
+          livenessProbe:
+            initialDelaySeconds: 60
+            periodSeconds: 120
+            tcpSocket:
+              port: http
+          readinessProbe:
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          envFrom:
+            - configMapRef:
+                name: release-name-blockscout-env
+          env: null
+      nodeSelector: {}
+      affinity: {}
+      tolerations: []
+      terminationGracePeriodSeconds: 30
+      volumes: null
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-blockscout-test-connection
+  labels:
+    helm.sh/chart: blockscout-0.1.0
+    app.kubernetes.io/name: blockscout
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: curl
+      image: curlimages/curl
+      command:
+        - curl
+      args:
+        - --location
+        - --request
+        - GET
+        - release-name-blockscout:4000/
+  restartPolicy: Never

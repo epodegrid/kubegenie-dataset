@@ -1,0 +1,190 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argocd-privaterepo
+  namespace: 1qkbBJFqBomIjL
+  labels:
+    app.kubernetes.io/name: argocd-secret
+    app.kubernetes.io/part-of: argocd
+type: kubernetes.io/basic-auth
+stringData:
+  password: pass1234
+  username: user
+  sshPrivateKey: ""
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/component: application-controller
+    app.kubernetes.io/name: default-argocd-application-controller
+    app.kubernetes.io/part-of: default
+  name: default-argocd-application-controller
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+  - nonResourceURLs:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: application-controller
+    app.kubernetes.io/name: default-argocd-application-controller
+    app.kubernetes.io/part-of: default
+  name: default-argocd-application-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: default-argocd-application-controller
+subjects:
+  - kind: ServiceAccount
+    name: argocd-argocd-application-controller
+    namespace: default
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: default
+  generateName: default-
+  namespace: default
+spec:
+  targetNamespaces:
+    - default
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: argocd-operator
+  namespace: default
+spec:
+  channel: alpha
+  installPlanApproval: Automatic
+  name: argocd-operator
+  source: community-operators
+  sourceNamespace: openshift-marketplace
+  startingCSV: argocd-operator.v0.1.0
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: crd-reader
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups:
+      - apiextensions.k8s.io
+    resources:
+      - customresourcedefinitions
+    verbs:
+      - get
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: crd-reader-binding
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: crd-reader
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: default
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cluster-check
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "-1"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+  namespace: 1qkbBJFqBomIjL
+spec:
+  containers:
+    - name: crd-check
+      image: quay.io/openshift/origin-cli:4.7
+      imagePullPolicy: IfNotPresent
+      command:
+        - sh
+        - -c
+        - while [ true ]; do oc get crd argocds.argoproj.io applications.argoproj.io appprojects.argoproj.io argocdexports.argoproj.io; if [ $? -eq 0 ]; then break; fi ; sleep 5s; done
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 0
+  serviceAccount: default
+  serviceAccountName: default
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ArgoCD
+metadata:
+  name: argocd
+  labels:
+    app: argocd
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "25"
+  namespace: default
+spec:
+  applicationInstanceLabelKey: rht-labs.com/uj1234
+  dex:
+    openShiftOAuth: true
+  grafana:
+    enabled: true
+    route:
+      enabled: true
+    size: 1
+  ha:
+    enabled: false
+    redisProxyImage: haproxy
+    redisProxyVersion: 2.0.4
+  initialRepositories: |
+    - name: ubiquitous-journey
+      url: https://github.com/rht-labs/ubiquitous-journey.git
+    - name: redhat-cop
+      type: helm
+      url: https://redhat-cop.github.io/helm-charts
+  prometheus:
+    enabled: true
+    route:
+      enabled: true
+    size: 1
+  rbac:
+    defaultPolicy: role:admin
+  repositoryCredentials: |
+    - url: https://gitlab-ce.apps.example.cluster.com
+      type: git
+      passwordSecret:
+        key: password
+        name: argocd-privaterepo
+      usernameSecret:
+        key: username
+        name: argocd-privaterepo
+  server:
+    autoscale:
+      enabled: false
+    route:
+      enabled: true
+      tls:
+        insecureEdgeTerminationPolicy: Redirect
+        termination: passthrough
+      wildcardPolicy: None
+    service:
+      type: ClusterIP
+  statusBadgeEnabled: true
+  usersAnonymousEnabled: false
+  version: v2.1.5

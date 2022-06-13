@@ -1,0 +1,198 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-logstream-workergroup
+  labels:
+    helm.sh/chart: logstream-workergroup-3.4.2
+    app.kubernetes.io/name: logstream-workergroup
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.4.2
+    app.kubernetes.io/managed-by: Helm
+  annotations: {}
+---
+apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+  name: logstream-config-release-name-logstream-workergroup
+stringData:
+  url-master: tcp://criblleader@logstream-leader-internal:4200?group=kubernetes&tag=kubernetes
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-logstream-workergroup:logstream-workergroup:default
+  labels:
+    helm.sh/chart: logstream-workergroup-3.4.2
+    app.kubernetes.io/name: logstream-workergroup
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.4.2
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - core
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-logstream-workergroup:logstream-workergroup:default
+  labels:
+    helm.sh/chart: logstream-workergroup-3.4.2
+    app.kubernetes.io/name: logstream-workergroup
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.4.2
+    app.kubernetes.io/managed-by: Helm
+subjects:
+  - kind: ServiceAccount
+    name: release-name-logstream-workergroup
+    namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-logstream-workergroup:logstream-workergroup:default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-logstream-workergroup
+  labels:
+    helm.sh/chart: logstream-workergroup-3.4.2
+    app.kubernetes.io/name: logstream-workergroup
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.4.2
+    app.kubernetes.io/managed-by: Helm
+  annotations: {}
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 10001
+      targetPort: 10001
+      protocol: TCP
+      name: tcpjson
+    - port: 9997
+      targetPort: 9997
+      protocol: TCP
+      name: s2s
+    - port: 10080
+      targetPort: 10080
+      protocol: TCP
+      name: http
+    - port: 10081
+      targetPort: 10081
+      protocol: TCP
+      name: https
+    - port: 5140
+      targetPort: 5140
+      protocol: TCP
+      name: syslog
+    - port: 8125
+      targetPort: 8125
+      protocol: TCP
+      name: metrics
+    - port: 9200
+      targetPort: 9200
+      protocol: TCP
+      name: elastic
+  selector:
+    app.kubernetes.io/name: logstream-workergroup
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-logstream-workergroup
+  labels:
+    helm.sh/chart: logstream-workergroup-3.4.2
+    app.kubernetes.io/name: logstream-workergroup
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.4.2
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: logstream-workergroup
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: logstream-workergroup
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-logstream-workergroup
+      containers:
+        - name: logstream-workergroup
+          image: cribl/cribl:3.4.2
+          imagePullPolicy: Always
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 9000
+            failureThreshold: 3
+            initialDelaySeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 9000
+            failureThreshold: 3
+            initialDelaySeconds: 20
+          env:
+            - name: CRIBL_DIST_MASTER_URL
+              valueFrom:
+                secretKeyRef:
+                  name: logstream-config-release-name-logstream-workergroup
+                  key: url-master
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
+          volumeMounts: null
+          ports:
+            - name: tcpjson
+              containerPort: 10001
+            - name: s2s
+              containerPort: 9997
+            - name: http
+              containerPort: 10080
+            - name: https
+              containerPort: 10081
+            - name: syslog
+              containerPort: 5140
+            - name: metrics
+              containerPort: 8125
+            - name: elastic
+              containerPort: 9200
+          resources:
+            limits:
+              cpu: 2000m
+              memory: 4096Mi
+            requests:
+              cpu: 1250m
+              memory: 256Mi
+      volumes: null
+---
+apiVersion: autoscaling/v2beta1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: release-name-logstream-workergroup-kubernetes
+  labels:
+    helm.sh/chart: logstream-workergroup-3.4.2
+    app.kubernetes.io/name: logstream-workergroup
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.4.2
+    app.kubernetes.io/managed-by: Helm
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: release-name-logstream-workergroup
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        targetAverageUtilization: 50

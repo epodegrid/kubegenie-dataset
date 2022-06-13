@@ -1,0 +1,170 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-verdaccio
+  labels:
+    app: verdaccio
+    chart: verdaccio-0.7.0
+    release: release-name
+    heritage: Helm
+data:
+  config.yaml: |-
+    # This is the config file used for the docker images.
+    # It allows all users to do anything, so don't use it on production systems.
+    #
+    # Do not configure host and port under `listen` in this file
+    # as it will be ignored when using docker.
+    # see https://github.com/verdaccio/verdaccio/blob/master/docs/docker.md#docker-and-custom-port-configuration
+    #
+    # Look here for more config file examples:
+    # https://github.com/verdaccio/verdaccio/tree/master/conf
+    #
+
+    # path to a directory with all packages
+    storage: /verdaccio/storage/data
+
+    web:
+      # WebUI is enabled as default, if you want disable it, just uncomment this line
+      #enable: false
+      title: Verdaccio
+
+    auth:
+      htpasswd:
+        file: /verdaccio/storage/htpasswd
+        # Maximum amount of users allowed to register, defaults to "+infinity".
+        # You can set this to -1 to disable registration.
+        #max_users: 1000
+
+    # a list of other known repositories we can talk to
+    uplinks:
+      npmjs:
+        url: https://registry.npmjs.org/
+
+    packages:
+      '@*/*':
+        # scoped packages
+        access: $all
+        publish: $authenticated
+        proxy: npmjs
+
+      '**':
+        # allow all users (including non-authenticated users) to read and
+        # publish all packages
+        #
+        # you can specify usernames/groupnames (depending on your auth plugin)
+        # and three keywords: "$all", "$anonymous", "$authenticated"
+        access: $all
+
+        # allow all known users to publish packages
+        # (anyone can register by default, remember?)
+        publish: $authenticated
+
+        # if package is not available locally, proxy requests to 'npmjs' registry
+        proxy: npmjs
+
+    # To use `npm audit` uncomment the following section
+    middlewares:
+      audit:
+        enabled: true
+
+    # log settings
+    logs:
+      - {type: stdout, format: pretty, level: http}
+      #- {type: file, path: verdaccio.log, level: info}
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  labels:
+    app: release-name-verdaccio
+    chart: verdaccio-0.7.0
+    release: release-name
+    heritage: Helm
+  name: release-name-verdaccio
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 8Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-verdaccio
+  labels:
+    app: verdaccio
+    chart: verdaccio-0.7.0
+    release: release-name
+    heritage: Helm
+spec:
+  clusterIP: ""
+  ports:
+    - port: 4873
+      targetPort: http
+      protocol: TCP
+      name: null
+  selector:
+    app: verdaccio
+    release: release-name
+  type: ClusterIP
+---
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    app: verdaccio
+    chart: verdaccio-0.7.0
+    heritage: Helm
+    release: release-name
+  name: release-name-verdaccio
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+    rollingUpdate: null
+  template:
+    metadata:
+      annotations:
+        checksum/config: 1aadcfb238e07191a14e3df92f1f007194fd2427de007a75af764831f2824e2e
+      labels:
+        app: verdaccio
+        release: release-name
+    spec:
+      containers:
+        - name: verdaccio
+          image: verdaccio/verdaccio:3.11.6
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 4873
+              name: http
+          livenessProbe:
+            httpGet:
+              path: /-/ping
+              port: http
+            initialDelaySeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /-/ping
+              port: http
+            initialDelaySeconds: 5
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - mountPath: /verdaccio/storage
+              name: storage
+              readOnly: false
+            - mountPath: /verdaccio/conf
+              name: config
+              readOnly: true
+      securityContext:
+        runAsUser: 100
+        fsGroup: 101
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-verdaccio
+        - name: storage
+          persistentVolumeClaim:
+            claimName: release-name-verdaccio

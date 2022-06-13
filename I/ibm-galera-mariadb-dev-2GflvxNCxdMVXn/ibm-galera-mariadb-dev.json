@@ -1,0 +1,329 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-ibm-galera-mariadb-dev",
+      "labels": {
+        "app": "release-name-ibm-galera-mariadb-dev",
+        "chart": "ibm-galera-mariadb-dev-1.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "mysql-root-password": "dkpwQ1lrNkZHREE3dmpuMw==",
+      "mysql-password": ""
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "annotations": {
+        "service.alpha.kubernetes.io/tolerate-unready-endpoints": "true"
+      },
+      "name": "release-name-mdb-ga",
+      "labels": {
+        "app": "release-name-ibm-galera-mariadb-dev",
+        "chart": "ibm-galera-mariadb-dev-1.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "mysql",
+          "port": 3306
+        }
+      ],
+      "clusterIP": "None",
+      "selector": {
+        "app": "release-name-ibm-galera-mariadb-dev"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-mdb-ga",
+      "labels": {
+        "app": "release-name-ibm-galera-mariadb-dev",
+        "chart": "ibm-galera-mariadb-dev-1.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "serviceName": "release-name-mdb-ga",
+      "replicas": 3,
+      "selector": {
+        "matchLabels": {
+          "app": "release-name-ibm-galera-mariadb-dev"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "productID": "GaleraMariaDB_101_free_00000",
+            "productName": "GaleraMariaDB",
+            "productVersion": "10.1"
+          },
+          "labels": {
+            "app": "release-name-ibm-galera-mariadb-dev",
+            "chart": "ibm-galera-mariadb-dev-1.1.0",
+            "release": "release-name",
+            "heritage": "Helm"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "nodeAffinity": {
+              "requiredDuringSchedulingIgnoredDuringExecution": {
+                "nodeSelectorTerms": [
+                  {
+                    "matchExpressions": [
+                      {
+                        "key": "beta.kubernetes.io/arch",
+                        "operator": "In",
+                        "values": [
+                          "amd64",
+                          "ppc64le"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "weight": 2,
+                  "preference": {
+                    "matchExpressions": [
+                      {
+                        "key": "beta.kubernetes.io/arch",
+                        "operator": "In",
+                        "values": [
+                          "amd64"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                {
+                  "weight": 2,
+                  "preference": {
+                    "matchExpressions": [
+                      {
+                        "key": "beta.kubernetes.io/arch",
+                        "operator": "In",
+                        "values": [
+                          "ppc64le"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "initContainers": [
+            {
+              "name": "galera-mariadb-prepare",
+              "image": "busybox",
+              "command": [
+                "sh",
+                "-c",
+                "chown -R 27:27 /var/lib/mysql"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "galera-data-pvc",
+                  "mountPath": "/var/lib/mysql",
+                  "subPath": "data"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "localtime",
+              "hostPath": {
+                "path": "/etc/localtime"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "release-name-mdb-ga",
+              "image": "ibmcom/galera-mariadb:10.2.14",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "POD_NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "MYSQL_USER",
+                  "value": ""
+                },
+                {
+                  "name": "MYSQL_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-ibm-galera-mariadb-dev",
+                      "key": "mysql-password"
+                    }
+                  }
+                },
+                {
+                  "name": "MYSQL_DATABASE",
+                  "value": ""
+                },
+                {
+                  "name": "MYSQL_ROOT_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-ibm-galera-mariadb-dev",
+                      "key": "mysql-root-password"
+                    }
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 3306,
+                  "name": "mysql"
+                },
+                {
+                  "containerPort": 4444,
+                  "name": "sst"
+                },
+                {
+                  "containerPort": 4567,
+                  "name": "replication"
+                },
+                {
+                  "containerPort": 4568,
+                  "name": "ist"
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "/usr/local/bin/readiness-probe.sh"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 60,
+                "timeoutSeconds": 5
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "/usr/local/bin/readiness-probe.sh"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 5
+              },
+              "resources": {
+                "limits": {
+                  "cpu": "1000m",
+                  "memory": "1Gi"
+                },
+                "requests": {
+                  "cpu": "250m",
+                  "memory": "256Mi"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "localtime",
+                  "mountPath": "/etc/localtime"
+                },
+                {
+                  "name": "galera-data-pvc",
+                  "mountPath": "/var/lib/mysql"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "galera-data-pvc",
+            "labels": {
+              "app": "release-name-ibm-galera-mariadb-dev",
+              "chart": "ibm-galera-mariadb-dev-1.1.0",
+              "release": "release-name",
+              "heritage": "Helm"
+            }
+          },
+          "spec": {
+            "storageClassName": null,
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "2Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-ibm-galera-mariadb-dev-main-test",
+      "labels": {
+        "app": "release-name-ibm-galera-mariadb-dev-main-test",
+        "chart": "ibm-galera-mariadb-dev-1.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test-success"
+      }
+    },
+    "spec": {
+      "restartPolicy": "Never",
+      "containers": [
+        {
+          "name": "release-name-ibm-galera-mariadb-dev-main-test",
+          "image": "ibmcom/galera-mariadb:10.2.14",
+          "env": [
+            {
+              "name": "MYSQL_PASSWORD",
+              "valueFrom": {
+                "secretKeyRef": {
+                  "name": "release-name-ibm-galera-mariadb-dev",
+                  "key": "mysql-root-password"
+                }
+              }
+            }
+          ],
+          "command": [
+            "sh",
+            "-c",
+            "mysql -h release-name-mdb-ga \"--password=$MYSQL_PASSWORD\" -e \"SHOW DATABASES;\""
+          ]
+        }
+      ]
+    }
+  }
+]

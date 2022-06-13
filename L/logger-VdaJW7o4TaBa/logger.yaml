@@ -1,0 +1,114 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: drycc-logger
+  labels:
+    heritage: drycc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: drycc-logger
+  annotations: null
+  labels:
+    heritage: drycc
+    app: drycc-logger
+spec:
+  ports:
+    - port: 80
+      name: http
+      targetPort: http
+  selector:
+    app: drycc-logger
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drycc-logger
+  labels:
+    heritage: drycc
+  annotations:
+    component.drycc.cc/version: canary
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: drycc-logger
+  template:
+    metadata:
+      labels:
+        app: drycc-logger
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 2
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - drycc-logger
+                topologyKey: topology.kubernetes.io/zone
+            - weight: 1
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - drycc-logger
+                topologyKey: kubernetes.io/hostname
+      initContainers:
+        - name: drycc-logger-init
+          image: registry.drycc.cc/drycc/python-dev:latest
+          imagePullPolicy: Always
+          args:
+            - netcat
+            - -v
+            - -a
+            - $(DRYCC_REDIS_ADDRS)
+          env:
+            - name: DRYCC_REDIS_ADDRS
+              valueFrom:
+                secretKeyRef:
+                  name: redis-creds
+                  key: addrs
+      containers:
+        - name: drycc-logger
+          image: registry.drycc.cc/drycc/logger:canary
+          imagePullPolicy: Always
+          env:
+            - name: STORAGE_ADAPTER
+              value: redis
+            - name: DRYCC_REDIS_ADDRS
+              valueFrom:
+                secretKeyRef:
+                  name: redis-creds
+                  key: addrs
+            - name: DRYCC_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-creds
+                  key: password
+          ports:
+            - containerPort: 8088
+              name: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8088
+            initialDelaySeconds: 1
+            timeoutSeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8088
+            initialDelaySeconds: 1
+            timeoutSeconds: 1

@@ -1,0 +1,202 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-nalkinscloud
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nalkinscloud-nexus-docker
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: eyJhdXRocyI6IHsiZG9ja2VyLm5hbGtpbnMuY2xvdWQiOiB7ImF1dGgiOiAiWVdSdGFXNDZZV1J0YVc0PSJ9fX0=
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-nalkinscloud
+type: Opaque
+data:
+  django_secret_key: NzF0emY4cVIwU3BTTk5iRFVqUDRyTzRwNEVQU1VUdjRaQlFqVUxKQnZYejZpWGNxMXY=
+  db_user: ZGphbmdv
+  db_pass: ZGphbmdv
+  email_username: YWRtaW4=
+  email_password: YWRtaW4=
+  google_oauth_client_id: Z29vZ2xlX2NsaWVudF9pZA==
+  google_oauth_client_secret: Z29vZ2xlX2NsaWVudF9zZWNyZXQ=
+  github_oauth_client_id: Z2l0aHViX2NsaWVudF9pZA==
+  github_oauth_client_secret: Z2l0aHViX2NsaWVudF9zZWNyZXQ=
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-nalkinscloud-config-map
+data:
+  db_host: centraldb.nalkins.cloud
+  db_name: django
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-nalkinscloud
+  labels:
+    app.kubernetes.io/name: nalkinscloud
+    helm.sh/chart: nalkinscloud-0.1.10
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.0.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: nalkinscloud
+    app.kubernetes.io/instance: release-name
+  ports:
+    - name: nalkinscloud
+      port: 80
+      targetPort: 8000
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-nalkinscloud
+  labels:
+    app.kubernetes.io/name: nalkinscloud
+    helm.sh/chart: nalkinscloud-0.1.10
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.0.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nalkinscloud
+      app.kubernetes.io/instance: release-name
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nalkinscloud
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-nalkinscloud
+      imagePullSecrets:
+        - name: nalkinscloud-nexus-docker
+      initContainers:
+        - name: init-database
+          image: busybox
+          command:
+            - sh
+            - -c
+            - env; until nc -z ${db_host} ${db_port} ; do echo waiting for database; sleep 2; done;
+          env:
+            - name: db_host
+              value: centraldb.nalkins.cloud
+            - name: db_port
+              value: "3306"
+      containers:
+        - name: release-name-nalkinscloud
+          image: docker.nalkins.cloud/nalkinscloud/nalkinscloud-django-backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              httpHeaders:
+                - name: Host
+                  value: 127.0.0.1
+              path: /liveness/
+              port: http
+            initialDelaySeconds: 45
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              httpHeaders:
+                - name: Host
+                  value: 127.0.0.1
+              path: /readiness/
+              port: http
+            initialDelaySeconds: 45
+            periodSeconds: 30
+          env:
+            - name: version
+              value: latest
+            - name: db_pass
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-nalkinscloud
+                  key: db_pass
+            - name: db_user
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-nalkinscloud
+                  key: db_user
+            - name: django_secret_key
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-nalkinscloud
+                  key: django_secret_key
+            - name: email_username
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-nalkinscloud
+                  key: email_username
+            - name: email_password
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-nalkinscloud
+                  key: email_password
+            - name: google_oauth_client_id
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-nalkinscloud
+                  key: google_oauth_client_id
+            - name: google_oauth_client_secret
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-nalkinscloud
+                  key: google_oauth_client_secret
+            - name: github_oauth_client_id
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-nalkinscloud
+                  key: github_oauth_client_id
+            - name: github_oauth_client_secret
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-nalkinscloud
+                  key: github_oauth_client_secret
+            - name: allowed_hosts
+              value: localhost
+            - name: backend_domain
+              value: https://api-alpha.nalkins.cloud
+            - name: email_host
+              value: smtp.gmail.com
+            - name: email_port
+              value: "587"
+            - name: environment
+              value: alpha
+            - name: frontend_domain
+              value: https://alpha.nalkins.cloud
+            - name: graylog_host
+              value: graylog.graylog.svc.cluster.local
+            - name: graylog_port
+              value: "12201"
+            - name: static_url
+              value: https://nalkins.cloud/
+            - name: db_host
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-nalkinscloud-config-map
+                  key: db_host
+            - name: db_name
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-nalkinscloud-config-map
+                  key: db_name

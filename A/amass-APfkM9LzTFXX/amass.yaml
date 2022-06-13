@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: amass-config
+data:
+  config.ini: "# Copyright 2017 Jeff Foley. All rights reserved.\n# Use of this source code is governed by Apache 2 LICENSE that can be found in the LICENSE file.\n\n# Should only passive data sources be used without DNS resolution?\n#mode = passive\n# Would you like to use more active techniques, such as pulling\n# certificates from discovered IP addresses?\n#mode = active\n\n# The directory that stores the Cayley graph database and other output files\n# The default for Linux systems is: $HOME/.config/amass\n#output_directory = amass\n\n# The maximum number of concurrent DNS queries that can be performed during the enumeration.\n#maximum_dns_queries = 20000\n\n[network_settings]\n# Single IP address or range (e.g. a.b.c.10-245)\n#address = 192.168.1.1\n#cidr = 192.168.1.0/24\n#asn = 26808\n#port = 80\nport = 443\n#port = 8080\n\n# Root domain names used in the enumeration\n#[domains]\n#domain = owasp.org\n#domain = appsecusa.org\n#domain = appsec.eu\n#domain = appsec-labs.com\n\n# DNS resolvers used globally by the amass package\n#[resolvers]\n#score_resolvers = true\n#monitor_resolver_rate = true\n#resolver = 1.1.1.1 ; Cloudflare\n#resolver = 8.8.8.8 ; Google\n#resolver = 64.6.64.6 ; Verisign\n#resolver = 74.82.42.42 ; Hurricane Electric\n#resolver = 1.0.0.1 ; Cloudflare Secondary\n#resolver = 8.8.4.4 ; Google Secondary\n#resolver = 64.6.65.6 ; Verisign Secondary\n#resolver = 77.88.8.1 ; Yandex.DNS Secondary\n\n# Are there any subdomains that are out of scope?\n#[blacklisted]\n#subdomain = education.appsec-labs.com\n#subdomain = 2012.appsecusa.org\n\n# Are there any data sources that should not be utilized?\n#[disabled_data_sources]\n#data_source = Ask\n#data_source = Exalead\n#data_source = IPv4Info\n\n# Configure Amass to use a TinkerPop Server as the graph database\n# For an example of Gremlin settings see: https://docs.microsoft.com/en-us/azure/cosmos-db/create-graph-gremlin-console\n#[gremlin]\n#url = wss://localhost:8182\n#username =\n#password =\n\n# Settings related to brute forcing\n#[bruteforce]\n#enabled = true\n#recursive = true\n# Number of discoveries made in a subdomain before performing recursive brute forcing\n# Default is 1\n#minimum_for_recursive = 1\n#wordlist_file = /usr/share/wordlists/all.txt\n#wordlist_file = /usr/share/wordlists/all.txt # multiple lists can be used\n\n# Would you like to permute resolved names?\n#[alterations]\n#enabled = true\n# edit_distance specifies the number of times a primitive edit operation will be\n# performed on a name sample during fuzzy label searching\n#edit_distance = 1\n#flip_words = true   # test-dev.owasp.org -> test-prod.owasp.org\n#flip_numbers = true # test1.owasp.org -> test2.owasp.org\n#add_words = true    # test.owasp.org -> test-dev.owasp.org\n#add_numbers = true  # test.owasp.org -> test1.owasp.org\n#wordlist_file = /usr/share/wordlists/all.txt\n#wordlist_file = /usr/share/wordlists/all.txt # multiple lists can be used\n\n# Provide API key information for a data source\n#[AlienVault]\n#apikey =\n\n#[BinaryEdge]\n#apikey =\n\n#[C99]\n#apikey=\n\n#[Censys]\n#apikey =\n#secret =\n\n#[Chaos]\n#apikey=\n\n#[CIRCL]\n#username =\n#password =\n\n#[DNSDB]\n#apikey =\n\n#[FacebookCT]\n#apikey=\n#secret=\n\n#[GitHub]\n#apikey =\n\n#[NetworksDB]\n#apikey =\n\n#[PassiveTotal]\n#username =\n#apikey =\n\n#[SecurityTrails]\n#apikey =\n\n#[Shodan]\n#apikey =\n\n#[Spyse]\n#apikey =\n\n# Provide your Twitter App Consumer API key and Consumer API secrety key\n#[Twitter]\n#apikey =\n#secret =\n\n# The apikey must be an API access token created through the Investigate management UI\n#[Umbrella]\n#apikey =\n\n# URLScan can be used without an API key, but the key allows new submissions to be made\n#[URLScan]\n#apikey =\n\n#[VirusTotal]\n#apikey =\n\n#[WhoisXML]\n#apikey= \n\n#[ZETAlytics]\n#apikey="
+---
+apiVersion: execution.securecodebox.io/v1
+kind: ParseDefinition
+metadata:
+  name: amass-jsonl
+spec:
+  image: docker.io/securecodebox/parser-amass:3.12.1
+  imagePullPolicy: IfNotPresent
+  ttlSecondsAfterFinished: null
+  env: []
+  scopeLimiterAliases: {}
+  affinity: {}
+  tolerations: []
+---
+apiVersion: execution.securecodebox.io/v1
+kind: ScanType
+metadata:
+  name: amass
+spec:
+  extractResults:
+    type: amass-jsonl
+    location: /home/securecodebox/amass-results.jsonl
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        spec:
+          restartPolicy: OnFailure
+          affinity: {}
+          tolerations: []
+          containers:
+            - name: amass
+              image: caffix/amass:v3.19.2
+              imagePullPolicy: IfNotPresent
+              command:
+                - amass
+                - enum
+                - -json
+                - /home/securecodebox/amass-results.jsonl
+              resources: {}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - all
+                privileged: false
+                readOnlyRootFilesystem: false
+                runAsNonRoot: false
+              env: []
+              volumeMounts:
+                - mountPath: /amass/output/config.ini
+                  name: amass-config
+                  subPath: config.ini
+          volumes:
+            - configMap:
+                name: amass-config
+              name: amass-config

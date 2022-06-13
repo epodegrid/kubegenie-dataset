@@ -1,0 +1,421 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "labels": {
+        "app": "aerospike",
+        "chart": "aerospike",
+        "release": "release-name"
+      },
+      "name": "release-name-aerospike",
+      "namespace": "d3alNgDNVkC"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-conf",
+      "namespace": "d3alNgDNVkC",
+      "labels": {
+        "app": "aerospike",
+        "chart": "aerospike",
+        "release": "release-name"
+      }
+    },
+    "data": {
+      "aerospike.template.conf": "# Aerospike database configuration file.\n\n# This stanza must come first.\nservice {\n\tuser root\n\tgroup root\n\tpaxos-single-replica-limit 1 # Number of nodes where the replica count is automatically reduced to 1.\n\tpidfile /var/run/aerospike/asd.pid\n\tproto-fd-max 15000\n}\n\nlogging {\n\n\t# Log file must be an absolute path.\n\tfile ${LOGFILE} {\n\t\tcontext any info\n\t}\n\n\t# Send log messages to stdout\n\tconsole {\n\t\tcontext any info \n\t}\n}\n\n\nnetwork {\n\tservice {\n\t\taddress ${SERVICE_ADDRESS}\n\t\tport ${SERVICE_PORT}\n\n\t\t# Uncomment the following to set the `access-address` parameter to the\n\t\t# IP address of the Docker host. This will the allow the server to correctly\n\t\t# publish the address which applications and other nodes in the cluster to\n\t\t# use when addressing this node.\n\t\t# access-address <IPADDR>\n\t}\n\n\theartbeat {\n\n        address ${HB_ADDRESS}\n\t\t# mesh is used for environments that do not support multicast\n\t\tmode mesh\n\t\tport ${HB_PORT}\n\n\t\t# use asinfo -v 'tip:host=<ADDR>;port=3002' to inform cluster of\n\t\t# other mesh nodes\n\t\t# mesh-seed-placeholder\n\n\t\tinterval 150\n\t\ttimeout 10\n\t}\n\n\tfabric {\n\t    address ${FABRIC_ADDRESS}\n\t\tport ${FABRIC_PORT}\n\t}\n\n\tinfo {\n\t    address ${INFO_ADDRESS}\n\t\tport ${INFO_PORT}\n\t}\n}\n\nnamespace ${NAMESPACE} {\n\treplication-factor ${REPL_FACTOR}\n\tmemory-size ${MEM_GB}G\n\tdefault-ttl ${DEFAULT_TTL}\n\n#\tstorage-engine memory\n\n\t# To use file storage backing, comment out the line above and use the\n\t# following lines instead.\n\n\tstorage-engine device {\n\t\tfile /opt/aerospike/data/${MY_POD_NAME}-${NAMESPACE}.dat\n\t\tfilesize ${MEM_GB}G\n\t\tdata-in-memory true # Store data in memory in addition to file.\n\t}\n}\n\n"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "labels": {
+        "app": "aerospike",
+        "chart": "aerospike",
+        "release": "release-name"
+      },
+      "name": "release-name-aerospike"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "namespaces",
+          "pods",
+          "statefulsets",
+          "configmaps",
+          "secrets",
+          "services",
+          "nodes",
+          "nodes/metrics",
+          "endpoints"
+        ],
+        "verbs": [
+          "list",
+          "watch",
+          "get"
+        ]
+      },
+      {
+        "nonResourceURLs": [
+          "/metrics"
+        ],
+        "verbs": [
+          "get"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "labels": {
+        "app": "aerospike",
+        "chart": "aerospike",
+        "release": "release-name"
+      },
+      "name": "release-name-aerospike"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "release-name-aerospike"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-aerospike",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "annotations": {
+        "service.alpha.kubernetes.io/tolerate-unready-endpoints": "true"
+      },
+      "name": "release-name-aerospike",
+      "namespace": "d3alNgDNVkC",
+      "labels": {
+        "app": "aerospike",
+        "chart": "aerospike",
+        "release": "release-name"
+      }
+    },
+    "spec": {
+      "publishNotReadyAddresses": true,
+      "ports": [
+        {
+          "port": 3000,
+          "name": "aerospike-client"
+        }
+      ],
+      "clusterIP": "None",
+      "selector": {
+        "app": "aerospike",
+        "chart": "aerospike",
+        "release": "release-name",
+        "unique-app": "release-name-aerospike"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-aerospike",
+      "namespace": "d3alNgDNVkC",
+      "labels": {
+        "app": "aerospike",
+        "chart": "aerospike",
+        "release": "release-name",
+        "unique-app": "release-name-aerospike"
+      }
+    },
+    "spec": {
+      "serviceName": "release-name-aerospike",
+      "selector": {
+        "matchLabels": {
+          "app": "aerospike",
+          "chart": "aerospike",
+          "release": "release-name",
+          "unique-app": "release-name-aerospike"
+        }
+      },
+      "replicas": 3,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "aerospike",
+            "chart": "aerospike",
+            "release": "release-name",
+            "unique-app": "release-name-aerospike"
+          },
+          "annotations": null
+        },
+        "spec": {
+          "serviceAccountName": "release-name-aerospike",
+          "terminationGracePeriodSeconds": 600,
+          "securityContext": {},
+          "containers": [
+            {
+              "name": "aerospike",
+              "image": "aerospike/aerospike-server:5.5.0.7",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "ports": [
+                {
+                  "containerPort": 3000,
+                  "name": "aero-client"
+                },
+                {
+                  "containerPort": 3002,
+                  "name": "aero-mesh"
+                },
+                {
+                  "containerPort": 3001,
+                  "name": "aero-fabric"
+                },
+                {
+                  "containerPort": 3003,
+                  "name": "aero-info"
+                }
+              ],
+              "lifecycle": {
+                "preStop": {
+                  "exec": {
+                    "command": [
+                      "/bin/sh",
+                      "-c",
+                      "/etc/aerospike/aku-adm --operation pre-stop-community --log-level debug"
+                    ]
+                  }
+                }
+              },
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/sh",
+                    "-c",
+                    "/etc/aerospike/aku-adm --operation liveness --log-level debug"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 30,
+                "timeoutSeconds": 1,
+                "successThreshold": 1,
+                "failureThreshold": 3
+              },
+              "readinessProbe": {
+                "tcpSocket": {
+                  "port": 3000
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "timeoutSeconds": 1,
+                "successThreshold": 1,
+                "failureThreshold": 3
+              },
+              "volumeMounts": [
+                {
+                  "name": "confdir",
+                  "mountPath": "/etc/aerospike"
+                },
+                {
+                  "name": "datadir",
+                  "mountPath": "/opt/aerospike/data"
+                }
+              ],
+              "volumeDevices": null,
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "env": [
+                {
+                  "name": "NAMESPACE",
+                  "value": "test"
+                },
+                {
+                  "name": "REPL_FACTOR",
+                  "value": "2"
+                },
+                {
+                  "name": "MEM_GB",
+                  "value": "1"
+                },
+                {
+                  "name": "DEFAULT_TTL",
+                  "value": "0"
+                },
+                {
+                  "name": "SERVICE_PORT",
+                  "value": "3000"
+                },
+                {
+                  "name": "HB_PORT",
+                  "value": "3002"
+                },
+                {
+                  "name": "FABRIC_PORT",
+                  "value": "3001"
+                },
+                {
+                  "name": "INFO_PORT",
+                  "value": "3003"
+                },
+                {
+                  "name": "MY_POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "MY_POD_NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "MY_POD_IP",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "status.podIP"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "initContainers": [
+            {
+              "name": "aerospike-init",
+              "image": "aerospike/aerospike-kubernetes-init:latest",
+              "volumeMounts": [
+                {
+                  "name": "confdir",
+                  "mountPath": "/etc/aerospike"
+                },
+                {
+                  "name": "initconfigs",
+                  "mountPath": "/configs"
+                }
+              ],
+              "env": [
+                {
+                  "name": "POD_NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "SERVICE",
+                  "value": "release-name-aerospike"
+                },
+                {
+                  "name": "SERVICE_DNS_DOMAIN",
+                  "value": "cluster.local"
+                },
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "CLUSTER_NAME",
+                  "value": "release-name-aerospike"
+                },
+                {
+                  "name": "HOST_IP",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "status.hostIP"
+                    }
+                  }
+                },
+                {
+                  "name": "HEARTBEAT_PORT",
+                  "value": "3002"
+                },
+                {
+                  "name": "FABRIC_PORT",
+                  "value": "3001"
+                },
+                {
+                  "name": "SERVICE_PORT",
+                  "value": "3000"
+                },
+                {
+                  "name": "AUTO_GENERATE_NODE_IDS",
+                  "value": "true"
+                },
+                {
+                  "name": "NODE_ID_PREFIX",
+                  "value": "a"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "confdir",
+              "emptyDir": {}
+            },
+            {
+              "name": "initconfigs",
+              "configMap": {
+                "name": "release-name-conf"
+              }
+            },
+            {
+              "name": "datadir",
+              "emptyDir": {}
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": null
+    }
+  },
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null
+]

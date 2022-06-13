@@ -1,0 +1,147 @@
+[
+  {
+    "apiVersion": "v1",
+    "data": {
+      "clients.conf": "client 0.0.0.0/0 {\n  secret = SECRET\n}\n",
+      "users": "user Cleartext-Password := \"password\", MS-CHAP-Use-NTLM-Auth := 0\n"
+    },
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "freeradius-config"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-freeradius",
+      "namespace": "3rSWrzufPC"
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "radius-auth",
+          "protocol": "UDP",
+          "port": 1812,
+          "targetPort": 1812
+        },
+        {
+          "name": "radius-acc",
+          "protocol": "UDP",
+          "port": 1813,
+          "targetPort": 1813
+        },
+        {
+          "name": "radius",
+          "port": 18120,
+          "targetPort": 18120
+        }
+      ],
+      "selector": {
+        "app": "radius",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-freeradius",
+      "namespace": "3rSWrzufPC"
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "radius",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "radius",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": null,
+          "containers": [
+            {
+              "name": "radius",
+              "image": "freeradius/freeradius-server:3.0.21",
+              "imagePullPolicy": "Always",
+              "env": [
+                {
+                  "name": "POD_IP",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "status.podIP"
+                    }
+                  }
+                },
+                {
+                  "name": "NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "RADIUS_LISTEN_IP",
+                  "value": "*"
+                },
+                {
+                  "name": "USERS_FILE",
+                  "value": "/etc/raddb/users"
+                },
+                {
+                  "name": "RADIUS_CLIENTS",
+                  "value": "SECRET@0.0.0.0/0"
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 1812,
+                  "name": "radauth-port"
+                },
+                {
+                  "containerPort": 1813,
+                  "name": "radacc-port"
+                },
+                {
+                  "containerPort": 18120,
+                  "name": "radius-port"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "freeradius-config",
+                  "mountPath": "/etc/raddb/clients.conf",
+                  "subPath": "clients.conf"
+                },
+                {
+                  "name": "freeradius-config",
+                  "mountPath": "/etc/raddb/users",
+                  "subPath": "users"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "freeradius-config",
+              "configMap": {
+                "name": "freeradius-config"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  null,
+  null
+]

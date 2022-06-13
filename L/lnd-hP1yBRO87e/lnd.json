@@ -1,0 +1,259 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-lnd",
+      "labels": {
+        "app": "lnd",
+        "chart": "lnd-0.3.9",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "lnd.conf": "bitcoin.active=1\nbitcoin.mainnet=0\nbitcoin.testnet=1\ndebuglevel=info\nbitcoin.node=neutrino\nneutrino.addpeer=faucet.lightning.community\nneutrino.addpeer=lnd.bitrefill.com:18333\nrpclisten=0.0.0.0:10009\ntlsextradomain=nodes-lnd-internal.nodes\ntlsextraip=0.0.0.0\nprotocol.wumbo-channels=1"
+    }
+  },
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-lnd",
+      "annotations": {
+        "helm.sh/resource-policy": "keep"
+      },
+      "labels": {
+        "app": "lnd",
+        "chart": "lnd-0.3.9",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "5Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-lnd-internal",
+      "labels": {
+        "app": "lnd",
+        "chart": "lnd-0.3.9",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "rpc",
+          "port": 10009,
+          "targetPort": "rpc"
+        }
+      ],
+      "selector": {
+        "app": "lnd",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-lnd-external",
+      "labels": {
+        "app": "lnd",
+        "chart": "lnd-0.3.9",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "LoadBalancer",
+      "ports": [
+        {
+          "name": "p2p",
+          "port": 9735,
+          "targetPort": "p2p"
+        }
+      ],
+      "selector": {
+        "app": "lnd",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-lnd",
+      "labels": {
+        "app": "lnd",
+        "chart": "lnd-0.3.9",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "strategy": {
+        "type": "Recreate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app": "lnd",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "lnd",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "initContainers": [
+            {
+              "name": "copy-lnd-config",
+              "image": "busybox",
+              "command": [
+                "sh",
+                "-c",
+                "cp /configmap/lnd.conf /root/.lnd/lnd.conf"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "configmap",
+                  "mountPath": "/configmap"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/root/.lnd/"
+                }
+              ]
+            }
+          ],
+          "terminationGracePeriodSeconds": 60,
+          "containers": [
+            {
+              "name": "release-name-lnd",
+              "image": "thesisrobot/lnd:v0.14.1-beta",
+              "command": [
+                "lnd"
+              ],
+              "imagePullPolicy": "IfNotPresent",
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "ports": [
+                {
+                  "name": "rpc",
+                  "containerPort": 10009
+                },
+                {
+                  "name": "p2p",
+                  "containerPort": 9735
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/root/"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/root/.lnd/lnd.conf",
+                  "subPath": "lnd.conf"
+                }
+              ],
+              "lifecycle": {
+                "preStop": {
+                  "exec": {
+                    "command": [
+                      "/bin/lncli",
+                      "-n",
+                      "testnet",
+                      "stop"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "name": "loop",
+              "image": "thesisrobot/loop:v0.11.1-beta",
+              "command": [
+                "/bin/sh",
+                "-c",
+                "sleep 5 && loopd --network=testnet"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/root/"
+                }
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "10m"
+                }
+              }
+            },
+            {
+              "name": "pool",
+              "image": "thesisrobot/pool:v0.3.3-alpha",
+              "command": [
+                "/bin/sh",
+                "-c",
+                "sleep 5 && poold --network=testnet"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/root/"
+                }
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "10m"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "emptyDir": {}
+            },
+            {
+              "name": "configmap",
+              "configMap": {
+                "name": "release-name-lnd"
+              }
+            },
+            {
+              "name": "data",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-lnd"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,156 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "type": "Opaque",
+    "metadata": {
+      "name": "release-name-github-actions-runner",
+      "labels": {
+        "helm.sh/chart": "github-actions-runner-0.10.3",
+        "app.kubernetes.io/name": "github-actions-runner",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "2.276.1-20.04-1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "registration_token": ""
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-github-actions-runner",
+      "labels": {
+        "helm.sh/chart": "github-actions-runner-0.10.3",
+        "app.kubernetes.io/name": "github-actions-runner",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "2.276.1-20.04-1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "serviceName": "release-name-github-actions-runner",
+      "replicas": 1,
+      "podManagementPolicy": "Parallel",
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "github-actions-runner",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/token": "88ec1b98760ec0a96dbd3362b8516ef87bdd3d2b165f2a2739afcced569c5837"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "github-actions-runner",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "securityContext": {
+            "fsGroup": 1000
+          },
+          "initContainers": [
+            {
+              "name": "configure",
+              "securityContext": null,
+              "image": "adwerx/github-actions-runner:2.276.1-20.04-1",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "RUNNER_SCOPE",
+                  "value": null
+                },
+                {
+                  "name": "RUNNER_NAME",
+                  "value": null
+                },
+                {
+                  "name": "RUNNER_LABELS",
+                  "value": null
+                },
+                {
+                  "name": "RUNNER_REGISTRATION_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-github-actions-runner",
+                      "key": "registration_token"
+                    }
+                  }
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "state",
+                  "mountPath": "/home/actions/runner-state"
+                }
+              ],
+              "command": [
+                "/bin/bash",
+                "-c",
+                "set -eEuo pipefail\n\nrundir=/home/actions/runner-state\ncp -r ./. ${rundir}\ncd ${rundir}\nhashed_token=$(printf \"${RUNNER_REGISTRATION_TOKEN}\" | sha256sum)\n# when changing the registration token, all\n# pods will re-register with the new token\nif [ ! \"$(cat .seedhash)\" = \"${hashed_token}\" ]; then\n  ./config.sh remove --token ${RUNNER_REGISTRATION_TOKEN}\n  ./config.sh \\\n      --name \"${RUNNER_NAME}\" \\\n      --token \"${RUNNER_REGISTRATION_TOKEN}\" \\\n      --url \"https://github.com/${RUNNER_SCOPE}\" \\\n      --labels \"${RUNNER_LABELS}\" \\\n      --work _work \\\n      --unattended \\\n      --replace\n  printf \"${hashed_token}\" > .seedhash\nfi\n"
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "runner",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "adwerx/github-actions-runner:2.276.1-20.04-1",
+              "imagePullPolicy": "IfNotPresent",
+              "workingDir": "/home/actions/runner-state",
+              "env": null,
+              "resources": null,
+              "volumeMounts": [
+                {
+                  "name": "state",
+                  "mountPath": "/home/actions/runner-state"
+                },
+                {
+                  "name": "workspace",
+                  "mountPath": "/home/actions/runner-state/_work"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "workspace",
+              "emptyDir": {}
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "state"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "8Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+]

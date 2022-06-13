@@ -1,0 +1,87 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openstack
+data:
+  serviceConfig: |
+    name: openstack
+    accessor:
+      username: "admin@opencord.org"
+      password: "letmein"
+      endpoint: xos-core:50051
+    logging:
+      version: 1
+      handlers:
+        console:
+          class: logging.StreamHandler
+        file:
+          class: logging.handlers.RotatingFileHandler
+          filename: /var/log/xos.log
+          maxBytes: 10485760
+          backupCount: 5
+        kafka:
+          class: kafkaloghandler.KafkaLogHandler
+          bootstrap_servers:
+            - "cord-kafka:9092"
+          topic: xos.log.openstack
+      loggers:
+        '':
+          handlers:
+            - console
+            - file
+            - kafka
+          level: DEBUG
+    nova:
+      ca_ssl_cert: "/etc/ssl/certs/ca-certificates.crt"
+      enabled: True
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-openstack
+  labels:
+    app: openstack
+    chart: openstack-1.1.8
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openstack
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: openstack
+        release: release-name
+      annotations:
+        checksum/config: 0618d8d8d7220ec9ba5989535fd4116afa018a92040de729c5165491e2db5967
+    spec:
+      containers:
+        - name: openstack
+          image: xosproject/openstack-synchronizer:1.1.5
+          imagePullPolicy: Always
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: openstack-config
+              mountPath: /opt/xos/synchronizers/openstack/mounted_config.yaml
+              subPath: mounted_config.yaml
+            - name: certchain-volume
+              mountPath: /usr/local/share/ca-certificates/local_certs.crt
+              subPath: config/ca_cert_chain.pem
+      volumes:
+        - name: openstack-config
+          configMap:
+            name: openstack
+            items:
+              - key: serviceConfig
+                path: mounted_config.yaml
+        - name: certchain-volume
+          configMap:
+            name: ca-certificates
+            items:
+              - key: chain
+                path: config/ca_cert_chain.pem

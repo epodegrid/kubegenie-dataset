@@ -1,0 +1,178 @@
+[
+  {
+    "apiVersion": "policy/v1",
+    "kind": "PodDisruptionBudget",
+    "metadata": {
+      "name": "release-name-logstash-pdb",
+      "labels": {
+        "app": "release-name-logstash",
+        "chart": "logstash",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "spec": {
+      "maxUnavailable": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "release-name-logstash"
+        }
+      }
+    }
+  },
+  {
+    "kind": "Service",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-logstash-headless",
+      "labels": {
+        "app": "release-name-logstash",
+        "chart": "logstash",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "selector": {
+        "app": "release-name-logstash"
+      },
+      "ports": [
+        {
+          "name": "http",
+          "port": 9600
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-logstash",
+      "labels": {
+        "app": "release-name-logstash",
+        "chart": "logstash",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "spec": {
+      "serviceName": "release-name-logstash-headless",
+      "selector": {
+        "matchLabels": {
+          "app": "release-name-logstash",
+          "release": "release-name"
+        }
+      },
+      "replicas": 1,
+      "podManagementPolicy": "Parallel",
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "name": "release-name-logstash",
+          "labels": {
+            "app": "release-name-logstash",
+            "chart": "logstash",
+            "heritage": "Helm",
+            "release": "release-name"
+          },
+          "annotations": null
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1000,
+            "runAsUser": 1000
+          },
+          "affinity": {
+            "podAntiAffinity": {
+              "requiredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "labelSelector": {
+                    "matchExpressions": [
+                      {
+                        "key": "app",
+                        "operator": "In",
+                        "values": [
+                          "release-name-logstash"
+                        ]
+                      }
+                    ]
+                  },
+                  "topologyKey": "kubernetes.io/hostname"
+                }
+              ]
+            }
+          },
+          "terminationGracePeriodSeconds": 120,
+          "volumes": null,
+          "containers": [
+            {
+              "name": "logstash",
+              "securityContext": {
+                "capabilities": {
+                  "drop": [
+                    "ALL"
+                  ]
+                },
+                "runAsNonRoot": true,
+                "runAsUser": 10017,
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true
+              },
+              "image": "docker.elastic.co/logstash/logstash:7.17.3",
+              "imagePullPolicy": "IfNotPresent",
+              "livenessProbe": {
+                "failureThreshold": 3,
+                "httpGet": {
+                  "path": "/",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 300,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 5
+              },
+              "readinessProbe": {
+                "failureThreshold": 3,
+                "httpGet": {
+                  "path": "/",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 60,
+                "periodSeconds": 10,
+                "successThreshold": 3,
+                "timeoutSeconds": 5
+              },
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 9600
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "1000m",
+                  "memory": "1536Mi"
+                },
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "1536Mi"
+                }
+              },
+              "env": [
+                {
+                  "name": "LS_JAVA_OPTS",
+                  "value": "-Xmx1g -Xms1g"
+                }
+              ],
+              "volumeMounts": null
+            }
+          ]
+        }
+      }
+    }
+  }
+]

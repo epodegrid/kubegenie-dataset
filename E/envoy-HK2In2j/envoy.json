@@ -1,0 +1,241 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-envoy",
+      "namespace": "HK2In2j",
+      "labels": {
+        "helm.sh/chart": "envoy-0.0.15",
+        "app.kubernetes.io/name": "envoy",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.18.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "envoy.yaml": "admin:\n  access_log_path: /tmp/admin_access.log\n  address:\n    socket_address:\n      protocol: TCP\n      address: 0.0.0.0\n      port_value: 9901\nstatic_resources:\n  listeners:\n  - name: listener_0\n    address:\n      socket_address:\n        protocol: TCP\n        address: 0.0.0.0\n        port_value: 10000\n    filter_chains:\n    - filters:\n      - name: envoy.filters.network.http_connection_manager\n        typed_config:\n          \"@type\": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager\n          stat_prefix: ingress_http\n          access_log:\n          - name: envoy.access_loggers.file\n            typed_config:\n              \"@type\": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog\n              # For the demo config in the Docker container we use:\n              #   - system logs -> `/dev/stderr`\n              #   - (listener) access_logs -> `/dev/stdout`\n              path: /dev/stdout\n          route_config:\n            name: local_route\n            virtual_hosts:\n            - name: local_service\n              domains: [\"*\"]\n              routes:\n              - match:\n                  prefix: \"/\"\n                route:\n                  host_rewrite_literal: www.envoyproxy.io\n                  cluster: service_envoyproxy_io\n          http_filters:\n          - name: envoy.filters.http.router\n  clusters:\n  - name: service_envoyproxy_io\n    connect_timeout: 30s\n    type: LOGICAL_DNS\n    # Comment out the following line to test on v6 networks\n    dns_lookup_family: V4_ONLY\n    lb_policy: ROUND_ROBIN\n    load_assignment:\n      cluster_name: service_envoyproxy_io\n      endpoints:\n      - lb_endpoints:\n        - endpoint:\n            address:\n              socket_address:\n                address: www.envoyproxy.io\n                port_value: 443\n    transport_socket:\n      name: envoy.transport_sockets.tls\n      typed_config:\n        \"@type\": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext\n        sni: www.envoyproxy.io"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-envoy",
+      "namespace": "HK2In2j",
+      "labels": {
+        "helm.sh/chart": "envoy-0.0.15",
+        "app.kubernetes.io/name": "envoy",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.18.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "http",
+          "port": 80,
+          "protocol": "TCP",
+          "targetPort": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "envoy",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-envoy-admin",
+      "namespace": "HK2In2j",
+      "labels": {
+        "helm.sh/chart": "envoy-0.0.15",
+        "app.kubernetes.io/name": "envoy",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.18.2",
+        "app.kubernetes.io/managed-by": "Helm",
+        "admin": "true"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http-admin",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "envoy",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-envoy",
+      "namespace": "HK2In2j",
+      "labels": {
+        "helm.sh/chart": "envoy-0.0.15",
+        "app.kubernetes.io/name": "envoy",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.18.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "envoy",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "envoy",
+            "app.kubernetes.io/instance": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "898a006d6f0d74ad432faf94642dea594b1eff4a1f7f9bd20723b6545835c83d"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "securityContext": {},
+          "initContainers": [
+            {
+              "name": "preprocess-config",
+              "image": "alpine:3.12.4",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "sh",
+                "-c",
+                "apk add perl && cp /opt/envoy.yaml.tpl /config/envoy.yaml && perl -pi -e 's/ENV_([_A-Z0-9]+)_ENV/$ENV{$1}/g' /config/envoy.yaml"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/config"
+                },
+                {
+                  "name": "config-tpl",
+                  "mountPath": "/opt/envoy.yaml.tpl",
+                  "subPath": "envoy.yaml"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "envoy",
+              "image": "envoyproxy/envoy:v1.18.2",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "-c",
+                "/config/envoy.yaml"
+              ],
+              "ports": [
+                {
+                  "containerPort": 10000,
+                  "name": "http",
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "http-admin",
+                  "containerPort": 9901,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/ready",
+                  "port": "http-admin"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/ready",
+                  "port": "http-admin"
+                }
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                },
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/config"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "emptyDir": {}
+            },
+            {
+              "name": "config-tpl",
+              "configMap": {
+                "name": "release-name-envoy"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-envoy-test-connection",
+      "namespace": "HK2In2j",
+      "labels": {
+        "helm.sh/chart": "envoy-0.0.15",
+        "app.kubernetes.io/name": "envoy",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.18.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test-success"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "wget",
+          "image": "busybox",
+          "command": [
+            "wget"
+          ],
+          "args": [
+            "release-name-envoy:"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

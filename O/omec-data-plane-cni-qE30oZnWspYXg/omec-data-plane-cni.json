@@ -1,0 +1,133 @@
+[
+  {
+    "kind": "ConfigMap",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "sriov-config"
+    },
+    "data": {
+      "config.json": "{\n  \"resourceList\": [\n    {\n      \"resourceName\": \"sriov_vfio_s1u_net\",\n      \"selectors\": {\n          \"pfNames\": [\"eno1#0-3\"],\n          \"drivers\": [\"vfio-pci\"]\n      }\n    },\n    {\n      \"resourceName\": \"sriov_vfio_sgi_net\",\n      \"selectors\": {\n          \"pfNames\": [\"eno1#4-7\"],\n          \"drivers\": [\"vfio-pci\"]\n      }\n    }\n    ,\n    {\n      \"resourceName\": \"sriov_netdevice\",\n      \"selectors\": {\n          \"pfNames\": [\"eno1\"],\n          \"drivers\": [\"i40evf\",\"ixgbevf\"]\n      }\n    }\n  ]\n}\n"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "DaemonSet",
+    "metadata": {
+      "name": "omec-sriov-plugin",
+      "labels": {
+        "release": "release-name",
+        "app": "omec-sriov-plugin"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "release": "release-name",
+          "app": "omec-sriov-plugin"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "release": "release-name",
+            "app": "omec-sriov-plugin"
+          }
+        },
+        "spec": {
+          "hostNetwork": true,
+          "hostPID": true,
+          "nodeSelector": {
+            "beta.kubernetes.io/arch": "amd64"
+          },
+          "initContainers": [
+            {
+              "name": "init-omec-sriov-plugin",
+              "image": "docker.io/omecproject/omec-cni:1.0.0",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "bash",
+                "-c"
+              ],
+              "args": [
+                "cp /tmp/cni/bin/{sriov,vfioveth,jq,static} /host/opt/cni/bin/"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "cni-bin",
+                  "mountPath": "/host/opt/cni/bin"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "sriov-device-plugin",
+              "image": "docker.io/nfvpe/sriov-device-plugin:v3.1",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/bin/sh",
+                "-c",
+                "--"
+              ],
+              "args": [
+                "sriovdp --logtostderr 10;"
+              ],
+              "securityContext": {
+                "privileged": true,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/var/lib/kubelet/",
+                  "name": "devicesock",
+                  "readOnly": false
+                },
+                {
+                  "mountPath": "/sys",
+                  "name": "net",
+                  "readOnly": true
+                },
+                {
+                  "name": "sriov-config",
+                  "mountPath": "/etc/pcidp"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "devicesock",
+              "hostPath": {
+                "path": "/var/lib/kubelet/"
+              }
+            },
+            {
+              "name": "net",
+              "hostPath": {
+                "path": "/sys"
+              }
+            },
+            {
+              "name": "sriov-config",
+              "configMap": {
+                "name": "sriov-config"
+              }
+            },
+            {
+              "name": "cni-bin",
+              "hostPath": {
+                "path": "/opt/cni/bin"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

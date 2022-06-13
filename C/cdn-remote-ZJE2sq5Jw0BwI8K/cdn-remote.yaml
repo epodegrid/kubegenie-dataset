@@ -1,0 +1,360 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ant-media
+  namespace: ZJE2sq5Jw0BwI8K
+  labels:
+    release: release-name
+    app: ant-media
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: video-archive
+  namespace: ZJE2sq5Jw0BwI8K
+  labels:
+    release: release-name
+    app: video-archive
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: start-stream
+  labels:
+    release: release-name
+    app: video-archive
+data:
+  start-stream.sh: |
+    #!/bin/bash
+    #
+    # Copyright 2019-present Open Networking Foundation
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    # http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+
+    QUALITY=$1
+
+    while true; do
+        ffmpeg -re -i /opt/cdn/movies/$QUALITY.mp4 -c copy -f flv rtmp://ant-media.default.svc.cluster.local:1935/LiveApp/$QUALITY;
+    done
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: Role
+metadata:
+  name: ant-media
+  namespace: ZJE2sq5Jw0BwI8K
+  labels:
+    release: release-name
+    app: ant-media
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - batch
+      - apps
+    verbs:
+      - get
+      - list
+      - patch
+    resources:
+      - statefulsets
+      - daemonsets
+      - jobs
+      - pods
+      - services
+      - endpoints
+      - configmaps
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: Role
+metadata:
+  name: video-archive
+  namespace: ZJE2sq5Jw0BwI8K
+  labels:
+    release: release-name
+    app: video-archive
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - batch
+      - apps
+    verbs:
+      - get
+      - list
+      - patch
+    resources:
+      - statefulsets
+      - daemonsets
+      - jobs
+      - pods
+      - services
+      - endpoints
+      - configmaps
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: RoleBinding
+metadata:
+  name: ant-media
+  namespace: ZJE2sq5Jw0BwI8K
+  labels:
+    release: release-name
+    app: ant-media
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ant-media
+subjects:
+  - kind: ServiceAccount
+    name: ant-media
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: RoleBinding
+metadata:
+  name: video-archive
+  namespace: ZJE2sq5Jw0BwI8K
+  labels:
+    release: release-name
+    app: video-archive
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: video-archive
+subjects:
+  - kind: ServiceAccount
+    name: video-archive
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ant-media
+  labels:
+    release: release-name
+    app: ant-media
+spec:
+  selector:
+    release: release-name
+    app: ant-media
+  ports:
+    - name: httpui
+      port: 5080
+      protocol: TCP
+    - name: rtmp
+      port: 1935
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ant-media-external
+  labels:
+    release: release-name
+    app: ant-media
+spec:
+  selector:
+    release: release-name
+    app: ant-media
+  type: NodePort
+  ports:
+    - name: httpui
+      port: 5080
+      protocol: TCP
+      nodePort: 32080
+    - name: rtmp
+      port: 1935
+      protocol: TCP
+      nodePort: 30935
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ant-media
+  labels:
+    release: release-name
+    app: ant-media
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      release: release-name
+      app: ant-media
+  serviceName: ant-media
+  template:
+    metadata:
+      labels:
+        release: release-name
+        app: ant-media
+    spec:
+      serviceAccountName: ant-media
+      containers:
+        - name: ant-media
+          image: docker.io/omecproject/cdn-antmedia:1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 11942
+            capabilities:
+              drop:
+                "": NET_RAW
+            seccompProfile:
+              type: RuntimeDefault
+          stdin: true
+          tty: true
+          command:
+            - bash
+            - -xc
+          args:
+            - cd /usr/local/antmedia && ./start.sh | tee /opt/start.log
+          resources:
+            limits:
+              cpu: 3
+              memory: 1Gi
+            requests:
+              cpu: 3
+              memory: 1Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: video-archive
+  labels:
+    release: release-name
+    app: video-archive
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      release: release-name
+      app: video-archive
+  serviceName: video-archive
+  template:
+    metadata:
+      labels:
+        release: release-name
+        app: video-archive
+    spec:
+      serviceAccountName: video-archive
+      initContainers:
+        - name: video-archive-dep-check
+          image: quay.io/stackanetes/kubernetes-entrypoint:v0.3.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: COMMAND
+              value: echo done
+            - name: DEPENDENCY_POD_JSON
+              value: '[{"labels": {"app": "ant-media"}, "requireSameNode": false}]'
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+      containers:
+        - name: streaming-720
+          image: docker.io/omecproject/cdn-video-repo:1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 11298
+            capabilities:
+              drop:
+                "": NET_RAW
+          stdin: true
+          tty: true
+          command:
+            - bash
+            - -xc
+          args:
+            - /opt/start-stream.sh 720
+          resources:
+            limits:
+              cpu: 3
+              memory: 1Gi
+            requests:
+              cpu: 3
+              memory: 1Gi
+          volumeMounts:
+            - name: start-script
+              mountPath: /opt/start-stream.sh
+              subPath: start-stream.sh
+        - name: streaming-480
+          image: docker.io/omecproject/cdn-video-repo:1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+          stdin: true
+          tty: true
+          command:
+            - bash
+            - -xc
+          args:
+            - /opt/start-stream.sh 480
+          resources:
+            limits:
+              cpu: 3
+              memory: 1Gi
+            requests:
+              cpu: 3
+              memory: 1Gi
+          volumeMounts:
+            - name: start-script
+              mountPath: /opt/start-stream.sh
+              subPath: start-stream.sh
+        - name: streaming-360
+          image: docker.io/omecproject/cdn-video-repo:1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+          stdin: true
+          tty: true
+          command:
+            - bash
+            - -xc
+          args:
+            - /opt/start-stream.sh 360
+          resources:
+            limits:
+              cpu: 3
+              memory: 1Gi
+            requests:
+              cpu: 3
+              memory: 1Gi
+          volumeMounts:
+            - name: start-script
+              mountPath: /opt/start-stream.sh
+              subPath: start-stream.sh
+      volumes:
+        - name: start-script
+          configMap:
+            name: start-stream
+            defaultMode: 493

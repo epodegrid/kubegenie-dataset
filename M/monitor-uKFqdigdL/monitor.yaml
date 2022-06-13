@@ -1,0 +1,373 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: drycc-monitor-telegraf
+  labels:
+    heritage: drycc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: drycc-monitor-grafana
+  annotations: null
+  labels:
+    heritage: drycc
+    app: drycc-monitor-grafana
+spec:
+  ports:
+    - port: 80
+      name: ui
+      targetPort: ui
+  selector:
+    app: drycc-monitor-grafana
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: drycc-monitor-telegraf
+  labels:
+    heritage: drycc
+  annotations:
+    component.drycc.cc/version: canary
+spec:
+  selector:
+    matchLabels:
+      app: drycc-monitor-telegraf
+  template:
+    metadata:
+      labels:
+        app: drycc-monitor-telegraf
+    spec:
+      securityContext:
+        fsGroup: 1001
+        runAsGroup: 1001
+        runAsUser: 1001
+      serviceAccount: drycc-monitor-telegraf
+      initContainers:
+        - name: drycc-monitor-telegraf-init
+          image: /drycc/python-dev:latest
+          imagePullPolicy: null
+          args:
+            - netcat
+            - -v
+            - -u
+            - $(INFLUXDB_URLS_V2)
+          env:
+            - name: INFLUXDB_URLS_V2
+              value: '"http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)"'
+            - name: INFLUXDB_V2_INPUT_URLS
+              value: '"http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)/metrics"'
+            - name: ENABLE_INFLUXDB_V2_INPUT
+              value: "true"
+      containers:
+        - name: drycc-monitor-telegraf
+          image: registry.drycc.cc/drycc/telegraf:canary
+          imagePullPolicy: Always
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: INFLUXDB_URLS_V2
+              value: '"http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)"'
+            - name: INFLUXDB_V2_INPUT_URLS
+              value: '"http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)/metrics"'
+            - name: ENABLE_INFLUXDB_V2_INPUT
+              value: "true"
+            - name: INFLUXDB_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: bucket
+            - name: INFLUXDB_ORG
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: org
+            - name: INFLUXDB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: token
+            - name: HOST_PROC
+              value: /rootfs/proc
+            - name: HOST_SYS
+              value: /rootfs/sys
+            - name: AGENT_QUIET
+              value: "true"
+            - name: AGENT_BUFFER_LIMIT
+              value: "100000"
+            - name: ENABLE_KUBERNETES
+              value: "true"
+            - name: ENABLE_BARE_METAL_SERVER
+              value: "true"
+          volumeMounts:
+            - mountPath: /var/run/docker.sock
+              name: docker-socket
+            - name: sysro
+              mountPath: /rootfs/sys
+              readOnly: true
+            - name: procro
+              mountPath: /rootfs/proc
+              readOnly: true
+            - name: varrunutmpro
+              mountPath: /var/run/utmp
+              readOnly: true
+      volumes:
+        - name: docker-socket
+          hostPath:
+            path: /var/run/docker.sock
+        - name: sysro
+          hostPath:
+            path: /sys
+        - name: procro
+          hostPath:
+            path: /proc
+        - name: varrunutmpro
+          hostPath:
+            path: /var/run/utmp
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drycc-monitor-grafana
+  labels:
+    heritage: drycc
+  annotations:
+    component.drycc.cc/version: canary
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: drycc-monitor-grafana
+  template:
+    metadata:
+      labels:
+        app: drycc-monitor-grafana
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 2
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - drycc-monitor-grafana
+                topologyKey: topology.kubernetes.io/zone
+            - weight: 1
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - drycc-monitor-grafana
+                topologyKey: kubernetes.io/hostname
+      securityContext:
+        fsGroup: 1001
+        runAsGroup: 1001
+        runAsUser: 1001
+      containers:
+        - name: drycc-monitor-grafana
+          image: registry.drycc.cc/drycc/grafana:canary
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+              name: ui
+          env:
+            - name: INFLUXDB_URL
+              value: http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)
+            - name: INFLUXDB_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: bucket
+            - name: INFLUXDB_ORG
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: org
+            - name: INFLUXDB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: token
+            - name: BIND_PORT
+              value: "3000"
+            - name: DEFAULT_USER
+              value: TGZZWmhNRmExbEFPNkx1V3llZ3VPaVFMa0lGRGNkRng=
+            - name: DEFAULT_USER_PASSWORD
+              value: MXBWd0JyWDRkRE5BSFZHUTRmdnQ4S2xXelBiZWV2NDE=
+            - name: KUBERNETES_CLUSTER_DOMAIN
+              value: cluster.local
+            - name: ALLOW_SIGN_UP
+              value: "false"
+            - name: DRYCC_GRAFANA_URL
+              value: https://drycc-monitor-grafana.
+            - name: DRYCC_PASSPORT_URL
+              value: https://drycc-passport.
+            - name: DRYCC_PASSPORT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: drycc-passport-grafana-key
+            - name: DRYCC_PASSPORT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: drycc-passport-grafana-secret
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drycc-monitor-telegraf
+  labels:
+    heritage: drycc
+  annotations:
+    component.drycc.cc/version: canary
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: drycc-monitor-telegraf
+  template:
+    metadata:
+      labels:
+        app: drycc-monitor-telegraf
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 2
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - drycc-monitor-telegraf
+                topologyKey: topology.kubernetes.io/zone
+            - weight: 1
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - drycc-monitor-telegraf
+                topologyKey: kubernetes.io/hostname
+      securityContext:
+        fsGroup: 1001
+        runAsGroup: 1001
+        runAsUser: 1001
+      serviceAccount: drycc-monitor-telegraf
+      initContainers:
+        - name: drycc-monitor-telegraf-init
+          image: /drycc/python-dev:latest
+          imagePullPolicy: null
+          args:
+            - netcat
+            - -v
+            - -u
+            - $(INFLUXDB_URLS_V2)
+          env:
+            - name: INFLUXDB_URLS_V2
+              value: '"http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)"'
+            - name: INFLUXDB_V2_INPUT_URLS
+              value: '"http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)/metrics"'
+            - name: ENABLE_INFLUXDB_V2_INPUT
+              value: "true"
+      containers:
+        - name: drycc-monitor-telegraf
+          image: registry.drycc.cc/drycc/telegraf:canary
+          imagePullPolicy: Always
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: INFLUXDB_URLS_V2
+              value: '"http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)"'
+            - name: INFLUXDB_V2_INPUT_URLS
+              value: '"http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)/metrics"'
+            - name: ENABLE_INFLUXDB_V2_INPUT
+              value: "true"
+            - name: INFLUXDB_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: bucket
+            - name: INFLUXDB_ORG
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: org
+            - name: INFLUXDB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: token
+            - name: AGENT_QUIET
+              value: "true"
+            - name: AGENT_BUFFER_LIMIT
+              value: "100000"
+            - name: DRYCC_REDIS_ADDRS
+              valueFrom:
+                secretKeyRef:
+                  name: redis-creds
+                  key: addrs
+            - name: DRYCC_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-creds
+                  key: password
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: drycc-monitor-grafana
+  labels:
+    app: drycc-monitor-grafana
+    chart: monitor-v1.0.0
+    release: release-name
+    heritage: Helm
+  annotations:
+    kubernetes.io/tls-acme: "true"
+spec:
+  rules:
+    - host: drycc-monitor-grafana.
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: drycc-monitor-grafana
+                port:
+                  number: 80
+  tls:
+    - secretName: drycc-monitor-grafana-auto-tls
+      hosts:
+        - drycc-monitor-grafana.
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: drycc-monitor-grafana
+spec:
+  secretName: drycc-monitor-grafana-auto-tls
+  issuerRef:
+    name: drycc-cluster-issuer
+    kind: ClusterIssuer
+  dnsNames:
+    - drycc-monitor-grafana.
+  privateKey:
+    rotationPolicy: Always

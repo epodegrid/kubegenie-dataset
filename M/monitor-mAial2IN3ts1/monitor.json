@@ -1,0 +1,592 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "drycc-monitor-telegraf",
+      "labels": {
+        "heritage": "drycc"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "drycc-monitor-grafana",
+      "labels": {
+        "heritage": "drycc",
+        "app": "drycc-monitor-grafana"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "port": 80,
+          "name": "ui",
+          "targetPort": "ui"
+        }
+      ],
+      "selector": {
+        "app": "drycc-monitor-grafana"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "DaemonSet",
+    "metadata": {
+      "name": "drycc-monitor-telegraf",
+      "labels": {
+        "heritage": "drycc"
+      },
+      "annotations": {
+        "component.drycc.cc/version": "1.2.0"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "drycc-monitor-telegraf"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "drycc-monitor-telegraf"
+          }
+        },
+        "spec": {
+          "serviceAccount": "drycc-monitor-telegraf",
+          "initContainers": [
+            {
+              "name": "drycc-monitor-telegraf-init",
+              "image": "docker.io/drycc/python-dev:latest",
+              "imagePullPolicy": null,
+              "command": [
+                "netcat",
+                "-v",
+                "-u",
+                "$(INFLUXDB_URLS_V2)"
+              ],
+              "env": [
+                {
+                  "name": "INFLUXDB_URLS_V2",
+                  "value": "\"http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)\""
+                },
+                {
+                  "name": "INFLUXDB_V2_INPUT_URLS",
+                  "value": "\"http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)/metrics\""
+                },
+                {
+                  "name": "ENABLE_INFLUXDB_V2_INPUT",
+                  "value": "true"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "drycc-monitor-telegraf",
+              "image": "docker.io/drycc/telegraf:1.2.0",
+              "imagePullPolicy": "Always",
+              "env": [
+                {
+                  "name": "POD_NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "INFLUXDB_URLS_V2",
+                  "value": "\"http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)\""
+                },
+                {
+                  "name": "INFLUXDB_V2_INPUT_URLS",
+                  "value": "\"http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)/metrics\""
+                },
+                {
+                  "name": "ENABLE_INFLUXDB_V2_INPUT",
+                  "value": "true"
+                },
+                {
+                  "name": "INFLUXDB_BUCKET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "influxdb-creds",
+                      "key": "bucket"
+                    }
+                  }
+                },
+                {
+                  "name": "INFLUXDB_ORG",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "influxdb-creds",
+                      "key": "org"
+                    }
+                  }
+                },
+                {
+                  "name": "INFLUXDB_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "influxdb-creds",
+                      "key": "token"
+                    }
+                  }
+                },
+                {
+                  "name": "HOST_PROC",
+                  "value": "/rootfs/proc"
+                },
+                {
+                  "name": "HOST_SYS",
+                  "value": "/rootfs/sys"
+                },
+                {
+                  "name": "AGENT_QUIET",
+                  "value": "true"
+                },
+                {
+                  "name": "AGENT_BUFFER_LIMIT",
+                  "value": "100000"
+                },
+                {
+                  "name": "ENABLE_KUBERNETES",
+                  "value": "true"
+                },
+                {
+                  "name": "ENABLE_BARE_METAL_SERVER",
+                  "value": "true"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/var/run/docker.sock",
+                  "name": "docker-socket"
+                },
+                {
+                  "name": "sysro",
+                  "mountPath": "/rootfs/sys",
+                  "readOnly": true
+                },
+                {
+                  "name": "procro",
+                  "mountPath": "/rootfs/proc",
+                  "readOnly": true
+                },
+                {
+                  "name": "varrunutmpro",
+                  "mountPath": "/var/run/utmp",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "docker-socket",
+              "hostPath": {
+                "path": "/var/run/docker.sock"
+              }
+            },
+            {
+              "name": "sysro",
+              "hostPath": {
+                "path": "/sys"
+              }
+            },
+            {
+              "name": "procro",
+              "hostPath": {
+                "path": "/proc"
+              }
+            },
+            {
+              "name": "varrunutmpro",
+              "hostPath": {
+                "path": "/var/run/utmp"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "drycc-monitor-grafana",
+      "labels": {
+        "heritage": "drycc"
+      },
+      "annotations": {
+        "component.drycc.cc/version": "1.2.0"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "rollingUpdate": {
+          "maxSurge": 1,
+          "maxUnavailable": 0
+        },
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app": "drycc-monitor-grafana"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "drycc-monitor-grafana"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "drycc-monitor-grafana",
+              "image": "docker.io/drycc/grafana:1.2.0",
+              "imagePullPolicy": "Always",
+              "ports": [
+                {
+                  "containerPort": 3000,
+                  "name": "ui"
+                }
+              ],
+              "env": [
+                {
+                  "name": "INFLUXDB_URL",
+                  "value": "http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)"
+                },
+                {
+                  "name": "INFLUXDB_BUCKET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "influxdb-creds",
+                      "key": "bucket"
+                    }
+                  }
+                },
+                {
+                  "name": "INFLUXDB_ORG",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "influxdb-creds",
+                      "key": "org"
+                    }
+                  }
+                },
+                {
+                  "name": "INFLUXDB_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "influxdb-creds",
+                      "key": "token"
+                    }
+                  }
+                },
+                {
+                  "name": "BIND_PORT",
+                  "value": "3000"
+                },
+                {
+                  "name": "DEFAULT_USER",
+                  "value": null
+                },
+                {
+                  "name": "DEFAULT_USER_PASSWORD",
+                  "value": null
+                },
+                {
+                  "name": "KUBERNETES_CLUSTER_DOMAIN",
+                  "value": "cluster.local"
+                },
+                {
+                  "name": "ALLOW_SIGN_UP",
+                  "value": "false"
+                },
+                {
+                  "name": "DRYCC_GRAFANA_DOMAIN",
+                  "value": "https://drycc-monitor-grafana."
+                },
+                {
+                  "name": "DRYCC_PASSPORT_DOMAIN",
+                  "value": "https://drycc-passport."
+                },
+                {
+                  "name": "SOCIAL_AUTH_DRYCC_AUTHORIZATION_URL",
+                  "value": "$(DRYCC_PASSPORT_DOMAIN)/oauth/authorize/"
+                },
+                {
+                  "name": "SOCIAL_AUTH_DRYCC_ACCESS_TOKEN_URL",
+                  "value": "$(DRYCC_PASSPORT_DOMAIN)/oauth/token/"
+                },
+                {
+                  "name": "SOCIAL_AUTH_DRYCC_ACCESS_API_URL",
+                  "value": "$(DRYCC_PASSPORT_DOMAIN)"
+                },
+                {
+                  "name": "SOCIAL_AUTH_DRYCC_USERINFO_URL",
+                  "value": "$(DRYCC_PASSPORT_DOMAIN)/oauth/userinfo/"
+                },
+                {
+                  "name": "SOCIAL_AUTH_DRYCC_GRAFANA_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "passport-creds",
+                      "key": "social-auth-drycc-grafana-key"
+                    }
+                  }
+                },
+                {
+                  "name": "SOCIAL_AUTH_DRYCC_GRAFANA_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "passport-creds",
+                      "key": "social-auth-drycc-grafana-secret"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "drycc-monitor-telegraf",
+      "labels": {
+        "heritage": "drycc"
+      },
+      "annotations": {
+        "component.drycc.cc/version": "1.2.0"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "drycc-monitor-telegraf"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "drycc-monitor-telegraf"
+          }
+        },
+        "spec": {
+          "serviceAccount": "drycc-monitor-telegraf",
+          "initContainers": [
+            {
+              "name": "drycc-monitor-telegraf-init",
+              "image": "docker.io/drycc/python-dev:latest",
+              "imagePullPolicy": null,
+              "command": [
+                "netcat",
+                "-v",
+                "-u",
+                "$(INFLUXDB_URLS_V2)"
+              ],
+              "env": [
+                {
+                  "name": "INFLUXDB_URLS_V2",
+                  "value": "\"http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)\""
+                },
+                {
+                  "name": "INFLUXDB_V2_INPUT_URLS",
+                  "value": "\"http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)/metrics\""
+                },
+                {
+                  "name": "ENABLE_INFLUXDB_V2_INPUT",
+                  "value": "true"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "drycc-monitor-telegraf",
+              "image": "docker.io/drycc/telegraf:1.2.0",
+              "imagePullPolicy": "Always",
+              "env": [
+                {
+                  "name": "POD_NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "INFLUXDB_URLS_V2",
+                  "value": "\"http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)\""
+                },
+                {
+                  "name": "INFLUXDB_V2_INPUT_URLS",
+                  "value": "\"http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)/metrics\""
+                },
+                {
+                  "name": "ENABLE_INFLUXDB_V2_INPUT",
+                  "value": "true"
+                },
+                {
+                  "name": "INFLUXDB_BUCKET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "influxdb-creds",
+                      "key": "bucket"
+                    }
+                  }
+                },
+                {
+                  "name": "INFLUXDB_ORG",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "influxdb-creds",
+                      "key": "org"
+                    }
+                  }
+                },
+                {
+                  "name": "INFLUXDB_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "influxdb-creds",
+                      "key": "token"
+                    }
+                  }
+                },
+                {
+                  "name": "AGENT_QUIET",
+                  "value": "true"
+                },
+                {
+                  "name": "AGENT_BUFFER_LIMIT",
+                  "value": "100000"
+                },
+                {
+                  "name": "NSQ_CONSUMER_SERVERS",
+                  "value": "[\"drycc-nsqd-0.drycc-nsqd.default.svc.cluster.local:4150\"]"
+                },
+                {
+                  "name": "NSQ_CONSUMER_TOPIC",
+                  "value": "metrics"
+                },
+                {
+                  "name": "NSQ_ENDPOINTS",
+                  "value": "[\"http://drycc-nsqd-0.drycc-nsqd.default.svc.cluster.local:4151\"]"
+                },
+                {
+                  "name": "DRYCC_REDIS_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "redis-creds",
+                      "key": "password"
+                    }
+                  }
+                },
+                {
+                  "name": "REDIS_SERVERS",
+                  "value": "[\":$(DRYCC_REDIS_PASSWORD)@drycc-redis-0.drycc-redis.default.svc.cluster.local:6379\"]"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "redis-creds",
+                  "mountPath": "/var/run/secrets/drycc/redis/creds"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "redis-creds",
+              "secret": {
+                "secretName": "redis-creds"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "drycc-monitor-grafana",
+      "labels": {
+        "app": "drycc-monitor-grafana",
+        "chart": "monitor-v1.2.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": {
+        "kubernetes.io/tls-acme": "true"
+      }
+    },
+    "spec": {
+      "rules": [
+        {
+          "host": "drycc-monitor-grafana.",
+          "http": {
+            "paths": [
+              {
+                "pathType": "Prefix",
+                "path": "/",
+                "backend": {
+                  "service": {
+                    "name": "drycc-monitor-grafana",
+                    "port": {
+                      "number": 80
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "tls": [
+        {
+          "secretName": "drycc-monitor-grafana-auto-tls",
+          "hosts": [
+            "drycc-monitor-grafana."
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "cert-manager.io/v1",
+    "kind": "Certificate",
+    "metadata": {
+      "name": "drycc-monitor-grafana"
+    },
+    "spec": {
+      "secretName": "drycc-monitor-grafana-auto-tls",
+      "issuerRef": {
+        "name": "drycc-cluster-issuer",
+        "kind": "ClusterIssuer"
+      },
+      "dnsNames": [
+        "drycc-monitor-grafana."
+      ],
+      "privateKey": {
+        "rotationPolicy": "Always"
+      }
+    }
+  }
+]

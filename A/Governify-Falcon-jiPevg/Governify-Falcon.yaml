@@ -1,0 +1,831 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: falcon-secrets
+  namespace: governify-falcon
+type: Opaque
+stringData:
+  ASSETS_PRIVATE_KEY: defaultkey
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falcon-prometheus-config
+  namespace: governify-falcon
+data:
+  config.yaml: |
+    scrape_configs:
+      - file_sd_configs:
+        - files:
+          - /home/project/public/prometheus/targets.json
+          refresh_interval: 5s
+        job_name: falcon_prometheus
+        scrape_interval: 5s
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: falcon-assets-manager
+  namespace: governify-falcon
+  labels:
+    app: falcon-assets-manager
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: falcon-influx-reporter
+  namespace: governify-falcon
+  labels:
+    app: falcon-influx-reporter
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: falcon-mongo-registry
+  namespace: governify-falcon
+  labels:
+    app: falcon-mongo-registry
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: falcon-assets-manager
+  name: falcon-assets-manager
+  namespace: governify-falcon
+spec:
+  ports:
+    - name: falcon-assets-manager
+      port: 80
+      protocol: TCP
+      targetPort: 80
+  selector:
+    app: falcon-assets-manager
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: falcon-collector-dynamic
+  name: falcon-collector-dynamic
+  namespace: governify-falcon
+spec:
+  ports:
+    - name: falcon-collector-dynamic
+      port: 80
+      protocol: TCP
+      targetPort: 80
+  selector:
+    app: falcon-collector-dynamic
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: falcon-dashboard
+  name: falcon-dashboard
+  namespace: governify-falcon
+spec:
+  ports:
+    - name: falcon-dashboard
+      port: 3000
+      protocol: TCP
+      targetPort: 3000
+  selector:
+    app: falcon-dashboard
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: falcon-director
+  name: falcon-director
+  namespace: governify-falcon
+spec:
+  ports:
+    - name: falcon-director
+      port: 80
+      protocol: TCP
+      targetPort: 80
+  selector:
+    app: falcon-director
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: falcon-influx-reporter
+  name: falcon-influx-reporter
+  namespace: governify-falcon
+spec:
+  ports:
+    - name: falcon-influx-reporter
+      port: 8086
+      protocol: TCP
+      targetPort: 8086
+    - name: falcon-influx-reporter-backup
+      port: 8088
+      protocol: TCP
+      targetPort: 8088
+  selector:
+    app: falcon-influx-reporter
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: falcon-mongo-registry
+  name: falcon-mongo-registry
+  namespace: governify-falcon
+spec:
+  ports:
+    - name: falcon-mongo-registry
+      port: 27017
+      protocol: TCP
+      targetPort: 27017
+  selector:
+    app: falcon-mongo-registry
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: falcon-prometheus
+  name: falcon-prometheus
+  namespace: governify-falcon
+spec:
+  ports:
+    - name: falcon-prometheus
+      port: 9090
+      protocol: TCP
+      targetPort: 9090
+  selector:
+    app: falcon-prometheus
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: falcon-registry
+    idle: "true"
+  name: falcon-registry
+  namespace: governify-falcon
+spec:
+  ports:
+    - name: falcon-registry
+      port: 80
+      protocol: TCP
+      targetPort: 80
+  selector:
+    app: falcon-registry
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: falcon-render
+  name: falcon-render
+  namespace: governify-falcon
+spec:
+  ports:
+    - name: falcon-render
+      port: 80
+      protocol: TCP
+      targetPort: 80
+  selector:
+    app: falcon-render
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: falcon-reporter
+  name: falcon-reporter
+  namespace: governify-falcon
+spec:
+  ports:
+    - name: falcon-reporter
+      port: 80
+      protocol: TCP
+      targetPort: 80
+  selector:
+    app: falcon-reporter
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: falcon-assets-manager
+  name: falcon-assets-manager
+  namespace: governify-falcon
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: falcon-assets-manager
+  template:
+    metadata:
+      labels:
+        app: falcon-assets-manager
+    spec:
+      securityContext:
+        fsGroup: 1001
+        runAsUser: 1001
+        runAsGroup: 1001
+      containers:
+        - env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "80"
+            - name: LOGIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: falcon-secrets
+                  key: LOGIN_USER
+            - name: LOGIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: falcon-secrets
+                  key: LOGIN_PASSWORD
+            - name: PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: falcon-secrets
+                  key: ASSETS_PRIVATE_KEY
+            - name: ASSETS_REPOSITORY
+              value: https://github.com/governify/assets-falcon
+            - name: ASSETS_REPOSITORY_BRANCH
+              value: main
+            - name: SERVICES_PREFIX
+              value: null
+            - name: DNS_SUFFIX
+              value: null
+          image: governify/assets-manager:v1.4.1
+          imagePullPolicy: Always
+          name: falcon-assets-manager
+          ports:
+            - containerPort: 80
+              protocol: TCP
+          resources:
+            requests:
+              memory: 300Mi
+            limits:
+              memory: 900Mi
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - mountPath: /home/project
+              name: falcon-assets-manager-volume
+      volumes:
+        - name: falcon-assets-manager-volume
+          persistentVolumeClaim:
+            claimName: falcon-assets-manager
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: falcon-collector-dynamic
+  name: falcon-collector-dynamic
+  namespace: governify-falcon
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: falcon-collector-dynamic
+  template:
+    metadata:
+      labels:
+        app: falcon-collector-dynamic
+    spec:
+      containers:
+        - env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "80"
+            - name: GOV_INFRASTRUCTURE
+              value: null
+          image: governify/collector-dynamic:v1.3.0
+          imagePullPolicy: Always
+          name: falcon-collector-dynamic
+          ports:
+            - containerPort: 80
+              protocol: TCP
+          resources:
+            requests:
+              memory: 400Mi
+            limits:
+              memory: 400Mi
+            seccompProfile:
+              type: RuntimeDefault
+      securityContext: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: falcon-dashboard
+  name: falcon-dashboard
+  namespace: governify-falcon
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: falcon-dashboard
+  template:
+    metadata:
+      labels:
+        app: falcon-dashboard
+    spec:
+      containers:
+        - env:
+            - name: NODE_ENV
+              value: production
+            - name: GOV_INFRASTRUCTURE
+              value: null
+            - name: INFLUX_URL
+              value: http://falcon-influx-reporter:8086
+            - name: GF_PATHS_PLUGINS
+              value: /usr/share/grafana/plugins
+          image: governify/dashboard:latest
+          imagePullPolicy: Always
+          name: falcon-dashboard
+          ports:
+            - containerPort: 3000
+              protocol: TCP
+          resources:
+            requests:
+              memory: 300Mi
+            limits:
+              memory: 500Mi
+            seccompProfile:
+              type: RuntimeDefault
+      securityContext: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: falcon-director
+  name: falcon-director
+  namespace: governify-falcon
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: falcon-director
+  template:
+    metadata:
+      labels:
+        app: falcon-director
+    spec:
+      containers:
+        - env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "80"
+            - name: GOV_INFRASTRUCTURE
+              value: null
+            - name: INFLUXDB_BIND_ADDRESS
+              value: "8088"
+          image: governify/director:v1.4.0
+          imagePullPolicy: Always
+          name: falcon-director
+          ports:
+            - containerPort: 80
+              protocol: TCP
+          resources:
+            requests:
+              memory: 300Mi
+            limits:
+              memory: 400Mi
+            seccompProfile:
+              type: RuntimeDefault
+      securityContext: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: falcon-influx-reporter
+  name: falcon-influx-reporter
+  namespace: governify-falcon
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: falcon-influx-reporter
+  template:
+    metadata:
+      labels:
+        app: falcon-influx-reporter
+    spec:
+      containers:
+        - env:
+            - name: INFLUXDB_BIND_ADDRESS
+              value: :8088
+          image: influxdb:1.8.4-alpine
+          imagePullPolicy: Always
+          name: falcon-influx-reporter
+          ports:
+            - containerPort: 8086
+              protocol: TCP
+            - containerPort: 8088
+              name: backup
+          volumeMounts:
+            - mountPath: /var/lib/influxdb
+              name: falcon-influx-reporter-db-volume
+      volumes:
+        - name: falcon-influx-reporter-db-volume
+          persistentVolumeClaim:
+            claimName: falcon-influx-reporter
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: falcon-mongo-registry
+  name: falcon-mongo-registry
+  namespace: governify-falcon
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: falcon-mongo-registry
+  template:
+    metadata:
+      labels:
+        app: falcon-mongo-registry
+    spec:
+      containers:
+        - image: mongo:latest
+          imagePullPolicy: Always
+          name: falcon-mongo-registry
+          ports:
+            - containerPort: 27017
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /data/db
+              name: falcon-mongo-registry-db-volume
+      volumes:
+        - name: falcon-mongo-registry-db-volume
+          persistentVolumeClaim:
+            claimName: falcon-mongo-registry
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: falcon-prometheus
+  name: falcon-prometheus
+  namespace: governify-falcon
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: falcon-prometheus
+  template:
+    metadata:
+      labels:
+        app: falcon-prometheus
+    spec:
+      containers:
+        - image: prom/prometheus:latest
+          imagePullPolicy: Always
+          name: falcon-prometheus
+          args:
+            - --config.file=/etc/prometheus/config.yaml
+          ports:
+            - containerPort: 9090
+              protocol: TCP
+          resources:
+            requests:
+              memory: 300Mi
+            limits:
+              memory: 500Mi
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - mountPath: /home/project
+              name: falcon-assets-manager-volume
+              readOnly: true
+            - mountPath: /etc/prometheus/
+              name: falcon-prometheus-config
+              readOnly: true
+      volumes:
+        - name: falcon-assets-manager-volume
+          persistentVolumeClaim:
+            claimName: falcon-assets-manager
+        - name: falcon-prometheus-config
+          configMap:
+            name: falcon-prometheus-config
+      securityContext: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: falcon-registry
+  name: falcon-registry
+  namespace: governify-falcon
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: falcon-registry
+  template:
+    metadata:
+      labels:
+        app: falcon-registry
+    spec:
+      containers:
+        - env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "80"
+            - name: GOV_INFRASTRUCTURE
+              value: null
+          image: governify/registry:v3.4.0
+          imagePullPolicy: Always
+          name: falcon-registry
+          ports:
+            - containerPort: 80
+              protocol: TCP
+          resources:
+            requests:
+              memory: 300Mi
+            limits:
+              memory: 500Mi
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: falcon-render
+  name: falcon-render
+  namespace: governify-falcon
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: falcon-render
+  template:
+    metadata:
+      labels:
+        app: falcon-render
+    spec:
+      containers:
+        - env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "80"
+            - name: LOGIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: falcon-secrets
+                  key: LOGIN_USER
+            - name: LOGIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: falcon-secrets
+                  key: LOGIN_PASSWORD
+            - name: DEFAULT_VIEW
+              value: http://falcon-assets-manager:80/api/v1/public/renders/index/view.html
+            - name: DEFAULT_CONTROLLER
+              value: http://falcon-assets-manager:80/api/v1/public/renders/index/controller.js
+            - name: DEFAULT_MODEL
+              value: http://falcon-assets-manager:80/api/v1/public/renders/index/model.json
+            - name: LAYOUT
+              value: bootstrap5.html
+            - name: GOV_INFRASTRUCTURE
+              value: null
+          image: governify/render:v2.2.0
+          imagePullPolicy: Always
+          name: falcon-render
+          ports:
+            - containerPort: 80
+              protocol: TCP
+          resources:
+            requests:
+              memory: 300Mi
+            limits:
+              memory: 500Mi
+            seccompProfile:
+              type: RuntimeDefault
+      securityContext: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: falcon-reporter
+  name: falcon-reporter
+  namespace: governify-falcon
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: falcon-reporter
+  template:
+    metadata:
+      labels:
+        app: falcon-reporter
+    spec:
+      containers:
+        - env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "80"
+            - name: DB_HOST
+              value: influxdb
+            - name: GOV_INFRASTRUCTURE
+              value: null
+          image: governify/reporter:v2.2.0
+          imagePullPolicy: Always
+          name: falcon-reporter
+          ports:
+            - containerPort: 80
+              protocol: TCP
+          resources:
+            requests:
+              memory: 300Mi
+            limits:
+              memory: 500Mi
+            seccompProfile:
+              type: RuntimeDefault
+      securityContext: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: falcon-certs
+  namespace: governify-falcon
+spec:
+  dnsNames:
+    - assets
+    - ui
+    - dashboard
+    - director
+    - registry
+    - reporter
+  issuerRef:
+    name: falcon-letsencrypt
+    kind: Issuer
+  secretName: falcon-certs
+---
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: falcon-assets-manager-httpproxy
+  namespace: governify-falcon
+spec:
+  virtualhost:
+    fqdn: assets
+    tls:
+      secretName: falcon-certs
+  routes:
+    - services:
+        - name: falcon-assets-manager
+          port: 80
+      loadBalancerPolicy:
+        strategy: Cookie
+    - conditions:
+        - prefix: /
+      enableWebsockets: true
+      services:
+        - name: falcon-assets-manager
+          port: 80
+---
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: falcon-dashboard-httpproxy
+  namespace: governify-falcon
+spec:
+  virtualhost:
+    fqdn: dashboard
+    tls:
+      secretName: falcon-certs
+  routes:
+    - services:
+        - name: falcon-dashboard
+          port: 3000
+      loadBalancerPolicy:
+        strategy: Cookie
+---
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: falcon-director-httpproxy
+  namespace: governify-falcon
+spec:
+  virtualhost:
+    fqdn: director
+    tls:
+      secretName: falcon-certs
+  routes:
+    - services:
+        - name: falcon-director
+          port: 80
+      loadBalancerPolicy:
+        strategy: Cookie
+---
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: falcon-registry-httpproxy
+  namespace: governify-falcon
+  annotations:
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-methods: PUT, GET, POST, OPTIONS
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "Access-Control-Allow-Origin: $http_origin";
+spec:
+  virtualhost:
+    fqdn: registry
+    tls:
+      secretName: falcon-certs
+  routes:
+    - services:
+        - name: falcon-registry
+          port: 80
+      loadBalancerPolicy:
+        strategy: Cookie
+---
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: falcon-render-httpproxy
+  namespace: governify-falcon
+  annotations:
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+spec:
+  virtualhost:
+    fqdn: ui
+    tls:
+      secretName: falcon-certs
+  routes:
+    - services:
+        - name: falcon-render
+          port: 80
+      loadBalancerPolicy:
+        strategy: Cookie
+---
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  name: falcon-reporter-httpproxy
+  namespace: governify-falcon
+spec:
+  virtualhost:
+    fqdn: reporter
+    tls:
+      secretName: falcon-certs
+  routes:
+    - services:
+        - name: falcon-reporter
+          port: 80
+      loadBalancerPolicy:
+        strategy: Cookie
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: falcon-letsencrypt
+  namespace: governify-falcon
+spec:
+  acme:
+    privateKeySecretRef:
+      name: falcon-letsencrypt
+    server: https://acme-v02.api.letsencrypt.org/directory
+    solvers:
+      - http01:
+          ingress:
+            class: contour

@@ -1,0 +1,395 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-mariadb
+  namespace: w3JhotbJ
+  labels:
+    app.kubernetes.io/name: mariadb
+    helm.sh/chart: mariadb-9.3.11
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-mariadb
+  namespace: w3JhotbJ
+  labels:
+    app.kubernetes.io/name: mariadb
+    helm.sh/chart: mariadb-9.3.11
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+  mariadb-root-password: Y2hhbmdlbWU=
+  mariadb-password: a2ltYWk=
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kimai2-secret
+  labels:
+    helm.sh/chart: kimai2-1.3.0
+    app.kubernetes.io/name: kimai2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: apache-1.15.6-prod
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+stringData:
+  ADMINPASS: changemeplease
+  APP_SECRET: change_this_to_something_unique
+  DATABASE_URL: mysql://kimai:kimai@release-name-mariadb/kimai
+  MAILER_URL: null://localhost
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-mariadb
+  namespace: w3JhotbJ
+  labels:
+    app.kubernetes.io/name: mariadb
+    helm.sh/chart: mariadb-9.3.11
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+data:
+  my.cnf: |-
+    [mysqld]
+    skip-name-resolve
+    explicit_defaults_for_timestamp
+    basedir=/opt/bitnami/mariadb
+    plugin_dir=/opt/bitnami/mariadb/plugin
+    port=3306
+    socket=/opt/bitnami/mariadb/tmp/mysql.sock
+    tmpdir=/opt/bitnami/mariadb/tmp
+    max_allowed_packet=16M
+    bind-address=0.0.0.0
+    pid-file=/opt/bitnami/mariadb/tmp/mysqld.pid
+    log-error=/opt/bitnami/mariadb/logs/mysqld.log
+    character-set-server=UTF8
+    collation-server=utf8_general_ci
+
+    [client]
+    port=3306
+    socket=/opt/bitnami/mariadb/tmp/mysql.sock
+    default-character-set=UTF8
+    plugin_dir=/opt/bitnami/mariadb/plugin
+
+    [manager]
+    port=3306
+    socket=/opt/bitnami/mariadb/tmp/mysql.sock
+    pid-file=/opt/bitnami/mariadb/tmp/mysqld.pid
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kimai2-config
+  namespace: w3JhotbJ
+  labels:
+    app.kubernetes.io/name: kimai2
+    helm.sh/chart: kimai2-1.3.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+data:
+  local.yaml: |2-
+    monolog:
+        handlers:
+            main:
+                path: php://stderr
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: release-name-kimai2
+  namespace: default
+  labels:
+    app.kubernetes.io/part-of: kimai2
+    app.kubernetes.io/name: kimai2-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 4Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-mariadb
+  namespace: w3JhotbJ
+  labels:
+    app.kubernetes.io/name: mariadb
+    helm.sh/chart: mariadb-9.3.11
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+  annotations: null
+spec:
+  type: ClusterIP
+  ports:
+    - name: mysql
+      port: 3306
+      protocol: TCP
+      targetPort: mysql
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: mariadb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: primary
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-kimai2
+  namespace: w3JhotbJ
+  labels:
+    app.kubernetes.io/name: kimai2
+    helm.sh/chart: kimai2-1.3.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: http
+  selector:
+    app.kubernetes.io/name: kimai2
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-kimai2
+  namespace: w3JhotbJ
+  labels:
+    helm.sh/chart: kimai2-1.3.0
+    app.kubernetes.io/name: kimai2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: apache-1.15.6-prod
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kimai2
+      app.kubernetes.io/instance: release-name
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kimai2
+        app.kubernetes.io/instance: release-name
+    spec:
+      securityContext:
+        fsGroup: 33
+      containers:
+        - name: kimai2
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          image: kimai/kimai2:apache-1.15.6-prod
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ADMINMAIL
+              value: admin@kimai.local
+            - name: APP_ENV
+              value: prod
+            - name: TRUSTED_HOSTS
+              value: localhost,kimai.local
+            - name: MAILER_FROM
+              value: kimai@example.com
+          envFrom:
+            - secretRef:
+                name: kimai2-secret
+          ports:
+            - name: http
+              containerPort: 8001
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /en/login
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: localhost
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /en/login
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: localhost
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+            requests:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - mountPath: /opt/kimai/var
+              name: kimai-data
+            - name: config
+              mountPath: /opt/kimai/config/packages/local.yaml
+              subPath: local.yaml
+      volumes:
+        - name: kimai-data
+          persistentVolumeClaim:
+            claimName: release-name-kimai2
+        - name: config
+          configMap:
+            name: kimai2-config
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-mariadb
+  namespace: w3JhotbJ
+  labels:
+    app.kubernetes.io/name: mariadb
+    helm.sh/chart: mariadb-9.3.11
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mariadb
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: primary
+  serviceName: release-name-mariadb
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        checksum/configuration: 746b547875809a683a1a7dc340159f26c22509e6cdeb6828c662a252265880ad
+      labels:
+        app.kubernetes.io/name: mariadb
+        helm.sh/chart: mariadb-9.3.11
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: primary
+    spec:
+      serviceAccountName: release-name-mariadb
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: mariadb
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: primary
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: mariadb
+          image: docker.io/bitnami/mariadb:10.5.10-debian-10-r0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 11487
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: MARIADB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-mariadb
+                  key: mariadb-root-password
+            - name: MARIADB_USER
+              value: kimai
+            - name: MARIADB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-mariadb
+                  key: mariadb-password
+            - name: MARIADB_DATABASE
+              value: kimai
+          ports:
+            - name: mysql
+              containerPort: 3306
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - |
+                  password_aux="${MARIADB_ROOT_PASSWORD:-}"
+                  if [[ -f "${MARIADB_ROOT_PASSWORD_FILE:-}" ]]; then
+                      password_aux=$(cat "$MARIADB_ROOT_PASSWORD_FILE")
+                  fi
+                  mysqladmin status -uroot -p"${password_aux}"
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - |
+                  password_aux="${MARIADB_ROOT_PASSWORD:-}"
+                  if [[ -f "${MARIADB_ROOT_PASSWORD_FILE:-}" ]]; then
+                      password_aux=$(cat "$MARIADB_ROOT_PASSWORD_FILE")
+                  fi
+                  mysqladmin status -uroot -p"${password_aux}"
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/mariadb
+            - name: config
+              mountPath: /opt/bitnami/mariadb/conf/my.cnf
+              subPath: my.cnf
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-mariadb
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: mariadb
+          app.kubernetes.io/instance: release-name
+          app.kubernetes.io/component: primary
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 4Gi

@@ -1,0 +1,247 @@
+apiVersion: v1
+data:
+  postgres_db: Y2V4cGxvcmVy
+  postgres_password: djhobERWMHlNQUhIbEl1cll1cGo=
+  postgres_user: cG9zdGdyZXM=
+kind: Secret
+metadata:
+  creationTimestamp: null
+  name: release-name-cardano-postgres-secrets
+type: Opaque
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cardano-kstack-state-service-testnet
+  labels:
+    app: nginx
+spec:
+  ports:
+    - port: 80
+      name: cardano-kstack-state-service-testnet
+  clusterIP: None
+  selector:
+    app: nginx
+---
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    app: cardano-postgres
+    network: testnet
+    release: release-name
+  name: release-name-cardano-postgres-testnet
+spec:
+  ports:
+    - name: "5432"
+      port: 5432
+      targetPort: 5432
+  selector:
+    app: cardano-postgres
+    network: testnet
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-cardano-postgres-state-service-testnet
+  labels:
+    app: nginx
+spec:
+  ports:
+    - port: 80
+      name: release-name-cardano-postgres-state-service-testnet
+  clusterIP: None
+  selector:
+    app: nginx
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  creationTimestamp: null
+  name: release-name-cardano-kstack-testnet
+  labels:
+    network: testnet
+spec:
+  serviceName: release-name-cardano-kstack-testnet
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: cardano-kstack
+      release: release-name
+      network: testnet
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: cardano-kstack
+        release: release-name
+        network: testnet
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: cardano-node
+          image: inputoutput/cardano-node:master
+          resources:
+            limits:
+              memory: 8Gi
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: NETWORK
+              value: testnet
+          volumeMounts:
+            - mountPath: /data/
+              name: cardano-node-db-claim
+            - mountPath: /ipc/
+              name: cardano-node-ipc-claim
+        - image: inputoutput/cardano-db-sync:master
+          name: cardano-db-sync
+          resources:
+            limits:
+              memory: 4Gi
+          env:
+            - name: NETWORK
+              value: testnet
+            - name: POSTGRES_HOST
+              value: release-name-cardano-postgres-testnet
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: CARDANO_NODE_SOCKET_PATH
+              value: /node-ipc/node.socket
+          volumeMounts:
+            - mountPath: /run/secrets
+              name: release-name-cardano-postgres-secrets
+              readOnly: true
+            - mountPath: /var/lib/cdbsync
+              name: cardano-db-sync-claim
+            - mountPath: /node-ipc
+              name: cardano-node-ipc-claim
+              readOnly: true
+      volumes:
+        - name: cardano-node-db-claim
+          persistentVolumeClaim:
+            claimName: cardano-node-db-claim
+        - name: cardano-node-ipc-claim
+          persistentVolumeClaim:
+            claimName: cardano-node-ipc-claim
+        - name: cardano-db-sync-claim
+          persistentVolumeClaim:
+            claimName: cardano-db-sync-claim
+        - name: release-name-cardano-postgres-secrets
+          secret:
+            items:
+              - key: postgres_password
+                path: postgres_password
+              - key: postgres_user
+                path: postgres_user
+              - key: postgres_db
+                path: postgres_db
+            secretName: release-name-cardano-postgres-secrets
+  volumeClaimTemplates:
+    - metadata:
+        name: cardano-node-db-claim
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 32Gi
+    - metadata:
+        name: cardano-node-ipc-claim
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        name: cardano-db-sync-claim
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 8Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    network: testnet
+    release: release-name
+  name: release-name-cardano-postgres-testnet
+spec:
+  selector:
+    matchLabels:
+      app: cardano-postgres
+      network: testnet
+      release: release-name
+  serviceName: release-name-cardano-postgres-testnet
+  replicas: 1
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: cardano-postgres
+        network: testnet
+        release: release-name
+      name: cardano-postgres
+    spec:
+      containers:
+        - env:
+            - name: POSTGRES_DB_FILE
+              value: /var/run/secrets/postgres_db
+            - name: POSTGRES_LOGGING
+              value: "true"
+            - name: POSTGRES_PASSWORD_FILE
+              value: /var/run/secrets/postgres_password
+            - name: POSTGRES_USER_FILE
+              value: /var/run/secrets/postgres_user
+            - name: PGPDATA
+              value: /var/lib/postgresql/data
+          image: postgres:14.1-alpine
+          name: cardano-postgres
+          resources:
+            limits:
+              memory: 1Gi
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - mountPath: /var/run/secrets
+              name: release-name-cardano-postgres-secrets
+              readOnly: true
+            - mountPath: /var/lib/postgresql
+              name: cardano-postgres-claim
+      volumes:
+        - name: release-name-cardano-postgres-secrets
+          secret:
+            items:
+              - key: postgres_password
+                path: postgres_password
+              - key: postgres_user
+                path: postgres_user
+              - key: postgres_db
+                path: postgres_db
+            secretName: release-name-cardano-postgres-secrets
+        - name: cardano-postgres-claim
+          persistentVolumeClaim:
+            claimName: cardano-postgres-claim
+  volumeClaimTemplates:
+    - metadata:
+        name: cardano-postgres-claim
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 4Gi

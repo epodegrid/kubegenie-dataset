@@ -1,0 +1,161 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-nocodb
+  labels:
+    helm.sh/chart: nocodb-0.1.0
+    app.kubernetes.io/name: nocodb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-nocodb
+  labels:
+    helm.sh/chart: nocodb-0.1.0
+    app.kubernetes.io/name: nocodb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-nocodb
+  labels:
+    helm.sh/chart: nocodb-0.1.0
+    app.kubernetes.io/name: nocodb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: nocodb
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-nocodb
+  labels:
+    helm.sh/chart: nocodb-0.1.0
+    app.kubernetes.io/name: nocodb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nocodb
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nocodb
+        app.kubernetes.io/instance: release-name
+    spec:
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: release-name-nocodb
+      serviceAccountName: release-name-nocodb
+      securityContext: {}
+      containers:
+        - name: nocodb
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: nocodb/nocodb:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /data
+              name: data
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: release-name-nocodb
+  labels:
+    helm.sh/chart: nocodb-0.1.0
+    app.kubernetes.io/name: nocodb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/whitelist-source-range: 0.0.0.0/0
+spec:
+  tls:
+    - hosts:
+        - chart-example.local
+  rules:
+    - host: chart-example.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: release-name-nocodb
+                port:
+                  number: 8080
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-nocodb-test-connection
+  labels:
+    helm.sh/chart: nocodb-0.1.0
+    app.kubernetes.io/name: nocodb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - 'release-name-nocodb:'
+  restartPolicy: Never

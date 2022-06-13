@@ -1,0 +1,1096 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-argo-workflows-controller
+  namespace: ghZrv
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    helm.sh/chart: argo-workflows-2.3.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/part-of: argo-workflows
+  annotations: null
+automountServiceAccountToken: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-argo-workflows-server
+  namespace: ghZrv
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    helm.sh/chart: argo-workflows-2.3.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: server
+    app.kubernetes.io/part-of: argo-workflows
+automountServiceAccountToken: true
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-postgresql
+  namespace: ghZrv
+  labels:
+    app.kubernetes.io/name: postgresql
+    helm.sh/chart: postgresql-11.6.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+  postgres-password: RGdERTRIUGJwQQ==
+  password: YllLT1NjUGJINg==
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-argo-workflows-controller-database
+  namespace: ghZrv
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    helm.sh/chart: argo-workflows-2.3.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/part-of: argo-workflows
+type: Opaque
+data:
+  username: cG9zdGdyZXM=
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-argo-workflows-controller
+  namespace: ghZrv
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    helm.sh/chart: argo-workflows-2.3.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: argo-workflows
+    app.kubernetes.io/component: controller
+data:
+  config: |2
+    ## Ref: https://argoproj.github.io/argo-workflows/workflow-executors/
+    ##
+    containerRuntimeExecutor: k8sapi
+    ## Uncomment to create containerRuntimeExecutors
+    ## Ref: https://argoproj.github.io/argo-workflows/workflow-executors/
+    ## containerRuntimeExecutors: {}
+    ## How many workflows can be running at the same time
+    ##
+    parallelism:
+    ## Maximun number of workflows running in a namespace
+    ##
+    namespaceParallelism:
+    executor:
+      resources:
+        limits: {}
+        requests: {}
+    ## Uncomment to enable Artofact repository with the provided configuration
+    ## artifactRepository:
+    ##  archiveLogs: false
+    ##  configuration: {}
+    ##
+    persistence:
+      connectionPool:
+        maxIdleConns: 100
+        maxOpenConns: 0
+      nodeStatusOffLoad: false
+      archive: false
+      postgresql:
+        host: release-name-postgresql
+        port: 5432
+        database: bn_argo_workflows
+        tableName: argo_workflows
+        ## the database secrets must be in the same namespace of the controller
+        ##
+        userNameSecret:
+          name: release-name-argo-workflows-controller-database
+          key: username
+        passwordSecret:
+          name: release-name-postgresql
+          key: postgres-password
+    ## Uncomment to set workflowRestrictions
+    ## Ref: https://argoproj.github.io/argo-workflows/workflow-restrictions/
+    ## workflowRestrictions: {}
+    ## Uncomment to set links
+    ## Ref: https://argoproj.github.io/argo-workflows/links/
+    ## links: {}
+    ##
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-argo-workflows-view
+  namespace: default
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    helm.sh/chart: argo-workflows-2.3.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+    app.kubernetes.io/part-of: argo-workflows
+    app.kubernetes.io/component: controller
+rules:
+  - apiGroups:
+      - argoproj.io
+    resources:
+      - workflows
+      - workflows/finalizers
+      - workfloweventbindings
+      - workfloweventbindings/finalizers
+      - workflowtemplates
+      - workflowtemplates/finalizers
+      - cronworkflows
+      - cronworkflows/finalizers
+      - clusterworkflowtemplates
+      - clusterworkflowtemplates/finalizers
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-argo-workflows-edit
+  namespace: default
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    helm.sh/chart: argo-workflows-2.3.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    app.kubernetes.io/part-of: argo-workflows
+    app.kubernetes.io/component: controller
+rules:
+  - apiGroups:
+      - argoproj.io
+    resources:
+      - workflows
+      - workflows/finalizers
+      - workfloweventbindings
+      - workfloweventbindings/finalizers
+      - workflowtemplates
+      - workflowtemplates/finalizers
+      - cronworkflows
+      - cronworkflows/finalizers
+      - clusterworkflowtemplates
+      - clusterworkflowtemplates/finalizers
+    verbs:
+      - create
+      - delete
+      - deletecollection
+      - get
+      - list
+      - patch
+      - update
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-argo-workflows-admin
+  namespace: default
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    helm.sh/chart: argo-workflows-2.3.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+    app.kubernetes.io/part-of: argo-workflows
+    app.kubernetes.io/component: controller
+rules:
+  - apiGroups:
+      - argoproj.io
+    resources:
+      - workflows
+      - workflows/finalizers
+      - workfloweventbindings
+      - workfloweventbindings/finalizers
+      - workflowtemplates
+      - workflowtemplates/finalizers
+      - cronworkflows
+      - cronworkflows/finalizers
+      - clusterworkflowtemplates
+      - clusterworkflowtemplates/finalizers
+      - workflowtasksets
+      - workflowtasksets/finalizers
+    verbs:
+      - create
+      - delete
+      - deletecollection
+      - get
+      - list
+      - patch
+      - update
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-argo-workflows-controller
+  namespace: default
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    helm.sh/chart: argo-workflows-2.3.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: argo-workflows
+    app.kubernetes.io/component: controller
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - pods/exec
+    verbs:
+      - create
+      - get
+      - list
+      - watch
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - watch
+      - list
+  - apiGroups:
+      - ""
+    resources:
+      - persistentvolumeclaims
+      - persistentvolumeclaims/finalizers
+    verbs:
+      - create
+      - update
+      - delete
+      - get
+  - apiGroups:
+      - argoproj.io
+    resources:
+      - workflows
+      - workflows/finalizers
+      - workflowtasksets
+      - workflowtasksets/finalizers
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+      - patch
+      - delete
+      - create
+  - apiGroups:
+      - argoproj.io
+    resources:
+      - workflowtemplates
+      - workflowtemplates/finalizers
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - argoproj.io
+    resources:
+      - cronworkflows
+      - cronworkflows/finalizers
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+  - apiGroups:
+      - argoproj.io
+    resources:
+      - workflowtaskresults
+    verbs:
+      - list
+      - watch
+      - deletecollection
+  - apiGroups:
+      - ""
+    resources:
+      - serviceaccounts
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - policy
+    resources:
+      - poddisruptionbudgets
+    verbs:
+      - create
+      - get
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    resourceNames:
+      - release-name-argo-workflows-controller-database
+      - release-name-postgresql
+    verbs:
+      - get
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - create
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    resourceNames:
+      - workflow-controller
+      - workflow-controller-lease
+    verbs:
+      - get
+      - watch
+      - update
+      - patch
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-argo-workflows-controller-cluster-template
+  namespace: default
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    helm.sh/chart: argo-workflows-2.3.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: argo-workflows
+    app.kubernetes.io/component: controller
+rules:
+  - apiGroups:
+      - argoproj.io
+    resources:
+      - clusterworkflowtemplates
+      - clusterworkflowtemplates/finalizers
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-argo-workflows-server
+  namespace: default
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    helm.sh/chart: argo-workflows-2.3.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: argo-workflows
+    app.kubernetes.io/component: server
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - events
+    verbs:
+      - get
+      - watch
+      - list
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - pods/exec
+      - pods/log
+    verbs:
+      - get
+      - list
+      - watch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - watch
+      - create
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    resourceNames:
+      - release-name-argo-workflows-controller-database
+      - release-name-postgresql
+    verbs:
+      - get
+  - apiGroups:
+      - argoproj.io
+    resources:
+      - eventsources
+      - sensors
+      - workflows
+      - workfloweventbindings
+      - workflowtemplates
+      - cronworkflows
+    verbs:
+      - create
+      - get
+      - list
+      - watch
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - dataflow.argoproj.io
+    resources:
+      - pipelines
+    verbs:
+      - create
+      - get
+      - list
+      - watch
+      - update
+      - patch
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-argo-workflows-server-cluster-template
+  namespace: default
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    helm.sh/chart: argo-workflows-2.3.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: argo-workflows
+    app.kubernetes.io/component: server
+rules:
+  - apiGroups:
+      - argoproj.io
+    resources:
+      - clusterworkflowtemplates
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-argo-workflows-controller
+  namespace: default
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    helm.sh/chart: argo-workflows-2.3.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: argo-workflows
+    app.kubernetes.io/component: controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-argo-workflows-controller
+subjects:
+  - kind: ServiceAccount
+    name: release-name-argo-workflows-controller
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-argo-workflows-controller-cluster-template
+  namespace: default
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    helm.sh/chart: argo-workflows-2.3.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-argo-workflows-controller-cluster-template
+subjects:
+  - kind: ServiceAccount
+    name: release-name-argo-workflows-controller
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-argo-workflows-server
+  namespace: default
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    helm.sh/chart: argo-workflows-2.3.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: argo-workflows
+    app.kubernetes.io/component: server
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-argo-workflows-server
+subjects:
+  - kind: ServiceAccount
+    name: release-name-argo-workflows-server
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-argo-workflows-server-cluster-template
+  namespace: default
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    helm.sh/chart: argo-workflows-2.3.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: argo-workflows
+    app.kubernetes.io/component: server
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-argo-workflows-server-cluster-template
+subjects:
+  - kind: ServiceAccount
+    name: release-name-argo-workflows-server
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-argo-workflows-workflow
+  namespace: ghZrv
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    helm.sh/chart: argo-workflows-2.3.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/part-of: argo-workflows
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - configmaps
+    verbs:
+      - list
+      - get
+      - watch
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - pods/log
+    verbs:
+      - get
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-argo-workflows-workflow
+  namespace: ghZrv
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    helm.sh/chart: argo-workflows-2.3.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/part-of: argo-workflows
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-argo-workflows-workflow
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-postgresql-hl
+  namespace: ghZrv
+  labels:
+    app.kubernetes.io/name: postgresql
+    helm.sh/chart: postgresql-11.6.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: primary
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-postgresql
+  namespace: ghZrv
+  labels:
+    app.kubernetes.io/name: postgresql
+    helm.sh/chart: postgresql-11.6.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+  annotations: null
+spec:
+  type: ClusterIP
+  sessionAffinity: None
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: primary
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-argo-workflows-server
+  namespace: ghZrv
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    helm.sh/chart: argo-workflows-2.3.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: argo-workflows
+    app.kubernetes.io/component: server
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: web
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: argo-workflows
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-argo-workflows-controller
+  namespace: ghZrv
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    helm.sh/chart: argo-workflows-2.3.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/part-of: argo-workflows
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argo-workflows
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: controller
+  template:
+    metadata:
+      annotations:
+        checksum/config: 45750a86b47c067fbe8d92b71a2a143d54fae0e0b8f9ee1b2e8e758e4e414a65
+      labels:
+        app.kubernetes.io/name: argo-workflows
+        helm.sh/chart: argo-workflows-2.3.1
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: controller
+    spec:
+      serviceAccountName: release-name-argo-workflows-controller
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: argo-workflows
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: controller
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: controller
+          image: marketplace.azurecr.io/bitnami/argo-workflow-controller:3.3.6-scratch-r0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10142
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+          args:
+            - --configmap
+            - release-name-argo-workflows-controller
+            - --executor-image
+            - marketplace.azurecr.io/bitnami/argo-workflow-exec:3.3.6-debian-11-r2
+            - --executor-image-pull-policy
+            - Always
+            - --loglevel
+            - info
+            - --gloglevel
+            - "0"
+            - --workflow-workers
+            - "32"
+          env:
+            - name: ARGO_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: LEADER_ELECTION_IDENTITY
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+          envFrom: null
+          ports:
+            - name: metrics
+              containerPort: 9090
+            - name: controller
+              containerPort: 6060
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          livenessProbe:
+            tcpSocket:
+              port: 6060
+            initialDelaySeconds: 90
+            periodSeconds: 60
+            timeoutSeconds: 30
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: 6060
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 30
+            successThreshold: 1
+            failureThreshold: 3
+          volumeMounts: null
+      volumes: null
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-argo-workflows-server
+  namespace: ghZrv
+  labels:
+    app.kubernetes.io/name: argo-workflows
+    helm.sh/chart: argo-workflows-2.3.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: argo-workflows
+    app.kubernetes.io/component: server
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argo-workflows
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      annotations:
+        checksum/config: 45750a86b47c067fbe8d92b71a2a143d54fae0e0b8f9ee1b2e8e758e4e414a65
+      labels:
+        app.kubernetes.io/name: argo-workflows
+        helm.sh/chart: argo-workflows-2.3.1
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: server
+    spec:
+      serviceAccountName: release-name-argo-workflows-server
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: argo-workflows
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: server
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+      initContainers: null
+      containers:
+        - name: argo-server
+          image: marketplace.azurecr.io/bitnami/argo-workflow-cli:3.3.6-scratch-r2
+          imagePullPolicy: Always
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 11327
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+          args:
+            - server
+            - --configmap=release-name-argo-workflows-controller
+            - --secure=false
+            - --auth-mode
+            - client
+            - --port
+            - "2746"
+          ports:
+            - name: web
+              containerPort: 2746
+          env:
+            - name: IN_CLUSTER
+              value: "true"
+            - name: ARGO_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: BASE_HREF
+              value: /
+          envFrom: null
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 2746
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 2746
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-postgresql
+  namespace: ghZrv
+  labels:
+    app.kubernetes.io/name: postgresql
+    helm.sh/chart: postgresql-11.6.3
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+  annotations: null
+spec:
+  replicas: 1
+  serviceName: release-name-postgresql-hl
+  updateStrategy:
+    rollingUpdate: {}
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: primary
+  template:
+    metadata:
+      name: release-name-postgresql
+      labels:
+        app.kubernetes.io/name: postgresql
+        helm.sh/chart: postgresql-11.6.3
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: primary
+      annotations: null
+    spec:
+      serviceAccountName: default
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: postgresql
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: primary
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+      hostNetwork: false
+      hostIPC: false
+      initContainers: null
+      containers:
+        - name: postgresql
+          image: marketplace.azurecr.io/bitnami/postgresql:14.3.0-debian-10-r22
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 10638
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: POSTGRESQL_PORT_NUMBER
+              value: "5432"
+            - name: POSTGRESQL_VOLUME_DIR
+              value: /bitnami/postgresql
+            - name: PGDATA
+              value: /bitnami/postgresql/data
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql
+                  key: postgres-password
+            - name: POSTGRES_DB
+              value: bn_argo_workflows
+            - name: POSTGRESQL_ENABLE_LDAP
+              value: "no"
+            - name: POSTGRESQL_ENABLE_TLS
+              value: "no"
+            - name: POSTGRESQL_LOG_HOSTNAME
+              value: "false"
+            - name: POSTGRESQL_LOG_CONNECTIONS
+              value: "false"
+            - name: POSTGRESQL_LOG_DISCONNECTIONS
+              value: "false"
+            - name: POSTGRESQL_PGAUDIT_LOG_CATALOG
+              value: "off"
+            - name: POSTGRESQL_CLIENT_MIN_MESSAGES
+              value: error
+            - name: POSTGRESQL_SHARED_PRELOAD_LIBRARIES
+              value: pgaudit
+          ports:
+            - name: tcp-postgresql
+              containerPort: 5432
+          livenessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - exec pg_isready -U "postgres" -d "dbname=bn_argo_workflows" -h 127.0.0.1 -p 5432
+          readinessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - -e
+                - |
+                  exec pg_isready -U "postgres" -d "dbname=bn_argo_workflows" -h 127.0.0.1 -p 5432
+                  [ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]
+          resources:
+            limits: {}
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+            - name: data
+              mountPath: /bitnami/postgresql
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi

@@ -1,0 +1,288 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-ibm-datapower-dev-default-overrides",
+      "labels": {
+        "app.kubernetes.io/name": "release-name-ibm-datapower-dev",
+        "helm.sh/chart": "ibm-datapower-dev-3.1.9",
+        "release": "release-name",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "auto-startup.cfg": "top; configure terminal;\n\n%if% available \"include-config\"\n\ninclude-config \"healthCheck\"\n  config-url \"config:///health-check.cfg\n  auto-execute\n  no interface-detection\nexit\n\n%endif%\n\nexec \"config:///health-check.cfg\"\n%if% available \"snmp\"\nsnmp\n  admin-state enabled\n  version 2c\n  ip-address 0.0.0.0\n  port 1161\n  community public default read-only 0.0.0.0/0\n  trap-default-subscriptions\n  trap-priority warn\n  trap-code 0x00030002\n  trap-code 0x00230003\n  trap-code 0x00330002\n  trap-code 0x00b30014\n  trap-code 0x00e30001\n  trap-code 0x00e40008\n  trap-code 0x00f30008\n  trap-code 0x01530001\n  trap-code 0x01a2000e\n  trap-code 0x01a40001\n  trap-code 0x01a40005\n  trap-code 0x01a40008\n  trap-code 0x01b10006\n  trap-code 0x01b10009\n  trap-code 0x01b20002\n  trap-code 0x01b20004\n  trap-code 0x01b20008\n  trap-code 0x02220001\n  trap-code 0x02220003\n  trap-code 0x02240002\nexit\n%endif%\n\ndomain \"none\"\n  base-dir local:\n  base-dir none:\n  config-file none.cfg\n  visible-domain default\n  url-permissions \"http+https\"\n  file-permissions \"CopyFrom+CopyTo+Delete+Display+Exec+Subdir\"\n  file-monitoring \"Audit+Log\"\n  config-mode local\n  import-format ZIP\n  local-ip-rewrite\n  maxchkpoints 3\nexit\n",
+      "auto-user.cfg": "top; configure terminal;\n\n%if% available \"user\"\n\nuser \"admin\"\n  summary \"Administrator\"\n  password-hashed \"$1$12345678$kbapHduhihjieYIUP66Xt/\"\n  access-level privileged\nexit\n\n%endif%    \n",
+      "health-check.cfg": "top; configure terminal;\n\naction \"HealthCheck_rule_0_gatewayscript_0\"\n  reset\n  type gatewayscript\n  input \"INPUT\"\n  parse-settings-result-type none\n  transform-language none\n  gatewayscript-location \"local:///health/health.js\"\n  output \"OUTPUT\"\n  named-inouts default\n  ssl-client-type proxy\n  no transactional\n  soap-validation body\n  sql-source-type static\n  strip-signature\n  no asynchronous\n  results-mode first-available\n  retry-count 0\n  retry-interval 1000\n  no multiple-outputs\n  iterator-type XPATH\n  timeout 0\n  http-method GET\n  http-method-limited POST\n  http-method-limited2 POST\nexit\n\naction \"HealthCheck_rule_0_setvar_0\"\n  reset\n  type setvar\n  input \"INPUT\"\n  parse-settings-result-type none\n  transform-language none\n  named-inouts default\n  variable \"var://service/mpgw/skip-backside\"\n  value \"1\"\n  ssl-client-type proxy\n  no transactional\n  soap-validation body\n  sql-source-type static\n  strip-signature\n  no asynchronous\n  results-mode first-available\n  retry-count 0\n  retry-interval 1000\n  no multiple-outputs\n  iterator-type XPATH\n  timeout 0\n  http-method GET\n  http-method-limited POST\n  http-method-limited2 POST\nexit\n\nrule \"HealthCheck_rule_0\"\n  reset\n    action \"HealthCheck_rule_0_setvar_0\"\n    action \"HealthCheck_rule_0_gatewayscript_0\"\n  type request-rule\n  input-filter none\n  output-filter none\n  no non-xml-processing\n  no unprocessed\nexit\n\nmatching \"Health\"\n  urlmatch \"/health\"\n  no match-with-pcre\n  no combine-with-or\nexit\n\nstylepolicy \"HealthCheck\"\n  reset\n  filter \"store:///filter-reject-all.xsl\"\n  xsldefault \"store:///identity.xsl\"\n  xquerydefault \"store:///reject-all-json.xq\"\n  match \"Health\" \"HealthCheck_rule_0\"\nexit\n\n%if% available \"source-http\"\n\nsource-http \"HTTPHealth\"\n  local-address 0.0.0.0\n  port 7878\n  http-client-version HTTP/1.1\n  allowed-features \"HTTP-1.0+HTTP-1.1+GET\"\n  persistent-connections\n  max-persistent-reuse 0\n  no compression\n  no websocket-upgrade\n  websocket-idle-timeout 0\n  max-url-len 16384\n  max-total-header-len 128000\n  max-header-count 0\n  max-header-name-len 0\n  max-header-value-len 0\n  max-querystring-len 0\n  credential-charset protocol\n  http2-max-streams 100\n  http2-max-frame 16384\n  no http2-stream-header\n  chunked-encoding\nexit\n\n%endif%\n\n%if% available \"policy-attachments\"\n\npolicy-attachments \"HealthCheck\"\n  enforcement-mode enforce\n  policy-references\n  sla-enforcement-mode allow-if-no-sla\nexit\n\n%endif%\n\n%if% available \"mpgw\"\n\nmpgw \"HealthCheck\"\n  no policy-parameters\n  summary \"Health check endpoint\"\n  priority normal\n  front-protocol HTTPHealth\n  xml-manager default\n  ssl-client-type proxy\n  default-param-namespace \"http://www.datapower.com/param/config\"\n  query-param-namespace \"http://www.datapower.com/param/query\"\n  backend-url \"http://httpbin.org/get\"\n  propagate-uri\n  monitor-processing-policy terminate-at-first-throttle\n  request-attachments strip\n  response-attachments strip\n  no request-attachments-flow-control\n  no response-attachments-flow-control\n  root-part-not-first-action process-in-order\n  front-attachment-format dynamic\n  back-attachment-format dynamic\n  mime-front-headers\n  mime-back-headers\n  stream-output-to-back buffer-until-verification\n  stream-output-to-front buffer-until-verification\n  max-message-size 0\n  no gateway-parser-limits\n  element-depth 512\n  attribute-count 128\n  max-node-size 33554432\n  forbid-external-references\n  external-references forbid\n  max-prefixes 1024\n  max-namespaces 1024\n  max-local-names 60000\n  attachment-byte-count 2000000000\n  attachment-package-byte-count 0\n  debugger-type internal\n  debug-history 25\n  no flowcontrol\n  soap-schema-url \"store:///schemas/soap-envelope.xsd\"\n  front-timeout 120\n  back-timeout 120\n  front-persistent-timeout 180\n  back-persistent-timeout 180\n  no include-content-type-encoding\n  http-server-version HTTP/1.1\n  persistent-connections\n  no loop-detection\n  host-rewriting\n  no chunked-uploads\n  process-http-errors\n  http-client-ip-label \"X-Client-IP\"\n  http-global-tranID-label \"X-Global-Transaction-ID\"\n  inorder-mode \"\"\n  wsa-mode sync2sync\n  wsa-require-aaa\n  wsa-strip-headers\n  wsa-default-replyto \"http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous\"\n  wsa-default-faultto \"http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous\"\n  no wsa-force\n  wsa-genstyle sync\n  wsa-http-async-response-code 204\n  wsa-timeout 120\n  no wsrm\n  wsrm-sequence-expiration 3600\n  wsrm-destination-accept-create-sequence\n  wsrm-destination-maximum-sequences 400\n  no wsrm-destination-inorder\n  wsrm-destination-maximum-inorder-queue-length 10\n  no wsrm-destination-accept-offers\n  no wsrm-request-force\n  no wsrm-response-force\n  no wsrm-source-request-create-sequence\n  no wsrm-source-response-create-sequence\n  no wsrm-source-make-offer\n  no wsrm-source-sequence-ssl\n  wsrm-source-maximum-sequences 400\n  wsrm-source-retransmission-interval 10\n  wsrm-source-exponential-backoff\n  wsrm-source-retransmit-count 4\n  wsrm-source-maximum-queue-length 30\n  wsrm-source-request-ack-count 1\n  wsrm-source-inactivity-close-interval 360\n  force-policy-exec\n  rewrite-errors\n  delay-errors\n  delay-errors-duration 1000\n  request-type json\n  response-type json\n  follow-redirects\n  no rewrite-location-header\n  stylepolicy HealthCheck\n  type static-backend\n  no compression\n  no allow-cache-control\n  policy-attachments HealthCheck\n  no wsmagent-monitor\n  wsmagent-monitor-capture-mode all-messages\n  no proxy-http-response\n  transaction-timeout 0\nexit\n\n%endif%\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-ibm-datapower-dev-static-health",
+      "labels": {
+        "app.kubernetes.io/name": "release-name-ibm-datapower-dev",
+        "helm.sh/chart": "ibm-datapower-dev-3.1.9",
+        "release": "release-name",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "health.js": "// health\n\nconsole.debug(\"Health check invoked\");\n\nvar servicevars = require ('service-metadata');\n\nservicevars.mpgw.skipBackside = true;\n\nsession.output.write({'a': 'Running'});\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-ibm-datapower-dev-static-init-admin-user",
+      "labels": {
+        "app.kubernetes.io/name": "release-name-ibm-datapower-dev",
+        "helm.sh/chart": "ibm-datapower-dev-3.1.9",
+        "release": "release-name",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "init-admin-user.sh": "if [[ -f /opt/ibm/datapower/init/admin-user-secret/password-hashed ]] ; then\n  ADMIN_USER_PASSWORD_HASHED=\"$(cat /opt/ibm/datapower/init/admin-user-secret/password-hashed)\"\nelse\n  ADMIN_USER_PASSWORD=\"$(cat /opt/ibm/datapower/init/admin-user-secret/password)\"\n  ADMIN_USER_METHOD=\"$([[ -f /opt/ibm/datapower/init/admin-user-secret/method ]] && cat /opt/ibm/datapower/init/admin-user-secret/method || echo md5)\"\n  ADMIN_USER_SALT=\"$([[ -f /opt/ibm/datapower/init/admin-user-secret/salt ]] && cat /opt/ibm/datapower/init/admin-user-secret/salt || echo 12345678)\"\n  ADMIN_USER_PASSWORD_HASHED=\"$(cryptpw --method $ADMIN_USER_METHOD $ADMIN_USER_PASSWORD $ADMIN_USER_SALT)\"\nfi\n\nif [[ -n \"$ADMIN_USER_PASSWORD_HASHED\" ]] ; then\ncat << EOF > /drouter/config/auto-user.cfg\ntop; configure terminal;\n\n%if% available \"user\"\n\nuser \"admin\"\n  summary \"Administrator\"\n  password-hashed \"$ADMIN_USER_PASSWORD_HASHED\"\n  access-level privileged\n  suppress-password-change on\nexit\n\n%endif%\nEOF\nelse\n  echo \"No admin password provided!\"\nfi\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-ibm-datapower-dev-static-scripts",
+      "labels": {
+        "app.kubernetes.io/name": "release-name-ibm-datapower-dev",
+        "helm.sh/chart": "ibm-datapower-dev-3.1.9",
+        "release": "release-name",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "initConfig.sh": "#!/bin/bash\n\n# This script handles initializing config in an unobtrusive way, applying\n# the config associated with the chart while not overwritting the baked in\n# config of the image.\n\n# Directories/files\ninitDir=\"/opt/ibm/datapower/init\"\ninitConfig=\"$initDir/config\"\ninitLocal=\"$initDir/local\"\ninitUsrcert=\"$initDir/usrcerts\"\ninitSharedcert=\"$initDir/sharedcerts\"\ninitOverrides=\"$initDir/chart-overrides\"\ndrouterConfig=\"$DATAPOWER_BASE_DIR/drouter/config\"\ndrouterLocal=\"$DATAPOWER_BASE_DIR/drouter/local\"\ndrouterUsrcert=\"$DATAPOWER_BASE_DIR/root/secure/usrcerts\"\ndrouterSharedcert=\"$DATAPOWER_BASE_DIR/root/secure/sharedcerts\"\n\ngenerate_domain_config() {\ncat <<EOF\ndomain $1\n  visible-domain default\nexit\n\n%if% available \"include-config\"\n\ninclude-config \"$1-cfg\"\n  config-url \"config:///$1/$1.cfg\"\n  auto-execute\n  no interface-detection\nexit\n\n%endif%\nEOF\n}\n\n# In this merge, the order of precedence will be:\n#   1. Tuneables set in chart values        (highest)\n#   2. Config given through configmaps\n#   3. Config built into the image          (lowest)\n\n# Append all configmap files over top of existing config\n(\nif [ ! -d $initConfig ]; then\n    exit # From sub-shell\nfi\n\n# Domains need to be in the configure terminal context to be configured\necho \"top; configure terminal;\" >> ${drouterConfig}/auto-startup.cfg\n\ncd $initConfig\nfor dir in $(ls); do\n    # domain is top level dir\n    domain=$dir\n\n    # Domain is a special case, all config should appended to auto-startup.\n    if [ \"$domain\" = \"default\" ]; then\n        for config in $(find $domain -type f); do\n            cat $config >> ${drouterConfig}/auto-startup.cfg\n        done\n        continue\n    fi\n\n    # Check if domain doesn't exist\n    if [ ! -d \"$drouterConfig/$domain\" ]; then\n        generate_domain_config $domain >> $drouterConfig/auto-startup.cfg\n    fi\n\n    # Ensure domain directory exists\n    mkdir -p $drouterConfig/$domain\n\n    # Append config\n    echo \"top; configure terminal\" >> $drouterConfig/$domain/$domain.cfg\n    for config in $(find $domain -type f); do\n        cat $config >> $drouterConfig/$domain/$domain.cfg\n    done\ndone\n) # FIN config\n\n\n( # Unpack and copy the contents of the local tar file\n\nif [ ! -d $initLocal ]; then\n    exit # the subshell\nfi\n\n# unpack tar file\nmkdir -p /opt/ibm/datapower/unpack-tmp\nfor targz in $(find $initLocal -type f); do\n    tar xf $targz -C /opt/ibm/datapower/unpack-tmp\ndone\n# copy unpacked contents to local\nif [ -d \"/opt/ibm/datapower/unpack-tmp/local\" ]; then\n    cp -r /opt/ibm/datapower/unpack-tmp/local/* $drouterLocal\nelse\n    cp -r /opt/ibm/datapower/unpack-tmp/* $drouterLocal\nfi\nrm -rf /opt/ibm/datapower/unpack-tmp\n\n) # FIN local\n\n\n( # Copy certs\n\nif [ ! -d $initUsrcert ]; then\n    exit # the subshell\nfi\n\ncd $initUsrcert\n\nfor dir in $(find . -maxdepth 1 -type d); do\n    domain=$(basename $dir)\n\n    # skip the current dir result from find\n    if [ \"$domain\" = \".\" ]; then\n        continue\n    fi\n\n    [ \"$domain\" != \"default\" ] && mkdir -p $drouterUsrcert/$domain\n    for cert in $(find $domain -type f); do\n        if [ \"$domain\" = \"default\" ]; then\n            cp $cert $drouterUsrcert\n        else\n            cp $cert $drouterUsrcert/$domain\n        fi\n    done\ndone\n\n)\n\n(\nif [ ! -d $initSharedcert ]; then\n    exit # the subshell\nfi\n\ncd $initSharedcert\nmkdir -p $drouterSharedcert\n\nfor cert in $(find . -type f); do\n    cp $cert $drouterSharedcert\ndone\n\n) # FIN certs\n\n\n# Begin chart specific config\n\n# Append values-specified config\nfor file in $initOverrides/*; do\n    if [ -d $file ]; then\n        continue\n    fi\n    cat $file >> $drouterConfig/$(basename $file)\ndone\n\n# Overwrite local files\nfor file in $initOverrides/local/*; do\n    cp -r $file $drouterLocal/$(basename $file)\ndone\n\n# FIN chart specific config\n"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-ibm-datapower-dev",
+      "labels": {
+        "app.kubernetes.io/name": "release-name-ibm-datapower-dev",
+        "helm.sh/chart": "ibm-datapower-dev-3.1.9",
+        "release": "release-name",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "release-name-ibm-datapower-dev"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "helm.sh/chart": "ibm-datapower-dev-3.1.9",
+            "release": "release-name",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/name": "release-name-ibm-datapower-dev"
+          },
+          "annotations": {
+            "productName": "IBM DataPower Gateway Virtual Edition for Developers",
+            "productID": "IBMDataPowerGatewayVirtualEdition_2018.4.1.20_Developers",
+            "productVersion": "2018.4.1.20",
+            "productMetric": "FREE",
+            "prometheus.io/scrape": "true",
+            "prometheus.io/path": "/snmp",
+            "prometheus.io/port": "63512",
+            "prometheus.io/target": "127.0.0.1:1161",
+            "prometheus.io/module": "dpStatusMIB"
+          }
+        },
+        "spec": {
+          "hostNetwork": false,
+          "hostPID": false,
+          "hostIPC": false,
+          "securityContext": {
+            "runAsNonRoot": true,
+            "runAsUser": 101
+          },
+          "containers": [
+            {
+              "name": "ibm-datapower-dev",
+              "image": "icr.io/integration/datapower/datapower-limited:2018.4.1.20",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "sh",
+                "-c",
+                "sh /opt/ibm/datapower/init/scripts/initConfig.sh\n/usr/local/bin/datapower-health-check -port=7879 &\nexec /start.sh --log-format json-icp\n"
+              ],
+              "stdin": true,
+              "tty": true,
+              "securityContext": {
+                "privileged": false,
+                "readOnlyRootFilesystem": true,
+                "allowPrivilegeEscalation": false,
+                "runAsNonRoot": true,
+                "runAsUser": 101,
+                "capabilities": {
+                  "drop": [
+                    "ALL"
+                  ]
+                }
+              },
+              "resources": {
+                "limits": {
+                  "cpu": 8,
+                  "memory": "64Gi"
+                },
+                "requests": {
+                  "cpu": 4,
+                  "memory": "8Gi"
+                }
+              },
+              "env": [
+                {
+                  "name": "DATAPOWER_ACCEPT_LICENSE",
+                  "value": "true"
+                },
+                {
+                  "name": "DATAPOWER_INTERACTIVE",
+                  "value": "true"
+                },
+                {
+                  "name": "DATAPOWER_LOG_COLOR",
+                  "value": "false"
+                },
+                {
+                  "name": "DATAPOWER_WORKER_THREADS",
+                  "value": "4"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "httpHeaders": [
+                    {
+                      "name": "Connection",
+                      "value": "close"
+                    }
+                  ],
+                  "path": "/",
+                  "port": "liveness",
+                  "scheme": "HTTP"
+                },
+                "initialDelaySeconds": 5,
+                "timeoutSeconds": 5,
+                "periodSeconds": 5
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "httpHeaders": [
+                    {
+                      "name": "Connection",
+                      "value": "close"
+                    }
+                  ],
+                  "path": "/health",
+                  "port": "health",
+                  "scheme": "HTTP"
+                },
+                "initialDelaySeconds": 120,
+                "timeoutSeconds": 5,
+                "periodSeconds": 10
+              },
+              "ports": [
+                {
+                  "name": "health",
+                  "containerPort": 7878
+                },
+                {
+                  "name": "liveness",
+                  "containerPort": 7879
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/opt/ibm/datapower/init/chart-overrides",
+                  "name": "release-name-ibm-datapower-dev-init-overrides-volume"
+                },
+                {
+                  "mountPath": "/opt/ibm/datapower/init/scripts",
+                  "name": "release-name-ibm-datapower-dev-scripts-volume"
+                },
+                {
+                  "mountPath": "/drouter/local/health",
+                  "name": "release-name-ibm-datapower-dev-health"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "release-name-ibm-datapower-dev-init-overrides-volume",
+              "configMap": {
+                "name": "release-name-ibm-datapower-dev-default-overrides",
+                "items": [
+                  {
+                    "key": "auto-user.cfg",
+                    "path": "auto-user.cfg"
+                  },
+                  {
+                    "key": "auto-startup.cfg",
+                    "path": "auto-startup.cfg"
+                  },
+                  {
+                    "key": "health-check.cfg",
+                    "path": "health-check.cfg"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "release-name-ibm-datapower-dev-scripts-volume",
+              "configMap": {
+                "name": "release-name-ibm-datapower-dev-static-scripts"
+              }
+            },
+            {
+              "name": "release-name-ibm-datapower-dev-health",
+              "configMap": {
+                "name": "release-name-ibm-datapower-dev-static-health"
+              }
+            }
+          ],
+          "affinity": {
+            "nodeAffinity": {
+              "requiredDuringSchedulingIgnoredDuringExecution": {
+                "nodeSelectorTerms": [
+                  {
+                    "matchExpressions": [
+                      {
+                        "key": "beta.kubernetes.io/arch",
+                        "operator": "In",
+                        "values": [
+                          "amd64"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+]

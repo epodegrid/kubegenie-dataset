@@ -1,0 +1,310 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-rspamd",
+      "labels": {
+        "helm.sh/chart": "rspamd-0.8.18",
+        "app.kubernetes.io/name": "rspamd",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "3.2-alpine3.16.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-rspamd",
+      "labels": {
+        "helm.sh/chart": "rspamd-0.8.18",
+        "app.kubernetes.io/name": "rspamd",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "3.2-alpine3.16.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "classifier-bayes.conf": "",
+      "worker-normal.inc": "bind_socket = \"*:11333\";\n",
+      "worker-proxy.inc": "bind_socket = \"*:11332\";\nupstream \"local\" {\n  default = yes;\n  self_scan = yes;\n}\n",
+      "dkim_signing.conf": "path = \"/var/lib/rspamd/dkim/$selector.key\";\nselector = \"2020\";\n# Enable DKIM signing for alias sender addresses\nallow_username_mismatch = true;\n",
+      "milter_headers.conf": "use = [\"x-spamd-bar\", \"x-spam-level\", \"authentication-results\"];\nauthenticated_headers = [\"authentication-results\"];\n",
+      "override-classifier-bayes.conf": "autolearn = true;\n",
+      "multimap.conf": "WHITELIST_IP {\n  type = \"ip\";\n  map = \"$CONFDIR/local.d/whitelist_ip.map\";\n  description = \"Local ip whitelist\";\n  action = \"accept\";\n}\n\nWHITELIST_FROM {\n  type = \"from\";\n  map = \"$CONFDIR/local.d/whitelist_from.map\";\n  description = \"Local from whitelist\";\n  action = \"accept\";\n}\n",
+      "whitelist_ip.map": "",
+      "whitelist_from.map": "",
+      "blacklist_ip.map": "",
+      "blacklist_from.map": ""
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-rspamd",
+      "labels": {
+        "helm.sh/chart": "rspamd-0.8.18",
+        "app.kubernetes.io/name": "rspamd",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "3.2-alpine3.16.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 11332,
+          "targetPort": "proxy",
+          "protocol": "TCP",
+          "name": "proxy"
+        },
+        {
+          "port": 11333,
+          "targetPort": "rspamd",
+          "protocol": "TCP",
+          "name": "rspamd"
+        },
+        {
+          "port": 11334,
+          "targetPort": "controller",
+          "protocol": "TCP",
+          "name": "controller"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "rspamd",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-rspamd",
+      "labels": {
+        "helm.sh/chart": "rspamd-0.8.18",
+        "app.kubernetes.io/name": "rspamd",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "3.2-alpine3.16.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "rspamd",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config": "e17987d68ee2933940293c783e619171d9eedb9c42f408278236b8aa2a8767c7"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "rspamd",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-rspamd",
+          "securityContext": {
+            "fsGroup": 101
+          },
+          "containers": [
+            {
+              "name": "rspamd",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "ectobit/rspamd:3.2-alpine3.16.0",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "proxy",
+                  "containerPort": 11332,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "rspamd",
+                  "containerPort": 11333,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "controller",
+                  "containerPort": 11334,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "fuzzy",
+                  "containerPort": 11335,
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/var/lib/rspamd"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/etc/rspamd/local.d/worker-normal.inc",
+                  "subPath": "worker-normal.inc"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/etc/rspamd/local.d/worker-proxy.inc",
+                  "subPath": "worker-proxy.inc"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/etc/rspamd/local.d/dkim_signing.conf",
+                  "subPath": "dkim_signing.conf"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/etc/rspamd/local.d/arc.conf",
+                  "subPath": "dkim_signing.conf"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/etc/rspamd/local.d/milter_headers.conf",
+                  "subPath": "milter_headers.conf"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/etc/rspamd/local.d/classifier-bayes.conf",
+                  "subPath": "classifier-bayes.conf"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/etc/rspamd/override.d/classifier-bayes.conf",
+                  "subPath": "override-classifier-bayes.conf"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/etc/rspamd/local.d/multimap.conf",
+                  "subPath": "multimap.conf"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/etc/rspamd/local.d/whitelist_ip.map",
+                  "subPath": "whitelist_ip.map"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/etc/rspamd/local.d/whitelist_from.map",
+                  "subPath": "whitelist_from.map"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/etc/rspamd/local.d/blacklist_ip.map",
+                  "subPath": "blacklist_ip.map"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/etc/rspamd/local.d/blacklist_from.map",
+                  "subPath": "blacklist_from.map"
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "curl",
+                    "-f",
+                    "-L",
+                    "http://localhost:11334/"
+                  ]
+                },
+                "initialDelaySeconds": 10,
+                "timeoutSeconds": 5,
+                "periodSeconds": 60
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "curl",
+                    "-f",
+                    "-L",
+                    "http://localhost:11334/"
+                  ]
+                },
+                "initialDelaySeconds": 10,
+                "timeoutSeconds": 5,
+                "periodSeconds": 60
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                },
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "data",
+              "emptyDir": {}
+            },
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-rspamd"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-rspamd-test-connection",
+      "labels": {
+        "helm.sh/chart": "rspamd-0.8.18",
+        "app.kubernetes.io/name": "rspamd",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "3.2-alpine3.16.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test-success"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "wget",
+          "image": "busybox",
+          "command": [
+            "wget"
+          ],
+          "args": [
+            "release-name-rspamd:11333"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

@@ -1,0 +1,124 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-maxscale
+  labels:
+    app.kubernetes.io/name: maxscale
+    helm.sh/chart: maxscale-1.1.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  service-password: c2VjcmV0
+  monitor-password: c2VjcmV0
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-maxscale-masteronly
+  labels:
+    app.kubernetes.io/name: maxscale
+    helm.sh/chart: maxscale-1.1.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: master-only
+      port: 3306
+      targetPort: 3306
+  selector:
+    app.kubernetes.io/name: maxscale
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-maxscale-rwsplit
+  labels:
+    app.kubernetes.io/name: maxscale
+    helm.sh/chart: maxscale-1.1.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: rw-split
+      port: 3306
+      targetPort: 3307
+  selector:
+    app.kubernetes.io/name: maxscale
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-maxscale
+  labels:
+    app: maxscale
+    app.kubernetes.io/name: maxscale
+    helm.sh/chart: maxscale-1.1.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: maxscale
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: maxscale
+        app.kubernetes.io/instance: release-name
+      annotations:
+        prometheus.io/port: "9195"
+        prometheus.io/scheme: http
+        prometheus.io/scrape: "true"
+    spec:
+      containers:
+        - name: maxscale
+          image: docker.io/appuio/maxscale:2.2.20
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MASTER_ONLY_LISTEN_ADDRESS
+              value: 0.0.0.0
+            - name: READ_WRITE_LISTEN_ADDRESS
+              value: 0.0.0.0
+            - name: DB1_ADDRESS
+              value: db1.example.com
+            - name: DB2_ADDRESS
+              value: db2.example.com
+            - name: DB3_ADDRESS
+              value: db3.example.com
+            - name: SERVICE_USER
+              value: maxscale
+            - name: MONITOR_USER
+              value: maxscale
+            - name: SERVICE_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-maxscale
+                  key: service-password
+            - name: MONITOR_PWD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-maxscale
+                  key: monitor-password
+          ports:
+            - name: master-only
+              containerPort: 3306
+            - name: rw-split
+              containerPort: 3307
+          livenessProbe:
+            tcpSocket:
+              port: master-only
+            initialDelaySeconds: 3
+            periodSeconds: 3
+          readinessProbe:
+            tcpSocket:
+              port: master-only
+            initialDelaySeconds: 3
+            periodSeconds: 3
+          resources:
+            seccompProfile:
+              type: RuntimeDefault

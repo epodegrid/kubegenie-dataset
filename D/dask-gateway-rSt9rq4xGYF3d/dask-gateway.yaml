@@ -1,0 +1,630 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: controller-release-name-dask-gateway
+  labels:
+    app.kubernetes.io/name: dask-gateway
+    helm.sh/chart: dask-gateway-2022.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.4.0
+    app.kubernetes.io/managed-by: Helm
+    gateway.dask.org/instance: release-name-dask-gateway
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: api-release-name-dask-gateway
+  labels:
+    app.kubernetes.io/name: dask-gateway
+    helm.sh/chart: dask-gateway-2022.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.4.0
+    app.kubernetes.io/managed-by: Helm
+    gateway.dask.org/instance: release-name-dask-gateway
+---
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: traefik-release-name-dask-gateway
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: controller-release-name-dask-gateway
+  labels:
+    app.kubernetes.io/name: dask-gateway
+    helm.sh/chart: dask-gateway-2022.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.4.0
+    app.kubernetes.io/managed-by: Helm
+    gateway.dask.org/instance: release-name-dask-gateway
+data:
+  dask_gateway_config.py: |-
+    # Configure addresses
+    c.KubeController.address = ":8000"
+    c.KubeController.api_url = 'http://api-release-name-dask-gateway.default:8000/api'
+    c.KubeController.gateway_instance = 'release-name-dask-gateway'
+    c.KubeController.proxy_prefix = "/"
+    c.KubeController.proxy_web_middlewares = [
+      {"name": 'clusters-prefix-release-name-dask-gateway',
+      "namespace": 'default'}
+    ]
+    c.KubeController.log_level = "INFO"
+    c.KubeController.completed_cluster_max_age = 86400
+    c.KubeController.completed_cluster_cleanup_period = 600
+    c.KubeController.backoff_base_delay = 0.1
+    c.KubeController.backoff_max_delay = 300
+    c.KubeController.k8s_api_rate_limit = 50
+    c.KubeController.k8s_api_rate_limit_burst = 100
+    c.KubeController.proxy_tcp_entrypoint = "web"
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: api-release-name-dask-gateway
+  labels:
+    app.kubernetes.io/name: dask-gateway
+    helm.sh/chart: dask-gateway-2022.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.4.0
+    app.kubernetes.io/managed-by: Helm
+    gateway.dask.org/instance: release-name-dask-gateway
+data:
+  dask_gateway_config.py: |-
+    import os
+    import json
+    import sys
+
+    # Add this directory to path to support extension modules
+    sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+
+    _PROPERTIES = json.loads("{\"gateway\":{\"affinity\":{},\"annotations\":{},\"auth\":{\"custom\":{\"class\":null,\"config\":{}},\"jupyterhub\":{\"apiToken\":null,\"apiUrl\":null},\"kerberos\":{\"keytab\":null},\"simple\":{\"password\":null},\"type\":\"simple\"},\"backend\":{\"environment\":{},\"image\":{\"name\":\"ghcr.io/dask/dask-gateway\",\"pullPolicy\":\"IfNotPresent\",\"tag\":\"2022.4.0\"},\"namespace\":null,\"scheduler\":{\"cores\":{\"limit\":null,\"request\":null},\"extraContainerConfig\":{},\"extraPodConfig\":{},\"memory\":{\"limit\":null,\"request\":null}},\"worker\":{\"cores\":{\"limit\":null,\"request\":null},\"extraContainerConfig\":{},\"extraPodConfig\":{},\"memory\":{\"limit\":null,\"request\":null},\"threads\":null}},\"image\":{\"name\":\"ghcr.io/dask/dask-gateway-server\",\"pullPolicy\":\"IfNotPresent\",\"tag\":\"2022.4.0\"},\"imagePullSecrets\":[],\"livenessProbe\":{\"enabled\":true,\"failureThreshold\":6,\"initialDelaySeconds\":5,\"periodSeconds\":10,\"timeoutSeconds\":2},\"loglevel\":\"INFO\",\"nodeSelector\":{},\"prefix\":\"/\",\"readinessProbe\":{\"enabled\":true,\"failureThreshold\":3,\"initialDelaySeconds\":5,\"periodSeconds\":10,\"timeoutSeconds\":2},\"replicas\":1,\"resources\":{},\"service\":{\"annotations\":{}},\"tolerations\":[]}}")
+
+    def get_property(key, default=None):
+        """Read a property from the configured helm values."""
+        value = _PROPERTIES
+        for key2 in key.split("."):
+            if not isinstance(value, dict) or key2 not in value:
+                return default
+            value = value[key2]
+        return value
+
+    c.DaskGateway.log_level = "INFO"
+
+    # Configure addresses
+    c.DaskGateway.address = ":8000"
+    c.KubeBackend.api_url = 'http://api-release-name-dask-gateway.default:8000/api'
+
+    # Configure the backend
+    c.DaskGateway.backend_class = "dask_gateway_server.backends.kubernetes.KubeBackend"
+    c.KubeBackend.gateway_instance = "release-name-dask-gateway"
+
+    # Configure the dask cluster image
+    image_name = get_property("gateway.backend.image.name")
+    if image_name:
+        image_tag = get_property("gateway.backend.image.tag")
+        c.KubeClusterConfig.image = (
+            "%s:%s" % (image_name, image_tag) if image_tag else image_name
+        )
+
+    # Forward dask cluster configuration
+    for field, prop_name in [
+        # Scheduler config
+        ("scheduler_cores", "scheduler.cores.request"),
+        ("scheduler_cores_limit", "scheduler.cores.limit"),
+        ("scheduler_memory", "scheduler.memory.request"),
+        ("scheduler_memory_limit", "scheduler.memory.limit"),
+        ("scheduler_extra_container_config", "scheduler.extraContainerConfig"),
+        ("scheduler_extra_pod_config", "scheduler.extraPodConfig"),
+        # Worker config
+        ("worker_cores", "worker.cores.request"),
+        ("worker_cores_limit", "worker.cores.limit"),
+        ("worker_memory", "worker.memory.request"),
+        ("worker_memory_limit", "worker.memory.limit"),
+        ("worker_threads", "worker.threads"),
+        ("worker_extra_container_config", "worker.extraContainerConfig"),
+        ("worker_extra_pod_config", "worker.extraPodConfig"),
+        # Additional fields
+        ("image_pull_policy", "image.pullPolicy"),
+        ("environment", "environment"),
+        ("namespace", "namespace"),
+    ]:
+        value = get_property("gateway.backend." + prop_name)
+        if value is not None:
+            setattr(c.KubeClusterConfig, field, value)
+
+    # Authentication
+    auth_type = get_property("gateway.auth.type")
+    if auth_type == "simple":
+        c.DaskGateway.authenticator_class = "dask_gateway_server.auth.SimpleAuthenticator"
+        password = get_property("gateway.auth.simple.password")
+        if password is not None:
+            c.SimpleAuthenticator.password = password
+    elif auth_type == "kerberos":
+        c.DaskGateway.authenticator_class = "dask_gateway_server.auth.KerberosAuthenticator"
+        keytab = get_property("gateway.auth.kerberos.keytab")
+        if keytab is not None:
+            c.KerberosAuthenticator.keytab = keytab
+    elif auth_type == "jupyterhub":
+        c.DaskGateway.authenticator_class = "dask_gateway_server.auth.JupyterHubAuthenticator"
+        api_url = get_property("gateway.auth.jupyterhub.apiUrl")
+        if api_url is None:
+            try:
+                api_url = "http://{HUB_SERVICE_HOST}:{HUB_SERVICE_PORT}/hub/api".format(**os.environ)
+            except Exception:
+                raise ValueError(
+                    "Failed to infer JupyterHub API url from environment, "
+                    "please specify `gateway.auth.jupyterhub.apiUrl` in "
+                    "your config file"
+                )
+        c.DaskGateway.JupyterHubAuthenticator.jupyterhub_api_url = api_url
+    elif auth_type == "custom":
+        auth_cls = get_property("gateway.auth.custom.class")
+        c.DaskGateway.authenticator_class = auth_cls
+        auth_cls_name = auth_cls.rsplit('.', 1)[-1]
+        auth_config = c[auth_cls_name]
+        auth_config.update(get_property("gateway.auth.custom.config") or {})
+    else:
+        raise ValueError("Unknown authenticator type %r" % auth_type)
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: controller-release-name-dask-gateway
+  labels:
+    app.kubernetes.io/name: dask-gateway
+    helm.sh/chart: dask-gateway-2022.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.4.0
+    app.kubernetes.io/managed-by: Helm
+    gateway.dask.org/instance: release-name-dask-gateway
+rules:
+  - apiGroups:
+      - gateway.dask.org
+    resources:
+      - daskclusters
+      - daskclusters/status
+    verbs:
+      - '*'
+  - apiGroups:
+      - traefik.containo.us
+    resources:
+      - ingressroutes
+      - ingressroutetcps
+    verbs:
+      - get
+      - create
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+      - services
+    verbs:
+      - create
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: api-release-name-dask-gateway
+  labels:
+    app.kubernetes.io/name: dask-gateway
+    helm.sh/chart: dask-gateway-2022.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.4.0
+    app.kubernetes.io/managed-by: Helm
+    gateway.dask.org/instance: release-name-dask-gateway
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+  - apiGroups:
+      - gateway.dask.org
+    resources:
+      - daskclusters
+    verbs:
+      - '*'
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: traefik-release-name-dask-gateway
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - services
+      - endpoints
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - extensions
+    resources:
+      - ingresses
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - extensions
+    resources:
+      - ingresses/status
+    verbs:
+      - update
+  - apiGroups:
+      - traefik.containo.us
+    resources:
+      - ingressroutes
+      - ingressroutetcps
+      - ingressrouteudps
+      - middlewares
+      - middlewaretcps
+      - serverstransports
+      - tlsoptions
+      - tlsstores
+      - traefikservices
+    verbs:
+      - get
+      - list
+      - watch
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: controller-release-name-dask-gateway
+  labels:
+    app.kubernetes.io/name: dask-gateway
+    helm.sh/chart: dask-gateway-2022.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.4.0
+    app.kubernetes.io/managed-by: Helm
+    gateway.dask.org/instance: release-name-dask-gateway
+subjects:
+  - kind: ServiceAccount
+    name: controller-release-name-dask-gateway
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: controller-release-name-dask-gateway
+  apiGroup: rbac.authorization.k8s.io
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: api-release-name-dask-gateway
+  labels:
+    app.kubernetes.io/name: dask-gateway
+    helm.sh/chart: dask-gateway-2022.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.4.0
+    app.kubernetes.io/managed-by: Helm
+    gateway.dask.org/instance: release-name-dask-gateway
+subjects:
+  - kind: ServiceAccount
+    name: api-release-name-dask-gateway
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: api-release-name-dask-gateway
+  apiGroup: rbac.authorization.k8s.io
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: traefik-release-name-dask-gateway
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: traefik-release-name-dask-gateway
+subjects:
+  - kind: ServiceAccount
+    name: traefik-release-name-dask-gateway
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-release-name-dask-gateway
+  labels:
+    app.kubernetes.io/name: dask-gateway
+    helm.sh/chart: dask-gateway-2022.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.4.0
+    app.kubernetes.io/managed-by: Helm
+    gateway.dask.org/instance: release-name-dask-gateway
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: dask-gateway
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: gateway
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik-release-name-dask-gateway
+  labels:
+    app.kubernetes.io/name: dask-gateway
+    helm.sh/chart: dask-gateway-2022.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.4.0
+    app.kubernetes.io/managed-by: Helm
+    gateway.dask.org/instance: release-name-dask-gateway
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: dask-gateway
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: traefik
+  ports:
+    - name: web
+      targetPort: 8000
+      port: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller-release-name-dask-gateway
+  labels:
+    app.kubernetes.io/name: dask-gateway
+    helm.sh/chart: dask-gateway-2022.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.4.0
+    app.kubernetes.io/managed-by: Helm
+    gateway.dask.org/instance: release-name-dask-gateway
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dask-gateway
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dask-gateway
+        helm.sh/chart: dask-gateway-2022.4.0
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/version: 2022.4.0
+        app.kubernetes.io/managed-by: Helm
+        gateway.dask.org/instance: release-name-dask-gateway
+        app.kubernetes.io/component: controller
+      annotations:
+        checksum/configmap: 0cbbc4de72f1727bf4fe3f7f7c347f147a69689ec43d92b6cf90fbc246bac047
+    spec:
+      serviceAccountName: controller-release-name-dask-gateway
+      volumes:
+        - name: configmap
+          configMap:
+            name: controller-release-name-dask-gateway
+      containers:
+        - name: controller
+          image: ghcr.io/dask/dask-gateway-server:2022.4.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - dask-gateway-server
+            - kube-controller
+            - --config
+            - /etc/dask-gateway/dask_gateway_config.py
+          volumeMounts:
+            - mountPath: /etc/dask-gateway/
+              name: configmap
+          ports:
+            - containerPort: 8000
+              name: api
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-release-name-dask-gateway
+  labels:
+    app.kubernetes.io/name: dask-gateway
+    helm.sh/chart: dask-gateway-2022.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.4.0
+    app.kubernetes.io/managed-by: Helm
+    gateway.dask.org/instance: release-name-dask-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dask-gateway
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dask-gateway
+        helm.sh/chart: dask-gateway-2022.4.0
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/version: 2022.4.0
+        app.kubernetes.io/managed-by: Helm
+        gateway.dask.org/instance: release-name-dask-gateway
+        app.kubernetes.io/component: gateway
+        hub.jupyter.org/network-access-hub: "true"
+      annotations:
+        checksum/configmap: 53297c4f26ddc5a061f085658d95b1653288a7ad5471582b97241eebed085f8a
+        checksum/secret: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
+    spec:
+      serviceAccountName: api-release-name-dask-gateway
+      volumes:
+        - name: configmap
+          configMap:
+            name: api-release-name-dask-gateway
+      containers:
+        - name: gateway
+          image: ghcr.io/dask/dask-gateway-server:2022.4.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - dask-gateway-server
+            - --config
+            - /etc/dask-gateway/dask_gateway_config.py
+          volumeMounts:
+            - mountPath: /etc/dask-gateway/
+              name: configmap
+          env: null
+          ports:
+            - containerPort: 8000
+              name: api
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: api
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: api
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik-release-name-dask-gateway
+  labels:
+    app.kubernetes.io/name: dask-gateway
+    helm.sh/chart: dask-gateway-2022.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.4.0
+    app.kubernetes.io/managed-by: Helm
+    gateway.dask.org/instance: release-name-dask-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dask-gateway
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: traefik
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dask-gateway
+        helm.sh/chart: dask-gateway-2022.4.0
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/version: 2022.4.0
+        app.kubernetes.io/managed-by: Helm
+        gateway.dask.org/instance: release-name-dask-gateway
+        app.kubernetes.io/component: traefik
+    spec:
+      serviceAccountName: traefik-release-name-dask-gateway
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: traefik
+          image: traefik:2.6.3
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 11096
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          args:
+            - --global.checknewversion=False
+            - --global.sendanonymoususage=False
+            - --ping=true
+            - --providers.kubernetescrd
+            - --providers.kubernetescrd.labelselector=gateway.dask.org/instance=release-name-dask-gateway
+            - --providers.kubernetescrd.throttleduration=2
+            - --log.level=WARN
+            - --entryPoints.traefik.address=:9000
+            - --entryPoints.web.address=:8000
+          ports:
+            - name: traefik
+              containerPort: 9000
+            - name: web
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 9000
+            failureThreshold: 1
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 9000
+            failureThreshold: 3
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 2
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: api-release-name-dask-gateway
+  labels:
+    app.kubernetes.io/name: dask-gateway
+    helm.sh/chart: dask-gateway-2022.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.4.0
+    app.kubernetes.io/managed-by: Helm
+    gateway.dask.org/instance: release-name-dask-gateway
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: PathPrefix(`/`)
+      kind: Rule
+      services:
+        - name: api-release-name-dask-gateway
+          port: 8000
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: clusters-prefix-release-name-dask-gateway
+  labels:
+    app.kubernetes.io/name: dask-gateway
+    helm.sh/chart: dask-gateway-2022.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2022.4.0
+    app.kubernetes.io/managed-by: Helm
+    gateway.dask.org/instance: release-name-dask-gateway
+spec:
+  stripPrefixRegex:
+    regex:
+      - /clusters/[a-zA-Z0-9.-]+

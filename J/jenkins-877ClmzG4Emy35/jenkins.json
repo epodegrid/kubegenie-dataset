@@ -1,0 +1,261 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-jenkins-init",
+      "labels": {
+        "app.kubernetes.io/name": "jenkins",
+        "helm.sh/chart": "jenkins-1.7.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "2.222.3-alpine",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "master"
+      }
+    },
+    "data": {
+      "init.sh": "#!/usr/bin/env bash\n\nset -o errexit\nset -o nounset\nset -o pipefail\n\nreadonly PLUGINS_CHECKSUM_FILE=/var/jenkins_home/plugins.sha256\n\ninstall_plugins() {\n    rm -rf /usr/share/jenkins/ref/plugins/*\n    /usr/local/bin/install-plugins.sh < /var/jenkins_ref/plugins.txt\n}\n\nmain() {\n    local jenkins_image_repo=\"${1?Specify Jenkins image repo}\"\n    local jenkins_image_tag=\"${2?Specify Jenkins image version}\"\n    local force_plugin_updates=\"${3?Specify whether plugins should be updated}\"\n\n    echo '************************************************************************'\n    echo '*                                                                      *'\n    echo '*                 Jenkins Helm Chart by codecentric AG                 *'\n    echo '*                                                                      *'\n    echo '************************************************************************'\n    echo\n    echo \"Jenkins Docker image: $jenkins_image_repo:$jenkins_image_tag\"\n    echo\n\n    if [[ -d /var/jenkins_ref/ ]]; then\n        echo 'Copying reference data...'\n        cp -rfL /var/jenkins_ref/* /var/jenkins_home\n\n        if [[ -f /var/jenkins_ref/plugins.txt ]]; then\n            if [[ -f \"$PLUGINS_CHECKSUM_FILE\" ]]; then\n                if ! sha256sum --check < \"$PLUGINS_CHECKSUM_FILE\" > /dev/null; then\n                    echo \"SHA256 of 'plugins.txt' changed. Updating plugins...\"\n                    install_plugins\n                elif [[ \"$force_plugin_updates\" == true ]]; then\n                    echo 'Updating plugins...'\n                    install_plugins\n                else\n                    echo 'No plugins updates detected.'\n                fi\n            else\n              echo 'Installing plugins...'\n              install_plugins\n            fi\n\n            echo \"Writing checksum for 'plugins.txt'...\"\n            sha256sum /var/jenkins_ref/plugins.txt > \"$PLUGINS_CHECKSUM_FILE\"\n        else\n            echo \"'plugins.txt' does not exist. Skipping plugin installations.\"\n        fi\n    fi\n\n    echo 'Disabling upgrade wizard...'\n    echo \"$jenkins_image_tag\" > /usr/share/jenkins/ref/jenkins.install.UpgradeWizard.state\n    echo \"$jenkins_image_tag\" > /usr/share/jenkins/ref/jenkins.install.InstallUtil.lastExecVersion\n}\n\nmain \"$@\"\n"
+    }
+  },
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-jenkins",
+      "labels": {
+        "app.kubernetes.io/name": "jenkins",
+        "helm.sh/chart": "jenkins-1.7.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "2.222.3-alpine",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "master"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "10Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-jenkins-agent",
+      "labels": {
+        "app.kubernetes.io/name": "jenkins",
+        "helm.sh/chart": "jenkins-1.7.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "2.222.3-alpine",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "master"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "port": 50000,
+          "targetPort": "agent",
+          "protocol": "TCP",
+          "name": "agent"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "jenkins",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "master"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-jenkins-master",
+      "labels": {
+        "app.kubernetes.io/name": "jenkins",
+        "helm.sh/chart": "jenkins-1.7.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "2.222.3-alpine",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "master"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 8080,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "jenkins",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "master"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-jenkins",
+      "labels": {
+        "app.kubernetes.io/name": "jenkins",
+        "helm.sh/chart": "jenkins-1.7.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "2.222.3-alpine",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "master"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "jenkins",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "master"
+        }
+      },
+      "revisionHistoryLimit": null,
+      "strategy": {
+        "type": "Recreate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "jenkins",
+            "helm.sh/chart": "jenkins-1.7.1",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/version": "2.222.3-alpine",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "master"
+          },
+          "annotations": {
+            "checksum/init": "94804681e5f92b5cc1aa62fb3300687a713b32d70a04d79ba5a2e4d635349636",
+            "checksum/ref": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          }
+        },
+        "spec": {
+          "initContainers": [
+            {
+              "name": "jenkins-init",
+              "image": "docker.io/jenkins/jenkins:2.222.3-alpine",
+              "imagePullPolicy": "IfNotPresent",
+              "env": null,
+              "command": [
+                "/init/init.sh"
+              ],
+              "args": [
+                "docker.io/jenkins/jenkins",
+                "2.222.3-alpine",
+                "false"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "init",
+                  "mountPath": "/init"
+                },
+                {
+                  "name": "jenkins-home",
+                  "mountPath": "/var/jenkins_home"
+                },
+                {
+                  "name": "jenkins-plugins",
+                  "mountPath": "/usr/share/jenkins/ref/plugins"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "jenkins-master",
+              "image": "docker.io/jenkins/jenkins:2.222.3-alpine",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8080,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "agent",
+                  "containerPort": 50000,
+                  "protocol": "TCP"
+                }
+              ],
+              "env": [
+                {
+                  "name": "JENKINS_SLAVE_AGENT_PORT",
+                  "value": "50000"
+                },
+                {
+                  "name": "JAVA_OPTS",
+                  "value": "-Dhudson.slaves.NodeProvisioner.initialDelay=0 -Dhudson.model.LoadStatistics.decay=0.7 -Dhudson.slaves.NodeProvisioner.MARGIN=30 -Dhudson.slaves.NodeProvisioner.MARGIN0=0.6 -XX:+UnlockExperimentalVMOptions -XX:+UseCGroupMemoryLimitForHeap -XX:MaxRAMFraction=2 -XshowSettings:vm"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/login",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 90
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/login",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 15
+              },
+              "volumeMounts": [
+                {
+                  "name": "jenkins-home",
+                  "mountPath": "/var/jenkins_home"
+                },
+                {
+                  "name": "jenkins-plugins",
+                  "mountPath": "/usr/share/jenkins/ref/plugins"
+                }
+              ]
+            }
+          ],
+          "securityContext": {
+            "fsGroup": 1000,
+            "runAsNonRoot": true,
+            "runAsUser": 1000
+          },
+          "serviceAccountName": "default",
+          "terminationGracePeriodSeconds": 30,
+          "volumes": [
+            {
+              "name": "jenkins-home",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-jenkins"
+              }
+            },
+            {
+              "name": "jenkins-plugins",
+              "emptyDir": {}
+            },
+            {
+              "name": "init",
+              "configMap": {
+                "name": "release-name-jenkins-init",
+                "defaultMode": 365
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

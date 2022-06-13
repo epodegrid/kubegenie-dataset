@@ -1,0 +1,477 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/name: dex
+    helm.sh/chart: dex-2.15.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.24.0
+    app.kubernetes.io/managed-by: Helm
+  name: release-name-dex
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  labels:
+    app.kubernetes.io/name: dex
+    helm.sh/chart: dex-2.15.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.24.0
+    app.kubernetes.io/managed-by: Helm
+  name: release-name-dex
+stringData:
+  config.yaml: "issuer: http://dex.example.com:8080\nstorage:\n  config:\n    inCluster: true\n  type: kubernetes\nlogger:\n  level: debug\nweb:\n  http: 0.0.0.0:5556\ngrpc:\n  addr: 127.0.0.1:5000\n  tlsCert: /etc/dex/tls/grpc/server/tls.crt\n  tlsKey: /etc/dex/tls/grpc/server/tls.key\n  tlsClientCA: /etc/dex/tls/grpc/ca/tls.crt\noauth2: \n  alwaysShowLoginScreen: false\n  skipApprovalScreen: true\nenablePasswordDB: true"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/name: dex
+    helm.sh/chart: dex-2.15.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.24.0
+    app.kubernetes.io/managed-by: Helm
+  name: release-name-dex-openssl-config
+data:
+  openssl.conf: |
+    # OpenSSL configuration file.
+    # Adapted from https://github.com/coreos/matchbox/blob/master/examples/etc/matchbox/openssl.conf
+
+    # default environment variable values
+    SAN =
+
+    [ ca ]
+    # `man ca`
+    default_ca = CA_default
+
+    [ CA_default ]
+    # Directory and file locations.
+    dir               = .
+    certs             = $dir/certs
+    crl_dir           = $dir/crl
+    new_certs_dir     = $dir/newcerts
+    database          = $dir/index.txt
+    serial            = $dir/serial
+    # certificate revocation lists.
+    crlnumber         = $dir/crlnumber
+    crl               = $dir/crl/intermediate-ca.crl
+    crl_extensions    = crl_ext
+    default_crl_days  = 30
+    default_md        = sha256
+
+    name_opt          = ca_default
+    cert_opt          = ca_default
+    default_days      = 375
+    preserve          = no
+    policy            = policy_loose
+
+    [ policy_loose ]
+    # Allow the CA to sign a range of certificates.
+    countryName             = optional
+    stateOrProvinceName     = optional
+    localityName            = optional
+    organizationName        = optional
+    organizationalUnitName  = optional
+    commonName              = supplied
+    emailAddress            = optional
+
+    [ req ]
+    # `man req`
+    default_bits        = 4096
+    distinguished_name  = req_distinguished_name
+    string_mask         = utf8only
+    default_md          = sha256
+
+    [ req_distinguished_name ]
+    countryName                    = Country Name (2 letter code)
+    stateOrProvinceName            = State or Province Name
+    localityName                   = Locality Name
+    0.organizationName             = Organization Name
+    organizationalUnitName         = Organizational Unit Name
+    commonName                     = Common Name
+
+    # Certificate extensions (`man x509v3_config`)
+
+    [ v3_ca ]
+    subjectKeyIdentifier = hash
+    authorityKeyIdentifier = keyid:always,issuer
+    basicConstraints = critical, CA:true, pathlen:0
+    keyUsage = critical, digitalSignature, cRLSign, keyCertSign
+
+    [ usr_cert ]
+    basicConstraints = CA:FALSE
+    nsCertType = client
+    nsComment = "OpenSSL Generated Client Certificate"
+    subjectKeyIdentifier = hash
+    authorityKeyIdentifier = keyid,issuer
+    keyUsage = critical, nonRepudiation, digitalSignature, keyEncipherment
+    extendedKeyUsage = clientAuth
+
+    [ server_cert ]
+    basicConstraints = CA:FALSE
+    nsCertType = server
+    nsComment = "OpenSSL Generated Server Certificate"
+    subjectKeyIdentifier = hash
+    authorityKeyIdentifier = keyid,issuer:always
+    keyUsage = critical, digitalSignature, keyEncipherment
+    extendedKeyUsage = serverAuth
+    subjectAltName = $ENV::SAN
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: dex
+    helm.sh/chart: dex-2.15.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.24.0
+    app.kubernetes.io/managed-by: Helm
+  name: release-name-dex
+rules:
+  - apiGroups:
+      - dex.coreos.com
+    resources:
+      - '*'
+    verbs:
+      - '*'
+  - apiGroups:
+      - apiextensions.k8s.io
+    resources:
+      - customresourcedefinitions
+    verbs:
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/name: dex
+    helm.sh/chart: dex-2.15.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.24.0
+    app.kubernetes.io/managed-by: Helm
+  name: release-name-dex
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-dex
+subjects:
+  - kind: ServiceAccount
+    name: release-name-dex
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/name: dex
+    helm.sh/chart: dex-2.15.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.24.0
+    app.kubernetes.io/managed-by: Helm
+  name: release-name-dex
+  namespace: m3lSpv4gWHW
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - secrets
+    verbs:
+      - create
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/name: dex
+    helm.sh/chart: dex-2.15.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.24.0
+    app.kubernetes.io/managed-by: Helm
+  name: release-name-dex
+  namespace: m3lSpv4gWHW
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-dex
+subjects:
+  - kind: ServiceAccount
+    name: release-name-dex
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-dex
+  labels:
+    app.kubernetes.io/name: dex
+    helm.sh/chart: dex-2.15.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.24.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  sessionAffinity: None
+  ports:
+    - name: http
+      targetPort: http
+      port: 32000
+    - name: grpc
+      targetPort: grpc
+      port: 35000
+  selector:
+    app.kubernetes.io/name: dex
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-dex
+  labels:
+    app.kubernetes.io/name: dex
+    helm.sh/chart: dex-2.15.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.24.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: dex
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dex
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: dex
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dex
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/component: dex
+      annotations:
+        checksum/config: c13a47f643465ef7b0f19f6139cbff50dd7a3d8b9e921d530a80b73ddf6d76be
+    spec:
+      serviceAccountName: release-name-dex
+      nodeSelector: {}
+      containers:
+        - name: main
+          image: quay.io/dexidp/dex:v2.24.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /usr/local/bin/dex
+            - serve
+            - /etc/dex/cfg/config.yaml
+          resources: null
+          ports:
+            - name: http
+              containerPort: 5556
+              protocol: TCP
+            - name: grpc
+              containerPort: 5000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 1
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 1
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 1
+            periodSeconds: 10
+            timeoutSeconds: 1
+            failureThreshold: 1
+          env: []
+          volumeMounts:
+            - mountPath: /etc/dex/cfg
+              name: config
+            - mountPath: /etc/dex/tls/grpc/server
+              name: grpc-tls-server
+            - mountPath: /etc/dex/tls/grpc/ca
+              name: grpc-tls-ca
+      volumes:
+        - secret:
+            defaultMode: 420
+            items:
+              - key: config.yaml
+                path: config.yaml
+            secretName: release-name-dex
+          name: config
+        - name: grpc-tls-server
+          secret:
+            defaultMode: 420
+            secretName: dex-grpc-server-tls
+        - name: grpc-tls-ca
+          secret:
+            defaultMode: 420
+            secretName: dex-grpc-ca
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-weight: "2"
+    helm.sh/hook-delete-policy: hook-succeeded
+  name: release-name-dex-grpc-certs
+  labels:
+    app.kubernetes.io/name: dex
+    helm.sh/chart: dex-2.15.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.24.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: job-grpc-certs
+spec:
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dex
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/component: job-grpc-certs
+    spec:
+      securityContext:
+        runAsUser: 65534
+        fsGroup: 65534
+      serviceAccountName: release-name-dex
+      nodeSelector: {}
+      restartPolicy: OnFailure
+      containers:
+        - name: main
+          image: gcr.io/google_containers/kubernetes-dashboard-init-amd64:v1.0.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: HOME
+              value: /tmp
+          workingDir: /tmp
+          command:
+            - /bin/bash
+            - -exc
+            - |
+              export CONFIG=/etc/dex/tls/grpc/openssl.conf;
+              cat << EOF > san.cnf
+              DNS.1:dex.example.com
+              EOF
+              export SAN=$(cat san.cnf |  paste -sd "," -)
+
+              # Creating basic files/directories
+              mkdir -p {certs,crl,newcerts}
+              touch index.txt
+              touch index.txt.attr
+              echo 1000 > serial
+              # CA private key (unencrypted)
+              openssl genrsa -out ca.key 4096;
+              # Certificate Authority (self-signed certificate)
+              openssl req -config $CONFIG -new -x509 -days 3650 -sha256 -key ca.key -extensions v3_ca -out ca.crt -subj "/CN=grpc-ca";
+              # Server private key (unencrypted)
+              openssl genrsa -out server.key 2048;
+              # Server certificate signing request (CSR)
+              openssl req -config $CONFIG -new -sha256 -key server.key -out server.csr -subj "/CN=grpc-server";
+              # Certificate Authority signs CSR to grant a certificate
+              openssl ca -batch -config $CONFIG  -extensions server_cert -days 365 -notext -md sha256 -in server.csr -out server.crt -cert ca.crt -keyfile ca.key;
+              # Client private key (unencrypted)
+              openssl genrsa -out client.key 2048;
+              # Signed client certificate signing request (CSR)
+              openssl req -config $CONFIG -new -sha256 -key client.key -out client.csr -subj "/CN=grpc-client";
+              # Certificate Authority signs CSR to grant a certificate
+              openssl ca -batch -config $CONFIG -extensions usr_cert -days 365 -notext -md sha256 -in client.csr -out client.crt -cert ca.crt -keyfile ca.key;
+              # Remove CSR's
+              rm *.csr;
+
+              # Cleanup the existing configmap and secrets
+              kubectl delete configmap dex-grpc-ca --namespace default || true
+              kubectl delete secret dex-grpc-ca dex-grpc-server-tls dex-grpc-client-tls --namespace default || true
+              kubectl create configmap dex-grpc-ca --namespace default --from-file=ca.crt;
+              # Store all certficates in secrets
+              kubectl create secret tls dex-grpc-ca --namespace default --cert=ca.crt --key=ca.key;
+              kubectl create secret tls dex-grpc-server-tls --namespace default --cert=server.crt --key=server.key;
+              kubectl create secret tls dex-grpc-client-tls --namespace default --cert=client.crt --key=client.key;
+          volumeMounts:
+            - name: openssl-config
+              mountPath: /etc/dex/tls/grpc
+      volumes:
+        - name: openssl-config
+          configMap:
+            name: release-name-dex-openssl-config
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-weight: "1"
+    helm.sh/hook-delete-policy: hook-succeeded
+  name: release-name-dex-web-certs
+  labels:
+    app.kubernetes.io/name: dex
+    helm.sh/chart: dex-2.15.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.24.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: job-web-certs
+spec:
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dex
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/component: job
+    spec:
+      securityContext:
+        runAsUser: 65534
+        fsGroup: 65534
+      serviceAccountName: release-name-dex
+      nodeSelector: {}
+      restartPolicy: OnFailure
+      containers:
+        - name: main
+          image: gcr.io/google_containers/kubernetes-dashboard-init-amd64:v1.0.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: HOME
+              value: /tmp
+          workingDir: /tmp
+          command:
+            - /bin/bash
+            - -exc
+            - |
+              cat << EOF > req.cnf
+              [req]
+              req_extensions = v3_req
+              distinguished_name = req_distinguished_name
+
+              [req_distinguished_name]
+
+              [ v3_req ]
+              basicConstraints = CA:FALSE
+              keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+              subjectAltName = @alt_names
+
+              [alt_names]
+              DNS.1 = dex.example.com
+              EOF
+
+              openssl genrsa -out ca-key.pem 2048;
+              openssl req -x509 -new -nodes -key ca-key.pem -days 10000 -out ca.pem -subj "/CN=dex-ca";
+
+              openssl genrsa -out key.pem 2048;
+              openssl req -new -key key.pem -out csr.pem -subj "/CN=dex" -config req.cnf;
+              openssl x509 -req -in csr.pem -CA ca.pem -CAkey ca-key.pem -CAcreateserial -out cert.pem -days 10000 -extensions v3_req -extfile req.cnf;
+
+              kubectl delete configmap "dex-web-server-ca" --namespace default || true
+              kubectl delete secret "dex-web-server-ca" dex-web-server-tls --namespace default || true
+
+              kubectl create configmap "dex-web-server-ca" --namespace default --from-file dex-ca.pem=ca.pem;
+              kubectl create secret tls "dex-web-server-ca" --namespace default --cert=ca.pem --key=ca-key.pem;
+              kubectl create secret tls dex-web-server-tls --namespace default --cert=cert.pem --key=key.pem;

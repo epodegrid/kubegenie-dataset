@@ -1,0 +1,1195 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "automountServiceAccountToken": true,
+    "metadata": {
+      "name": "release-name-redis",
+      "namespace": "tbvMm673",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.5.5",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-matrix-synapse",
+      "labels": {
+        "helm.sh/chart": "matrix-synapse-0.1.5",
+        "app.kubernetes.io/name": "matrix-synapse",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.60.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "namespace": "tbvMm673",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-11.0.8",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "postgres-password": "cDJUWWVybTR0Vg==",
+      "password": "c3luYXBzZQ=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-redis",
+      "namespace": "tbvMm673",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.5.5",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "redis-password": "c3luYXBzZQ=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-matrix-synapse",
+      "labels": {
+        "helm.sh/chart": "matrix-synapse-0.1.5",
+        "app.kubernetes.io/name": "matrix-synapse",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.60.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "stringData": {
+      "config.yaml": "## Registration ##\n\nregistration_shared_secret: \"DPKI9MC9uEqA2WZijNB63WAt\"\n\n## API Configuration ##\n\n## Database configuration ##\n\ndatabase:\n  name: \"psycopg2\"\n  args:\n    user: \"synapse\"\n    password: \"synapse\"\n    database: \"synapse\"\n    host: \"release-name-postgresql\"\n    port: 5432\n    sslmode: \"prefer\"\n    cp_min: 5\n    cp_max: 10\n    \n\n## Redis configuration ##\n\nredis:\n  enabled: true\n  host: \"release-name-redis-master\"\n  password: \"synapse\"\n  port: 6379\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-redis-configuration",
+      "namespace": "tbvMm673",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.5.5",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "redis.conf": "# User-supplied common configuration:\n# Enable AOF https://redis.io/topics/persistence#append-only-file\nappendonly yes\n# Disable RDB persistence, AOF persistence already enabled.\nsave \"\"\n# End of common configuration",
+      "master.conf": "dir /data\n# User-supplied master configuration:\nrename-command FLUSHDB \"\"\nrename-command FLUSHALL \"\"\n# End of master configuration",
+      "replica.conf": "dir /data\nslave-read-only yes\n# User-supplied replica configuration:\nrename-command FLUSHDB \"\"\nrename-command FLUSHALL \"\"\n# End of replica configuration"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-redis-health",
+      "namespace": "tbvMm673",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.5.5",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "ping_readiness_local.sh": "#!/bin/bash\n\n[[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD=\"$(< \"${REDIS_PASSWORD_FILE}\")\"\n[[ -n \"$REDIS_PASSWORD\" ]] && export REDISCLI_AUTH=\"$REDIS_PASSWORD\"\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -h localhost \\\n    -p $REDIS_PORT \\\n    ping\n)\nif [ \"$?\" -eq \"124\" ]; then\n  echo \"Timed out\"\n  exit 1\nfi\nif [ \"$response\" != \"PONG\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_liveness_local.sh": "#!/bin/bash\n\n[[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD=\"$(< \"${REDIS_PASSWORD_FILE}\")\"\n[[ -n \"$REDIS_PASSWORD\" ]] && export REDISCLI_AUTH=\"$REDIS_PASSWORD\"\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -h localhost \\\n    -p $REDIS_PORT \\\n    ping\n)\nif [ \"$?\" -eq \"124\" ]; then\n  echo \"Timed out\"\n  exit 1\nfi\nresponseFirstWord=$(echo $response | head -n1 | awk '{print $1;}')\nif [ \"$response\" != \"PONG\" ] && [ \"$responseFirstWord\" != \"LOADING\" ] && [ \"$responseFirstWord\" != \"MASTERDOWN\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_readiness_master.sh": "#!/bin/bash\n\n[[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD=\"$(< \"${REDIS_MASTER_PASSWORD_FILE}\")\"\n[[ -n \"$REDIS_MASTER_PASSWORD\" ]] && export REDISCLI_AUTH=\"$REDIS_MASTER_PASSWORD\"\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -h $REDIS_MASTER_HOST \\\n    -p $REDIS_MASTER_PORT_NUMBER \\\n    ping\n)\nif [ \"$?\" -eq \"124\" ]; then\n  echo \"Timed out\"\n  exit 1\nfi\nif [ \"$response\" != \"PONG\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_liveness_master.sh": "#!/bin/bash\n\n[[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD=\"$(< \"${REDIS_MASTER_PASSWORD_FILE}\")\"\n[[ -n \"$REDIS_MASTER_PASSWORD\" ]] && export REDISCLI_AUTH=\"$REDIS_MASTER_PASSWORD\"\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -h $REDIS_MASTER_HOST \\\n    -p $REDIS_MASTER_PORT_NUMBER \\\n    ping\n)\nif [ \"$?\" -eq \"124\" ]; then\n  echo \"Timed out\"\n  exit 1\nfi\nresponseFirstWord=$(echo $response | head -n1 | awk '{print $1;}')\nif [ \"$response\" != \"PONG\" ] && [ \"$responseFirstWord\" != \"LOADING\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_readiness_local_and_master.sh": "script_dir=\"$(dirname \"$0\")\"\nexit_status=0\n\"$script_dir/ping_readiness_local.sh\" $1 || exit_status=$?\n\"$script_dir/ping_readiness_master.sh\" $1 || exit_status=$?\nexit $exit_status",
+      "ping_liveness_local_and_master.sh": "script_dir=\"$(dirname \"$0\")\"\nexit_status=0\n\"$script_dir/ping_liveness_local.sh\" $1 || exit_status=$?\n\"$script_dir/ping_liveness_master.sh\" $1 || exit_status=$?\nexit $exit_status"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-redis-scripts",
+      "namespace": "tbvMm673",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.5.5",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "start-master.sh": "#!/bin/bash\n\n[[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD=\"$(< \"${REDIS_PASSWORD_FILE}\")\"\nif [[ ! -f /opt/bitnami/redis/etc/master.conf ]];then\n    cp /opt/bitnami/redis/mounted-etc/master.conf /opt/bitnami/redis/etc/master.conf\nfi\nif [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then\n    cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf\nfi\nARGS=(\"--port\" \"${REDIS_PORT}\")\nARGS+=(\"--requirepass\" \"${REDIS_PASSWORD}\")\nARGS+=(\"--masterauth\" \"${REDIS_PASSWORD}\")\nARGS+=(\"--include\" \"/opt/bitnami/redis/etc/redis.conf\")\nARGS+=(\"--include\" \"/opt/bitnami/redis/etc/master.conf\")\nexec redis-server \"${ARGS[@]}\"\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-matrix-synapse-scripts",
+      "labels": {
+        "helm.sh/chart": "matrix-synapse-0.1.5",
+        "app.kubernetes.io/name": "matrix-synapse",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.60.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "signing-key.sh": "#!/bin/sh\n\nset -eu\n\ncheck_key() {\n  set +e\n\n  echo \"Checking for existing signing key...\"\n  key=\"$(kubectl get secret \"$SECRET_NAME\" -o jsonpath=\"{.data['signing\\.key']}\" 2> /dev/null)\"\n  [ $? -ne 0 ] && return 1\n  [ -z \"$key\" ] && return 2\n  return 0\n}\n\ncreate_key() {\n  echo \"Waiting for new signing key to be generated...\"\n  begin=$(date +%s)\n  end=$((begin + 300)) # 5 minutes\n  while true; do\n    [ -f /synapse/keys/signing.key ] && return 0\n    [ \"$(date +%s)\" -gt $end ] && return 1\n    sleep 5\n  done\n}\n\nstore_key() {\n  echo \"Storing signing key in Kubernetes secret...\"\n  kubectl patch secret \"$SECRET_NAME\" -p \"{\\\"data\\\":{\\\"signing.key\\\":\\\"$(base64 /synapse/keys/signing.key | tr -d '\\n')\\\"}}\"\n}\n\nif check_key; then\n  echo \"Key already in place, exiting.\"\n  exit\nfi\n\nif ! create_key; then\n  echo \"Timed out waiting for a signing key to appear.\"\n  exit 1\nfi\n\nstore_key"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-matrix-synapse",
+      "labels": {
+        "helm.sh/chart": "matrix-synapse-0.1.5",
+        "app.kubernetes.io/name": "matrix-synapse",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.60.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "log.yaml": "version: 1\nformatters:\n  precise:\n   format: '%(asctime)s - %(name)s - %(lineno)d - %(levelname)s - %(request)s- %(message)s'\nfilters:\n  context:\n    (): synapse.util.logcontext.LoggingContextFilter\n    request: \"\"\nhandlers:\n  console:\n    class: logging.StreamHandler\n    formatter: precise\n    filters: [context]\n    level: INFO\nloggers:\n    synapse:\n        level: INFO\nroot:\n    level: INFO\n    handlers: [console]\n",
+      "homeserver.yaml": "## Server ##\nserver_name: \"example.com\"\npid_file: /homeserver.pid\nweb_client: false\npublic_baseurl: \"https://matrix.example.com\"\nsoft_file_limit: 0\npresence:\n  enabled: true\n## Ports ##\nlisteners:\n  - port: 8008\n    tls: false\n    bind_addresses: ['::']\n    type: http\n    x_forwarded: true\n    resources:\n      - names: [client,federation]\n        compress: false\n  - port: 9090\n    tls: false\n    bind_addresses: ['::']\n    type: http\n    resources:\n      - names: [metrics]\n        compress: false\n  - port: 9093\n    tls: false\n    bind_addresses: ['::']\n    type: http\n    resources:\n      - names: [replication]\n        compress: false\nevent_cache_size: 10K\nlog_config: \"/synapse/config/log.yaml\"\n## Ratelimiting ##\nrc_message:\n  per_second: 0.2\n  burst_count: 10\nrc_login:\n  account:\n    per_second: 1\n    burst_count: 10\n  address:\n    per_second:  10\n    burst_count: 100\nrc_federation:\n  window_size: 1000\n  sleep_limit: 10\n  sleep_delay: 500\n  reject_limit: 50\n  concurrent: 3\nmedia_store_path: \"/synapse/data/media\"\nmax_upload_size: 23M\nmax_image_pixels: 32M\ndynamic_thumbnails: false\nthumbnail_sizes:\n  - width: 32\n    height: 32\n    method: crop\n  - width: 96\n    height: 96\n    method: crop\n  - width: 320\n    height: 240\n    method: scale\n  - width: 640\n    height: 480\n    method: scale\n  - width: 800\n    height: 600\n    method: scale\nurl_preview_enabled: false\nurl_preview_ip_range_blacklist:\n  - 127.0.0.0/8\n  - 10.0.0.0/8\n  - 172.16.0.0/12\n  - 192.168.0.0/16\n  - 100.64.0.0/10\n  - 169.254.0.0/16\n  - ::1/128\n  - fe80::/64\n  - fc00::/7\nurl_preview_url_blacklist:\n  \n  - username: '*'\n  - netloc: google.com\n  - netloc: '*.google.com'\n  - netloc: twitter.com\n  - netloc: '*.twitter.com'\n  - netloc: t.co\n  - netloc: '*.t.co'\nmax_spider_size: 10M\nenable_registration: false\nbcrypt_rounds: 12\nallow_guest_access: false\nautocreate_auto_join_rooms: true\nenable_metrics: true\nreport_stats: false\nroom_prejoin_state:\n    disable_default_event_types: false\n    additional_event_types:\n      \n      - m.room.type\ntrack_appservice_user_ips: false\nsigning_key_path: \"/synapse/keys/signing.key\"\nkey_refresh_interval: 1d\ntrusted_key_servers:\n  - server_name: matrix.org\npassword_config:\n   enabled: true\n## Push ##\npush:\n  include_content: false\n## Rooms ##\nenable_group_creation: true\nalias_creation_rules:\n  \n  - action: allow\n    alias: '*'\n    roomId: '*'\n    userId: '*'\n## Workers ##\n"
+    }
+  },
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-matrix-synapse",
+      "labels": {
+        "helm.sh/chart": "matrix-synapse-0.1.5",
+        "app.kubernetes.io/name": "matrix-synapse",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.60.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "10Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-postgresql-hl",
+      "namespace": "tbvMm673",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-11.0.8",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "primary",
+        "service.alpha.kubernetes.io/tolerate-unready-endpoints": "true"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "publishNotReadyAddresses": true,
+      "ports": [
+        {
+          "name": "tcp-postgresql",
+          "port": 5432,
+          "targetPort": "tcp-postgresql"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "postgresql",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "primary"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "namespace": "tbvMm673",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-11.0.8",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "primary"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "tcp-postgresql",
+          "port": 5432,
+          "targetPort": "tcp-postgresql",
+          "nodePort": null
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "postgresql",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "primary"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-redis-headless",
+      "namespace": "tbvMm673",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.5.5",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "tcp-redis",
+          "port": 6379,
+          "targetPort": "redis"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "redis",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-redis-master",
+      "namespace": "tbvMm673",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.5.5",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "master"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "tcp-redis",
+          "port": 6379,
+          "targetPort": "redis",
+          "nodePort": null
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "redis",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "master"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-matrix-synapse",
+      "labels": {
+        "helm.sh/chart": "matrix-synapse-0.1.5",
+        "app.kubernetes.io/name": "matrix-synapse",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.60.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 8008,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/component": "synapse",
+        "app.kubernetes.io/name": "matrix-synapse",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-replication",
+      "labels": {
+        "helm.sh/chart": "matrix-synapse-0.1.5",
+        "app.kubernetes.io/name": "matrix-synapse",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.60.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 9093,
+          "targetPort": "replication",
+          "protocol": "TCP",
+          "name": "replication"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "matrix-synapse",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "synapse"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-matrix-synapse",
+      "labels": {
+        "helm.sh/chart": "matrix-synapse-0.1.5",
+        "app.kubernetes.io/name": "matrix-synapse",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.60.0",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "synapse"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "type": "Recreate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "matrix-synapse",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "synapse"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config": "8fbcd242577c6f558e10243a2d412db2257da7a55c339192e5c275a818eabe58",
+            "checksum/secrets": "e84abb9c9559281dbeb98865e9baac3d6aadf55bb810678d26cb5a21d1d93af9"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "matrix-synapse",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/component": "synapse"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1000,
+            "runAsGroup": 1000,
+            "runAsUser": 1000
+          },
+          "containers": [
+            {
+              "name": "synapse",
+              "command": [
+                "sh",
+                "-c",
+                "cat /synapse/secrets/*.yaml | \\\n  sed -e \"s/@@POSTGRES_PASSWORD@@/${POSTGRES_PASSWORD:-}/\" \\\n      -e \"s/@@REDIS_PASSWORD@@/${REDIS_PASSWORD:-}/\" \\\n         > /synapse/config/conf.d/secrets.yaml\n\nexec python -B -m synapse.app.homeserver \\\n            -c /synapse/config/homeserver.yaml \\\n            -c /synapse/config/conf.d/\n"
+              ],
+              "env": [
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-postgresql",
+                      "key": "postgres-password"
+                    }
+                  }
+                },
+                {
+                  "name": "REDIS_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-redis",
+                      "key": "redis-password"
+                    }
+                  }
+                }
+              ],
+              "image": "matrixdotorg/synapse:v1.60.0",
+              "imagePullPolicy": "Always",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true,
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8008,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "replication",
+                  "containerPort": 9093,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "metrics",
+                  "containerPort": 9090,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "http"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "http"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/synapse/config"
+                },
+                {
+                  "name": "scripts",
+                  "mountPath": "/opt/k8s-synapse"
+                },
+                {
+                  "name": "tmpconf",
+                  "mountPath": "/synapse/config/conf.d"
+                },
+                {
+                  "name": "secrets",
+                  "mountPath": "/synapse/secrets"
+                },
+                {
+                  "name": "signingkey",
+                  "mountPath": "/synapse/keys"
+                },
+                {
+                  "name": "media",
+                  "mountPath": "/synapse/data"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "1000m",
+                  "memory": "2048Mi"
+                },
+                "requests": {
+                  "cpu": "1000m",
+                  "memory": "2048Mi"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-matrix-synapse"
+              }
+            },
+            {
+              "name": "scripts",
+              "configMap": {
+                "name": "release-name-matrix-synapse-scripts",
+                "defaultMode": 493
+              }
+            },
+            {
+              "name": "secrets",
+              "secret": {
+                "secretName": "release-name-matrix-synapse"
+              }
+            },
+            {
+              "name": "signingkey",
+              "secret": {
+                "secretName": "release-name-signingkey",
+                "items": [
+                  {
+                    "key": "signing.key",
+                    "path": "signing.key"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "tmpconf",
+              "emptyDir": {}
+            },
+            {
+              "name": "media",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-matrix-synapse"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "namespace": "tbvMm673",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-11.0.8",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "primary"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "replicas": 1,
+      "serviceName": "release-name-postgresql-hl",
+      "updateStrategy": {
+        "rollingUpdate": {},
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "postgresql",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "primary"
+        }
+      },
+      "template": {
+        "metadata": {
+          "name": "release-name-postgresql",
+          "labels": {
+            "app.kubernetes.io/name": "postgresql",
+            "helm.sh/chart": "postgresql-11.0.8",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "primary"
+          },
+          "annotations": null
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "affinity": {
+            "podAffinity": null,
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app.kubernetes.io/name": "postgresql",
+                        "app.kubernetes.io/instance": "release-name",
+                        "app.kubernetes.io/component": "primary"
+                      }
+                    },
+                    "namespaces": [
+                      "default"
+                    ],
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 1
+                }
+              ]
+            },
+            "nodeAffinity": null
+          },
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "hostNetwork": false,
+          "initContainers": null,
+          "containers": [
+            {
+              "name": "postgresql",
+              "image": "docker.io/bitnami/postgresql:14.1.0-debian-10-r80",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 10900,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "env": [
+                {
+                  "name": "BITNAMI_DEBUG",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_PORT_NUMBER",
+                  "value": "5432"
+                },
+                {
+                  "name": "POSTGRESQL_VOLUME_DIR",
+                  "value": "/bitnami/postgresql"
+                },
+                {
+                  "name": "PGDATA",
+                  "value": "/bitnami/postgresql/data"
+                },
+                {
+                  "name": "POSTGRES_USER",
+                  "value": "synapse"
+                },
+                {
+                  "name": "POSTGRES_POSTGRES_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-postgresql",
+                      "key": "postgres-password"
+                    }
+                  }
+                },
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-postgresql",
+                      "key": "password"
+                    }
+                  }
+                },
+                {
+                  "name": "POSTGRES_DB",
+                  "value": "synapse"
+                },
+                {
+                  "name": "POSTGRES_INITDB_ARGS",
+                  "value": "--lc-collate=C --lc-ctype=C"
+                },
+                {
+                  "name": "POSTGRESQL_ENABLE_LDAP",
+                  "value": "no"
+                },
+                {
+                  "name": "POSTGRESQL_ENABLE_TLS",
+                  "value": "no"
+                },
+                {
+                  "name": "POSTGRESQL_LOG_HOSTNAME",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_LOG_CONNECTIONS",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_LOG_DISCONNECTIONS",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_PGAUDIT_LOG_CATALOG",
+                  "value": "off"
+                },
+                {
+                  "name": "POSTGRESQL_CLIENT_MIN_MESSAGES",
+                  "value": "error"
+                },
+                {
+                  "name": "POSTGRESQL_SHARED_PRELOAD_LIBRARIES",
+                  "value": "pgaudit"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "tcp-postgresql",
+                  "containerPort": 5432
+                }
+              ],
+              "livenessProbe": {
+                "failureThreshold": 6,
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 5,
+                "exec": {
+                  "command": [
+                    "/bin/sh",
+                    "-c",
+                    "exec pg_isready -U \"synapse\" -d \"dbname=synapse\" -h 127.0.0.1 -p 5432"
+                  ]
+                }
+              },
+              "readinessProbe": {
+                "failureThreshold": 6,
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 5,
+                "exec": {
+                  "command": [
+                    "/bin/sh",
+                    "-c",
+                    "-e",
+                    "exec pg_isready -U \"synapse\" -d \"dbname=synapse\" -h 127.0.0.1 -p 5432\n[ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]\n"
+                  ]
+                }
+              },
+              "resources": {
+                "limits": {},
+                "requests": {
+                  "cpu": "250m",
+                  "memory": "256Mi"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "dshm",
+                  "mountPath": "/dev/shm"
+                },
+                {
+                  "name": "data",
+                  "mountPath": "/bitnami/postgresql"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "dshm",
+              "emptyDir": {
+                "medium": "Memory"
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "8Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-redis-master",
+      "namespace": "tbvMm673",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.5.5",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "master"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "redis",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "master"
+        }
+      },
+      "serviceName": "release-name-redis-headless",
+      "updateStrategy": {
+        "rollingUpdate": {},
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "redis",
+            "helm.sh/chart": "redis-16.5.5",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "master"
+          },
+          "annotations": {
+            "checksum/configmap": "089c5bfe2b6d3d7f4de83c9d38abed2b3dc40deec9ae12605fb7462cd60b9b75",
+            "checksum/health": "628dae4d12b83e1c420a8d933e291e819339df1e659a04c944c2f79a5dc9b2d6",
+            "checksum/scripts": "0fb93cf3afb96c7b896cc9df615ecb2cd625cafa5b393218d91e91a73b06997f",
+            "checksum/secret": "00e1a8eee7ef63f5f3723153d0d72d6d4b1eef791d94ccebd7bf2e3c2db502e8"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "serviceAccountName": "release-name-redis",
+          "affinity": {
+            "podAffinity": null,
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app.kubernetes.io/name": "redis",
+                        "app.kubernetes.io/instance": "release-name",
+                        "app.kubernetes.io/component": "master"
+                      }
+                    },
+                    "namespaces": [
+                      "default"
+                    ],
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 1
+                }
+              ]
+            },
+            "nodeAffinity": null
+          },
+          "terminationGracePeriodSeconds": 30,
+          "containers": [
+            {
+              "name": "redis",
+              "image": "docker.io/bitnami/redis:6.2.6-debian-10-r158",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 10006,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "command": [
+                "/bin/bash"
+              ],
+              "args": [
+                "-c",
+                "/opt/bitnami/scripts/start-scripts/start-master.sh"
+              ],
+              "env": [
+                {
+                  "name": "BITNAMI_DEBUG",
+                  "value": "false"
+                },
+                {
+                  "name": "REDIS_REPLICATION_MODE",
+                  "value": "master"
+                },
+                {
+                  "name": "ALLOW_EMPTY_PASSWORD",
+                  "value": "no"
+                },
+                {
+                  "name": "REDIS_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-redis",
+                      "key": "redis-password"
+                    }
+                  }
+                },
+                {
+                  "name": "REDIS_TLS_ENABLED",
+                  "value": "no"
+                },
+                {
+                  "name": "REDIS_PORT",
+                  "value": "6379"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "redis",
+                  "containerPort": 6379
+                }
+              ],
+              "livenessProbe": {
+                "initialDelaySeconds": 20,
+                "periodSeconds": 5,
+                "timeoutSeconds": 6,
+                "successThreshold": 1,
+                "failureThreshold": 5,
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "/health/ping_liveness_local.sh 5"
+                  ]
+                }
+              },
+              "readinessProbe": {
+                "initialDelaySeconds": 20,
+                "periodSeconds": 5,
+                "timeoutSeconds": 2,
+                "successThreshold": 1,
+                "failureThreshold": 5,
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "/health/ping_readiness_local.sh 1"
+                  ]
+                }
+              },
+              "resources": {
+                "limits": {},
+                "requests": {},
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "start-scripts",
+                  "mountPath": "/opt/bitnami/scripts/start-scripts"
+                },
+                {
+                  "name": "health",
+                  "mountPath": "/health"
+                },
+                {
+                  "name": "redis-data",
+                  "mountPath": "/data",
+                  "subPath": null
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/opt/bitnami/redis/mounted-etc"
+                },
+                {
+                  "name": "redis-tmp-conf",
+                  "mountPath": "/opt/bitnami/redis/etc/"
+                },
+                {
+                  "name": "tmp",
+                  "mountPath": "/tmp"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "start-scripts",
+              "configMap": {
+                "name": "release-name-redis-scripts",
+                "defaultMode": 493
+              }
+            },
+            {
+              "name": "health",
+              "configMap": {
+                "name": "release-name-redis-health",
+                "defaultMode": 493
+              }
+            },
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-redis-configuration"
+              }
+            },
+            {
+              "name": "redis-tmp-conf",
+              "emptyDir": {}
+            },
+            {
+              "name": "tmp",
+              "emptyDir": {}
+            },
+            {
+              "name": "redis-data",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "release-name-matrix-synapse",
+      "labels": {
+        "helm.sh/chart": "matrix-synapse-0.1.5",
+        "app.kubernetes.io/name": "matrix-synapse",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.60.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "cert-manager.io/cluster-issuer": "letsencrypt-prod",
+        "kubernetes.io/tls-acme": "true",
+        "nginx.ingress.kubernetes.io/configuration-snippet": "add_header X-Frame-Options \"sameorigin\";\nadd_header X-Content-Type-Options nosniff;\nadd_header Referrer-Policy 'same-origin';\nadd_header Permissions-Policy \"accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()\";\n",
+        "nginx.ingress.kubernetes.io/use-regex": "true"
+      }
+    },
+    "spec": {
+      "ingressClassName": "nginx",
+      "rules": [
+        {
+          "host": "example.com",
+          "http": {
+            "paths": [
+              {
+                "path": "/_matrix",
+                "backend": {
+                  "service": {
+                    "name": "release-name-matrix-synapse",
+                    "port": {
+                      "number": 8008
+                    }
+                  }
+                },
+                "pathType": "Prefix"
+              },
+              {
+                "path": "/.well-known/matrix/client",
+                "backend": {
+                  "service": {
+                    "name": "release-name-matrix-synapse",
+                    "port": {
+                      "number": 8008
+                    }
+                  }
+                },
+                "pathType": "Exact"
+              }
+            ]
+          }
+        },
+        {
+          "host": "matrix.example.com",
+          "http": {
+            "paths": [
+              {
+                "path": "/_matrix",
+                "backend": {
+                  "service": {
+                    "name": "release-name-matrix-synapse",
+                    "port": {
+                      "number": 8008
+                    }
+                  }
+                },
+                "pathType": "Prefix"
+              },
+              {
+                "path": "/_synapse",
+                "backend": {
+                  "service": {
+                    "name": "release-name-matrix-synapse",
+                    "port": {
+                      "number": 8008
+                    }
+                  }
+                },
+                "pathType": "Prefix"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-matrix-synapse-test-connection",
+      "labels": {
+        "helm.sh/chart": "matrix-synapse-0.1.5",
+        "app.kubernetes.io/name": "matrix-synapse",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.60.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "wget",
+          "image": "busybox",
+          "command": [
+            "wget"
+          ],
+          "args": [
+            "release-name-matrix-synapse:8008"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

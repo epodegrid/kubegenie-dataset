@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: xos-db-secrets
+type: Opaque
+data:
+  password: cGFzc3dvcmQ=
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xos-db
+  labels:
+    app: release-name-xos-db
+    chart: xos-db-1.0.4
+    release: release-name
+    heritage: Helm
+    version: 1.0.4
+data:
+  config: |2
+
+    listen_addresses = '*'
+
+    # as per https://github.com/kubernetes/kubernetes/issues/71233
+    huge_pages = off     # on, off, or try
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: xos-db
+  labels:
+    app: release-name-xos-db
+    chart: xos-db-1.0.4
+    release: release-name
+    heritage: Helm
+    version: 1.0.4
+spec:
+  type: ClusterIP
+  selector:
+    app: xos-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xos-db
+  labels:
+    app: xos-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: xos-db
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: xos-db
+    spec:
+      containers:
+        - name: xos-db
+          image: postgres:10.3-alpine
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: xos
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: xos-db-secrets
+                  key: password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: xos-db-config
+              mountPath: /usr/local/share/postgresql/postgresql.conf.sample
+              subPath: config/postgresql.conf.sample
+      volumes:
+        - name: xos-db-config
+          configMap:
+            name: xos-db
+            items:
+              - key: config
+                path: config/postgresql.conf.sample

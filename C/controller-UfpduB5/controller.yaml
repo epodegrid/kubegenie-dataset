@@ -1,0 +1,1787 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: drycc-controller
+  labels:
+    heritage: drycc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: drycc-controller
+  labels:
+    heritage: drycc
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+  selector:
+    app: drycc-controller
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drycc-controller-celery
+  labels:
+    heritage: drycc
+  annotations:
+    component.drycc.cc/version: 1.4.0
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: drycc-controller-celery
+  template:
+    metadata:
+      labels:
+        app: drycc-controller-celery
+    spec:
+      serviceAccount: drycc-controller
+      initContainers:
+        - name: drycc-controller-init
+          image: docker.io/drycc/python-dev:latest
+          imagePullPolicy: Always
+          command:
+            - netcat
+            - -v
+            - -u
+            - $(DRYCC_DATABASE_URL),$(DRYCC_RABBITMQ_URL)
+            - -a
+            - $(DRYCC_REDIS_ADDRS)
+          env:
+            - name: REGISTRATION_MODE
+              value: admin_only
+            - name: DRYCC_REGISTRY_PROXY_HOST
+              value: 127.0.0.1
+            - name: DRYCC_INGRESS_CLASS
+              value: ""
+            - name: DRYCC_PLATFORM_DOMAIN
+              value: ""
+            - name: K8S_API_VERIFY_TLS
+              value: "true"
+            - name: DRYCC_REGISTRY_PROXY_PORT
+              value: "5555"
+            - name: APP_STORAGE
+              value: minio
+            - name: DRYCC_REGISTRY_LOCATION
+              value: on-cluster
+            - name: DRYCC_REGISTRY_SECRET_PREFIX
+              value: private-registry
+            - name: IMAGE_PULL_POLICY
+              value: Always
+            - name: KUBERNETES_CLUSTER_DOMAIN
+              value: cluster.local
+            - name: TZ
+              value: UTC
+            - name: DRYCC_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: controller-creds
+                  key: django-secret-key
+            - name: DRYCC_BUILDER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: builder-key-auth
+                  key: builder-key
+            - name: DRYCC_DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: user
+            - name: DRYCC_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: password
+            - name: DRYCC_DATABASE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: controller-database-name
+            - name: DRYCC_DATABASE_URL
+              value: postgres://$(DRYCC_DATABASE_USER):$(DRYCC_DATABASE_PASSWORD)@$(DRYCC_DATABASE_SERVICE_HOST):$(DRYCC_DATABASE_SERVICE_PORT)/$(DRYCC_DATABASE_NAME)
+            - name: WORKFLOW_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: DRYCC_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-creds
+                  key: password
+            - name: DRYCC_INFLUXDB_URL
+              value: http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)
+            - name: DRYCC_INFLUXDB_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: bucket
+            - name: DRYCC_INFLUXDB_ORG
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: org
+            - name: DRYCC_INFLUXDB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: token
+            - name: DRYCC_PASSPORT_DOMAIN
+              value: https://drycc-passport.
+            - name: SOCIAL_AUTH_DRYCC_AUTHORIZATION_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/authorize/
+            - name: SOCIAL_AUTH_DRYCC_ACCESS_TOKEN_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/token/
+            - name: SOCIAL_AUTH_DRYCC_ACCESS_API_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)
+            - name: SOCIAL_AUTH_DRYCC_USERINFO_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/userinfo/
+            - name: SOCIAL_AUTH_DRYCC_JWKS_URI
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/.well-known/jwks.json
+            - name: SOCIAL_AUTH_DRYCC_OIDC_ENDPOINT
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth
+            - name: LOGIN_REDIRECT_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/user/login/done/
+            - name: SOCIAL_AUTH_DRYCC_CONTROLLER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: social-auth-drycc-controller-key
+            - name: SOCIAL_AUTH_DRYCC_CONTROLLER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: social-auth-drycc-controller-secret
+            - name: RESERVED_NAMES
+              value: drycc, drycc-builder, drycc-monitor-grafana
+      containers:
+        - name: drycc-controller-celery-high
+          image: docker.io/drycc/controller:1.4.0
+          imagePullPolicy: Always
+          command:
+            - /bin/bash
+            - -c
+          args:
+            - celery -A api worker -Q priority.high --autoscale=32,1 --loglevel=WARNING
+          env:
+            - name: REGISTRATION_MODE
+              value: admin_only
+            - name: DRYCC_REGISTRY_PROXY_HOST
+              value: 127.0.0.1
+            - name: DRYCC_INGRESS_CLASS
+              value: ""
+            - name: DRYCC_PLATFORM_DOMAIN
+              value: ""
+            - name: K8S_API_VERIFY_TLS
+              value: "true"
+            - name: DRYCC_REGISTRY_PROXY_PORT
+              value: "5555"
+            - name: APP_STORAGE
+              value: minio
+            - name: DRYCC_REGISTRY_LOCATION
+              value: on-cluster
+            - name: DRYCC_REGISTRY_SECRET_PREFIX
+              value: private-registry
+            - name: IMAGE_PULL_POLICY
+              value: Always
+            - name: KUBERNETES_CLUSTER_DOMAIN
+              value: cluster.local
+            - name: TZ
+              value: UTC
+            - name: DRYCC_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: controller-creds
+                  key: django-secret-key
+            - name: DRYCC_BUILDER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: builder-key-auth
+                  key: builder-key
+            - name: DRYCC_DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: user
+            - name: DRYCC_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: password
+            - name: DRYCC_DATABASE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: controller-database-name
+            - name: DRYCC_DATABASE_URL
+              value: postgres://$(DRYCC_DATABASE_USER):$(DRYCC_DATABASE_PASSWORD)@$(DRYCC_DATABASE_SERVICE_HOST):$(DRYCC_DATABASE_SERVICE_PORT)/$(DRYCC_DATABASE_NAME)
+            - name: WORKFLOW_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: DRYCC_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-creds
+                  key: password
+            - name: DRYCC_INFLUXDB_URL
+              value: http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)
+            - name: DRYCC_INFLUXDB_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: bucket
+            - name: DRYCC_INFLUXDB_ORG
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: org
+            - name: DRYCC_INFLUXDB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: token
+            - name: DRYCC_PASSPORT_DOMAIN
+              value: https://drycc-passport.
+            - name: SOCIAL_AUTH_DRYCC_AUTHORIZATION_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/authorize/
+            - name: SOCIAL_AUTH_DRYCC_ACCESS_TOKEN_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/token/
+            - name: SOCIAL_AUTH_DRYCC_ACCESS_API_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)
+            - name: SOCIAL_AUTH_DRYCC_USERINFO_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/userinfo/
+            - name: SOCIAL_AUTH_DRYCC_JWKS_URI
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/.well-known/jwks.json
+            - name: SOCIAL_AUTH_DRYCC_OIDC_ENDPOINT
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth
+            - name: LOGIN_REDIRECT_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/user/login/done/
+            - name: SOCIAL_AUTH_DRYCC_CONTROLLER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: social-auth-drycc-controller-key
+            - name: SOCIAL_AUTH_DRYCC_CONTROLLER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: social-auth-drycc-controller-secret
+            - name: RESERVED_NAMES
+              value: drycc, drycc-builder, drycc-monitor-grafana
+        - name: drycc-controller-celery-middle
+          image: docker.io/drycc/controller:1.4.0
+          imagePullPolicy: Always
+          command:
+            - /bin/bash
+            - -c
+          args:
+            - celery -A api worker -Q priority.middle --autoscale=16,1 --loglevel=WARNING
+          env:
+            - name: REGISTRATION_MODE
+              value: admin_only
+            - name: DRYCC_REGISTRY_PROXY_HOST
+              value: 127.0.0.1
+            - name: DRYCC_INGRESS_CLASS
+              value: ""
+            - name: DRYCC_PLATFORM_DOMAIN
+              value: ""
+            - name: K8S_API_VERIFY_TLS
+              value: "true"
+            - name: DRYCC_REGISTRY_PROXY_PORT
+              value: "5555"
+            - name: APP_STORAGE
+              value: minio
+            - name: DRYCC_REGISTRY_LOCATION
+              value: on-cluster
+            - name: DRYCC_REGISTRY_SECRET_PREFIX
+              value: private-registry
+            - name: IMAGE_PULL_POLICY
+              value: Always
+            - name: KUBERNETES_CLUSTER_DOMAIN
+              value: cluster.local
+            - name: TZ
+              value: UTC
+            - name: DRYCC_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: controller-creds
+                  key: django-secret-key
+            - name: DRYCC_BUILDER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: builder-key-auth
+                  key: builder-key
+            - name: DRYCC_DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: user
+            - name: DRYCC_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: password
+            - name: DRYCC_DATABASE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: controller-database-name
+            - name: DRYCC_DATABASE_URL
+              value: postgres://$(DRYCC_DATABASE_USER):$(DRYCC_DATABASE_PASSWORD)@$(DRYCC_DATABASE_SERVICE_HOST):$(DRYCC_DATABASE_SERVICE_PORT)/$(DRYCC_DATABASE_NAME)
+            - name: WORKFLOW_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: DRYCC_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-creds
+                  key: password
+            - name: DRYCC_INFLUXDB_URL
+              value: http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)
+            - name: DRYCC_INFLUXDB_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: bucket
+            - name: DRYCC_INFLUXDB_ORG
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: org
+            - name: DRYCC_INFLUXDB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: token
+            - name: DRYCC_PASSPORT_DOMAIN
+              value: https://drycc-passport.
+            - name: SOCIAL_AUTH_DRYCC_AUTHORIZATION_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/authorize/
+            - name: SOCIAL_AUTH_DRYCC_ACCESS_TOKEN_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/token/
+            - name: SOCIAL_AUTH_DRYCC_ACCESS_API_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)
+            - name: SOCIAL_AUTH_DRYCC_USERINFO_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/userinfo/
+            - name: SOCIAL_AUTH_DRYCC_JWKS_URI
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/.well-known/jwks.json
+            - name: SOCIAL_AUTH_DRYCC_OIDC_ENDPOINT
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth
+            - name: LOGIN_REDIRECT_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/user/login/done/
+            - name: SOCIAL_AUTH_DRYCC_CONTROLLER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: social-auth-drycc-controller-key
+            - name: SOCIAL_AUTH_DRYCC_CONTROLLER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: social-auth-drycc-controller-secret
+            - name: RESERVED_NAMES
+              value: drycc, drycc-builder, drycc-monitor-grafana
+        - name: drycc-controller-celery-low
+          image: docker.io/drycc/controller:1.4.0
+          imagePullPolicy: Always
+          command:
+            - /bin/bash
+            - -c
+          args:
+            - celery -A api worker -Q priority.low --autoscale=8,1 --loglevel=WARNING
+          env:
+            - name: REGISTRATION_MODE
+              value: admin_only
+            - name: DRYCC_REGISTRY_PROXY_HOST
+              value: 127.0.0.1
+            - name: DRYCC_INGRESS_CLASS
+              value: ""
+            - name: DRYCC_PLATFORM_DOMAIN
+              value: ""
+            - name: K8S_API_VERIFY_TLS
+              value: "true"
+            - name: DRYCC_REGISTRY_PROXY_PORT
+              value: "5555"
+            - name: APP_STORAGE
+              value: minio
+            - name: DRYCC_REGISTRY_LOCATION
+              value: on-cluster
+            - name: DRYCC_REGISTRY_SECRET_PREFIX
+              value: private-registry
+            - name: IMAGE_PULL_POLICY
+              value: Always
+            - name: KUBERNETES_CLUSTER_DOMAIN
+              value: cluster.local
+            - name: TZ
+              value: UTC
+            - name: DRYCC_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: controller-creds
+                  key: django-secret-key
+            - name: DRYCC_BUILDER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: builder-key-auth
+                  key: builder-key
+            - name: DRYCC_DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: user
+            - name: DRYCC_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: password
+            - name: DRYCC_DATABASE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: controller-database-name
+            - name: DRYCC_DATABASE_URL
+              value: postgres://$(DRYCC_DATABASE_USER):$(DRYCC_DATABASE_PASSWORD)@$(DRYCC_DATABASE_SERVICE_HOST):$(DRYCC_DATABASE_SERVICE_PORT)/$(DRYCC_DATABASE_NAME)
+            - name: WORKFLOW_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: DRYCC_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-creds
+                  key: password
+            - name: DRYCC_INFLUXDB_URL
+              value: http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)
+            - name: DRYCC_INFLUXDB_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: bucket
+            - name: DRYCC_INFLUXDB_ORG
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: org
+            - name: DRYCC_INFLUXDB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: token
+            - name: DRYCC_PASSPORT_DOMAIN
+              value: https://drycc-passport.
+            - name: SOCIAL_AUTH_DRYCC_AUTHORIZATION_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/authorize/
+            - name: SOCIAL_AUTH_DRYCC_ACCESS_TOKEN_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/token/
+            - name: SOCIAL_AUTH_DRYCC_ACCESS_API_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)
+            - name: SOCIAL_AUTH_DRYCC_USERINFO_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/userinfo/
+            - name: SOCIAL_AUTH_DRYCC_JWKS_URI
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/.well-known/jwks.json
+            - name: SOCIAL_AUTH_DRYCC_OIDC_ENDPOINT
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth
+            - name: LOGIN_REDIRECT_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/user/login/done/
+            - name: SOCIAL_AUTH_DRYCC_CONTROLLER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: social-auth-drycc-controller-key
+            - name: SOCIAL_AUTH_DRYCC_CONTROLLER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: social-auth-drycc-controller-secret
+            - name: RESERVED_NAMES
+              value: drycc, drycc-builder, drycc-monitor-grafana
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drycc-controller
+  labels:
+    heritage: drycc
+  annotations:
+    component.drycc.cc/version: 1.4.0
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: drycc-controller
+  template:
+    metadata:
+      labels:
+        app: drycc-controller
+    spec:
+      serviceAccount: drycc-controller
+      initContainers:
+        - name: drycc-controller-init
+          image: docker.io/drycc/python-dev:latest
+          imagePullPolicy: Always
+          command:
+            - netcat
+            - -v
+            - -u
+            - $(DRYCC_DATABASE_URL),$(DRYCC_RABBITMQ_URL)
+            - -a
+            - $(DRYCC_REDIS_ADDRS)
+          env:
+            - name: REGISTRATION_MODE
+              value: admin_only
+            - name: DRYCC_REGISTRY_PROXY_HOST
+              value: 127.0.0.1
+            - name: DRYCC_INGRESS_CLASS
+              value: ""
+            - name: DRYCC_PLATFORM_DOMAIN
+              value: ""
+            - name: K8S_API_VERIFY_TLS
+              value: "true"
+            - name: DRYCC_REGISTRY_PROXY_PORT
+              value: "5555"
+            - name: APP_STORAGE
+              value: minio
+            - name: DRYCC_REGISTRY_LOCATION
+              value: on-cluster
+            - name: DRYCC_REGISTRY_SECRET_PREFIX
+              value: private-registry
+            - name: IMAGE_PULL_POLICY
+              value: Always
+            - name: KUBERNETES_CLUSTER_DOMAIN
+              value: cluster.local
+            - name: TZ
+              value: UTC
+            - name: DRYCC_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: controller-creds
+                  key: django-secret-key
+            - name: DRYCC_BUILDER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: builder-key-auth
+                  key: builder-key
+            - name: DRYCC_DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: user
+            - name: DRYCC_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: password
+            - name: DRYCC_DATABASE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: controller-database-name
+            - name: DRYCC_DATABASE_URL
+              value: postgres://$(DRYCC_DATABASE_USER):$(DRYCC_DATABASE_PASSWORD)@$(DRYCC_DATABASE_SERVICE_HOST):$(DRYCC_DATABASE_SERVICE_PORT)/$(DRYCC_DATABASE_NAME)
+            - name: WORKFLOW_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: DRYCC_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-creds
+                  key: password
+            - name: DRYCC_INFLUXDB_URL
+              value: http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)
+            - name: DRYCC_INFLUXDB_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: bucket
+            - name: DRYCC_INFLUXDB_ORG
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: org
+            - name: DRYCC_INFLUXDB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: token
+            - name: DRYCC_PASSPORT_DOMAIN
+              value: https://drycc-passport.
+            - name: SOCIAL_AUTH_DRYCC_AUTHORIZATION_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/authorize/
+            - name: SOCIAL_AUTH_DRYCC_ACCESS_TOKEN_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/token/
+            - name: SOCIAL_AUTH_DRYCC_ACCESS_API_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)
+            - name: SOCIAL_AUTH_DRYCC_USERINFO_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/userinfo/
+            - name: SOCIAL_AUTH_DRYCC_JWKS_URI
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/.well-known/jwks.json
+            - name: SOCIAL_AUTH_DRYCC_OIDC_ENDPOINT
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth
+            - name: LOGIN_REDIRECT_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/user/login/done/
+            - name: SOCIAL_AUTH_DRYCC_CONTROLLER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: social-auth-drycc-controller-key
+            - name: SOCIAL_AUTH_DRYCC_CONTROLLER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: social-auth-drycc-controller-secret
+            - name: RESERVED_NAMES
+              value: drycc, drycc-builder, drycc-monitor-grafana
+      containers:
+        - name: drycc-controller
+          image: docker.io/drycc/controller:1.4.0
+          imagePullPolicy: Always
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readiness
+              port: 8000
+            initialDelaySeconds: 30
+            timeoutSeconds: 10
+            periodSeconds: 5
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: REGISTRATION_MODE
+              value: admin_only
+            - name: DRYCC_REGISTRY_PROXY_HOST
+              value: 127.0.0.1
+            - name: DRYCC_INGRESS_CLASS
+              value: ""
+            - name: DRYCC_PLATFORM_DOMAIN
+              value: ""
+            - name: K8S_API_VERIFY_TLS
+              value: "true"
+            - name: DRYCC_REGISTRY_PROXY_PORT
+              value: "5555"
+            - name: APP_STORAGE
+              value: minio
+            - name: DRYCC_REGISTRY_LOCATION
+              value: on-cluster
+            - name: DRYCC_REGISTRY_SECRET_PREFIX
+              value: private-registry
+            - name: IMAGE_PULL_POLICY
+              value: Always
+            - name: KUBERNETES_CLUSTER_DOMAIN
+              value: cluster.local
+            - name: TZ
+              value: UTC
+            - name: DRYCC_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: controller-creds
+                  key: django-secret-key
+            - name: DRYCC_BUILDER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: builder-key-auth
+                  key: builder-key
+            - name: DRYCC_DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: user
+            - name: DRYCC_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: password
+            - name: DRYCC_DATABASE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: controller-database-name
+            - name: DRYCC_DATABASE_URL
+              value: postgres://$(DRYCC_DATABASE_USER):$(DRYCC_DATABASE_PASSWORD)@$(DRYCC_DATABASE_SERVICE_HOST):$(DRYCC_DATABASE_SERVICE_PORT)/$(DRYCC_DATABASE_NAME)
+            - name: WORKFLOW_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: DRYCC_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-creds
+                  key: password
+            - name: DRYCC_INFLUXDB_URL
+              value: http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)
+            - name: DRYCC_INFLUXDB_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: bucket
+            - name: DRYCC_INFLUXDB_ORG
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: org
+            - name: DRYCC_INFLUXDB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: token
+            - name: DRYCC_PASSPORT_DOMAIN
+              value: https://drycc-passport.
+            - name: SOCIAL_AUTH_DRYCC_AUTHORIZATION_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/authorize/
+            - name: SOCIAL_AUTH_DRYCC_ACCESS_TOKEN_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/token/
+            - name: SOCIAL_AUTH_DRYCC_ACCESS_API_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)
+            - name: SOCIAL_AUTH_DRYCC_USERINFO_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/userinfo/
+            - name: SOCIAL_AUTH_DRYCC_JWKS_URI
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth/.well-known/jwks.json
+            - name: SOCIAL_AUTH_DRYCC_OIDC_ENDPOINT
+              value: $(DRYCC_PASSPORT_DOMAIN)/oauth
+            - name: LOGIN_REDIRECT_URL
+              value: $(DRYCC_PASSPORT_DOMAIN)/user/login/done/
+            - name: SOCIAL_AUTH_DRYCC_CONTROLLER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: social-auth-drycc-controller-key
+            - name: SOCIAL_AUTH_DRYCC_CONTROLLER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: social-auth-drycc-controller-secret
+            - name: RESERVED_NAMES
+              value: drycc, drycc-builder, drycc-monitor-grafana
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: drycc-controller-cronjob-daily
+  labels:
+    heritage: drycc
+  annotations:
+    component.drycc.cc/version: 1.4.0
+spec:
+  schedule: 0 0 * * *
+  concurrencyPolicy: Replace
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          serviceAccount: drycc-controller
+          initContainers:
+            - name: drycc-controller-cronjob-daily-init
+              image: docker.io/drycc/python-dev:latest
+              imagePullPolicy: Always
+              command:
+                - netcat
+                - -v
+                - -u
+                - $(DRYCC_DATABASE_URL),$(DRYCC_RABBITMQ_URL)
+                - -a
+                - $(DRYCC_REDIS_ADDRS)
+              env:
+                - name: REGISTRATION_MODE
+                  value: admin_only
+                - name: DRYCC_REGISTRY_PROXY_HOST
+                  value: 127.0.0.1
+                - name: DRYCC_INGRESS_CLASS
+                  value: ""
+                - name: DRYCC_PLATFORM_DOMAIN
+                  value: ""
+                - name: K8S_API_VERIFY_TLS
+                  value: "true"
+                - name: DRYCC_REGISTRY_PROXY_PORT
+                  value: "5555"
+                - name: APP_STORAGE
+                  value: minio
+                - name: DRYCC_REGISTRY_LOCATION
+                  value: on-cluster
+                - name: DRYCC_REGISTRY_SECRET_PREFIX
+                  value: private-registry
+                - name: IMAGE_PULL_POLICY
+                  value: Always
+                - name: KUBERNETES_CLUSTER_DOMAIN
+                  value: cluster.local
+                - name: TZ
+                  value: UTC
+                - name: DRYCC_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: controller-creds
+                      key: django-secret-key
+                - name: DRYCC_BUILDER_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: builder-key-auth
+                      key: builder-key
+                - name: DRYCC_DATABASE_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: user
+                - name: DRYCC_DATABASE_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: password
+                - name: DRYCC_DATABASE_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: controller-database-name
+                - name: DRYCC_DATABASE_URL
+                  value: postgres://$(DRYCC_DATABASE_USER):$(DRYCC_DATABASE_PASSWORD)@$(DRYCC_DATABASE_SERVICE_HOST):$(DRYCC_DATABASE_SERVICE_PORT)/$(DRYCC_DATABASE_NAME)
+                - name: WORKFLOW_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: DRYCC_REDIS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-creds
+                      key: password
+                - name: DRYCC_INFLUXDB_URL
+                  value: http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)
+                - name: DRYCC_INFLUXDB_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: bucket
+                - name: DRYCC_INFLUXDB_ORG
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: org
+                - name: DRYCC_INFLUXDB_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: token
+                - name: DRYCC_PASSPORT_DOMAIN
+                  value: https://drycc-passport.
+                - name: SOCIAL_AUTH_DRYCC_AUTHORIZATION_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/authorize/
+                - name: SOCIAL_AUTH_DRYCC_ACCESS_TOKEN_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/token/
+                - name: SOCIAL_AUTH_DRYCC_ACCESS_API_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)
+                - name: SOCIAL_AUTH_DRYCC_USERINFO_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/userinfo/
+                - name: SOCIAL_AUTH_DRYCC_JWKS_URI
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/.well-known/jwks.json
+                - name: SOCIAL_AUTH_DRYCC_OIDC_ENDPOINT
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth
+                - name: LOGIN_REDIRECT_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/user/login/done/
+                - name: SOCIAL_AUTH_DRYCC_CONTROLLER_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: passport-creds
+                      key: social-auth-drycc-controller-key
+                - name: SOCIAL_AUTH_DRYCC_CONTROLLER_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: passport-creds
+                      key: social-auth-drycc-controller-secret
+                - name: RESERVED_NAMES
+                  value: drycc, drycc-builder, drycc-monitor-grafana
+          containers:
+            - image: docker.io/drycc/controller:1.4.0
+              imagePullPolicy: Always
+              name: drycc-controller-push-data-to-influxdb
+              command:
+                - /bin/bash
+                - -c
+              args:
+                - python /app/manage.py load_db_state_to_k8s
+              env:
+                - name: REGISTRATION_MODE
+                  value: admin_only
+                - name: DRYCC_REGISTRY_PROXY_HOST
+                  value: 127.0.0.1
+                - name: DRYCC_INGRESS_CLASS
+                  value: ""
+                - name: DRYCC_PLATFORM_DOMAIN
+                  value: ""
+                - name: K8S_API_VERIFY_TLS
+                  value: "true"
+                - name: DRYCC_REGISTRY_PROXY_PORT
+                  value: "5555"
+                - name: APP_STORAGE
+                  value: minio
+                - name: DRYCC_REGISTRY_LOCATION
+                  value: on-cluster
+                - name: DRYCC_REGISTRY_SECRET_PREFIX
+                  value: private-registry
+                - name: IMAGE_PULL_POLICY
+                  value: Always
+                - name: KUBERNETES_CLUSTER_DOMAIN
+                  value: cluster.local
+                - name: TZ
+                  value: UTC
+                - name: DRYCC_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: controller-creds
+                      key: django-secret-key
+                - name: DRYCC_BUILDER_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: builder-key-auth
+                      key: builder-key
+                - name: DRYCC_DATABASE_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: user
+                - name: DRYCC_DATABASE_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: password
+                - name: DRYCC_DATABASE_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: controller-database-name
+                - name: DRYCC_DATABASE_URL
+                  value: postgres://$(DRYCC_DATABASE_USER):$(DRYCC_DATABASE_PASSWORD)@$(DRYCC_DATABASE_SERVICE_HOST):$(DRYCC_DATABASE_SERVICE_PORT)/$(DRYCC_DATABASE_NAME)
+                - name: WORKFLOW_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: DRYCC_REDIS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-creds
+                      key: password
+                - name: DRYCC_INFLUXDB_URL
+                  value: http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)
+                - name: DRYCC_INFLUXDB_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: bucket
+                - name: DRYCC_INFLUXDB_ORG
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: org
+                - name: DRYCC_INFLUXDB_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: token
+                - name: DRYCC_PASSPORT_DOMAIN
+                  value: https://drycc-passport.
+                - name: SOCIAL_AUTH_DRYCC_AUTHORIZATION_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/authorize/
+                - name: SOCIAL_AUTH_DRYCC_ACCESS_TOKEN_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/token/
+                - name: SOCIAL_AUTH_DRYCC_ACCESS_API_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)
+                - name: SOCIAL_AUTH_DRYCC_USERINFO_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/userinfo/
+                - name: SOCIAL_AUTH_DRYCC_JWKS_URI
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/.well-known/jwks.json
+                - name: SOCIAL_AUTH_DRYCC_OIDC_ENDPOINT
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth
+                - name: LOGIN_REDIRECT_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/user/login/done/
+                - name: SOCIAL_AUTH_DRYCC_CONTROLLER_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: passport-creds
+                      key: social-auth-drycc-controller-key
+                - name: SOCIAL_AUTH_DRYCC_CONTROLLER_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: passport-creds
+                      key: social-auth-drycc-controller-secret
+                - name: RESERVED_NAMES
+                  value: drycc, drycc-builder, drycc-monitor-grafana
+            - image: docker.io/drycc/controller:1.4.0
+              imagePullPolicy: null
+              name: drycc-controller-measure-app
+              command:
+                - /bin/bash
+                - -c
+              args:
+                - python -u /app/manage.py measure_app
+              env:
+                - name: REGISTRATION_MODE
+                  value: admin_only
+                - name: DRYCC_REGISTRY_PROXY_HOST
+                  value: 127.0.0.1
+                - name: DRYCC_INGRESS_CLASS
+                  value: ""
+                - name: DRYCC_PLATFORM_DOMAIN
+                  value: ""
+                - name: K8S_API_VERIFY_TLS
+                  value: "true"
+                - name: DRYCC_REGISTRY_PROXY_PORT
+                  value: "5555"
+                - name: APP_STORAGE
+                  value: minio
+                - name: DRYCC_REGISTRY_LOCATION
+                  value: on-cluster
+                - name: DRYCC_REGISTRY_SECRET_PREFIX
+                  value: private-registry
+                - name: IMAGE_PULL_POLICY
+                  value: Always
+                - name: KUBERNETES_CLUSTER_DOMAIN
+                  value: cluster.local
+                - name: TZ
+                  value: UTC
+                - name: DRYCC_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: controller-creds
+                      key: django-secret-key
+                - name: DRYCC_BUILDER_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: builder-key-auth
+                      key: builder-key
+                - name: DRYCC_DATABASE_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: user
+                - name: DRYCC_DATABASE_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: password
+                - name: DRYCC_DATABASE_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: controller-database-name
+                - name: DRYCC_DATABASE_URL
+                  value: postgres://$(DRYCC_DATABASE_USER):$(DRYCC_DATABASE_PASSWORD)@$(DRYCC_DATABASE_SERVICE_HOST):$(DRYCC_DATABASE_SERVICE_PORT)/$(DRYCC_DATABASE_NAME)
+                - name: WORKFLOW_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: DRYCC_REDIS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-creds
+                      key: password
+                - name: DRYCC_INFLUXDB_URL
+                  value: http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)
+                - name: DRYCC_INFLUXDB_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: bucket
+                - name: DRYCC_INFLUXDB_ORG
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: org
+                - name: DRYCC_INFLUXDB_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: token
+                - name: DRYCC_PASSPORT_DOMAIN
+                  value: https://drycc-passport.
+                - name: SOCIAL_AUTH_DRYCC_AUTHORIZATION_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/authorize/
+                - name: SOCIAL_AUTH_DRYCC_ACCESS_TOKEN_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/token/
+                - name: SOCIAL_AUTH_DRYCC_ACCESS_API_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)
+                - name: SOCIAL_AUTH_DRYCC_USERINFO_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/userinfo/
+                - name: SOCIAL_AUTH_DRYCC_JWKS_URI
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/.well-known/jwks.json
+                - name: SOCIAL_AUTH_DRYCC_OIDC_ENDPOINT
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth
+                - name: LOGIN_REDIRECT_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/user/login/done/
+                - name: SOCIAL_AUTH_DRYCC_CONTROLLER_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: passport-creds
+                      key: social-auth-drycc-controller-key
+                - name: SOCIAL_AUTH_DRYCC_CONTROLLER_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: passport-creds
+                      key: social-auth-drycc-controller-secret
+                - name: RESERVED_NAMES
+                  value: drycc, drycc-builder, drycc-monitor-grafana
+            - image: docker.io/drycc/controller:1.4.0
+              imagePullPolicy: null
+              name: drycc-controller-measure-config
+              command:
+                - /bin/bash
+                - -c
+              args:
+                - python -u /app/manage.py measure_config
+              env:
+                - name: REGISTRATION_MODE
+                  value: admin_only
+                - name: DRYCC_REGISTRY_PROXY_HOST
+                  value: 127.0.0.1
+                - name: DRYCC_INGRESS_CLASS
+                  value: ""
+                - name: DRYCC_PLATFORM_DOMAIN
+                  value: ""
+                - name: K8S_API_VERIFY_TLS
+                  value: "true"
+                - name: DRYCC_REGISTRY_PROXY_PORT
+                  value: "5555"
+                - name: APP_STORAGE
+                  value: minio
+                - name: DRYCC_REGISTRY_LOCATION
+                  value: on-cluster
+                - name: DRYCC_REGISTRY_SECRET_PREFIX
+                  value: private-registry
+                - name: IMAGE_PULL_POLICY
+                  value: Always
+                - name: KUBERNETES_CLUSTER_DOMAIN
+                  value: cluster.local
+                - name: TZ
+                  value: UTC
+                - name: DRYCC_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: controller-creds
+                      key: django-secret-key
+                - name: DRYCC_BUILDER_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: builder-key-auth
+                      key: builder-key
+                - name: DRYCC_DATABASE_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: user
+                - name: DRYCC_DATABASE_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: password
+                - name: DRYCC_DATABASE_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: controller-database-name
+                - name: DRYCC_DATABASE_URL
+                  value: postgres://$(DRYCC_DATABASE_USER):$(DRYCC_DATABASE_PASSWORD)@$(DRYCC_DATABASE_SERVICE_HOST):$(DRYCC_DATABASE_SERVICE_PORT)/$(DRYCC_DATABASE_NAME)
+                - name: WORKFLOW_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: DRYCC_REDIS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-creds
+                      key: password
+                - name: DRYCC_INFLUXDB_URL
+                  value: http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)
+                - name: DRYCC_INFLUXDB_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: bucket
+                - name: DRYCC_INFLUXDB_ORG
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: org
+                - name: DRYCC_INFLUXDB_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: token
+                - name: DRYCC_PASSPORT_DOMAIN
+                  value: https://drycc-passport.
+                - name: SOCIAL_AUTH_DRYCC_AUTHORIZATION_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/authorize/
+                - name: SOCIAL_AUTH_DRYCC_ACCESS_TOKEN_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/token/
+                - name: SOCIAL_AUTH_DRYCC_ACCESS_API_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)
+                - name: SOCIAL_AUTH_DRYCC_USERINFO_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/userinfo/
+                - name: SOCIAL_AUTH_DRYCC_JWKS_URI
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/.well-known/jwks.json
+                - name: SOCIAL_AUTH_DRYCC_OIDC_ENDPOINT
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth
+                - name: LOGIN_REDIRECT_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/user/login/done/
+                - name: SOCIAL_AUTH_DRYCC_CONTROLLER_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: passport-creds
+                      key: social-auth-drycc-controller-key
+                - name: SOCIAL_AUTH_DRYCC_CONTROLLER_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: passport-creds
+                      key: social-auth-drycc-controller-secret
+                - name: RESERVED_NAMES
+                  value: drycc, drycc-builder, drycc-monitor-grafana
+            - image: docker.io/drycc/controller:1.4.0
+              imagePullPolicy: null
+              name: drycc-controller-measure-resources
+              command:
+                - /bin/bash
+                - -c
+              args:
+                - python -u /app/manage.py measure_resources
+              env:
+                - name: REGISTRATION_MODE
+                  value: admin_only
+                - name: DRYCC_REGISTRY_PROXY_HOST
+                  value: 127.0.0.1
+                - name: DRYCC_INGRESS_CLASS
+                  value: ""
+                - name: DRYCC_PLATFORM_DOMAIN
+                  value: ""
+                - name: K8S_API_VERIFY_TLS
+                  value: "true"
+                - name: DRYCC_REGISTRY_PROXY_PORT
+                  value: "5555"
+                - name: APP_STORAGE
+                  value: minio
+                - name: DRYCC_REGISTRY_LOCATION
+                  value: on-cluster
+                - name: DRYCC_REGISTRY_SECRET_PREFIX
+                  value: private-registry
+                - name: IMAGE_PULL_POLICY
+                  value: Always
+                - name: KUBERNETES_CLUSTER_DOMAIN
+                  value: cluster.local
+                - name: TZ
+                  value: UTC
+                - name: DRYCC_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: controller-creds
+                      key: django-secret-key
+                - name: DRYCC_BUILDER_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: builder-key-auth
+                      key: builder-key
+                - name: DRYCC_DATABASE_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: user
+                - name: DRYCC_DATABASE_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: password
+                - name: DRYCC_DATABASE_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: controller-database-name
+                - name: DRYCC_DATABASE_URL
+                  value: postgres://$(DRYCC_DATABASE_USER):$(DRYCC_DATABASE_PASSWORD)@$(DRYCC_DATABASE_SERVICE_HOST):$(DRYCC_DATABASE_SERVICE_PORT)/$(DRYCC_DATABASE_NAME)
+                - name: WORKFLOW_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: DRYCC_REDIS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-creds
+                      key: password
+                - name: DRYCC_INFLUXDB_URL
+                  value: http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)
+                - name: DRYCC_INFLUXDB_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: bucket
+                - name: DRYCC_INFLUXDB_ORG
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: org
+                - name: DRYCC_INFLUXDB_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: token
+                - name: DRYCC_PASSPORT_DOMAIN
+                  value: https://drycc-passport.
+                - name: SOCIAL_AUTH_DRYCC_AUTHORIZATION_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/authorize/
+                - name: SOCIAL_AUTH_DRYCC_ACCESS_TOKEN_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/token/
+                - name: SOCIAL_AUTH_DRYCC_ACCESS_API_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)
+                - name: SOCIAL_AUTH_DRYCC_USERINFO_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/userinfo/
+                - name: SOCIAL_AUTH_DRYCC_JWKS_URI
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/.well-known/jwks.json
+                - name: SOCIAL_AUTH_DRYCC_OIDC_ENDPOINT
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth
+                - name: LOGIN_REDIRECT_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/user/login/done/
+                - name: SOCIAL_AUTH_DRYCC_CONTROLLER_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: passport-creds
+                      key: social-auth-drycc-controller-key
+                - name: SOCIAL_AUTH_DRYCC_CONTROLLER_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: passport-creds
+                      key: social-auth-drycc-controller-secret
+                - name: RESERVED_NAMES
+                  value: drycc, drycc-builder, drycc-monitor-grafana
+            - image: docker.io/drycc/controller:1.4.0
+              imagePullPolicy: null
+              name: drycc-controller-measure-volumes
+              command:
+                - /bin/bash
+                - -c
+              args:
+                - python -u /app/manage.py measure_volumes
+              env:
+                - name: REGISTRATION_MODE
+                  value: admin_only
+                - name: DRYCC_REGISTRY_PROXY_HOST
+                  value: 127.0.0.1
+                - name: DRYCC_INGRESS_CLASS
+                  value: ""
+                - name: DRYCC_PLATFORM_DOMAIN
+                  value: ""
+                - name: K8S_API_VERIFY_TLS
+                  value: "true"
+                - name: DRYCC_REGISTRY_PROXY_PORT
+                  value: "5555"
+                - name: APP_STORAGE
+                  value: minio
+                - name: DRYCC_REGISTRY_LOCATION
+                  value: on-cluster
+                - name: DRYCC_REGISTRY_SECRET_PREFIX
+                  value: private-registry
+                - name: IMAGE_PULL_POLICY
+                  value: Always
+                - name: KUBERNETES_CLUSTER_DOMAIN
+                  value: cluster.local
+                - name: TZ
+                  value: UTC
+                - name: DRYCC_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: controller-creds
+                      key: django-secret-key
+                - name: DRYCC_BUILDER_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: builder-key-auth
+                      key: builder-key
+                - name: DRYCC_DATABASE_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: user
+                - name: DRYCC_DATABASE_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: password
+                - name: DRYCC_DATABASE_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: controller-database-name
+                - name: DRYCC_DATABASE_URL
+                  value: postgres://$(DRYCC_DATABASE_USER):$(DRYCC_DATABASE_PASSWORD)@$(DRYCC_DATABASE_SERVICE_HOST):$(DRYCC_DATABASE_SERVICE_PORT)/$(DRYCC_DATABASE_NAME)
+                - name: WORKFLOW_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: DRYCC_REDIS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-creds
+                      key: password
+                - name: DRYCC_INFLUXDB_URL
+                  value: http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)
+                - name: DRYCC_INFLUXDB_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: bucket
+                - name: DRYCC_INFLUXDB_ORG
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: org
+                - name: DRYCC_INFLUXDB_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: token
+                - name: DRYCC_PASSPORT_DOMAIN
+                  value: https://drycc-passport.
+                - name: SOCIAL_AUTH_DRYCC_AUTHORIZATION_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/authorize/
+                - name: SOCIAL_AUTH_DRYCC_ACCESS_TOKEN_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/token/
+                - name: SOCIAL_AUTH_DRYCC_ACCESS_API_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)
+                - name: SOCIAL_AUTH_DRYCC_USERINFO_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/userinfo/
+                - name: SOCIAL_AUTH_DRYCC_JWKS_URI
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/.well-known/jwks.json
+                - name: SOCIAL_AUTH_DRYCC_OIDC_ENDPOINT
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth
+                - name: LOGIN_REDIRECT_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/user/login/done/
+                - name: SOCIAL_AUTH_DRYCC_CONTROLLER_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: passport-creds
+                      key: social-auth-drycc-controller-key
+                - name: SOCIAL_AUTH_DRYCC_CONTROLLER_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: passport-creds
+                      key: social-auth-drycc-controller-secret
+                - name: RESERVED_NAMES
+                  value: drycc, drycc-builder, drycc-monitor-grafana
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: drycc-controller-cronjob-hourly
+  labels:
+    heritage: drycc
+  annotations:
+    component.drycc.cc/version: 1.4.0
+spec:
+  schedule: 0 */1 * * *
+  concurrencyPolicy: Replace
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          serviceAccount: drycc-controller
+          initContainers:
+            - name: drycc-controller-init
+              image: docker.io/drycc/python-dev:latest
+              imagePullPolicy: Always
+              command:
+                - netcat
+                - -v
+                - -u
+                - $(DRYCC_DATABASE_URL),$(DRYCC_RABBITMQ_URL)
+                - -a
+                - $(DRYCC_REDIS_ADDRS)
+              env:
+                - name: REGISTRATION_MODE
+                  value: admin_only
+                - name: DRYCC_REGISTRY_PROXY_HOST
+                  value: 127.0.0.1
+                - name: DRYCC_INGRESS_CLASS
+                  value: ""
+                - name: DRYCC_PLATFORM_DOMAIN
+                  value: ""
+                - name: K8S_API_VERIFY_TLS
+                  value: "true"
+                - name: DRYCC_REGISTRY_PROXY_PORT
+                  value: "5555"
+                - name: APP_STORAGE
+                  value: minio
+                - name: DRYCC_REGISTRY_LOCATION
+                  value: on-cluster
+                - name: DRYCC_REGISTRY_SECRET_PREFIX
+                  value: private-registry
+                - name: IMAGE_PULL_POLICY
+                  value: Always
+                - name: KUBERNETES_CLUSTER_DOMAIN
+                  value: cluster.local
+                - name: TZ
+                  value: UTC
+                - name: DRYCC_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: controller-creds
+                      key: django-secret-key
+                - name: DRYCC_BUILDER_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: builder-key-auth
+                      key: builder-key
+                - name: DRYCC_DATABASE_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: user
+                - name: DRYCC_DATABASE_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: password
+                - name: DRYCC_DATABASE_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: controller-database-name
+                - name: DRYCC_DATABASE_URL
+                  value: postgres://$(DRYCC_DATABASE_USER):$(DRYCC_DATABASE_PASSWORD)@$(DRYCC_DATABASE_SERVICE_HOST):$(DRYCC_DATABASE_SERVICE_PORT)/$(DRYCC_DATABASE_NAME)
+                - name: WORKFLOW_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: DRYCC_REDIS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-creds
+                      key: password
+                - name: DRYCC_INFLUXDB_URL
+                  value: http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)
+                - name: DRYCC_INFLUXDB_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: bucket
+                - name: DRYCC_INFLUXDB_ORG
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: org
+                - name: DRYCC_INFLUXDB_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: token
+                - name: DRYCC_PASSPORT_DOMAIN
+                  value: https://drycc-passport.
+                - name: SOCIAL_AUTH_DRYCC_AUTHORIZATION_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/authorize/
+                - name: SOCIAL_AUTH_DRYCC_ACCESS_TOKEN_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/token/
+                - name: SOCIAL_AUTH_DRYCC_ACCESS_API_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)
+                - name: SOCIAL_AUTH_DRYCC_USERINFO_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/userinfo/
+                - name: SOCIAL_AUTH_DRYCC_JWKS_URI
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/.well-known/jwks.json
+                - name: SOCIAL_AUTH_DRYCC_OIDC_ENDPOINT
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth
+                - name: LOGIN_REDIRECT_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/user/login/done/
+                - name: SOCIAL_AUTH_DRYCC_CONTROLLER_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: passport-creds
+                      key: social-auth-drycc-controller-key
+                - name: SOCIAL_AUTH_DRYCC_CONTROLLER_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: passport-creds
+                      key: social-auth-drycc-controller-secret
+                - name: RESERVED_NAMES
+                  value: drycc, drycc-builder, drycc-monitor-grafana
+          containers:
+            - image: docker.io/drycc/controller:1.4.0
+              imagePullPolicy: null
+              name: drycc-controller-measure-app
+              command:
+                - /bin/bash
+                - -c
+              args:
+                - python -u /app/manage.py measure_app
+              env:
+                - name: REGISTRATION_MODE
+                  value: admin_only
+                - name: DRYCC_REGISTRY_PROXY_HOST
+                  value: 127.0.0.1
+                - name: DRYCC_INGRESS_CLASS
+                  value: ""
+                - name: DRYCC_PLATFORM_DOMAIN
+                  value: ""
+                - name: K8S_API_VERIFY_TLS
+                  value: "true"
+                - name: DRYCC_REGISTRY_PROXY_PORT
+                  value: "5555"
+                - name: APP_STORAGE
+                  value: minio
+                - name: DRYCC_REGISTRY_LOCATION
+                  value: on-cluster
+                - name: DRYCC_REGISTRY_SECRET_PREFIX
+                  value: private-registry
+                - name: IMAGE_PULL_POLICY
+                  value: Always
+                - name: KUBERNETES_CLUSTER_DOMAIN
+                  value: cluster.local
+                - name: TZ
+                  value: UTC
+                - name: DRYCC_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: controller-creds
+                      key: django-secret-key
+                - name: DRYCC_BUILDER_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: builder-key-auth
+                      key: builder-key
+                - name: DRYCC_DATABASE_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: user
+                - name: DRYCC_DATABASE_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: password
+                - name: DRYCC_DATABASE_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: database-creds
+                      key: controller-database-name
+                - name: DRYCC_DATABASE_URL
+                  value: postgres://$(DRYCC_DATABASE_USER):$(DRYCC_DATABASE_PASSWORD)@$(DRYCC_DATABASE_SERVICE_HOST):$(DRYCC_DATABASE_SERVICE_PORT)/$(DRYCC_DATABASE_NAME)
+                - name: WORKFLOW_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: DRYCC_REDIS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-creds
+                      key: password
+                - name: DRYCC_INFLUXDB_URL
+                  value: http://$(DRYCC_INFLUXDB_SERVICE_HOST):$(DRYCC_INFLUXDB_SERVICE_PORT_TRANSPORT)
+                - name: DRYCC_INFLUXDB_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: bucket
+                - name: DRYCC_INFLUXDB_ORG
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: org
+                - name: DRYCC_INFLUXDB_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: influxdb-creds
+                      key: token
+                - name: DRYCC_PASSPORT_DOMAIN
+                  value: https://drycc-passport.
+                - name: SOCIAL_AUTH_DRYCC_AUTHORIZATION_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/authorize/
+                - name: SOCIAL_AUTH_DRYCC_ACCESS_TOKEN_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/token/
+                - name: SOCIAL_AUTH_DRYCC_ACCESS_API_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)
+                - name: SOCIAL_AUTH_DRYCC_USERINFO_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/userinfo/
+                - name: SOCIAL_AUTH_DRYCC_JWKS_URI
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth/.well-known/jwks.json
+                - name: SOCIAL_AUTH_DRYCC_OIDC_ENDPOINT
+                  value: $(DRYCC_PASSPORT_DOMAIN)/oauth
+                - name: LOGIN_REDIRECT_URL
+                  value: $(DRYCC_PASSPORT_DOMAIN)/user/login/done/
+                - name: SOCIAL_AUTH_DRYCC_CONTROLLER_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: passport-creds
+                      key: social-auth-drycc-controller-key
+                - name: SOCIAL_AUTH_DRYCC_CONTROLLER_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: passport-creds
+                      key: social-auth-drycc-controller-secret
+                - name: RESERVED_NAMES
+                  value: drycc, drycc-builder, drycc-monitor-grafana
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: controller-api-server
+  labels:
+    app: controller
+    chart: controller-v1.4.0
+    release: release-name
+    heritage: Helm
+  annotations:
+    kubernetes.io/tls-acme: "true"
+spec:
+  rules:
+    - host: drycc.
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: drycc-controller
+                port:
+                  number: 80
+  tls:
+    - secretName: drycc-controller-certificate-auto
+      hosts:
+        - drycc.
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: drycc-controller
+spec:
+  secretName: drycc-controller-certificate-auto
+  issuerRef:
+    name: drycc-cluster-issuer
+    kind: ClusterIssuer
+  dnsNames:
+    - drycc.
+  privateKey:
+    rotationPolicy: Always
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: controller-creds
+  labels:
+    heritage: drycc
+  annotations:
+    helm.sh/hook: pre-install
+data:
+  django-secret-key: amR8PUYxZn1ePjF9KjNDRF86LUElZGl5I1c1aURPaHBtSHlVL3ZBXy9iRHA6IVtPMjpjIXNOLWAmUClvIVF0IA==
+  deploy-hook-secret-key: OVBxZTdkaDh2JS5HQ3FjICQlcUJSKCxRJz5wPVF6PWU3fCBcXWZca2J+bSEyN0JnNixSMiFORShEeThDOS4vLA==

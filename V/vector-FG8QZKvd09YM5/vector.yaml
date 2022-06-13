@@ -1,0 +1,238 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-vector
+  labels:
+    helm.sh/chart: vector-0.12.0
+    app.kubernetes.io/name: vector
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: Aggregator
+    app.kubernetes.io/version: 0.22.0-distroless-libc
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-vector
+  labels:
+    helm.sh/chart: vector-0.12.0
+    app.kubernetes.io/name: vector
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: Aggregator
+    app.kubernetes.io/version: 0.22.0-distroless-libc
+    app.kubernetes.io/managed-by: Helm
+data:
+  aggregator.yaml: |
+    data_dir: /vector-data-dir
+    api:
+      enabled: true
+      address: 127.0.0.1:8686
+      playground: false
+    sources:
+      datadog_agent:
+        address: 0.0.0.0:8282
+        type: datadog_agent
+      fluent:
+        address: 0.0.0.0:24224
+        type: fluent
+      internal_metrics:
+        type: internal_metrics
+      logstash:
+        address: 0.0.0.0:5044
+        type: logstash
+      splunk_hec:
+        address: 0.0.0.0:8080
+        type: splunk_hec
+      statsd:
+        address: 0.0.0.0:8125
+        mode: tcp
+        type: statsd
+      syslog:
+        address: 0.0.0.0:9000
+        mode: tcp
+        type: syslog
+      vector:
+        address: 0.0.0.0:6000
+        type: vector
+        version: "2"
+    sinks:
+      prom_exporter:
+        type: prometheus_exporter
+        inputs: [internal_metrics]
+        address: 0.0.0.0:9090
+      stdout:
+        type: console
+        inputs: [datadog_agent, fluent, logstash, splunk_hec, statsd, syslog, vector]
+        encoding:
+          codec: json
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-vector-headless
+  labels:
+    helm.sh/chart: vector-0.12.0
+    app.kubernetes.io/name: vector
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: Aggregator
+    app.kubernetes.io/version: 0.22.0-distroless-libc
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  clusterIP: None
+  ports:
+    - name: datadog-agent
+      port: 8282
+      protocol: TCP
+    - name: fluent
+      port: 24224
+      protocol: TCP
+    - name: logstash
+      port: 5044
+      protocol: TCP
+    - name: splunk-hec
+      port: 8080
+      protocol: TCP
+    - name: statsd
+      port: 8125
+      protocol: TCP
+    - name: syslog
+      port: 9000
+      protocol: TCP
+    - name: vector
+      port: 6000
+      protocol: TCP
+    - name: prom-exporter
+      port: 9090
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: vector
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: Aggregator
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-vector
+  labels:
+    helm.sh/chart: vector-0.12.0
+    app.kubernetes.io/name: vector
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: Aggregator
+    app.kubernetes.io/version: 0.22.0-distroless-libc
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  ports:
+    - name: datadog-agent
+      port: 8282
+      protocol: TCP
+    - name: fluent
+      port: 24224
+      protocol: TCP
+    - name: logstash
+      port: 5044
+      protocol: TCP
+    - name: splunk-hec
+      port: 8080
+      protocol: TCP
+    - name: statsd
+      port: 8125
+      protocol: TCP
+    - name: syslog
+      port: 9000
+      protocol: TCP
+    - name: vector
+      port: 6000
+      protocol: TCP
+    - name: prom-exporter
+      port: 9090
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: vector
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: Aggregator
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-vector
+  labels:
+    helm.sh/chart: vector-0.12.0
+    app.kubernetes.io/name: vector
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: Aggregator
+    app.kubernetes.io/version: 0.22.0-distroless-libc
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  podManagementPolicy: OrderedReady
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vector
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: Aggregator
+  serviceName: release-name-vector-headless
+  template:
+    metadata:
+      annotations:
+        checksum/config: 3dad8ad9fa50eb27869b9618d7ec230d9b6e28fb4de884e978faa6ff5d37d826
+      labels:
+        app.kubernetes.io/name: vector
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/component: Aggregator
+    spec:
+      serviceAccountName: release-name-vector
+      dnsPolicy: ClusterFirst
+      containers:
+        - name: vector
+          image: timberio/vector:0.22.0-distroless-libc
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config-dir
+            - /etc/vector/
+          env: null
+          ports:
+            - name: datadog-agent
+              containerPort: 8282
+              protocol: TCP
+            - name: fluent
+              containerPort: 24224
+              protocol: TCP
+            - name: logstash
+              containerPort: 5044
+              protocol: TCP
+            - name: splunk-hec
+              containerPort: 8080
+              protocol: TCP
+            - name: statsd
+              containerPort: 8125
+              protocol: TCP
+            - name: syslog
+              containerPort: 9000
+              protocol: TCP
+            - name: vector
+              containerPort: 6000
+              protocol: TCP
+            - name: prom-exporter
+              containerPort: 9090
+              protocol: TCP
+          volumeMounts:
+            - name: data
+              mountPath: /vector-data-dir
+            - name: config
+              mountPath: /etc/vector/
+              readOnly: true
+      terminationGracePeriodSeconds: 60
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: config
+          projected:
+            sources:
+              - configMap:
+                  name: release-name-vector
+  volumeClaimTemplates: null

@@ -1,0 +1,82 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-argocd-ecr-updater",
+      "labels": {
+        "chart": "argocd-ecr-updater-2.4.0",
+        "app": "argocd-ecr-updater",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1beta1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "release-name-argocd-ecr-updater-configure-rbac"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-argocd-ecr-updater",
+        "namespace": "default"
+      }
+    ],
+    "roleRef": {
+      "kind": "ClusterRole",
+      "name": "cluster-admin",
+      "apiGroup": "rbac.authorization.k8s.io"
+    }
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "annotations": null,
+      "name": "argocd-ecr-updater-cronjob"
+    },
+    "spec": {
+      "concurrencyPolicy": "Allow",
+      "failedJobsHistoryLimit": 1,
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "spec": {
+              "serviceAccountName": "release-name-argocd-ecr-updater",
+              "containers": [
+                {
+                  "command": [
+                    "/bin/sh",
+                    "-c",
+                    "AWS_TOKEN=`aws ecr get-login --region default --registry-ids default | cut -d' ' -f6`\necho \"ENV variables setup done.\"\n\nkubectl patch secret default -p '{\"data\":{\"password\":\"'`echo $AWS_TOKEN | base64 | tr -d '\\n'`'\"}}' -n default\necho \"All done.\""
+                  ],
+                  "image": "odaniait/aws-kubectl:latest",
+                  "imagePullPolicy": "IfNotPresent",
+                  "name": "ecr-cred-helper",
+                  "resources": {},
+                  "securityContext": {
+                    "capabilities": {}
+                  },
+                  "terminationMessagePath": "/dev/termination-log",
+                  "terminationMessagePolicy": "File"
+                }
+              ],
+              "dnsPolicy": "Default",
+              "hostNetwork": true,
+              "restartPolicy": "Never",
+              "schedulerName": "default-scheduler",
+              "securityContext": {},
+              "terminationGracePeriodSeconds": 30
+            }
+          }
+        }
+      },
+      "schedule": "0 0/6 * * *",
+      "successfulJobsHistoryLimit": 3,
+      "suspend": false
+    }
+  }
+]

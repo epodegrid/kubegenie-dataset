@@ -1,0 +1,334 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "mongodb",
+      "namespace": "MbjRAbk29Yg2Vxv"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "mongodb-root-creds"
+    },
+    "type": "Opaque",
+    "data": {
+      "MONGODB_ROOT_PASSWORD": "cGFzc3dvcmQ=",
+      "MONGODB_ROOT_USERNAME": "cm9vdA=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "mongodb-bin"
+    },
+    "data": {
+      "start.sh": "#!/bin/bash\n\n\n\nset -ex\n\nmongod --auth &\n\nt=0\nuntil mongo --eval \"db.adminCommand('ping')\"; do\n  echo \"waiting for mongodb to start\"\n  sleep 1\n  t=$(($t+1))\n  if [ $t -ge 30 ] ; then\n      echo \"mongodb did not start, giving up\"\n      exit 1\n  fi\ndone\n\n#NOTE(portdirect): stop sending commands to stdout to prevent root password\n# being sent to logs.\nset +x\nmongo admin \\\n  --username \"${ADMIN_USER}\" \\\n  --password \"${ADMIN_PASS}\" \\\n  --eval \"db.changeUserPassword(\\\"${ADMIN_USER}\\\", \\\"${ADMIN_PASS}\\\")\" || \\\n    mongo admin \\\n      --eval \"db.createUser({ user: \\\"${ADMIN_USER}\\\", \\\n                              pwd: \\\"${ADMIN_PASS}\\\", \\\n                              roles: [ { role: \\\"userAdminAnyDatabase\\\", \\\n                                         db: \\\"admin\\\" } ] });\"\nset -x\nwait\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "mongodb"
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "db",
+          "port": 27017
+        }
+      ],
+      "selector": {
+        "release_group": "release-name",
+        "application": "mongodb",
+        "component": "server"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "mongodb",
+      "annotations": {
+        "openstackhelm.openstack.org/release_uuid": ""
+      },
+      "labels": {
+        "release_group": "release-name",
+        "application": "mongodb",
+        "component": "server"
+      }
+    },
+    "spec": {
+      "serviceName": "mongodb",
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "release_group": "release-name",
+          "application": "mongodb",
+          "component": "server"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "release_group": "release-name",
+            "application": "mongodb",
+            "component": "server"
+          },
+          "annotations": {
+            "openstackhelm.openstack.org/release_uuid": "",
+            "configmap-bin-hash": "5046017fa4865010271c9542d248f8a2c33ec4e3f04bf286fc3cb10d41a4d132"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "mongodb",
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "release_group",
+                          "operator": "In",
+                          "values": [
+                            "release-name"
+                          ]
+                        },
+                        {
+                          "key": "application",
+                          "operator": "In",
+                          "values": [
+                            "mongodb"
+                          ]
+                        },
+                        {
+                          "key": "component",
+                          "operator": "In",
+                          "values": [
+                            "server"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 10
+                }
+              ]
+            }
+          },
+          "nodeSelector": {
+            "openstack-control-plane": "enabled"
+          },
+          "initContainers": [
+            {
+              "name": "init",
+              "image": "quay.io/airshipit/kubernetes-entrypoint:v1.0.0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 65534
+              },
+              "env": [
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "INTERFACE_NAME",
+                  "value": "eth0"
+                },
+                {
+                  "name": "PATH",
+                  "value": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/"
+                },
+                {
+                  "name": "DEPENDENCY_SERVICE",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_DAEMONSET",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CONTAINER",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_POD_JSON",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CUSTOM_RESOURCE",
+                  "value": ""
+                }
+              ],
+              "command": [
+                "kubernetes-entrypoint"
+              ],
+              "volumeMounts": []
+            },
+            {
+              "name": "mongodb-perms",
+              "image": "docker.io/mongo:3.4.9-jessie",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 0
+              },
+              "command": [
+                "chown",
+                "-R",
+                "mongodb:",
+                "/var/lib/openstack-helm/mongodb"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "pod-tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "mongodb-data",
+                  "mountPath": "/var/lib/openstack-helm/mongodb"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "mongodb",
+              "image": "docker.io/mongo:3.4.9-jessie",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "containerPort": 27017
+                }
+              ],
+              "env": [
+                {
+                  "name": "ADMIN_PASS",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "mongodb-root-creds",
+                      "key": "MONGODB_ROOT_PASSWORD"
+                    }
+                  }
+                },
+                {
+                  "name": "ADMIN_USER",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "mongodb-root-creds",
+                      "key": "MONGODB_ROOT_USERNAME"
+                    }
+                  }
+                }
+              ],
+              "command": [
+                "/tmp/start.sh"
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "mongo",
+                    "--eval",
+                    "db.adminCommand('ping')"
+                  ]
+                },
+                "initialDelaySeconds": 20,
+                "timeoutSeconds": 5
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "mongo",
+                    "--eval",
+                    "db.adminCommand('ping')"
+                  ]
+                },
+                "initialDelaySeconds": 20,
+                "timeoutSeconds": 5
+              },
+              "volumeMounts": [
+                {
+                  "name": "pod-tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "mongodb-bin",
+                  "mountPath": "/tmp/start.sh",
+                  "subPath": "start.sh",
+                  "readOnly": true
+                },
+                {
+                  "name": "mongodb-bin",
+                  "mountPath": "/tmp/setup_admin_user.sh",
+                  "subPath": "setup_admin_user.sh",
+                  "readOnly": true
+                },
+                {
+                  "name": "mongodb-data",
+                  "mountPath": "/data/db"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "pod-tmp",
+              "emptyDir": {}
+            },
+            {
+              "name": "mongodb-bin",
+              "configMap": {
+                "name": "mongodb-bin",
+                "defaultMode": 365
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "mongodb-data",
+            "annotations": {
+              "volume.beta.kubernetes.io/storage-class": "general"
+            }
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "5Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+]

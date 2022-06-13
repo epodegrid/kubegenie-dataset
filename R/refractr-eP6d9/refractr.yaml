@@ -1,0 +1,286 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: refractr
+data:
+  PAPERTRAIL_URL: MTI3LjAuMC4xOjUxMTQ=
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: refractr
+  labels:
+    app: release-name-refractr
+    environment: stage
+    helm.sh/chart: refractr-1.1.0
+    app.kubernetes.io/name: refractr
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP
+    - name: https
+      port: 443
+      targetPort: 80
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: refractr
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: refractr
+  annotations:
+    fluxcd.io/automated: "true"
+    fluxcd.io/tag.refractr-web: glob:dev-*
+  labels:
+    app: release-name-refractr
+    environment: stage
+    helm.sh/chart: refractr-1.1.0
+    app.kubernetes.io/name: refractr
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 3
+  strategy:
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 25%
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: refractr
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: refractr
+        app.kubernetes.io/instance: release-name
+      annotations:
+        prometheus.io/port: "9113"
+        prometheus.io/scrape: "true"
+    spec:
+      serviceAccountName: refractr
+      securityContext: {}
+      containers:
+        - name: refractr
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          image: ':'
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            initialDelaySeconds: 5
+            successThreshold: 3
+            httpGet:
+              path: /
+              port: http
+          envFrom:
+            - secretRef:
+                name: refractr
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+        - name: metrics
+          image: docker.io/bitnami/nginx-exporter:0.8.0-debian-10-r91
+          imagePullPolicy: IfNotPresent
+          command:
+            - /usr/bin/exporter
+            - -nginx.scrape-uri
+            - http://127.0.0.1:80/status
+          ports:
+            - name: metrics
+              containerPort: 9113
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+---
+apiVersion: cert-manager.io/v1alpha2
+kind: Issuer
+metadata:
+  name: letsencrypt
+spec:
+  acme:
+    email: it-se@mozilla.com
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt
+    solvers:
+      - http01:
+          ingress:
+            class: nginx
+      - dns01:
+          cnameStrategy: Follow
+          route53:
+            region: us-west-2
+            hostedZoneID: this is a required argument
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: refractr
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+  labels:
+    app: release-name-refractr
+    environment: stage
+    helm.sh/chart: refractr-1.1.0
+    app.kubernetes.io/name: refractr
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: refractr
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+  labels:
+    app: release-name-refractr
+    environment: stage
+    helm.sh/chart: refractr-1.1.0
+    app.kubernetes.io/name: refractr
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - pods
+      - secrets
+      - namespaces
+    verbs:
+      - get
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - ingresses
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - create
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+    verbs:
+      - get
+  - apiGroups:
+      - extensions
+      - networking.k8s.io
+    resources:
+      - ingresses
+    verbs:
+      - get
+      - update
+      - create
+      - list
+      - patch
+      - delete
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: refractr
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+  labels:
+    app: release-name-refractr
+    environment: stage
+    helm.sh/chart: refractr-1.1.0
+    app.kubernetes.io/name: refractr
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: refractr
+subjects:
+  - kind: ServiceAccount
+    name: refractr
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-ingress-preinstall-hook
+  labels:
+    app: release-name-refractr
+    environment: stage
+    helm.sh/chart: refractr-1.1.0
+    app.kubernetes.io/name: refractr
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+spec:
+  template:
+    metadata:
+      name: release-name-ingress-preinstall-hook
+      labels:
+        app: release-name-refractr
+        environment: stage
+        helm.sh/chart: refractr-1.1.0
+        app.kubernetes.io/name: refractr
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: refractr
+      restartPolicy: Never
+      containers:
+        - name: release-name-ingress-preinstall-hook
+          image: ':'
+          args:
+            - ingress
+          resources:
+            limits:
+              cpu: 200m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 64Mi

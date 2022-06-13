@@ -1,0 +1,235 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-sdnc-web-sdnc-web-aaf-deploy-creds
+  namespace: ZqZApMNvwT
+  labels:
+    app: sdnc-web
+    chart: sdnc-web-6.0.0
+    release: release
+    heritage: Helm
+type: Opaque
+stringData:
+  login: deployer@people.osaaf.org
+  password: demo123456!
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-sdnc-web-aaf-add-config
+  namespace: ZqZApMNvwT
+  labels:
+    app.kubernetes.io/name: sdnc-web
+    helm.sh/chart: sdnc-web-6.0.0
+    app.kubernetes.io/instance: release
+    app.kubernetes.io/managed-by: Helm
+data:
+  aaf-add-config.sh: |-
+    cd /opt/app/osaaf/local
+    mkdir -p certs
+    cadi_keystore_password_p12="$(/opt/app/aaf_config/bin/agent.sh local showpass |grep cadi_keystore_password_p12| cut -d'=' -f2)"
+    cadi_truststore_password="$(/opt/app/aaf_config/bin/agent.sh local showpass |grep cadi_truststore_password| cut -d'=' -f2)"
+    keytool -exportcert -rfc -file certs/cacert.pem -keystore org.onap.sdnc.trust.jks -alias ca_local_0 -storepass $cadi_truststore_password
+    openssl pkcs12 -in org.onap.sdnc.p12 -out certs/cert.pem -passin pass:$cadi_keystore_password_p12 -passout pass:$cadi_keystore_password_p12
+    cp org.onap.sdnc.key certs/key.pem
+    chmod -R 755 certs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sdnc-web-service
+  namespace: ZqZApMNvwT
+  labels:
+    app.kubernetes.io/name: sdnc-web
+    helm.sh/chart: sdnc-web-6.0.0
+    app.kubernetes.io/instance: release
+    app.kubernetes.io/managed-by: Helm
+spec:
+  ports:
+    - port: 8443
+      targetPort: sdnc-web
+      name: sdnc-web
+      nodePort: 32205
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: sdnc-web
+    app.kubernetes.io/instance: release
+  sessionAffinity: ClientIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-sdnc-web
+  namespace: ZqZApMNvwT
+  labels:
+    app.kubernetes.io/name: sdnc-web
+    helm.sh/chart: sdnc-web-6.0.0
+    app.kubernetes.io/instance: release
+    app.kubernetes.io/managed-by: Helm
+spec:
+  serviceName: sdnc-web
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sdnc-web
+      app.kubernetes.io/instance: release
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sdnc-web
+        helm.sh/chart: sdnc-web-6.0.0
+        app.kubernetes.io/instance: release
+        app.kubernetes.io/managed-by: Helm
+      name: sdnc-web
+    spec:
+      initContainers:
+        - name: sdnc-web-aaf-readiness
+          image: oomk8s/readiness-check:2.0.2
+          imagePullPolicy: Always
+          command:
+            - /root/ready.py
+          args:
+            - --container-name
+            - aaf-locate
+            - --container-name
+            - aaf-cm
+            - --container-name
+            - aaf-service
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+          resources:
+            limits:
+              cpu: 100m
+              memory: 100Mi
+            requests:
+              cpu: 3m
+              memory: 20Mi
+        - name: sdnc-web-aaf-config
+          image: 10.20.6.10:30000/
+          imagePullPolicy: Always
+          volumeMounts:
+            - mountPath: /opt/app/osaaf
+              name: release-sdnc-web-aaf-config
+            - name: aaf-add-config
+              mountPath: /opt/app/aaf_config/bin/aaf-add-config.sh
+              subPath: aaf-add-config.sh
+          command:
+            - sh
+            - -c
+            - |
+              #!/usr/bin/env bash
+              /opt/app/aaf_config/bin/agent.sh
+              /opt/app/aaf_config/bin/aaf-add-config.sh
+          env:
+            - name: APP_FQI
+              value: sdnc@sdnc.onap.org
+            - name: aaf_locate_url
+              value: https://aaf-locate.default:8095
+            - name: aaf_locator_container
+              value: oom
+            - name: aaf_locator_container_ns
+              value: default
+            - name: aaf_locator_fqdn
+              value: sdnc
+            - name: aaf_locator_app_ns
+              value: org.osaaf.aaf
+            - name: DEPLOY_FQI
+              valueFrom:
+                secretKeyRef:
+                  name: release-sdnc-web-sdnc-web-aaf-deploy-creds
+                  key: login
+            - name: DEPLOY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-sdnc-web-sdnc-web-aaf-deploy-creds
+                  key: password
+            - name: cadi_longitude
+              value: "13.4"
+            - name: cadi_latitude
+              value: "52.5"
+            - name: aaf_locator_public_fqdn
+              value: aaf.osaaf.org
+          resources:
+            limits:
+              cpu: 100m
+              memory: 100Mi
+            requests:
+              cpu: 3m
+              memory: 20Mi
+        - name: sdnc-web-readiness
+          image: oomk8s/readiness-check:2.0.2
+          imagePullPolicy: Always
+          command:
+            - /root/ready.py
+          args:
+            - --container-name
+            - sdnc
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+      containers:
+        - name: sdnc-web
+          image: nexus3.onap.org:10001/onap/sdnc-web-image:1.8.2
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8443
+              name: sdnc-web
+          readinessProbe:
+            tcpSocket:
+              port: 8443
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          env:
+            - name: WEBPROTOCOL
+              value: HTTPS
+            - name: WEBPORT
+              value: "8443"
+            - name: SDNRPROTOCOL
+              value: HTTPS
+            - name: SDNRHOST
+              value: sdnc.default.svc.cluster.local
+            - name: SDNRPORT
+              value: "8443"
+            - name: SSL_CERT_DIR
+              value: /opt/app/osaaf/local/certs
+            - name: SSL_CERTIFICATE
+              value: cert.pem
+            - name: SSL_CERTIFICATE_KEY
+              value: key.pem
+            - name: LOCALDNS
+              value: kube-dns.kube-system.svc.cluster.local
+          volumeMounts:
+            - mountPath: /etc/localtime
+              name: localtime
+              readOnly: true
+            - mountPath: /opt/app/osaaf
+              name: release-sdnc-web-aaf-config
+          resources:
+            limits:
+              cpu: 1
+              memory: 1Gi
+            requests:
+              cpu: 0.5
+              memory: 500Mi
+      volumes:
+        - name: localtime
+          hostPath:
+            path: /etc/localtime
+        - name: release-sdnc-web-aaf-config
+          emptyDir:
+            medium: Memory
+        - name: aaf-add-config
+          configMap:
+            name: release-sdnc-web-aaf-add-config
+            defaultMode: 448
+      imagePullSecrets:
+        - name: default-docker-registry-key
+---
+null

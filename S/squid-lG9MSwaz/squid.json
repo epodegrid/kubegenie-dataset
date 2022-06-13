@@ -1,0 +1,188 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-squid-conf",
+      "labels": {
+        "app": "squid",
+        "chart": "squid-0.4.3",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "squid.conf": "acl SSL_ports port 443\nacl Safe_ports port 80\t\t# http\nacl Safe_ports port 21\t\t# ftp\nacl Safe_ports port 443\t\t# https\nacl Safe_ports port 70\t\t# gopher\nacl Safe_ports port 210\t\t# wais\nacl Safe_ports port 1025-65535\t# unregistered ports\nacl Safe_ports port 280\t\t# http-mgmt\nacl Safe_ports port 488\t\t# gss-http\nacl Safe_ports port 591\t\t# filemaker\nacl Safe_ports port 777\t\t# multiling http\nacl CONNECT method CONNECT\n\n# Recommended minimum Access Permission configuration:\n#\n# Deny requests to certain unsafe ports\nhttp_access deny !Safe_ports\n\n# Only allow cachemgr access from localhost\nhttp_access allow localhost manager\nhttp_access deny manager\n\n# Squid normally listens to port 3128\nhttp_port 3128\n\n# Uncomment and adjust the following to add a disk cache directory.\n#cache_dir ufs /var/cache/squid 100 16 256\n\n# Leave coredumps in the first cache dir\ncoredump_dir /var/cache/squid\n\n#\n# Add any of your own refresh_pattern entries above these.\n#\nrefresh_pattern ^ftp:\t\t1440\t20%\t10080\nrefresh_pattern ^gopher:\t1440\t0%\t1440\nrefresh_pattern -i (/cgi-bin/|\\?) 0\t0%\t0\nrefresh_pattern .\t\t0\t20%\t4320\n\n# Do not display squid version\nhttpd_suppress_version_string on\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-squid",
+      "labels": {
+        "app": "squid",
+        "chart": "squid-0.4.3",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "loadBalancerSourceRanges": null,
+      "externalTrafficPolicy": "",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app": "squid",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-squid",
+      "labels": {
+        "app": "squid",
+        "chart": "squid-0.4.3",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "squid",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "squid",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "acc4331431115ff6f802819fdd7bcac04c7724bb60e26de788e382d119e57ad8"
+          }
+        },
+        "spec": {
+          "initContainers": [
+            {
+              "name": "create-cache-dir",
+              "image": "honestica/squid:4.69",
+              "imagePullPolicy": "IfNotPresent",
+              "resources": {},
+              "volumeMounts": [
+                {
+                  "name": "release-name-squid-conf",
+                  "mountPath": "/etc/squid/squid.conf",
+                  "subPath": "squid.conf"
+                },
+                {
+                  "name": "cache",
+                  "mountPath": "/var/cache/squid"
+                }
+              ],
+              "command": [
+                "/bin/sh",
+                "-c"
+              ],
+              "args": [
+                "set -e\nchown -R squid.squid /var/cache/squid\nchmod 770 /var/cache/squid\nsquid -z --foreground 2>&1\n"
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "squid",
+              "image": "honestica/squid:4.69",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 3128,
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "release-name-squid-conf",
+                  "mountPath": "/etc/squid/squid.conf",
+                  "subPath": "squid.conf"
+                },
+                {
+                  "name": "cache",
+                  "mountPath": "/var/cache/squid"
+                }
+              ],
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": 3128
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10
+              },
+              "readinessProbe": {
+                "tcpSocket": {
+                  "port": 3128
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "release-name-squid-conf",
+              "configMap": {
+                "name": "release-name-squid-conf"
+              }
+            },
+            {
+              "emptyDir": {},
+              "name": "cache"
+            }
+          ],
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "weight": 100,
+                  "podAffinityTerm": {
+                    "topologyKey": "kubernetes.io/hostname",
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "release",
+                          "operator": "In",
+                          "values": [
+                            "release-name"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+]

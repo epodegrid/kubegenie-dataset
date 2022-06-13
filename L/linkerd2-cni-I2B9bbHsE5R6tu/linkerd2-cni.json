@@ -1,0 +1,211 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "linkerd-cni",
+      "labels": {
+        "linkerd.io/cni-resource": "true"
+      }
+    }
+  },
+  {
+    "kind": "ConfigMap",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "linkerd-cni-config",
+      "labels": {
+        "linkerd.io/cni-resource": "true"
+      }
+    },
+    "data": {
+      "dest_cni_net_dir": "/etc/cni/net.d",
+      "dest_cni_bin_dir": "/opt/cni/bin",
+      "cni_network_config": "{\n  \"name\": \"linkerd-cni\",\n  \"type\": \"linkerd-cni\",\n  \"log_level\": \"info\",\n  \"policy\": {\n      \"type\": \"k8s\",\n      \"k8s_api_root\": \"https://__KUBERNETES_SERVICE_HOST__:__KUBERNETES_SERVICE_PORT__\",\n      \"k8s_auth_token\": \"__SERVICEACCOUNT_TOKEN__\"\n  },\n  \"kubernetes\": {\n      \"kubeconfig\": \"__KUBECONFIG_FILEPATH__\"\n  },\n  \"linkerd\": {\n    \"incoming-proxy-port\": 4143,\n    \"outgoing-proxy-port\": 4140,\n    \"proxy-uid\": 2102,\n    \"ports-to-redirect\": [],\n    \"inbound-ports-to-ignore\": [\"4191\",\"4190\"],\n    \"simulate\": false,\n    \"use-wait-flag\": false\n  }\n}"
+    }
+  },
+  {
+    "kind": "ClusterRole",
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "metadata": {
+      "name": "linkerd-cni",
+      "labels": {
+        "linkerd.io/cni-resource": "true"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "pods",
+          "nodes",
+          "namespaces"
+        ],
+        "verbs": [
+          "list",
+          "get",
+          "watch"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "linkerd-cni",
+      "labels": {
+        "linkerd.io/cni-resource": "true"
+      }
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "linkerd-cni"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "linkerd-cni",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "kind": "DaemonSet",
+    "apiVersion": "apps/v1",
+    "metadata": {
+      "name": "linkerd-cni",
+      "labels": {
+        "k8s-app": "linkerd-cni",
+        "linkerd.io/cni-resource": "true"
+      },
+      "annotations": {
+        "linkerd.io/created-by": "linkerd/helm edge-21.12.4"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "k8s-app": "linkerd-cni"
+        }
+      },
+      "updateStrategy": {
+        "type": "RollingUpdate",
+        "rollingUpdate": {
+          "maxUnavailable": 1
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "k8s-app": "linkerd-cni"
+          },
+          "annotations": {
+            "linkerd.io/created-by": "linkerd/helm edge-21.12.4"
+          }
+        },
+        "spec": {
+          "nodeSelector": {
+            "kubernetes.io/os": "linux"
+          },
+          "hostNetwork": true,
+          "serviceAccountName": "linkerd-cni",
+          "containers": [
+            {
+              "name": "install-cni",
+              "image": "cr.l5d.io/linkerd/cni-plugin:edge-21.12.4",
+              "env": [
+                {
+                  "name": "DEST_CNI_NET_DIR",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "name": "linkerd-cni-config",
+                      "key": "dest_cni_net_dir"
+                    }
+                  }
+                },
+                {
+                  "name": "DEST_CNI_BIN_DIR",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "name": "linkerd-cni-config",
+                      "key": "dest_cni_bin_dir"
+                    }
+                  }
+                },
+                {
+                  "name": "CNI_NETWORK_CONFIG",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "name": "linkerd-cni-config",
+                      "key": "cni_network_config"
+                    }
+                  }
+                },
+                {
+                  "name": "SLEEP",
+                  "value": "true"
+                }
+              ],
+              "lifecycle": {
+                "preStop": {
+                  "exec": {
+                    "command": [
+                      "/bin/sh",
+                      "-c",
+                      "kill -15 1"
+                    ]
+                  }
+                }
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/host/opt/cni/bin",
+                  "name": "cni-bin-dir"
+                },
+                {
+                  "mountPath": "/host/etc/cni/net.d",
+                  "name": "cni-net-dir"
+                },
+                {
+                  "mountPath": "/tmp",
+                  "name": "linkerd-tmp-dir"
+                }
+              ],
+              "securityContext": {
+                "readOnlyRootFilesystem": true,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "cni-bin-dir",
+              "hostPath": {
+                "path": "/opt/cni/bin"
+              }
+            },
+            {
+              "name": "cni-net-dir",
+              "hostPath": {
+                "path": "/etc/cni/net.d"
+              }
+            },
+            {
+              "name": "linkerd-tmp-dir",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  }
+]

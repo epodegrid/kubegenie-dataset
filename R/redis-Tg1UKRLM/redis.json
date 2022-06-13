@@ -1,0 +1,308 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "redis",
+      "namespace": "Tg1UKRLM"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-test",
+      "namespace": "Tg1UKRLM"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "redis-bin"
+    },
+    "data": {
+      "image-repo-sync.sh": "#!/bin/sh\nset -ex\n\nIFS=','; for IMAGE in ${IMAGE_SYNC_LIST}; do\n  docker pull ${IMAGE}\n  docker tag ${IMAGE} ${LOCAL_REPO}/${IMAGE}\n  docker push ${LOCAL_REPO}/${IMAGE}\ndone\n",
+      "redis-test.sh": "#!/bin/bash\nset -ex\n\necho \"Start Redis Test\"\necho \"Print Environmental variables\"\necho $REDIS_HOST\necho $REDIS_PORT\necho $REDIS_DB\n\npython /tmp/python-tests.py\n",
+      "python-tests.py": "import os\nimport redis\n\n\nclass RedisTest(object):\n\n    def __init__(self):\n        host = os.environ.get('REDIS_HOST', 'redis')\n        port = os.environ.get('REDIS_PORT', 6379)\n        db = os.environ.get('REDIS_DB', 0)\n        self.redis_conn = redis.Redis(host, port, db)\n\n    def test_connection(self):\n        ping = self.redis_conn.ping()\n        if not ping: raise Exception('No connection to database')\n        print(\"Successfully connected to database\")\n\n    def database_info(self):\n        ip_port = []\n        for client in self.redis_conn.client_list():\n            ip_port.append(client[\"addr\"])\n        print(ip_port)\n        if not self.redis_conn.client_list():\n            raise Exception('Database client list is null')\n        return ip_port\n\n    def test_insert_delete_data(self):\n        key = \"test\"\n        value = \"it's working\"\n        result_set = self.redis_conn.set(key, value)\n        if not result_set: raise Exception('ERROR: SET command failed')\n        print(\"Successfully SET keyvalue pair\")\n        result_get = self.redis_conn.get(key)\n        if not result_get: raise Exception('ERROR: GET command failed')\n        print(\"Successfully GET keyvalue pair\")\n        db_size = self.redis_conn.dbsize()\n        if db_size <= 0: raise Exception(\"Database size not valid\")\n        result_delete = self.redis_conn.delete(key)\n        if not result_delete == 1: raise Exception(\"Error: Delete command failed\")\n        print(\"Successfully DELETED keyvalue pair\")\n\n    def test_client_kill(self, client_ip_port_list):\n        for client_ip_port in client_ip_port_list:\n            result = self.redis_conn.client_kill(client_ip_port)\n            if not result: raise Exception('Client failed to be removed')\n            print(\"Successfully DELETED client\")\n\n\nclient_ip_port = []\nredis_client = RedisTest()\nredis_client.test_connection()\nclient_ip_port = redis_client.database_info()\nredis_client.test_insert_delete_data()\nredis_client.test_client_kill(client_ip_port)\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "redis"
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "port": 6379
+        }
+      ],
+      "selector": {
+        "release_group": "release-name",
+        "application": "redis",
+        "component": "server"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "redis",
+      "annotations": {
+        "openstackhelm.openstack.org/release_uuid": ""
+      },
+      "labels": {
+        "release_group": "release-name",
+        "application": "redis",
+        "component": "server"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "release_group": "release-name",
+          "application": "redis",
+          "component": "server"
+        }
+      },
+      "revisionHistoryLimit": 3,
+      "strategy": {
+        "type": "RollingUpdate",
+        "rollingUpdate": {
+          "maxUnavailable": 1,
+          "maxSurge": 3
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "release_group": "release-name",
+            "application": "redis",
+            "component": "server"
+          },
+          "annotations": {
+            "openstackhelm.openstack.org/release_uuid": "",
+            "configmap-bin-hash": "ff4936e0592295fb32e5719a7eaa3d94bed438494c4cc377abfb3512f3483716"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "redis",
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "release_group",
+                          "operator": "In",
+                          "values": [
+                            "release-name"
+                          ]
+                        },
+                        {
+                          "key": "application",
+                          "operator": "In",
+                          "values": [
+                            "redis"
+                          ]
+                        },
+                        {
+                          "key": "component",
+                          "operator": "In",
+                          "values": [
+                            "server"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 10
+                }
+              ]
+            }
+          },
+          "nodeSelector": {
+            "openstack-control-plane": "enabled"
+          },
+          "initContainers": [
+            {
+              "name": "init",
+              "image": "quay.io/airshipit/kubernetes-entrypoint:v1.0.0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "runAsUser": 65534
+              },
+              "env": [
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "INTERFACE_NAME",
+                  "value": "eth0"
+                },
+                {
+                  "name": "PATH",
+                  "value": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/"
+                },
+                {
+                  "name": "DEPENDENCY_SERVICE",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_DAEMONSET",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CONTAINER",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_POD_JSON",
+                  "value": ""
+                },
+                {
+                  "name": "DEPENDENCY_CUSTOM_RESOURCE",
+                  "value": ""
+                }
+              ],
+              "command": [
+                "kubernetes-entrypoint"
+              ],
+              "volumeMounts": []
+            }
+          ],
+          "containers": [
+            {
+              "name": "redis",
+              "image": "docker.io/redis:4.0.1",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "redis-server",
+                "--port",
+                "6379"
+              ],
+              "ports": [
+                {
+                  "containerPort": 6379
+                }
+              ],
+              "readinessProbe": {
+                "tcpSocket": {
+                  "port": 6379
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-test",
+      "labels": {
+        "release_group": "release-name",
+        "application": "redis",
+        "component": "test"
+      },
+      "annotations": {
+        "helm.sh/hook": "test-success",
+        "openstackhelm.openstack.org/release_uuid": ""
+      }
+    },
+    "spec": {
+      "serviceAccountName": "release-name-test",
+      "nodeSelector": {
+        "openstack-control-plane": "enabled"
+      },
+      "restartPolicy": "Never",
+      "containers": [
+        {
+          "name": "release-name-helm-tests",
+          "image": "docker.io/redislabs/redis-py:latest",
+          "imagePullPolicy": "IfNotPresent",
+          "command": [
+            "/tmp/redis-test.sh"
+          ],
+          "env": [
+            {
+              "name": "REDIS_HOST",
+              "value": "redis"
+            },
+            {
+              "name": "REDIS_PORT",
+              "value": "6379"
+            },
+            {
+              "name": "REDIS_DB",
+              "value": "0"
+            }
+          ],
+          "volumeMounts": [
+            {
+              "name": "pod-tmp",
+              "mountPath": "/tmp"
+            },
+            {
+              "name": "redis-test",
+              "mountPath": "/tmp/redis-test.sh",
+              "subPath": "redis-test.sh"
+            },
+            {
+              "name": "redis-python",
+              "mountPath": "/tmp/python-tests.py",
+              "subPath": "python-tests.py"
+            }
+          ]
+        }
+      ],
+      "volumes": [
+        {
+          "name": "pod-tmp",
+          "emptyDir": {}
+        },
+        {
+          "name": "redis-test",
+          "configMap": {
+            "name": "redis-bin",
+            "defaultMode": 365
+          }
+        },
+        {
+          "name": "redis-python",
+          "configMap": {
+            "name": "redis-bin",
+            "defaultMode": 365
+          }
+        }
+      ]
+    }
+  }
+]

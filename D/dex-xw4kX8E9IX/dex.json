@@ -1,0 +1,343 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-dex",
+      "labels": {
+        "app": "release-name-dex",
+        "env": "dev",
+        "chart": "dex-1.2.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-dex",
+      "labels": {
+        "app": "release-name-dex",
+        "env": "dev",
+        "chart": "dex-1.2.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "github-client-id": "b3ZlcnJpZGUtbWU=",
+      "github-client-secret": "b3ZlcnJpZGUtbWU=",
+      "google-client-id": "b3ZlcnJpZGUtbWU=",
+      "google-client-secret": "b3ZlcnJpZGUtbWU=",
+      "ldap-bindpw": "b3ZlcnJpZGUtbWU=",
+      "microsoft-application-id": "b3ZlcnJpZGUtbWU=",
+      "microsoft-client-secret": "b3ZlcnJpZGUtbWU="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-dex",
+      "labels": {
+        "app": "release-name-dex",
+        "env": "dev",
+        "chart": "dex-1.2.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "config.yaml": "issuer: https://dex.example.com\n\nstorage:\n  type: kubernetes\n  config:\n    inCluster: true\n\nweb:\n  http: 0.0.0.0:5556\n\n  # If enabled, be sure to configure tls settings above, or use a tool\n  # such as let-encrypt to manage the certs.\n  # Currently this chart does not support both http and https, and the port\n  # is fixed to 5556\n  #\n  # https: 0.0.0.0:5556\n  # tlsCert: /etc/dex/tls/tls.crt\n  # tlsKey: /etc/dex/tls/tls.key\n\nfrontend:\n  theme: \"coreos\"\n  issuer: \"Example Co\"\n  issuerUrl: \"https://example.com\"\n  logoUrl: https://example.com/images/logo-250x25.png\n\nexpiry:\n  signingKeys: \"6h\"\n  idTokens: \"24h\"\n\nlogger:\n  level: debug\n  format: json\n\noauth2:\n  responseTypes: [\"code\", \"token\", \"id_token\"]\n  skipApprovalScreen: true\n\n# Remember you can have multiple connectors of the same 'type' (with different 'id's)\n# If you need e.g. logins with groups for two different Microsoft 'tenants'\nconnectors:\n\n# GitHub configure 'OAuth Apps' -> 'New OAuth App', add callback URL\n# https://github.com/settings/developers\n- type: github\n  id: github\n  name: GitHub\n  config:\n    clientID: $GITHUB_CLIENT_ID\n    clientSecret: $GITHUB_CLIENT_SECRET\n    redirectURI: https://dex.example.com/callback\n    # 'orgs' can be used to map groups from Github\n    # https://github.com/coreos/dex/blob/master/Documentation/connectors/github.md\n    #orgs:\n    #- name: foo\n    #  teams:\n    #  - team-red\n    #  - team-blue\n    #- name: bar\n\n# Google APIs account, 'Create Credentials' -> 'OAuth Client ID', add callback URL\n# https://console.developers.google.com/apis/credentials\n- type: oidc\n  id: google\n  name: Google\n  config:\n    issuer: https://accounts.google.com\n    clientID: $GOOGLE_CLIENT_ID\n    clientSecret: $GOOGLE_CLIENT_SECRET\n    redirectURI: https://dex.example.com/callback\n    # Google supports whitelisting allowed domains when using G Suite\n    # (Google Apps). The following field can be set to a list of domains\n    # that can log in:\n    # hostedDomains:\n    #  - example.com\n    #  - other.example.com\n\n# Microsoft App Dev account, 'Add an app'\n# 'Application Secrets' -> 'Generate new password'\n# 'Platforms' -> 'Add Platform' -> 'Web', add the callback URL\n# https://apps.dev.microsoft.com/\n- type: microsoft\n  id: microsoft\n  name: Microsoft\n  config:\n    clientID: $MICROSOFT_APPLICATION_ID\n    clientSecret: $MICROSOFT_CLIENT_SECRET\n    redirectURI: https://dex.example.com/callback\n    # Restrict access to one tenant\n    # tenant: <tenant name> or <tenant uuid>\n    # Restrict access to certain groups\n    # groups:\n    # - group-red\n    # - group-blue\n\n# These may not match the schema used by your LDAP server\n# https://github.com/coreos/dex/blob/master/Documentation/connectors/ldap.md\n- type: ldap\n  id: ldap\n  name: \"LDAP\"\n  config:\n    host: ldap.example.com:389\n    startTLS: true\n    bindDN: \"cn=serviceAccount,dc=example,dc=com\"\n    bindPW: $LDAP_BINDPW\n    usernamePrompt: \"Username\"\n    userSearch:\n      # Query should be \"(&(objectClass=inetorgperson)(cn=<username>))\"\n      baseDN: \"ou=Users,dc=example,dc=com\"\n      filter: \"(objectClass=inetorgperson)\"\n      username: cn\n      # DN must be in capitals\n      idAttr: DN\n      emailAttr: mail\n      nameAttr: displayName\n    groupSearch:\n      # Query should be \"(&(objectClass=groupOfUniqueNames)(uniqueMember=<userAttr>))\"\n      baseDN: \"ou=Groups,dc=example,dc=com\"\n      filter: \"(objectClass=groupOfUniqueNames)\"\n      # DN must be in capitals\n      userAttr: DN\n      groupAttr: uniqueMember\n      nameAttr: cn\n\n# The 'name' must match the k8s API server's 'oidc-client-id'\nstaticClients:\n- id: my-cluster\n  name: \"my-cluster\"\n  secret: \"pUBnBOY80SnXgjibTYM9ZWNzY2xreNGQok\"\n  redirectURIs:\n  - https://login.example.com/callback/my-cluster\n\nenablePasswordDB: True\nstaticPasswords:\n- email: \"admin@example.com\"\n  # bcrypt hash of the string \"password\"\n  hash: \"$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W\"\n  username: \"admin\"\n  userID: \"08a8684b-db88-4b73-90a9-3cd1661f5466\""
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1beta1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "name": "release-name-dex"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "apiextensions.k8s.io"
+        ],
+        "resources": [
+          "customresourcedefinitions"
+        ],
+        "verbs": [
+          "*"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1beta1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "release-name-dex"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "release-name-dex"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-dex",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1beta1",
+    "kind": "Role",
+    "metadata": {
+      "name": "release-name-dex",
+      "namespace": "xw4kX8E9IX"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "dex.coreos.com"
+        ],
+        "resources": [
+          "authcodes",
+          "authrequests",
+          "connectors",
+          "oauth2clients",
+          "offlinesessionses",
+          "passwords",
+          "refreshtokens",
+          "signingkeies"
+        ],
+        "verbs": [
+          "*"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1beta1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "release-name-dex",
+      "namespace": "xw4kX8E9IX"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "release-name-dex"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-dex",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-dex",
+      "labels": {
+        "app": "dex",
+        "env": "dev",
+        "chart": "dex-1.2.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 5556,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app": "dex",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-dex",
+      "labels": {
+        "app": "dex",
+        "env": "dev",
+        "chart": "dex-1.2.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": {
+        "scheduler.alpha.kubernetes.io/critical-pod": ""
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "minReadySeconds": 30,
+      "strategy": {
+        "rollingUpdate": {
+          "maxUnavailable": 0
+        }
+      },
+      "selector": {
+        "matchLabels": {
+          "app": "dex",
+          "env": "dev",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "dex",
+            "env": "dev",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "19738f3d3e76c0bbe013a58feac0939a974eaca0d21a51dab69236d6f5b21c8c"
+          }
+        },
+        "spec": {
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-dex",
+                "items": [
+                  {
+                    "key": "config.yaml",
+                    "path": "config.yaml"
+                  }
+                ]
+              }
+            }
+          ],
+          "serviceAccountName": "release-name-dex",
+          "containers": [
+            {
+              "name": "dex",
+              "image": "quay.io/dexidp/dex:v2.20.0",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/usr/local/bin/dex",
+                "serve",
+                "/etc/dex/config.yaml"
+              ],
+              "env": [
+                {
+                  "name": "GITHUB_CLIENT_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-dex",
+                      "key": "github-client-id"
+                    }
+                  }
+                },
+                {
+                  "name": "GITHUB_CLIENT_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-dex",
+                      "key": "github-client-secret"
+                    }
+                  }
+                },
+                {
+                  "name": "GOOGLE_CLIENT_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-dex",
+                      "key": "google-client-id"
+                    }
+                  }
+                },
+                {
+                  "name": "GOOGLE_CLIENT_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-dex",
+                      "key": "google-client-secret"
+                    }
+                  }
+                },
+                {
+                  "name": "LDAP_BINDPW",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-dex",
+                      "key": "ldap-bindpw"
+                    }
+                  }
+                },
+                {
+                  "name": "MICROSOFT_APPLICATION_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-dex",
+                      "key": "microsoft-application-id"
+                    }
+                  }
+                },
+                {
+                  "name": "MICROSOFT_CLIENT_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-dex",
+                      "key": "microsoft-client-secret"
+                    }
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 5556,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": 5556
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": 5556
+                },
+                "initialDelaySeconds": 5,
+                "timeoutSeconds": 1
+              },
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/etc/dex"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

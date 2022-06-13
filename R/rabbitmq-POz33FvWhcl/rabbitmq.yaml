@@ -1,0 +1,303 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-rabbitmq
+  labels:
+    app: rabbitmq
+    chart: rabbitmq-5.5.2
+    release: release-name
+    heritage: Helm
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-rabbitmq
+  labels:
+    app: rabbitmq
+    chart: rabbitmq-5.5.2
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  rabbitmq-password: MTljMzJ3VUluQQ==
+  rabbitmq-erlang-cookie: M0tsMkdKR2twdkdDdGxqeTcwUHkzRndsSTJ3MWpOREM=
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-rabbitmq-config
+  labels:
+    app: rabbitmq
+    chart: rabbitmq-5.5.2
+    release: release-name
+    heritage: Helm
+data:
+  enabled_plugins: '[rabbitmq_management, rabbitmq_peer_discovery_k8s].'
+  rabbitmq.conf: |-
+    ##username and password
+    default_user=user
+    default_pass=CHANGEME
+    ## Clustering
+    cluster_formation.peer_discovery_backend  = rabbit_peer_discovery_k8s
+    cluster_formation.k8s.host = kubernetes.default.svc.cluster.local
+    cluster_formation.node_cleanup.interval = 10
+    cluster_formation.node_cleanup.only_log_warning = true
+    cluster_partition_handling = autoheal
+    # queue master locator
+    queue_master_locator=min-masters
+    # enable guest user
+    loopback_users.guest = false
+    #disk_free_limit.absolute = 50MB
+    #management.load_definitions = /app/load_definition.json
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-rabbitmq-endpoint-reader
+  labels:
+    app: rabbitmq
+    chart: rabbitmq-5.5.2
+    release: release-name
+    heritage: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+    verbs:
+      - get
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-rabbitmq-endpoint-reader
+  labels:
+    app: rabbitmq
+    chart: rabbitmq-5.5.2
+    release: release-name
+    heritage: Helm
+subjects:
+  - kind: ServiceAccount
+    name: release-name-rabbitmq
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-rabbitmq-endpoint-reader
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-rabbitmq-headless
+  labels:
+    app: rabbitmq
+    chart: rabbitmq-5.5.2
+    release: release-name
+    heritage: Helm
+spec:
+  clusterIP: None
+  ports:
+    - name: epmd
+      port: 4369
+      targetPort: epmd
+    - name: amqp
+      port: 5672
+      targetPort: amqp
+    - name: dist
+      port: 25672
+      targetPort: dist
+    - name: stats
+      port: 15672
+      targetPort: stats
+  selector:
+    app: rabbitmq
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-rabbitmq
+  labels:
+    app: rabbitmq
+    chart: rabbitmq-5.5.2
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: epmd
+      port: 4369
+      targetPort: epmd
+    - name: amqp
+      port: 5672
+      targetPort: amqp
+    - name: dist
+      port: 25672
+      targetPort: dist
+    - name: stats
+      port: 15672
+      targetPort: stats
+  selector:
+    app: rabbitmq
+    release: release-name
+---
+apiVersion: apps/v1beta2
+kind: StatefulSet
+metadata:
+  name: release-name-rabbitmq
+  labels:
+    app: rabbitmq
+    chart: rabbitmq-5.5.2
+    release: release-name
+    heritage: Helm
+spec:
+  serviceName: release-name-rabbitmq-headless
+  podManagementPolicy: OrderedReady
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: rabbitmq
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+        release: release-name
+        chart: rabbitmq-5.5.2
+    spec:
+      serviceAccountName: release-name-rabbitmq
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: rabbitmq
+          image: docker.io/bitnami/rabbitmq:3.7.15
+          imagePullPolicy: IfNotPresent
+          command:
+            - bash
+            - -ec
+            - |
+              mkdir -p /opt/bitnami/rabbitmq/.rabbitmq/
+              mkdir -p /opt/bitnami/rabbitmq/etc/rabbitmq/
+              #persist the erlang cookie in both places for server and cli tools
+              echo $RABBITMQ_ERL_COOKIE > /opt/bitnami/rabbitmq/var/lib/rabbitmq/.erlang.cookie
+              cp /opt/bitnami/rabbitmq/var/lib/rabbitmq/.erlang.cookie /opt/bitnami/rabbitmq/.rabbitmq/
+              #change permission so only the user has access to the cookie file
+              chmod 600 /opt/bitnami/rabbitmq/.rabbitmq/.erlang.cookie /opt/bitnami/rabbitmq/var/lib/rabbitmq/.erlang.cookie
+              #copy the mounted configuration to both places
+              cp  /opt/bitnami/rabbitmq/conf/* /opt/bitnami/rabbitmq/etc/rabbitmq
+              # Apply resources limits
+              ulimit -n "${RABBITMQ_ULIMIT_NOFILES}"
+              #replace the default password that is generated
+              sed -i "s/CHANGEME/$RABBITMQ_PASSWORD/g" /opt/bitnami/rabbitmq/etc/rabbitmq/rabbitmq.conf
+              #api check for probes
+              cat > /opt/bitnami/rabbitmq/sbin/rabbitmq-api-check <<EOF
+              #!/bin/sh
+              set -e
+              URL=\$1
+              EXPECTED=\$2
+              ACTUAL=\$(curl --silent --show-error --fail "\${URL}")
+              echo "\${ACTUAL}"
+              test "\${EXPECTED}" = "\${ACTUAL}"
+              EOF
+              chmod a+x /opt/bitnami/rabbitmq/sbin/rabbitmq-api-check
+              exec rabbitmq-server
+          volumeMounts:
+            - name: config-volume
+              mountPath: /opt/bitnami/rabbitmq/conf
+            - name: data
+              mountPath: /opt/bitnami/rabbitmq/var/lib/rabbitmq
+          ports:
+            - name: epmd
+              containerPort: 4369
+            - name: amqp
+              containerPort: 5672
+            - name: dist
+              containerPort: 25672
+            - name: stats
+              containerPort: 15672
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - rabbitmq-api-check "http://user:$RABBITMQ_PASSWORD@127.0.0.1:15672/api/healthchecks/node" '{"status":"ok"}'
+            initialDelaySeconds: 120
+            timeoutSeconds: 20
+            periodSeconds: 30
+            failureThreshold: 6
+            successThreshold: 1
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - rabbitmq-api-check "http://user:$RABBITMQ_PASSWORD@127.0.0.1:15672/api/healthchecks/node" '{"status":"ok"}'
+            initialDelaySeconds: 10
+            timeoutSeconds: 20
+            periodSeconds: 30
+            failureThreshold: 3
+            successThreshold: 1
+          env:
+            - name: MY_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: MY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: MY_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: K8S_SERVICE_NAME
+              value: release-name-rabbitmq-headless
+            - name: K8S_ADDRESS_TYPE
+              value: hostname
+            - name: RABBITMQ_NODENAME
+              value: rabbit@$(MY_POD_NAME).$(K8S_SERVICE_NAME).$(MY_POD_NAMESPACE).svc.cluster.local
+            - name: K8S_HOSTNAME_SUFFIX
+              value: .$(K8S_SERVICE_NAME).$(MY_POD_NAMESPACE).svc.cluster.local
+            - name: RABBITMQ_LOGS
+              value: '-'
+            - name: RABBITMQ_ULIMIT_NOFILES
+              value: "65536"
+            - name: RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS
+              value: +S 2:1
+            - name: RABBITMQ_USE_LONGNAME
+              value: "true"
+            - name: RABBITMQ_ERL_COOKIE
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-rabbitmq
+                  key: rabbitmq-erlang-cookie
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-rabbitmq
+                  key: rabbitmq-password
+      securityContext:
+        fsGroup: 1001
+        runAsUser: 1001
+      volumes:
+        - name: config-volume
+          configMap:
+            name: release-name-rabbitmq-config
+            items:
+              - key: rabbitmq.conf
+                path: rabbitmq.conf
+              - key: enabled_plugins
+                path: enabled_plugins
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app: rabbitmq
+          release: release-name
+          heritage: Helm
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi

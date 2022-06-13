@@ -1,0 +1,205 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-nginx-conf"
+    },
+    "data": {
+      "nginx.conf": "user  nginx;\n\nerror_log  /var/log/nginx/error.log warn;\npid        /var/run/nginx.pid;\n\nevents {\n  worker_connections  1024;\n}\n\nhttp {\n  include       /etc/nginx/mime.types;\n  default_type  application/octet-stream;\n\n  server_tokens off;\n\n  sendfile        on;\n  keepalive_timeout  65;\n\n  upstream release-name {\n    server 127.0.0.1:3000;\n  }\n\n  server {\n    listen 80;\n\n    location / {\n      proxy_set_header   Host $host;\n      proxy_set_header   X-Real-IP $remote_addr;\n      proxy_pass         http://release-name;\n      proxy_redirect     off;\n    }\n  }\n}"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name",
+      "labels": {
+        "app": "release-name"
+      }
+    },
+    "spec": {
+      "type": "NodePort",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": 80
+        }
+      ],
+      "selector": {
+        "app": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name",
+      "labels": {
+        "app": "release-name"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "release-name",
+              "image": "172025368201.dkr.ecr.eu-west-1.amazonaws.com/content-store:latest",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 3000
+                }
+              ],
+              "envFrom": [
+                {
+                  "configMapRef": {
+                    "name": "govuk-apps-env"
+                  }
+                }
+              ],
+              "env": [
+                {
+                  "name": "DEFAULT_TTL",
+                  "value": "1800"
+                },
+                {
+                  "name": "GOVUK_APP_NAME",
+                  "value": "release-name"
+                },
+                {
+                  "name": "GOVUK_CONTENT_SCHEMAS_PATH",
+                  "value": "/govuk-content-schemas"
+                },
+                {
+                  "name": "MONGODB_URI",
+                  "value": "mongodb://mongo/content-store"
+                },
+                {
+                  "name": "PORT",
+                  "value": "3000"
+                },
+                {
+                  "name": "SECRET_KEY_BASE",
+                  "value": "secret"
+                },
+                {
+                  "name": "ROUTER_API_BEARER_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "bearer_token",
+                      "name": "signon-token-content-store-router-api"
+                    }
+                  }
+                },
+                {
+                  "name": "GDS_SSO_OAUTH_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "oauth_id",
+                      "name": "signon-app-content-store"
+                    }
+                  }
+                },
+                {
+                  "name": "GDS_SSO_OAUTH_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "oauth_secret",
+                      "name": "signon-app-content-store"
+                    }
+                  }
+                }
+              ],
+              "startupProbe": {
+                "httpGet": {
+                  "path": "/healthcheck/live",
+                  "port": "http"
+                },
+                "failureThreshold": 10,
+                "periodSeconds": 3,
+                "timeoutSeconds": 5
+              },
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/healthcheck/live",
+                  "port": "http"
+                },
+                "timeoutSeconds": 5,
+                "failureThreshold": 3,
+                "periodSeconds": 5
+              },
+              "readinessProbe": {
+                "timeoutSeconds": 5,
+                "httpGet": {
+                  "path": "/healthcheck/ready",
+                  "port": "http"
+                },
+                "failureThreshold": 2,
+                "periodSeconds": 5
+              }
+            },
+            {
+              "name": "release-name-nginx",
+              "image": "nginx:stable",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 80
+                }
+              ],
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": "http"
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 5,
+                "periodSeconds": 10,
+                "failureThreshold": 6,
+                "successThreshold": 1
+              },
+              "readinessProbe": {
+                "tcpSocket": {
+                  "port": "http"
+                },
+                "initialDelaySeconds": 5,
+                "timeoutSeconds": 3,
+                "periodSeconds": 5,
+                "failureThreshold": 3,
+                "successThreshold": 1
+              },
+              "volumeMounts": [
+                {
+                  "name": "release-name-nginx-conf",
+                  "mountPath": "/etc/nginx/nginx.conf",
+                  "subPath": "nginx.conf"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "release-name-nginx-conf",
+              "configMap": {
+                "name": "release-name-nginx-conf"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

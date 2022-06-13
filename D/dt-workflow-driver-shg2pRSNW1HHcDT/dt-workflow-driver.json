@@ -1,0 +1,97 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "dt-workflow-driver"
+    },
+    "data": {
+      "serviceConfig": "name: dt-workflow-driver\naccessor:\n  username: \"admin@opencord.org\"\n  password: \"letmein\"\n  endpoint: \"xos-core:50051\"\nevent_bus:\n  endpoint: \"cord-kafka\"\n  kind: kafka\nlogging:\n  version: 1\n  handlers:\n    console:\n      class: logging.StreamHandler\n    file:\n      class: logging.handlers.RotatingFileHandler\n      filename: /var/log/xos.log\n      maxBytes: 10485760\n      backupCount: 5\n    kafka:\n      class: kafkaloghandler.KafkaLogHandler\n      bootstrap_servers:\n        - \"cord-kafka:9092\"\n      topic: xos.log.dt-workflow-driver\n  loggers:\n    '':\n      handlers:\n        - console\n        - file\n        - kafka\n      level: DEBUG\n"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-dt-workflow-driver",
+      "labels": {
+        "app": "dt-workflow-driver",
+        "chart": "dt-workflow-driver-2.0.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "dt-workflow-driver",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "dt-workflow-driver",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "8c2088dcff0fba6895e818f8b85edcf3b6a856bc8c07519e27cd73babcc30db2"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "dt-workflow-driver",
+              "image": "xosproject/dt-workflow-driver-synchronizer:2.0.1",
+              "imagePullPolicy": "Always",
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "dt-workflow-driver-config",
+                  "mountPath": "/opt/xos/synchronizers/dt-workflow-driver/mounted_config.yaml",
+                  "subPath": "mounted_config.yaml"
+                },
+                {
+                  "name": "certchain-volume",
+                  "mountPath": "/usr/local/share/ca-certificates/local_certs.crt",
+                  "subPath": "config/ca_cert_chain.pem"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "dt-workflow-driver-config",
+              "configMap": {
+                "name": "dt-workflow-driver",
+                "items": [
+                  {
+                    "key": "serviceConfig",
+                    "path": "mounted_config.yaml"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "certchain-volume",
+              "configMap": {
+                "name": "ca-certificates",
+                "items": [
+                  {
+                    "key": "chain",
+                    "path": "config/ca_cert_chain.pem"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

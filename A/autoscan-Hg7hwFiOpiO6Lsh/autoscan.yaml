@@ -1,0 +1,177 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-autoscan-config
+  labels:
+    helm.sh/chart: autoscan-0.0.11
+    app.kubernetes.io/name: autoscan
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 999Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-autoscan
+  labels:
+    helm.sh/chart: autoscan-0.0.11
+    app.kubernetes.io/name: autoscan
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    rollme: PQdB8
+spec:
+  revisionHistoryLimit: 3
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: autoscan
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        rollme: YZBDW
+      labels:
+        app.kubernetes.io/name: autoscan
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      securityContext:
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 0
+        runAsUser: 0
+        supplementalGroups:
+          - 568
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 10
+      initContainers:
+        - name: autopermissions
+          image: ghcr.io/truecharts/alpine:v3.15.2@sha256:29ed3480a0ee43f7af681fed5d4fc215516abf1c41eade6938b26d8c9c2c7583
+          securityContext:
+            runAsUser: 0
+            privileged: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+          command:
+            - /bin/sh
+            - -c
+            - echo 'Automatically correcting permissions...';
+          volumeMounts: null
+        - name: hostpatch
+          image: ghcr.io/truecharts/alpine:v3.15.2@sha256:29ed3480a0ee43f7af681fed5d4fc215516abf1c41eade6938b26d8c9c2c7583
+          securityContext:
+            runAsUser: 10607
+            privileged: true
+            allowPrivilegeEscalation: false
+          command:
+            - /bin/sh
+            - -c
+            - ( sysctl -w fs.inotify.max_user_watches=524288 || echo "error setting inotify") && ( sysctl -w fs.inotify.max_user_instances=512 || echo "error setting inotify") && ( chmod -x /host/usr/bin/docker-compose || echo "error locking docker-compose") && ( chmod -x /host/bin/docker-compose || echo "error locking docker-compose")
+          volumeMounts:
+            - mountPath: /host/usr/bin
+              name: host-usr-bin
+            - mountPath: /host/bin
+              name: host-bin
+      containers:
+        - name: release-name-autoscan
+          image: tccr.io/truecharts/autoscan:latest
+          imagePullPolicy: IfNotPresent
+          tty: false
+          stdin: false
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: false
+          env:
+            - name: PUID
+              value: "568"
+            - name: USER_ID
+              value: "568"
+            - name: UID
+              value: "568"
+            - name: UMASK
+              value: "2"
+            - name: UMASK_SET
+              value: "2"
+            - name: PGID
+              value: "568"
+            - name: GROUP_ID
+              value: "568"
+            - name: GID
+              value: "568"
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: void
+            - name: TZ
+              value: UTC
+            - name: PLEX_LOGIN
+              value: ""
+            - name: PLEX_PASSWORD
+              value: ""
+            - name: UMASK
+              value: ""
+          envFrom: null
+          ports: null
+          volumeMounts:
+            - mountPath: /config
+              name: config
+            - mountPath: /shared
+              name: shared
+            - mountPath: /tmp
+              name: temp
+            - mountPath: /var/logs
+              name: varlogs
+          livenessProbe: null
+          readinessProbe: null
+          startupProbe: null
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: release-name-autoscan-config
+        - name: host-bin
+          hostPath:
+            path: /bin
+        - name: host-usr-bin
+          hostPath:
+            path: /usr/bin
+        - name: shared
+          emptyDir: {}
+        - name: temp
+          emptyDir:
+            medium: Memory
+        - name: varlogs
+          emptyDir: {}

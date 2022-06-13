@@ -1,0 +1,179 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spinnaker-operator
+  namespace: 9zAhdzOWWl
+  labels:
+    app: armory-spinnaker-operator
+    chart: armory-spinnaker-operator-1.7.0
+    release: release-name
+    heritage: Helm
+imagePullSecrets: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: armory-spinnaker-operator
+  labels:
+    app: armory-spinnaker-operator
+    chart: armory-spinnaker-operator-1.7.0
+    release: release-name
+    heritage: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - ingresses/status
+      - endpoints
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - services
+      - events
+      - configmaps
+      - secrets
+      - namespaces
+      - ingresses
+    verbs:
+      - create
+      - get
+      - list
+      - update
+      - watch
+      - patch
+  - apiGroups:
+      - apps
+      - extensions
+    resources:
+      - deployments
+      - daemonsets
+      - replicasets
+      - statefulsets
+    verbs:
+      - create
+      - get
+      - list
+      - update
+      - watch
+      - patch
+  - apiGroups:
+      - monitoring.coreos.com
+    resources:
+      - servicemonitors
+    verbs:
+      - get
+      - create
+  - apiGroups:
+      - spinnaker.armory.io
+    resources:
+      - '*'
+      - spinnakerservices
+    verbs:
+      - create
+      - get
+      - list
+      - update
+      - watch
+      - patch
+  - apiGroups:
+      - spinnaker.io
+    resources:
+      - spinnakeraccounts
+    verbs:
+      - create
+      - get
+      - list
+      - update
+      - watch
+      - patch
+  - apiGroups:
+      - admissionregistration.k8s.io
+    resources:
+      - validatingwebhookconfigurations
+    verbs:
+      - '*'
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: armory-spinnaker-operator
+  labels:
+    app: armory-spinnaker-operator
+    chart: armory-spinnaker-operator-1.7.0
+    release: release-name
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: armory-spinnaker-operator
+subjects:
+  - kind: ServiceAccount
+    name: spinnaker-operator
+    namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: armory-spinnaker-operator
+  namespace: 9zAhdzOWWl
+  labels:
+    app: armory-spinnaker-operator
+    chart: armory-spinnaker-operator-1.7.0
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: armory-spinnaker-operator
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: armory-spinnaker-operator
+        app.kubernetes.io/instance: release-name
+        chart: armory-spinnaker-operator-1.7.0
+        release: release-name
+        heritage: Helm
+    spec:
+      containers:
+        - name: armory-spinnaker-operator-operator
+          image: index.docker.io/armory/armory-operator:1.7.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - spinnaker-operator
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OPERATOR_NAME
+              value: spinnaker-operator
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+        - name: armory-spinnaker-operator-halyard
+          image: index.docker.io/armory/halyard-armory:1.12.0-7d46af7-operator
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8064
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8064
+            failureThreshold: 20
+            periodSeconds: 5
+            initialDelaySeconds: 20
+          livenessProbe:
+            tcpSocket:
+              port: 8064
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources: {}
+      serviceAccountName: spinnaker-operator

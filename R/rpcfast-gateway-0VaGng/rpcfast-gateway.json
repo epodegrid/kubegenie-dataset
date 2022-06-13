@@ -1,0 +1,188 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-rpcfast-gateway",
+      "labels": {
+        "app.kubernetes.io/name": "rpcfast-gateway",
+        "helm.sh/chart": "rpcfast-gateway-0.1.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "immutable": false,
+    "metadata": {
+      "name": "release-name-rpcfast-gateway",
+      "labels": {
+        "app.kubernetes.io/name": "rpcfast-gateway",
+        "helm.sh/chart": "rpcfast-gateway-0.1.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "configs.yaml": "authWorker:\n  cache:\n    memory:\n      cleanupInterval: 15s\n    ttl: 15s\n  tickInterval: 30s\nbackendAuthUrl: \"\"\nbackendRpcUrl: \"\"\ndebugMode: false\ninternalToken: \"\"\nmonitoring:\n  enabled: true\nprofiling:\n  enabled: false\nrateLimiter:\n  frequency: 1m\nremoteClient:\n  maxIdleConnDuration: 0s\n  netTransport:\n    buffer:\n      readBufferSize: 256KiB\n      writeBufferSize: 256KiB\n    dialTimeout: 0s\n    disableCompression: false\n    disableKeepAlives: false\n    expectContinueTimeout: 0s\n    keepAlive: 15s\n    maxResponseHeaderBytes: 0B\n    responseHeaderTimeout: 0s\n    tlsHandshakeTimeout: 0s\n  readTimeout: 7s\n  writeTimeout: 7s\nrpcObjectKey: method\nserver:\n  host: 0.0.0.0\n  httptransport:\n    maxIdleConnDuration: 15s\n    readTimeout: 7s\n    writeTimeout: 7s\n  keepalive: true\n  port: 8091\n  requestsPause: 0s\nsingle:\n  buffer:\n    readBufferSize: 256KiB\n    writeBufferSize: 256KiB\n  concurrency: 100000\n  enabled: true\n  host: 0.0.0.0\n  httptransport:\n    maxIdleConnDuration: 15s\n    readTimeout: 7s\n    writeTimeout: 7s\n  name: pprof/monitoring server\n  port: 8097\n  tcpKeepalive:\n    enabled: true\n    period: 1s\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-rpcfast-gateway",
+      "labels": {
+        "app.kubernetes.io/name": "rpcfast-gateway",
+        "helm.sh/chart": "rpcfast-gateway-0.1.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "http",
+          "port": 8091,
+          "protocol": "TCP",
+          "targetPort": "http"
+        },
+        {
+          "name": "monitoring",
+          "port": 8097,
+          "protocol": "TCP",
+          "targetPort": "monitoring"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "rpcfast-gateway",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-rpcfast-gateway",
+      "labels": {
+        "app.kubernetes.io/name": "rpcfast-gateway",
+        "helm.sh/chart": "rpcfast-gateway-0.1.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "rpcfast-gateway",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config": "6c44ac11b58a91972b7cb35eedf5b3312485dee9f86a8da698fa182fb5296095"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "rpcfast-gateway",
+            "helm.sh/chart": "rpcfast-gateway-0.1.1",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-rpcfast-gateway",
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "containers": [
+            {
+              "name": "rpcfast-gateway",
+              "image": "eu.gcr.io/predictkube/rpcfast-gateway:v0.1.0",
+              "securityContext": {
+                "runAsNonRoot": true,
+                "runAsUser": 11344,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "command": [
+                "/app"
+              ],
+              "args": [
+                "-conf=/etc/gateway/configs/configs.yaml"
+              ],
+              "resources": {
+                "limits": {},
+                "requests": {},
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8091,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "metrics",
+                  "containerPort": 8097,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "failureThreshold": 3,
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": 8097
+                },
+                "initialDelaySeconds": 20,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 5
+              },
+              "readinessProbe": {
+                "failureThreshold": 3,
+                "httpGet": {
+                  "path": "/readyz",
+                  "port": 8097
+                },
+                "initialDelaySeconds": 20,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 5
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/etc/gateway/configs",
+                  "name": "configs",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "configMap": {
+                "name": "release-name-rpcfast-gateway"
+              },
+              "name": "configs"
+            }
+          ]
+        }
+      }
+    }
+  }
+]

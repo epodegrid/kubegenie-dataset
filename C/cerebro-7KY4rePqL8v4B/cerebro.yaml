@@ -1,0 +1,118 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-cerebro
+  labels:
+    app: cerebro
+    chart: cerebro-1.0.1
+    release: release-name
+    heritage: Helm
+data:
+  application.conf: |-
+    secret = "www0PdpaYB7YY5lxLdVJeGt34pRrC3dwf1cwM1hYvITGv4jtiqvSG9bRgRAQASfl"
+
+    basePath = "/"
+
+    pidfile.path = /dev/null
+
+    rest.history.size = 50
+
+    data.path = "/var/db/cerebro/cerebro.db"
+
+    es = {
+      gzip = true
+    }
+
+    auth = {
+    }
+
+    hosts = [
+    ]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-cerebro
+  labels:
+    app: cerebro
+    chart: cerebro-1.0.1
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: cerebro
+    release: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-cerebro
+  labels:
+    app: cerebro
+    chart: cerebro-1.0.1
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: cerebro
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: cerebro
+        release: release-name
+      annotations:
+        checksum/config: 430b464acc3395ccf287f4d07770b1571afe2485ddbbfb1de0ed5f97d2e6f77f
+    spec:
+      initContainers:
+        - name: chown-db
+          image: docker.io/busybox:musl
+          imagePullPolicy: IfNotPresent
+          command:
+            - chown
+            - 1000:1000
+            - /var/db/cerebro
+          volumeMounts:
+            - name: db
+              mountPath: /var/db/cerebro
+      containers:
+        - name: cerebro
+          image: lmenezes/cerebro:0.8.3
+          imagePullPolicy: IfNotPresent
+          args:
+            - -Dconfig.file=/etc/cerebro/application.conf
+          ports:
+            - name: http
+              containerPort: 9000
+              protocol: TCP
+          volumeMounts:
+            - name: db
+              mountPath: /var/db/cerebro
+            - name: config
+              mountPath: /etc/cerebro
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: db
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: release-name-cerebro

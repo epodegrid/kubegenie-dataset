@@ -1,0 +1,162 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keycloak-secret
+  labels:
+    helm.sh/chart: keycloak-0.6
+    app-name: keycloak
+    component: media-server
+    hostNetwork: "false"
+    internal-service: "true"
+    managed-by: chynten
+    created-by: chynten
+    version: 16.1.1
+type: Opaque
+data:
+  keycloak-password: YWRtaW4=
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: keycloak-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5G
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak-svc
+  labels:
+    helm.sh/chart: keycloak-0.6
+    app-name: keycloak
+    component: media-server
+    hostNetwork: "false"
+    internal-service: "true"
+    managed-by: chynten
+    created-by: chynten
+    version: 16.1.1
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app-name: keycloak
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak-deployment
+  labels:
+    helm.sh/chart: keycloak-0.6
+    app-name: keycloak
+    component: media-server
+    hostNetwork: "false"
+    internal-service: "true"
+    managed-by: chynten
+    created-by: chynten
+    version: 16.1.1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app-name: keycloak
+  template:
+    metadata:
+      labels:
+        app-name: keycloak
+    spec:
+      securityContext:
+        fsGroup: 33
+      containers:
+        - name: keycloak
+          image: jboss/keycloak:14.0.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: KEYCLOAK_USER
+              value: admin
+            - name: PROXY_ADDRESS_FORWARDING
+              value: "true"
+            - name: JAVA_OPTS
+              value: -server -Xms512m -Xmx768m -XX:MetaspaceSize=96M -XX:MaxMetaspaceSize=256m -Djava.net.preferIPv4Stack=true -Djboss.modules.system.pkgs=org.jboss.byteman -Djava.awt.headless=true   --add-exports=java.base/sun.nio.ch=ALL-UNNAMED --add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED --add-exports=jdk.unsupported/sun.reflect=ALL-UNNAMED
+            - name: DB_VENDOR
+              value: h2
+            - name: KEYCLOAK_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-secret
+                  key: keycloak-password
+          volumeMounts:
+            - name: data
+              mountPath: /opt/jboss/keycloak/standalone/data
+              subPath: keycloak
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /auth/realms/home
+              port: http
+              scheme: HTTP
+            periodSeconds: 60
+          livenessProbe:
+            httpGet:
+              path: /auth/realms/home
+              port: http
+              scheme: HTTP
+            periodSeconds: 60
+          startupProbe:
+            httpGet:
+              path: /auth/realms/home
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: 30
+            failureThreshold: 5
+            periodSeconds: 10
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: keycloak-pvc
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: keycloak-ingress
+  labels:
+    helm.sh/chart: keycloak-0.6
+    app-name: keycloak
+    component: media-server
+    hostNetwork: "false"
+    internal-service: "true"
+    managed-by: chynten
+    created-by: chynten
+    version: 16.1.1
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    kubernetes.io/ingress.class: nginx
+spec:
+  tls:
+    - hosts:
+        - sso.example.com
+      secretName: keycloak-letsencrypt-certificate
+  rules:
+    - host: sso.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: keycloak-svc
+                port:
+                  number: 8080

@@ -1,0 +1,104 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-helm-controller
+  labels:
+    helm.sh/chart: helm-controller-1.0.2
+    app.kubernetes.io/name: helm-controller
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.11.9
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: helmchartconfigs.helm.cattle.io
+spec:
+  conversion:
+    strategy: None
+  group: helm.cattle.io
+  names:
+    kind: HelmChartConfig
+    listKind: HelmChartConfigList
+    plural: helmchartconfigs
+    singular: helmchartconfig
+  scope: Namespaced
+  versions:
+    - name: v1
+      schema:
+        openAPIV3Schema:
+          properties:
+            spec:
+              x-kubernetes-preserve-unknown-fields: true
+            status:
+              x-kubernetes-preserve-unknown-fields: true
+          type: object
+      served: true
+      storage: true
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: helmcharts.helm.cattle.io
+spec:
+  conversion:
+    strategy: None
+  group: helm.cattle.io
+  names:
+    kind: HelmChart
+    listKind: HelmChartList
+    plural: helmcharts
+    singular: helmchart
+  scope: Namespaced
+  versions:
+    - name: v1
+      schema:
+        openAPIV3Schema:
+          properties:
+            spec:
+              x-kubernetes-preserve-unknown-fields: true
+            status:
+              x-kubernetes-preserve-unknown-fields: true
+          type: object
+      served: true
+      storage: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-helm-controller
+  labels:
+    helm.sh/chart: helm-controller-1.0.2
+    app.kubernetes.io/name: helm-controller
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.11.9
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: helm-controller
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: helm-controller
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-helm-controller
+      securityContext: {}
+      containers:
+        - name: helm-controller
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: rancher/helm-controller:v0.11.9
+          imagePullPolicy: IfNotPresent
+          command:
+            - helm-controller
+          resources:
+            seccompProfile:
+              type: RuntimeDefault

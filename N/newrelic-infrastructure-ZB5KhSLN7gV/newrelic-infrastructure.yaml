@@ -1,0 +1,100 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  namespace: ZB5KhSLN7gV
+  labels:
+    app: newrelic-infrastructure
+    chart: newrelic-infrastructure-2.10.1
+    heritage: Helm
+    release: release-name
+  annotations: null
+  name: release-name-newrelic-infrastructure
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: ZB5KhSLN7gV
+  labels:
+    app: newrelic-infrastructure
+    chart: newrelic-infrastructure-2.10.1
+    heritage: Helm
+    release: release-name
+    mode: privileged
+  name: release-name-newrelic-infrastructure-integrations-cfg
+data:
+  nri-pixie-check.yaml: |
+    ---
+    # This Flex config performs periodic checks of the Pixie
+    # /healthz and /statusz endpoints exposed by the Pixie Cloud Connector.
+    # A status for each endpoint is sent to New Relic in a pixieHealthCheck event.
+    #
+    # If Pixie is not installed in the cluster, no events will be generated.
+    # This can also be disabled with enablePixieHealthCheck: false in the values.yaml file.
+    discovery:
+      command:
+        exec: /var/db/newrelic-infra/nri-discovery-kubernetes
+        match:
+          label.name: vizier-cloud-connector
+    integrations:
+      - name: nri-flex
+        interval: 60s
+        config:
+          name: pixie-health-check
+          apis:
+            - event_type: pixieHealth
+              commands:
+                - run: curl --insecure -s https://${discovery.ip}:50800/healthz | xargs | awk '{print "cloud_connector_health:"$1}'
+                  split_by: ":"
+              merge: pixieHealthCheck
+            - event_type: pixieStatus
+              commands:
+                - run: curl --insecure -s https://${discovery.ip}:50800/statusz | awk '{if($1 == ""){ print "cloud_connector_status:OK" } else { print "cloud_connector_status:"$1 }}'
+                  split_by: ":"
+              merge: pixieHealthCheck # include Pixie Health Check
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app: newrelic-infrastructure
+    chart: newrelic-infrastructure-2.10.1
+    heritage: Helm
+    release: release-name
+    mode: privileged
+  name: release-name-newrelic-infrastructure
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+      - nodes/metrics
+      - nodes/stats
+      - nodes/proxy
+      - pods
+      - services
+    verbs:
+      - get
+      - list
+  - nonResourceURLs:
+      - /metrics
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app: newrelic-infrastructure
+    chart: newrelic-infrastructure-2.10.1
+    heritage: Helm
+    release: release-name
+    mode: privileged
+  name: release-name-newrelic-infrastructure
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-newrelic-infrastructure
+subjects:
+  - kind: ServiceAccount
+    name: release-name-newrelic-infrastructure
+    namespace: default

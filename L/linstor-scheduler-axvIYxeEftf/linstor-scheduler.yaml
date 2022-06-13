@@ -1,0 +1,232 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: release-name-linstor-scheduler
+  labels:
+    helm.sh/chart: linstor-scheduler-0.1.1
+    app.kubernetes.io/name: linstor-scheduler
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.2.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      helm.sh/chart: linstor-scheduler-0.1.1
+      app.kubernetes.io/name: linstor-scheduler
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/version: v0.2.1
+      app.kubernetes.io/managed-by: Helm
+  minAvailable: 1
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-linstor-scheduler
+  labels:
+    helm.sh/chart: linstor-scheduler-0.1.1
+    app.kubernetes.io/name: linstor-scheduler
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.2.1
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-linstor-scheduler
+  labels:
+    helm.sh/chart: linstor-scheduler-0.1.1
+    app.kubernetes.io/name: linstor-scheduler
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.2.1
+    app.kubernetes.io/managed-by: Helm
+data:
+  scheduler-config.yaml: |-
+    apiVersion: kubescheduler.config.k8s.io/v1beta3
+    kind: KubeSchedulerConfiguration
+    profiles:
+      - schedulerName: release-name-linstor-scheduler
+    extenders:
+      - urlPrefix: http://localhost:8099
+        filterVerb: filter
+        prioritizeVerb: prioritize
+        weight: 5
+        enableHTTPS: false
+        httpTimeout: 300000s
+        nodeCacheCapable: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-linstor-scheduler-as-ks
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:kube-scheduler
+subjects:
+  - kind: ServiceAccount
+    name: release-name-linstor-scheduler
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-linstor-scheduler-as-vs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:volume-scheduler
+subjects:
+  - kind: ServiceAccount
+    name: release-name-linstor-scheduler
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-linstor-scheduler
+  namespace: axvIYxeEftf
+rules:
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - create
+      - get
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-linstor-scheduler
+  namespace: axvIYxeEftf
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-linstor-scheduler
+subjects:
+  - kind: ServiceAccount
+    name: release-name-linstor-scheduler
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-linstor-scheduler-auth
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+  - kind: ServiceAccount
+    name: release-name-linstor-scheduler
+    namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-linstor-scheduler
+  labels:
+    helm.sh/chart: linstor-scheduler-0.1.1
+    app.kubernetes.io/name: linstor-scheduler
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.2.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: linstor-scheduler
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: linstor-scheduler
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-linstor-scheduler
+      securityContext: {}
+      containers:
+        - name: kube-scheduler
+          image: k8s.gcr.io/kube-scheduler:v1.23.0
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 11055
+            allowPrivilegeEscalation: false
+          command:
+            - kube-scheduler
+            - --config=/etc/kubernetes/scheduler-config.yaml
+            - --leader-elect=true
+            - --leader-elect-resource-lock=leases
+            - --leader-elect-resource-name=release-name-linstor-scheduler
+            - --leader-elect-resource-namespace=$(NAMESPACE)
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          imagePullPolicy: IfNotPresent
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 10259
+              scheme: HTTPS
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 10259
+              scheme: HTTPS
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 10259
+              scheme: HTTPS
+          volumeMounts:
+            - mountPath: /etc/kubernetes
+              name: scheduler-config
+          resources: {}
+        - name: linstor-scheduler-extender
+          image: quay.io/piraeusdatastore/linstor-scheduler-extender:v0.2.1
+          resources: {}
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+          imagePullPolicy: IfNotPresent
+          args:
+            - --verbose=true
+          env:
+            - name: LS_CONTROLLERS
+              value: null
+      volumes:
+        - configMap:
+            name: release-name-linstor-scheduler
+          name: scheduler-config
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-linstor-scheduler-test-schedule
+  labels:
+    helm.sh/chart: linstor-scheduler-0.1.1
+    app.kubernetes.io/name: linstor-scheduler
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.2.1
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  schedulerName: release-name-linstor-scheduler
+  containers:
+    - name: wget
+      image: busybox
+      command: []
+  restartPolicy: Never

@@ -1,0 +1,117 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-kubecost-reports-exporter
+  labels:
+    helm.sh/chart: kubecost-reports-exporter-1.1.0
+    app.kubernetes.io/name: kubecost-reports-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.0.5
+    app.kubernetes.io/managed-by: Helm
+data: null
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: default-aggregated
+  labels:
+    kubecost.cluster: default
+    helm.sh/chart: kubecost-reports-exporter-1.1.0
+    app.kubernetes.io/name: kubecost-reports-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.0.5
+    app.kubernetes.io/managed-by: Helm
+spec:
+  schedule: 0 * * * *
+  successfulJobsHistoryLimit: 1
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            helm.sh/chart: kubecost-reports-exporter-1.1.0
+            app.kubernetes.io/name: kubecost-reports-exporter
+            app.kubernetes.io/instance: release-name
+            app.kubernetes.io/version: 1.0.5
+            app.kubernetes.io/managed-by: Helm
+        spec:
+          securityContext: {}
+          serviceAccountName: default
+          containers:
+            - name: kubecost-reports-exporter-aggregated
+              securityContext: {}
+              image: thomasnyambati/kubecost-reports-exporter:1.0.5
+              imagePullPolicy: IfNotPresent
+              args:
+                - cost-exporter
+              envFrom:
+                - secretRef:
+                    name: release-name-kubecost-reports-exporter
+              env:
+                - name: LOG_LEVEL
+                  value: info
+                - name: BUCKET_NAME
+                  value: kubecost-reports-exporter
+                - name: CLUSTER_NAME
+                  value: default
+                - name: REPORT_TYPE
+                  value: aggregated
+                - name: KUBECOST_ENDPOINT
+                  value: http://kubecost-cost-analyzer:9090
+                - name: KUBECOST_URL
+                  value: /model/aggregatedCostModel?window=1d&aggregation=namespace
+          restartPolicy: OnFailure
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: default-non-aggregated
+  labels:
+    kubecost.cluster: default
+    helm.sh/chart: kubecost-reports-exporter-1.1.0
+    app.kubernetes.io/name: kubecost-reports-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.0.5
+    app.kubernetes.io/managed-by: Helm
+spec:
+  schedule: 0 * * * *
+  successfulJobsHistoryLimit: 1
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            helm.sh/chart: kubecost-reports-exporter-1.1.0
+            app.kubernetes.io/name: kubecost-reports-exporter
+            app.kubernetes.io/instance: release-name
+            app.kubernetes.io/version: 1.0.5
+            app.kubernetes.io/managed-by: Helm
+        spec:
+          securityContext: {}
+          serviceAccountName: default
+          containers:
+            - name: kubecost-reports-exporter-non-aggregated
+              securityContext: {}
+              image: thomasnyambati/kubecost-reports-exporter:1.0.5
+              imagePullPolicy: IfNotPresent
+              args:
+                - cost-exporter
+              envFrom:
+                - secretRef:
+                    name: release-name-kubecost-reports-exporter
+              env:
+                - name: LOG_LEVEL
+                  value: info
+                - name: BUCKET_NAME
+                  value: kubecost-reports-exporter
+                - name: CLUSTER_NAME
+                  value: default
+                - name: REPORT_TYPE
+                  value: non-aggregated
+                - name: KUBECOST_ENDPOINT
+                  value: http://kubecost-cost-analyzer:9090
+                - name: KUBECOST_URL
+                  value: /model/costDataModel?timeWindow=1d&offset=1d
+          restartPolicy: OnFailure

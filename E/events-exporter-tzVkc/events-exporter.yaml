@@ -1,0 +1,123 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-events-exporter
+  labels:
+    helm.sh/chart: events-exporter-0.0.2
+    app.kubernetes.io/name: events-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-events-exporter
+  labels:
+    helm.sh/chart: events-exporter-0.0.2
+    app.kubernetes.io/name: events-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - ""
+      - events.k8s.io
+    resources:
+      - events
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-events-exporter
+  labels:
+    helm.sh/chart: events-exporter-0.0.2
+    app.kubernetes.io/name: events-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+subjects:
+  - kind: ServiceAccount
+    name: release-name-events-exporter
+    namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-events-exporter
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-events-exporter
+  labels:
+    helm.sh/chart: events-exporter-0.0.2
+    app.kubernetes.io/name: events-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: events-exporter
+    app.kubernetes.io/instance: release-name
+  ports:
+    - name: http
+      port: 9000
+      targetPort: http
+      protocol: TCP
+      appProtocol: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-events-exporter
+  labels:
+    helm.sh/chart: events-exporter-0.0.2
+    app.kubernetes.io/name: events-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: events-exporter
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations: null
+      labels:
+        app.kubernetes.io/name: events-exporter
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-events-exporter
+      securityContext: {}
+      containers:
+        - name: events-exporter
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: ghcr.io/nabokihms/events_exporter:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - -server.exporter-address=0.0.0.0:9001
+            - -kube.field-selector=type!=Normal
+          env: null
+          ports:
+            - containerPort: 9001
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              scheme: HTTP
+              port: 9001
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              scheme: HTTP
+              port: 9001
+          resources:
+            seccompProfile:
+              type: RuntimeDefault

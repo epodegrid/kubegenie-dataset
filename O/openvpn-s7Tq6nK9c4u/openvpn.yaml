@@ -1,0 +1,455 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-oauth
+  labels:
+    app: release-name-oauth
+    chart: openvpn-0.1.1
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  client_id: ""
+  client_secret: ""
+  cookie_name: ""
+  cookie_secret: ""
+  cookie_domain: ""
+  cookie_expire: ""
+  cookie_refresh: ""
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-openvpn
+  labels:
+    app: release-name-openvpn
+    chart: openvpn-0.1.1
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  duo_ikey: ""
+  duo_skey: ""
+  duo_host: ""
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-dashboard
+  labels:
+    app: release-name-dashboard
+    chart: openvpn-0.1.1
+    release: release-name
+    heritage: Helm
+data:
+  default.conf: |-
+    upstream backend {
+      server localhost:8085;
+    }
+
+    server {
+        listen       81;
+        server_name  localhost;
+
+        #charset koi8-r;
+        access_log /dev/stdout;
+        error_log /dev/stderr;
+
+        location / {
+            root   /usr/share/nginx/html;
+            index  index.html index.htm;
+        }
+
+        location /configs/client.opvn {
+          proxy_pass       http://backend/user/$http_x_forwarded_user;
+          proxy_set_header Host      $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          add_header Content-Disposition 'attachment; filename="client.ovpn"';
+          add_header Content-Type application/octet-stream;
+        }
+
+        location /configs/ {
+          alias /usr/share/nginx/private/;
+        }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-dashboard-ui
+  labels:
+    app: release-name-dashboard
+    chart: openvpn-0.1.1
+    release: release-name
+    heritage: Helm
+data:
+  index.html: |-
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <title>CloudPosse OpenVPN</title>
+
+        <meta name="description" content="Connect to CloudPosse OpenVPN">
+        <meta name="author" content="CloudPosse">
+
+        <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet">
+
+      </head>
+      <body>
+
+        <div class="container">
+       	  <div class="row">
+       	    &nbsp;
+       	  </div>
+    	  <div class="row">
+    		<div class="col-md-7 col-md-offset-2">
+    		  <div class="jumbotron">
+    			<h2>
+    			  CloudPosse OpenVPN
+    			</h2>
+    			<p>
+    			  Download your OpenVPN client configuration file
+    			</p>
+    			<p>
+    			  <a class="btn btn-primary btn-large" href="configs/client.opvn">Download</a>
+    		    </p>
+    		  </div>
+    	    </div>
+    	  </div>
+        </div>
+
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.4/jquery.min.js"></script>
+        <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js"></script>
+      </body>
+    </html>
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-oauth
+data:
+  config: |-
+    ## OAuth2 Proxy Config File
+    ## https://github.com/bitly/oauth2_proxy
+
+    ## <addr>:<port> to listen on for HTTP/HTTPS clients
+    http_address = "http://0.0.0.0:8080"
+    https_address = ":443"
+
+    ## the http url(s) of the upstream endpoint. If multiple, routing is based on path
+    upstreams = [
+      "http://localhost:81"
+    ]
+
+    ## Log requests to stdout
+    request_logging = false
+
+    ## pass HTTP Basic Auth, X-Forwarded-User and X-Forwarded-Email information to upstream
+    pass_basic_auth = true
+    ## pass the request Host Header to upstream
+    ## when disabled the upstream Host is used as the Host Header
+    pass_host_header = true
+
+    ## Email Domains to allow authentication for (this authorizes any email on this domain)
+    ## for more granular authorization use `authenticated_emails_file`
+    ## To authorize any email addresses use "*"
+    email_domains = [
+      "*",
+    ]
+    redirect_url = "http:///oauth2/callback"
+    ## Pass OAuth Access token to upstream via "X-Forwarded-Access-Token"
+    pass_access_token = false
+
+    ## Authenticated Email Addresses File (one email per line)
+    authenticated_emails_file = "/usr/share/oauth2_proxy/emails"
+
+    ## Htpasswd File (optional)
+    ## Additionally authenticate against a htpasswd file. Entries must be created with "htpasswd -s" for SHA encryption
+    ## enabling exposes a username/login signin form
+    htpasswd_file = "/usr/share/oauth2_proxy/htpasswd"
+
+    ## Templates
+    ## optional directory with custom sign_in.html and error.html
+    # custom_templates_dir = ""
+
+    ## Cookie Settings
+    ## Secure   - secure cookies are only sent by the browser of a HTTPS connection (recommended)
+    ## HttpOnly - httponly cookies are not readable by javascript (recommended)
+    cookie_secure = false
+    cookie_httponly = false
+
+    display_htpasswd_form = false
+
+    provider = "github"
+
+    skip_auth_regex = [
+    ]
+  emails: ""
+  htpasswd: ""
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-openvpn
+  labels:
+    app: release-name-openvpn
+    chart: openvpn-0.1.1
+    release: release-name
+    heritage: Helm
+data:
+  vars: |-
+    # A little housekeeping: DON'T EDIT THIS SECTION
+    if [ -z "$EASYRSA_CALLER" ]; then
+            echo "You appear to be sourcing an Easy-RSA 'vars' file." >&2
+            echo "This is no longer necessary and is disallowed. See the section called" >&2
+            echo "'How to use this file' near the top comments for more details." >&2
+            return 1
+    fi
+    if [ "$OVPN_CALLER" == "init" ]; then
+    set_var EASYRSA_CERT_EXPIRE "3650"
+    fi
+    set_var EASYRSA_CA_EXPIRE "3650"
+    set_var EASYRSA_CERT_EXPIRE "30"
+    set_var EASYRSA_CRL_DAYS "180"
+    set_var EASYRSA_REQ_CITY "San Francisco"
+    set_var EASYRSA_REQ_COUNTRY "US"
+    set_var EASYRSA_REQ_EMAIL "me@example.net"
+    set_var EASYRSA_REQ_ORG "Copyleft Certificate Co"
+    set_var EASYRSA_REQ_OU "My Organizational Unit"
+    set_var EASYRSA_REQ_PROVINCE "California"
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-openvpn
+  labels:
+    app: release-name-openvpn
+    chart: openvpn-0.1.1
+    release: release-name
+    heritage: Helm
+  annotations:
+    volume.beta.kubernetes.io/storage-class: default
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-openvpn
+  labels:
+    chart: openvpn-0.1.1
+    dns: route53
+  annotations:
+    domainName: null
+    dnsRecordType: A
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 1194
+      protocol: TCP
+      name: openvpn-vpn
+  selector:
+    app: release-name-openvpn
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: release-name-openvpn
+  labels:
+    chart: openvpn-0.1.1
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: release-name-openvpn
+      annotations:
+        pod.alpha.kubernetes.io/init-containers: '[ { "name": "create-pki", "image": "cloudposse/openvpn:latest", "imagePullPolicy": "Always", "command": ["create_pki"], "env": [ { "name": "OVPN_OTP_AUTH", "value": "1" }, { "name": "EASYRSA_BATCH", "value": "1" }, { "name": "OVPN_CALLER", "value": "init" }, { "name": "EASYRSA_VARS_FILE", "value": "/etc/easyrsa.d/vars" }, { "name": "EASYRSA_REQ_CN", "value": "" }, { "name": "UPSTREAM", "value": "tcp://:80" } ], "volumeMounts": [ { "name": "ca", "mountPath": "/etc/openvpn" }, { "name": "config", "mountPath": "/etc/easyrsa.d" } ] } ]'
+        checksum/ui-config: dd4c0a02f4a1824da6d8148ae0b2feeda33ed376c81d08d5f5e298e5fd74dfc3
+        checksum/vpn-config: bfd697b629cb32e37c0315e3294e1740335c2ce7f075a7a0e31188f1b9ef9eaf
+        checksum/vpn-secret: 6177332e49912bad14f8f3fcd9678b798b57259c13a89750108b19c5d59ef897
+        checksum/oauth-config: 70df2b6d132aa4349b075a39faa0f8666f9f13cf87fbc74d642668efa5e34753
+        checksum/oauth-secret: c8e5280d126cf065e4e8d6a773b9f59d02fdda856c61e44ae7b4f22632912bce
+    spec:
+      containers:
+        - name: vpn
+          image: cloudposse/openvpn:latest
+          imagePullPolicy: Always
+          command:
+            - sh
+            - -c
+          args:
+            - |-
+              ovpn_genconfig -u tcp://$EASYRSA_REQ_CN:80 \
+                -n $(cat /etc/resolv.conf | grep -i nameserver|head -n1|cut -d ' ' -f2) \
+                -p "dhcp-option DOMAIN cluster.local" \
+                -p "dhcp-option DOMAIN-SEARCH cluster.local" \
+                -p "dhcp-option DOMAIN svc.cluster.local" \
+                -p "dhcp-option DOMAIN-SEARCH svc.cluster.local" \
+                -p "dhcp-option DOMAIN default.svc.cluster.local" \
+                -p "dhcp-option DOMAIN-SEARCH default.svc.cluster.local" \
+                -p "dhcp-option DNSMODE split" \
+                -e "port-share localhost 8080" \
+              && /init
+          env:
+            - name: DEBUG
+              value: "0"
+            - name: OVPN_OTP_AUTH
+              value: "1"
+            - name: MFA_PROVIDER
+              value: duo
+            - name: EASYRSA_REQ_CN
+              value: ""
+            - name: EASYRSA_VARS_FILE
+              value: /etc/easyrsa.d/vars
+            - name: DUO_IKEY
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-openvpn
+                  key: duo_ikey
+            - name: DUO_SKEY
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-openvpn
+                  key: duo_skey
+            - name: DUO_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-openvpn
+                  key: duo_host
+          ports:
+            - name: tcp
+              containerPort: 1194
+              protocol: TCP
+            - name: api
+              containerPort: 8085
+              protocol: TCP
+          securityContext:
+            privileged: true
+            capabilities:
+              drop:
+                "": NET_RAW
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: ca
+              mountPath: /etc/openvpn
+            - name: config
+              mountPath: /etc/easyrsa.d
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+        - name: dashboard
+          image: nginx:alpine
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 81
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d
+            - name: source
+              mountPath: /usr/share/nginx/html
+          livenessProbe:
+            tcpSocket:
+              port: 81
+          readinessProbe:
+            tcpSocket:
+              port: 81
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+        - name: oauth
+          image: cloudposse/oauth2-proxy:latest
+          imagePullPolicy: Always
+          args:
+            - -config
+            - /usr/share/oauth2_proxy/config
+          env:
+            - name: OAUTH2_PROXY_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-oauth
+                  key: client_id
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-oauth
+                  key: client_secret
+            - name: OAUTH2_PROXY_COOKIE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-oauth
+                  key: cookie_name
+            - name: OAUTH2_PROXY_COOKIE_DOMAIN
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-oauth
+                  key: cookie_domain
+            - name: OAUTH2_PROXY_COOKIE_EXPIRE
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-oauth
+                  key: cookie_expire
+            - name: OAUTH2_PROXY_COOKIE_REFRESH
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-oauth
+                  key: cookie_refresh
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-oauth
+                  key: cookie_secret
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: oauth-config
+              mountPath: /usr/share/oauth2_proxy
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+      volumes:
+        - name: ca
+          persistentVolumeClaim:
+            claimName: release-name-openvpn
+        - name: source
+          configMap:
+            name: release-name-dashboard-ui
+        - name: nginx-config
+          configMap:
+            name: release-name-dashboard
+        - name: oauth-config
+          configMap:
+            name: release-name-oauth
+        - name: config
+          configMap:
+            name: release-name-openvpn

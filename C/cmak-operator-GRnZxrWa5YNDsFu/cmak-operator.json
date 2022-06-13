@@ -1,0 +1,295 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "cmak-clusters",
+      "labels": {
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/version": "3.0.0.5-7e7a22e",
+        "helm.sh/chart": "cmak-operator-1.10.0",
+        "app.kubernetes.io/name": "cmak",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    },
+    "data": {
+      "clusters.yaml": "cmak:\n  clusters: []\n  clustersCommon:\n    activeOffsetCacheEnabled: true\n    curatorConfig:\n      baseSleepTimeMs: 100\n      maxSleepTimeMs: 1000\n      zkMaxRetry: 100\n    displaySizeEnabled: false\n    enabled: true\n    filterConsumers: false\n    jaasConfig: null\n    jmxEnabled: false\n    jmxPass: null\n    jmxSsl: false\n    jmxUser: null\n    kafkaVersion: 2.2.0\n    logkafkaEnabled: false\n    pollConsumers: true\n    saslMechanism: null\n    securityProtocol: PLAINTEXT\n    tuning:\n      brokerViewThreadPoolQueueSize: 1000\n      brokerViewThreadPoolSize: 10\n      brokerViewUpdatePeriodSeconds: 30\n      clusterManagerThreadPoolQueueSize: 100\n      clusterManagerThreadPoolSize: 10\n      kafkaAdminClientThreadPoolQueueSize: 1000\n      kafkaAdminClientThreadPoolSize: 10\n      kafkaCommandThreadPoolQueueSize: 100\n      kafkaCommandThreadPoolSize: 10\n      kafkaManagedOffsetGroupCacheSize: 1000000\n      kafkaManagedOffsetGroupExpireDays: 7\n      kafkaManagedOffsetMetadataCheckMillis: 30000\n      logkafkaCommandThreadPoolQueueSize: 100\n      logkafkaCommandThreadPoolSize: 10\n      logkafkaUpdatePeriodSeconds: 30\n      offsetCacheThreadPoolQueueSize: 1000\n      offsetCacheThreadPoolSize: 10\n      partitionOffsetCacheTimeoutSecs: 5"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "cmak",
+      "labels": {
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/version": "3.0.0.5-7e7a22e",
+        "helm.sh/chart": "cmak-operator-1.10.0",
+        "app.kubernetes.io/name": "cmak",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "zk",
+          "port": 2181,
+          "targetPort": "zk",
+          "protocol": "TCP"
+        },
+        {
+          "name": "http",
+          "port": 9000,
+          "targetPort": "http",
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "cmak",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "cmak",
+      "labels": {
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/version": "3.0.0.5-7e7a22e",
+        "helm.sh/chart": "cmak-operator-1.10.0",
+        "app.kubernetes.io/name": "cmak",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "cmak",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/version": "3.0.0.5-7e7a22e",
+            "helm.sh/chart": "cmak-operator-1.10.0",
+            "app.kubernetes.io/name": "cmak",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "zk",
+              "image": "docker.io/zookeeper:3.6.1",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "zk",
+                  "containerPort": 2181,
+                  "protocol": "TCP"
+                }
+              ],
+              "env": [
+                {
+                  "name": "ZOO_SERVERS",
+                  "value": "server.1=cmak.default:2888:3888;2181"
+                },
+                {
+                  "name": "ZOO_4LW_COMMANDS_WHITELIST",
+                  "value": "ruok,stat"
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "[ \"$(echo ruok | nc 127.0.0.1 2181)\" = \"imok\" ]"
+                  ]
+                },
+                "initialDelaySeconds": 20,
+                "periodSeconds": 30,
+                "timeoutSeconds": 15
+              }
+            },
+            {
+              "name": "ui",
+              "image": "docker.io/hlebalbau/kafka-manager:3.0.0.5-7e7a22e",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 9000,
+                  "protocol": "TCP"
+                }
+              ],
+              "args": [
+                "-Dcmak.zkhosts=127.0.0.1:2181",
+                "-Dhttp.port=9000"
+              ],
+              "env": null,
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/api/health",
+                  "port": "http"
+                },
+                "failureThreshold": 7,
+                "initialDelaySeconds": 15,
+                "timeoutSeconds": 15,
+                "periodSeconds": 15
+              },
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/api/health",
+                  "port": "http"
+                },
+                "failureThreshold": 7,
+                "initialDelaySeconds": 45,
+                "timeoutSeconds": 15,
+                "periodSeconds": 30
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "cmak-reconcile",
+      "labels": {
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/version": "3.0.0.5-7e7a22e",
+        "helm.sh/chart": "cmak-operator-1.10.0",
+        "app.kubernetes.io/name": "cmak",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    },
+    "spec": {
+      "schedule": "*/3 * * * *",
+      "concurrencyPolicy": "Forbid",
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "metadata": null,
+            "spec": {
+              "restartPolicy": "Never",
+              "volumes": [
+                {
+                  "name": "cmak-clusters",
+                  "configMap": {
+                    "name": "cmak-clusters"
+                  }
+                }
+              ],
+              "containers": [
+                {
+                  "name": "setup",
+                  "image": "docker.io/eshepelyuk/cmak2zk:1.10.0",
+                  "args": [
+                    "--overwrite-zk",
+                    "cmak.default:2181",
+                    "/app/etc/clusters.yaml"
+                  ],
+                  "volumeMounts": [
+                    {
+                      "name": "cmak-clusters",
+                      "mountPath": "/app/etc"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "cmak-values-clusters",
+      "annotations": {
+        "helm.sh/hook": "test",
+        "helm.sh/hook-delete-policy": "before-hook-creation"
+      }
+    },
+    "spec": {
+      "restartPolicy": "Never",
+      "containers": [
+        {
+          "name": "pytest",
+          "image": "docker.io/eshepelyuk/cmak-operator-test:1.10.0",
+          "args": [
+            "-s",
+            "e2e",
+            "--api-url",
+            "http://cmak.default:9000",
+            "--zk-url",
+            "cmak.default:2181"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+      "name": "cmak-setup",
+      "labels": {
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/version": "3.0.0.5-7e7a22e",
+        "helm.sh/chart": "cmak-operator-1.10.0",
+        "app.kubernetes.io/name": "cmak",
+        "app.kubernetes.io/instance": "release-name"
+      },
+      "annotations": {
+        "helm.sh/hook": "post-install,post-upgrade",
+        "helm.sh/hook-delete-policy": "hook-succeeded"
+      }
+    },
+    "spec": {
+      "backoffLimit": 3,
+      "template": {
+        "metadata": null,
+        "spec": {
+          "restartPolicy": "Never",
+          "volumes": [
+            {
+              "name": "cmak-clusters",
+              "configMap": {
+                "name": "cmak-clusters"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "setup",
+              "image": "docker.io/eshepelyuk/cmak2zk:1.10.0",
+              "args": [
+                "--overwrite-zk",
+                "cmak.default:2181",
+                "/app/etc/clusters.yaml"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "cmak-clusters",
+                  "mountPath": "/app/etc"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+]

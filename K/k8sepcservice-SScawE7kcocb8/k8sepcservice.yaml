@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vepcservice
+data:
+  serviceConfig: |
+    name: vepcservice
+    accessor:
+      username: "admin@opencord.org"
+      password: "letmein"
+      endpoint: xos-core:50051
+    event_bus:
+      endpoint: "cord-kafka"
+      kind: kafka
+    required_models:
+      - VEpcService
+      - VEpcServiceInstance
+      - VEpcResourceInstanceLink
+      - ServiceDependency
+      - KubernetesService
+      - KubernetesResourceInstance
+    dependency_graph: "/opt/xos/synchronizers/vepcservice/model-deps"
+    steps_dir: "/opt/xos/synchronizers/vepcservice/steps"
+    event_steps_dir: "/opt/xos/synchronizers/vepcservice/event_steps"
+    sys_dir: "/opt/xos/synchronizers/vepcservice/sys"
+    model_policies_dir: "/opt/xos/synchronizers/vepcservice/model_policies"
+    models_dir: "/opt/xos/synchronizers/vepcservice/models"
+    logging:
+      version: 1
+      handlers:
+        console:
+          class: logging.StreamHandler
+        file:
+          class: logging.handlers.RotatingFileHandler
+          filename: /var/log/xos.log
+          maxBytes: 10485760
+          backupCount: 5
+      loggers:
+        'multistructlog':
+          handlers:
+              - console
+              - file
+          level: DEBUG
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-k8sepcservice
+  labels:
+    app: k8sepcservice
+    chart: k8sepcservice-1.0.4
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: k8sepcservice
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: k8sepcservice
+        release: release-name
+    spec:
+      containers:
+        - name: k8sepcservice
+          image: xosproject/k8sepcservice-synchronizer:1.0.2
+          imagePullPolicy: Always
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: vepcservice-config
+              mountPath: /opt/xos/synchronizers/vepcservice/vepcservice_config.yaml
+              subPath: vepcservice_config.yaml
+            - name: certchain-volume
+              mountPath: /usr/local/share/ca-certificates/local_certs.crt
+              subPath: config/ca_cert_chain.pem
+      volumes:
+        - name: vepcservice-config
+          configMap:
+            name: vepcservice
+            items:
+              - key: serviceConfig
+                path: vepcservice_config.yaml
+        - name: certchain-volume
+          configMap:
+            name: ca-certificates
+            items:
+              - key: chain
+                path: config/ca_cert_chain.pem

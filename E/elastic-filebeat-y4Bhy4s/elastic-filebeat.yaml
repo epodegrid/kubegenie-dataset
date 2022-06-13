@@ -1,0 +1,347 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-filebeat
+  namespace: y4Bhy4s
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: filebeat-elasticsearch-user
+type: Opaque
+data:
+  ELASTICSEARCH_USERNAME: YWRtaW4=
+  ELASTICSEARCH_PASSWORD: Y2hhbmdlbWU=
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-bin
+data:
+  image-repo-sync.sh: |
+    #!/bin/sh
+    set -ex
+
+    IFS=','; for IMAGE in ${IMAGE_SYNC_LIST}; do
+      docker pull ${IMAGE}
+      docker tag ${IMAGE} ${LOCAL_REPO}/${IMAGE}
+      docker push ${LOCAL_REPO}/${IMAGE}
+    done
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-etc
+data:
+  filebeat.yml: |
+    filebeat:
+      autodiscover:
+        providers:
+        - templates:
+          - condition:
+              equals:
+                kubernetes.namespace: kube-system
+            config:
+            - containers.ids:
+              - ${data.kubernetes.container.id}
+              exclude_lines:
+              - ^\s+[\-`('.|_]
+              type: docker
+          type: kubernetes
+        - templates:
+          - condition:
+              equals:
+                kubernetes.namespace: ceph
+            config:
+            - containers.ids:
+              - ${data.kubernetes.container.id}
+              exclude_lines:
+              - ^\s+[\-`('.|_]
+              type: docker
+          type: kubernetes
+        - templates:
+          - condition:
+              equals:
+                kubernetes.namespace: openstack
+            config:
+            - containers.ids:
+              - ${data.kubernetes.container.id}
+              exclude_lines:
+              - ^\s+[\-`('.|_]
+              type: docker
+          type: kubernetes
+        - templates:
+          - condition:
+              equals:
+                kubernetes.namespace: osh-infra
+            config:
+            - containers.ids:
+              - ${data.kubernetes.container.id}
+              exclude_lines:
+              - ^\s+[\-`('.|_]
+              type: docker
+          type: kubernetes
+      config:
+        modules:
+          path: ${path.config}/modules.d/*.yml
+          reload:
+            enabled: true
+      processors:
+      - add_kubernetes_metadata:
+          in_cluster: true
+      - drop_event:
+          when:
+            equals:
+              kubernetes:
+                container:
+                  name: filebeat
+    output:
+      elasticsearch:
+        hosts:
+        - ${ELASTICSEARCH_HOST}:${ELASTICSEARCH_PORT}/
+        password: ${ELASTICSEARCH_PASSWORD}
+        username: ${ELASTICSEARCH_USERNAME}
+    path:
+      logs: /var/log/
+    setup:
+      dashboards:
+        enabled: true
+        index: filebeat-*
+        retry:
+          enabled: true
+          interval: 5
+      kibana:
+        host: ${KIBANA_HOST}:${KIBANA_PORT}
+        password: ${ELASTICSEARCH_PASSWORD}
+        username: ${ELASTICSEARCH_USERNAME}
+  system.yml: |
+    - auth:
+        enabled: true
+        fields:
+          host:
+            name: ${NODE_NAME}
+        var.paths:
+        - /var/log/auth.log
+      module: system
+      syslog:
+        enabled: true
+        fields:
+          host:
+            name: ${NODE_NAME}
+        var.paths:
+        - /var/log/syslog*
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-filebeat
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+      - nodes
+      - pods
+      - services
+      - endpoints
+      - replicationcontrollers
+      - limitranges
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+      - daemonsets
+      - deployments
+      - replicasets
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-filebeat
+subjects:
+  - kind: ServiceAccount
+    name: release-name-filebeat
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: release-name-filebeat
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-default-release-name-filebeat
+  namespace: y4Bhy4s
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - batch
+      - apps
+    verbs:
+      - get
+      - list
+    resources:
+      - services
+      - endpoints
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-release-name-filebeat
+  namespace: y4Bhy4s
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-default-release-name-filebeat
+subjects:
+  - kind: ServiceAccount
+    name: release-name-filebeat
+    namespace: default
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: filebeat
+spec:
+  selector:
+    matchLabels:
+      release_group: release-name
+      application: filebeat
+      component: daemon
+  minReadySeconds: 0
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        release_group: release-name
+        application: filebeat
+        component: daemon
+      annotations:
+        openstackhelm.openstack.org/release_uuid: ""
+        configmap-etc-hash: e9541064d618d1cdf37b7efeb133c2393f9bcb37eb4aea20be3ea2f9d02a4cc8
+    spec:
+      serviceAccountName: release-name-filebeat
+      nodeSelector:
+        openstack-control-plane: enabled
+      initContainers:
+        - name: init
+          image: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: INTERFACE_NAME
+              value: eth0
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: DEPENDENCY_SERVICE
+              value: default:kibana-dash
+            - name: DEPENDENCY_DAEMONSET
+              value: ""
+            - name: DEPENDENCY_CONTAINER
+              value: ""
+            - name: DEPENDENCY_POD_JSON
+              value: ""
+            - name: DEPENDENCY_CUSTOM_RESOURCE
+              value: ""
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+      containers:
+        - name: filebeat
+          image: docker.elastic.co/beats/filebeat-oss:7.1.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 10290
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          args:
+            - -e
+          ports:
+            - name: filebeat
+              containerPort: 5066
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: ELASTICSEARCH_HOST
+              value: elasticsearch-logging.default
+            - name: ELASTICSEARCH_PORT
+              value: "80"
+            - name: KIBANA_HOST
+              value: kibana-dash.default
+            - name: KIBANA_PORT
+              value: "80"
+            - name: ELASTICSEARCH_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: filebeat-elasticsearch-user
+                  key: ELASTICSEARCH_USERNAME
+            - name: ELASTICSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: filebeat-elasticsearch-user
+                  key: ELASTICSEARCH_PASSWORD
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: data
+              mountPath: /usr/share/filebeat/data
+            - name: varlog
+              mountPath: /var/log
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+            - name: filebeat-etc
+              mountPath: /usr/share/filebeat/filebeat.yml
+              readOnly: true
+              subPath: filebeat.yml
+            - name: filebeat-etc
+              mountPath: /usr/share/filebeat/modules.d/system.yml
+              subPath: system.yml
+              readOnly: true
+      volumes:
+        - name: pod-tmp
+          emptyDir: {}
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+        - name: filebeat-etc
+          configMap:
+            name: filebeat-etc
+            defaultMode: 292
+        - name: data
+          hostPath:
+            path: /var/lib/filebeat
+            type: DirectoryOrCreate

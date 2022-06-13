@@ -1,0 +1,1427 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "automountServiceAccountToken": true,
+    "metadata": {
+      "name": "release-name-redis",
+      "namespace": "i8snlQii4uw9",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.12.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "namespace": "i8snlQii4uw9",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-11.6.5",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "password": "Y3lOQWRWNFZ0Wg=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-redis",
+      "namespace": "i8snlQii4uw9",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.12.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "redis-password": "U21Nc2tEMmNzSg=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-airflow",
+      "namespace": "i8snlQii4uw9",
+      "labels": {
+        "app.kubernetes.io/name": "airflow",
+        "helm.sh/chart": "airflow-12.5.7",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "airflow-password": "bzRuZFAwMG40eQ==",
+      "airflow-fernet-key": "Tm5CUk5EWmlOMVZVV1RjNVZqRkpjamQ2WXpka1ZURXdXWHBVYW5kaVJVTT0=",
+      "airflow-secret-key": "WmpoVVZEQkZWbmRSYVZKR1pUSTJRV05GYmxoVGFrZHZlalJEVWxWU2IyOD0="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-redis-configuration",
+      "namespace": "i8snlQii4uw9",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.12.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "redis.conf": "# User-supplied common configuration:\n# Enable AOF https://redis.io/topics/persistence#append-only-file\nappendonly yes\n# Disable RDB persistence, AOF persistence already enabled.\nsave \"\"\n# End of common configuration",
+      "master.conf": "dir /data\n# User-supplied master configuration:\nrename-command FLUSHDB \"\"\nrename-command FLUSHALL \"\"\n# End of master configuration",
+      "replica.conf": "dir /data\nslave-read-only yes\n# User-supplied replica configuration:\nrename-command FLUSHDB \"\"\nrename-command FLUSHALL \"\"\n# End of replica configuration"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-redis-health",
+      "namespace": "i8snlQii4uw9",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.12.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "ping_readiness_local.sh": "#!/bin/bash\n\n[[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD=\"$(< \"${REDIS_PASSWORD_FILE}\")\"\n[[ -n \"$REDIS_PASSWORD\" ]] && export REDISCLI_AUTH=\"$REDIS_PASSWORD\"\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -h localhost \\\n    -p $REDIS_PORT \\\n    ping\n)\nif [ \"$?\" -eq \"124\" ]; then\n  echo \"Timed out\"\n  exit 1\nfi\nif [ \"$response\" != \"PONG\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_liveness_local.sh": "#!/bin/bash\n\n[[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD=\"$(< \"${REDIS_PASSWORD_FILE}\")\"\n[[ -n \"$REDIS_PASSWORD\" ]] && export REDISCLI_AUTH=\"$REDIS_PASSWORD\"\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -h localhost \\\n    -p $REDIS_PORT \\\n    ping\n)\nif [ \"$?\" -eq \"124\" ]; then\n  echo \"Timed out\"\n  exit 1\nfi\nresponseFirstWord=$(echo $response | head -n1 | awk '{print $1;}')\nif [ \"$response\" != \"PONG\" ] && [ \"$responseFirstWord\" != \"LOADING\" ] && [ \"$responseFirstWord\" != \"MASTERDOWN\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_readiness_master.sh": "#!/bin/bash\n\n[[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD=\"$(< \"${REDIS_MASTER_PASSWORD_FILE}\")\"\n[[ -n \"$REDIS_MASTER_PASSWORD\" ]] && export REDISCLI_AUTH=\"$REDIS_MASTER_PASSWORD\"\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -h $REDIS_MASTER_HOST \\\n    -p $REDIS_MASTER_PORT_NUMBER \\\n    ping\n)\nif [ \"$?\" -eq \"124\" ]; then\n  echo \"Timed out\"\n  exit 1\nfi\nif [ \"$response\" != \"PONG\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_liveness_master.sh": "#!/bin/bash\n\n[[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD=\"$(< \"${REDIS_MASTER_PASSWORD_FILE}\")\"\n[[ -n \"$REDIS_MASTER_PASSWORD\" ]] && export REDISCLI_AUTH=\"$REDIS_MASTER_PASSWORD\"\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -h $REDIS_MASTER_HOST \\\n    -p $REDIS_MASTER_PORT_NUMBER \\\n    ping\n)\nif [ \"$?\" -eq \"124\" ]; then\n  echo \"Timed out\"\n  exit 1\nfi\nresponseFirstWord=$(echo $response | head -n1 | awk '{print $1;}')\nif [ \"$response\" != \"PONG\" ] && [ \"$responseFirstWord\" != \"LOADING\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_readiness_local_and_master.sh": "script_dir=\"$(dirname \"$0\")\"\nexit_status=0\n\"$script_dir/ping_readiness_local.sh\" $1 || exit_status=$?\n\"$script_dir/ping_readiness_master.sh\" $1 || exit_status=$?\nexit $exit_status",
+      "ping_liveness_local_and_master.sh": "script_dir=\"$(dirname \"$0\")\"\nexit_status=0\n\"$script_dir/ping_liveness_local.sh\" $1 || exit_status=$?\n\"$script_dir/ping_liveness_master.sh\" $1 || exit_status=$?\nexit $exit_status"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-redis-scripts",
+      "namespace": "i8snlQii4uw9",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.12.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "start-master.sh": "#!/bin/bash\n\n[[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD=\"$(< \"${REDIS_PASSWORD_FILE}\")\"\nif [[ ! -f /opt/bitnami/redis/etc/master.conf ]];then\n    cp /opt/bitnami/redis/mounted-etc/master.conf /opt/bitnami/redis/etc/master.conf\nfi\nif [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then\n    cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf\nfi\nARGS=(\"--port\" \"${REDIS_PORT}\")\nARGS+=(\"--requirepass\" \"${REDIS_PASSWORD}\")\nARGS+=(\"--masterauth\" \"${REDIS_PASSWORD}\")\nARGS+=(\"--include\" \"/opt/bitnami/redis/etc/redis.conf\")\nARGS+=(\"--include\" \"/opt/bitnami/redis/etc/master.conf\")\nexec redis-server \"${ARGS[@]}\"\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-postgresql-hl",
+      "namespace": "i8snlQii4uw9",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-11.6.5",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "primary",
+        "service.alpha.kubernetes.io/tolerate-unready-endpoints": "true"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "publishNotReadyAddresses": true,
+      "ports": [
+        {
+          "name": "tcp-postgresql",
+          "port": 5432,
+          "targetPort": "tcp-postgresql"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "postgresql",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "primary"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "namespace": "i8snlQii4uw9",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-11.6.5",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "primary"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "sessionAffinity": "None",
+      "ports": [
+        {
+          "name": "tcp-postgresql",
+          "port": 5432,
+          "targetPort": "tcp-postgresql",
+          "nodePort": null
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "postgresql",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "primary"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-redis-headless",
+      "namespace": "i8snlQii4uw9",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.12.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "tcp-redis",
+          "port": 6379,
+          "targetPort": "redis"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "redis",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-redis-master",
+      "namespace": "i8snlQii4uw9",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.12.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "master"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "internalTrafficPolicy": "Cluster",
+      "sessionAffinity": "None",
+      "ports": [
+        {
+          "name": "tcp-redis",
+          "port": 6379,
+          "targetPort": "redis",
+          "nodePort": null
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "redis",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "master"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-airflow",
+      "namespace": "i8snlQii4uw9",
+      "labels": {
+        "app.kubernetes.io/name": "airflow",
+        "helm.sh/chart": "airflow-12.5.7",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "sessionAffinity": "None",
+      "ports": [
+        {
+          "name": "http",
+          "port": 8080,
+          "protocol": "TCP",
+          "targetPort": "http",
+          "nodePort": null
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "airflow",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "web"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-airflow-worker-hl",
+      "namespace": "i8snlQii4uw9",
+      "labels": {
+        "app.kubernetes.io/name": "airflow",
+        "helm.sh/chart": "airflow-12.5.7",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "worker",
+          "port": 8793,
+          "targetPort": "worker"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "airflow",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "worker"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-airflow-scheduler",
+      "namespace": "i8snlQii4uw9",
+      "labels": {
+        "app.kubernetes.io/name": "airflow",
+        "helm.sh/chart": "airflow-12.5.7",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "scheduler"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "airflow",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "scheduler"
+        }
+      },
+      "replicas": 1,
+      "strategy": {
+        "rollingUpdate": {},
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "airflow",
+            "helm.sh/chart": "airflow-12.5.7",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "scheduler"
+          },
+          "annotations": {
+            "checksum/configmap": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "podAffinity": null,
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app.kubernetes.io/name": "airflow",
+                        "app.kubernetes.io/instance": "release-name",
+                        "app.kubernetes.io/component": "scheduler"
+                      }
+                    },
+                    "namespaces": [
+                      "default"
+                    ],
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 1
+                }
+              ]
+            },
+            "nodeAffinity": null
+          },
+          "serviceAccountName": "default",
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "initContainers": null,
+          "containers": [
+            {
+              "name": "airflow-scheduler",
+              "image": "docker.io/bitnami/airflow-scheduler:2.3.2-debian-11-r3",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsNonRoot": true,
+                "runAsUser": 10165,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "env": [
+                {
+                  "name": "AIRFLOW_FERNET_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-airflow",
+                      "key": "airflow-fernet-key"
+                    }
+                  }
+                },
+                {
+                  "name": "AIRFLOW_SECRET_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-airflow",
+                      "key": "airflow-secret-key"
+                    }
+                  }
+                },
+                {
+                  "name": "AIRFLOW_LOAD_EXAMPLES",
+                  "value": "no"
+                },
+                {
+                  "name": "AIRFLOW_DATABASE_NAME",
+                  "value": "bitnami_airflow"
+                },
+                {
+                  "name": "AIRFLOW_DATABASE_USERNAME",
+                  "value": "bn_airflow"
+                },
+                {
+                  "name": "AIRFLOW_DATABASE_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-postgresql",
+                      "key": "password"
+                    }
+                  }
+                },
+                {
+                  "name": "AIRFLOW_DATABASE_HOST",
+                  "value": "release-name-postgresql"
+                },
+                {
+                  "name": "AIRFLOW_DATABASE_PORT_NUMBER",
+                  "value": "5432"
+                },
+                {
+                  "name": "REDIS_HOST",
+                  "value": "release-name-redis-master"
+                },
+                {
+                  "name": "REDIS_PORT_NUMBER",
+                  "value": "6379"
+                },
+                {
+                  "name": "REDIS_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-redis",
+                      "key": "redis-password"
+                    }
+                  }
+                },
+                {
+                  "name": "AIRFLOW_EXECUTOR",
+                  "value": "CeleryExecutor"
+                },
+                {
+                  "name": "AIRFLOW_WEBSERVER_HOST",
+                  "value": "release-name-airflow"
+                },
+                {
+                  "name": "AIRFLOW_WEBSERVER_PORT_NUMBER",
+                  "value": "8080"
+                }
+              ],
+              "resources": {
+                "limits": {},
+                "requests": {},
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": null
+            }
+          ],
+          "volumes": null
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-airflow-web",
+      "namespace": "i8snlQii4uw9",
+      "labels": {
+        "app.kubernetes.io/name": "airflow",
+        "helm.sh/chart": "airflow-12.5.7",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "web"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "airflow",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "web"
+        }
+      },
+      "replicas": 1,
+      "strategy": {
+        "rollingUpdate": {},
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "airflow",
+            "helm.sh/chart": "airflow-12.5.7",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "web"
+          },
+          "annotations": {
+            "checksum/configmap": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "podAffinity": null,
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app.kubernetes.io/name": "airflow",
+                        "app.kubernetes.io/instance": "release-name",
+                        "app.kubernetes.io/component": "web"
+                      }
+                    },
+                    "namespaces": [
+                      "default"
+                    ],
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 1
+                }
+              ]
+            },
+            "nodeAffinity": null
+          },
+          "serviceAccountName": "default",
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "initContainers": null,
+          "containers": [
+            {
+              "name": "airflow-web",
+              "image": "docker.io/bitnami/airflow:2.3.2-debian-11-r3",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsNonRoot": true,
+                "runAsUser": 11573,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "env": [
+                {
+                  "name": "AIRFLOW_FERNET_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-airflow",
+                      "key": "airflow-fernet-key"
+                    }
+                  }
+                },
+                {
+                  "name": "AIRFLOW_SECRET_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-airflow",
+                      "key": "airflow-secret-key"
+                    }
+                  }
+                },
+                {
+                  "name": "AIRFLOW_LOAD_EXAMPLES",
+                  "value": "no"
+                },
+                {
+                  "name": "AIRFLOW_DATABASE_NAME",
+                  "value": "bitnami_airflow"
+                },
+                {
+                  "name": "AIRFLOW_DATABASE_USERNAME",
+                  "value": "bn_airflow"
+                },
+                {
+                  "name": "AIRFLOW_DATABASE_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-postgresql",
+                      "key": "password"
+                    }
+                  }
+                },
+                {
+                  "name": "AIRFLOW_DATABASE_HOST",
+                  "value": "release-name-postgresql"
+                },
+                {
+                  "name": "AIRFLOW_DATABASE_PORT_NUMBER",
+                  "value": "5432"
+                },
+                {
+                  "name": "REDIS_HOST",
+                  "value": "release-name-redis-master"
+                },
+                {
+                  "name": "REDIS_PORT_NUMBER",
+                  "value": "6379"
+                },
+                {
+                  "name": "REDIS_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-redis",
+                      "key": "redis-password"
+                    }
+                  }
+                },
+                {
+                  "name": "AIRFLOW_EXECUTOR",
+                  "value": "CeleryExecutor"
+                },
+                {
+                  "name": "AIRFLOW_WEBSERVER_HOST",
+                  "value": "0.0.0.0"
+                },
+                {
+                  "name": "AIRFLOW_WEBSERVER_PORT_NUMBER",
+                  "value": "8080"
+                },
+                {
+                  "name": "AIRFLOW_USERNAME",
+                  "value": "user"
+                },
+                {
+                  "name": "AIRFLOW_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-airflow",
+                      "key": "airflow-password"
+                    }
+                  }
+                },
+                {
+                  "name": "AIRFLOW_BASE_URL",
+                  "value": "http://127.0.0.1:8080"
+                },
+                {
+                  "name": "AIRFLOW_LDAP_ENABLE",
+                  "value": "no"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8080
+                }
+              ],
+              "livenessProbe": {
+                "failureThreshold": 6,
+                "initialDelaySeconds": 180,
+                "periodSeconds": 20,
+                "successThreshold": 1,
+                "timeoutSeconds": 5,
+                "tcpSocket": {
+                  "port": "http"
+                }
+              },
+              "readinessProbe": {
+                "failureThreshold": 6,
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 5,
+                "tcpSocket": {
+                  "port": "http"
+                }
+              },
+              "resources": {
+                "limits": {},
+                "requests": {},
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": null
+            }
+          ],
+          "volumes": null
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "namespace": "i8snlQii4uw9",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-11.6.5",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "primary"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "replicas": 1,
+      "serviceName": "release-name-postgresql-hl",
+      "updateStrategy": {
+        "rollingUpdate": {},
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "postgresql",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "primary"
+        }
+      },
+      "template": {
+        "metadata": {
+          "name": "release-name-postgresql",
+          "labels": {
+            "app.kubernetes.io/name": "postgresql",
+            "helm.sh/chart": "postgresql-11.6.5",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "primary"
+          },
+          "annotations": null
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "affinity": {
+            "podAffinity": null,
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app.kubernetes.io/name": "postgresql",
+                        "app.kubernetes.io/instance": "release-name",
+                        "app.kubernetes.io/component": "primary"
+                      }
+                    },
+                    "namespaces": [
+                      "default"
+                    ],
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 1
+                }
+              ]
+            },
+            "nodeAffinity": null
+          },
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "hostNetwork": false,
+          "hostIPC": false,
+          "initContainers": null,
+          "containers": [
+            {
+              "name": "postgresql",
+              "image": "docker.io/bitnami/postgresql:14.3.0-debian-11-r0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 10727,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "env": [
+                {
+                  "name": "BITNAMI_DEBUG",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_PORT_NUMBER",
+                  "value": "5432"
+                },
+                {
+                  "name": "POSTGRESQL_VOLUME_DIR",
+                  "value": "/bitnami/postgresql"
+                },
+                {
+                  "name": "PGDATA",
+                  "value": "/bitnami/postgresql/data"
+                },
+                {
+                  "name": "POSTGRES_USER",
+                  "value": "bn_airflow"
+                },
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-postgresql",
+                      "key": "password"
+                    }
+                  }
+                },
+                {
+                  "name": "POSTGRES_DB",
+                  "value": "bitnami_airflow"
+                },
+                {
+                  "name": "POSTGRESQL_ENABLE_LDAP",
+                  "value": "no"
+                },
+                {
+                  "name": "POSTGRESQL_ENABLE_TLS",
+                  "value": "no"
+                },
+                {
+                  "name": "POSTGRESQL_LOG_HOSTNAME",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_LOG_CONNECTIONS",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_LOG_DISCONNECTIONS",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_PGAUDIT_LOG_CATALOG",
+                  "value": "off"
+                },
+                {
+                  "name": "POSTGRESQL_CLIENT_MIN_MESSAGES",
+                  "value": "error"
+                },
+                {
+                  "name": "POSTGRESQL_SHARED_PRELOAD_LIBRARIES",
+                  "value": "pgaudit"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "tcp-postgresql",
+                  "containerPort": 5432
+                }
+              ],
+              "livenessProbe": {
+                "failureThreshold": 6,
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 5,
+                "exec": {
+                  "command": [
+                    "/bin/sh",
+                    "-c",
+                    "exec pg_isready -U \"bn_airflow\" -d \"dbname=bitnami_airflow\" -h 127.0.0.1 -p 5432"
+                  ]
+                }
+              },
+              "readinessProbe": {
+                "failureThreshold": 6,
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 5,
+                "exec": {
+                  "command": [
+                    "/bin/sh",
+                    "-c",
+                    "-e",
+                    "exec pg_isready -U \"bn_airflow\" -d \"dbname=bitnami_airflow\" -h 127.0.0.1 -p 5432\n[ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]\n"
+                  ]
+                }
+              },
+              "resources": {
+                "limits": {},
+                "requests": {
+                  "cpu": "250m",
+                  "memory": "256Mi"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "dshm",
+                  "mountPath": "/dev/shm"
+                },
+                {
+                  "name": "data",
+                  "mountPath": "/bitnami/postgresql"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "dshm",
+              "emptyDir": {
+                "medium": "Memory"
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "8Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-redis-master",
+      "namespace": "i8snlQii4uw9",
+      "labels": {
+        "app.kubernetes.io/name": "redis",
+        "helm.sh/chart": "redis-16.12.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "master"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "redis",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "master"
+        }
+      },
+      "serviceName": "release-name-redis-headless",
+      "updateStrategy": {
+        "rollingUpdate": {},
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "redis",
+            "helm.sh/chart": "redis-16.12.1",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "master"
+          },
+          "annotations": {
+            "checksum/configmap": "c2f1f1cd8f4276c095647499eb03f6a3acf97d195bef3f60ce2ee7698973740f",
+            "checksum/health": "85b734bf784bee537b16c48bbdf589ea714442d9eb373a8a5746cbac338c015c",
+            "checksum/scripts": "ddeeb84b214143033961f5fb661110e5c37c5b5ce341780d137cae93ffdb6035",
+            "checksum/secret": "08bc5507465eed30f2e3ae58d2a6e75e1e398fec629f68061c4a9b81808cde16"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "serviceAccountName": "release-name-redis",
+          "affinity": {
+            "podAffinity": null,
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app.kubernetes.io/name": "redis",
+                        "app.kubernetes.io/instance": "release-name",
+                        "app.kubernetes.io/component": "master"
+                      }
+                    },
+                    "namespaces": [
+                      "default"
+                    ],
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 1
+                }
+              ]
+            },
+            "nodeAffinity": null
+          },
+          "terminationGracePeriodSeconds": 30,
+          "containers": [
+            {
+              "name": "redis",
+              "image": "docker.io/bitnami/redis:6.2.7-debian-11-r3",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 11188,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "command": [
+                "/bin/bash"
+              ],
+              "args": [
+                "-c",
+                "/opt/bitnami/scripts/start-scripts/start-master.sh"
+              ],
+              "env": [
+                {
+                  "name": "BITNAMI_DEBUG",
+                  "value": "false"
+                },
+                {
+                  "name": "REDIS_REPLICATION_MODE",
+                  "value": "master"
+                },
+                {
+                  "name": "ALLOW_EMPTY_PASSWORD",
+                  "value": "no"
+                },
+                {
+                  "name": "REDIS_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-redis",
+                      "key": "redis-password"
+                    }
+                  }
+                },
+                {
+                  "name": "REDIS_TLS_ENABLED",
+                  "value": "no"
+                },
+                {
+                  "name": "REDIS_PORT",
+                  "value": "6379"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "redis",
+                  "containerPort": 6379
+                }
+              ],
+              "livenessProbe": {
+                "initialDelaySeconds": 20,
+                "periodSeconds": 5,
+                "timeoutSeconds": 6,
+                "successThreshold": 1,
+                "failureThreshold": 5,
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "/health/ping_liveness_local.sh 5"
+                  ]
+                }
+              },
+              "readinessProbe": {
+                "initialDelaySeconds": 20,
+                "periodSeconds": 5,
+                "timeoutSeconds": 2,
+                "successThreshold": 1,
+                "failureThreshold": 5,
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "/health/ping_readiness_local.sh 1"
+                  ]
+                }
+              },
+              "resources": {
+                "limits": {},
+                "requests": {},
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "start-scripts",
+                  "mountPath": "/opt/bitnami/scripts/start-scripts"
+                },
+                {
+                  "name": "health",
+                  "mountPath": "/health"
+                },
+                {
+                  "name": "redis-data",
+                  "mountPath": "/data",
+                  "subPath": null
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/opt/bitnami/redis/mounted-etc"
+                },
+                {
+                  "name": "redis-tmp-conf",
+                  "mountPath": "/opt/bitnami/redis/etc/"
+                },
+                {
+                  "name": "tmp",
+                  "mountPath": "/tmp"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "start-scripts",
+              "configMap": {
+                "name": "release-name-redis-scripts",
+                "defaultMode": 493
+              }
+            },
+            {
+              "name": "health",
+              "configMap": {
+                "name": "release-name-redis-health",
+                "defaultMode": 493
+              }
+            },
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-redis-configuration"
+              }
+            },
+            {
+              "name": "redis-tmp-conf",
+              "emptyDir": {}
+            },
+            {
+              "name": "tmp",
+              "emptyDir": {}
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "redis-data",
+            "labels": {
+              "app.kubernetes.io/name": "redis",
+              "app.kubernetes.io/instance": "release-name",
+              "app.kubernetes.io/component": "master"
+            }
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "8Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-airflow-worker",
+      "namespace": "i8snlQii4uw9",
+      "labels": {
+        "app.kubernetes.io/name": "airflow",
+        "helm.sh/chart": "airflow-12.5.7",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "worker"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "airflow",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "worker"
+        }
+      },
+      "serviceName": "release-name-airflow-worker-hl",
+      "updateStrategy": {
+        "rollingUpdate": {},
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/configmap": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "airflow",
+            "helm.sh/chart": "airflow-12.5.7",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "worker"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "podAffinity": null,
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app.kubernetes.io/name": "airflow",
+                        "app.kubernetes.io/instance": "release-name",
+                        "app.kubernetes.io/component": "worker"
+                      }
+                    },
+                    "namespaces": [
+                      "default"
+                    ],
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 1
+                }
+              ]
+            },
+            "nodeAffinity": null
+          },
+          "serviceAccountName": "default",
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "initContainers": null,
+          "containers": [
+            {
+              "name": "airflow-worker",
+              "image": "docker.io/bitnami/airflow-worker:2.3.2-debian-11-r3",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsNonRoot": true,
+                "runAsUser": 10335,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "env": [
+                {
+                  "name": "AIRFLOW_FERNET_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-airflow",
+                      "key": "airflow-fernet-key"
+                    }
+                  }
+                },
+                {
+                  "name": "AIRFLOW_SECRET_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-airflow",
+                      "key": "airflow-secret-key"
+                    }
+                  }
+                },
+                {
+                  "name": "AIRFLOW_LOAD_EXAMPLES",
+                  "value": "no"
+                },
+                {
+                  "name": "AIRFLOW_DATABASE_NAME",
+                  "value": "bitnami_airflow"
+                },
+                {
+                  "name": "AIRFLOW_DATABASE_USERNAME",
+                  "value": "bn_airflow"
+                },
+                {
+                  "name": "AIRFLOW_DATABASE_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-postgresql",
+                      "key": "password"
+                    }
+                  }
+                },
+                {
+                  "name": "AIRFLOW_DATABASE_HOST",
+                  "value": "release-name-postgresql"
+                },
+                {
+                  "name": "AIRFLOW_DATABASE_PORT_NUMBER",
+                  "value": "5432"
+                },
+                {
+                  "name": "REDIS_HOST",
+                  "value": "release-name-redis-master"
+                },
+                {
+                  "name": "REDIS_PORT_NUMBER",
+                  "value": "6379"
+                },
+                {
+                  "name": "REDIS_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-redis",
+                      "key": "redis-password"
+                    }
+                  }
+                },
+                {
+                  "name": "AIRFLOW_EXECUTOR",
+                  "value": "CeleryExecutor"
+                },
+                {
+                  "name": "AIRFLOW_WEBSERVER_HOST",
+                  "value": "release-name-airflow"
+                },
+                {
+                  "name": "AIRFLOW_WEBSERVER_PORT_NUMBER",
+                  "value": "8080"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "worker",
+                  "containerPort": 8793
+                }
+              ],
+              "livenessProbe": {
+                "failureThreshold": 6,
+                "initialDelaySeconds": 180,
+                "periodSeconds": 20,
+                "successThreshold": 1,
+                "timeoutSeconds": 5,
+                "tcpSocket": {
+                  "port": "worker"
+                }
+              },
+              "readinessProbe": {
+                "failureThreshold": 6,
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 5,
+                "tcpSocket": {
+                  "port": "worker"
+                }
+              },
+              "resources": {
+                "limits": {},
+                "requests": {},
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": null
+            }
+          ],
+          "volumes": null
+        }
+      }
+    }
+  }
+]

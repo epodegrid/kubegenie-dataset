@@ -1,0 +1,196 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: snark-coordinator
+  labels:
+    app: snark-coordinator
+spec:
+  type: ClusterIP
+  publishNotReadyAddresses: true
+  selector:
+    app: snark-coordinator
+  ports:
+    - name: tcp-p2p
+      port: 10909
+      targetPort: external-port
+    - name: tcp-client
+      port: 8301
+      targetPort: client-port
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: snark-coordinator
+  labels:
+    app: snark-coordinator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: snark-coordinator
+  template:
+    metadata:
+      labels:
+        app: snark-coordinator
+        testnet: testnet
+        role: snark-coordinator
+        version: 1.2.0b
+        syncStatus: INIT
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "10001"
+        prometheus.io/path: /metrics
+    spec:
+      containers:
+        - name: mina
+          resources:
+            limits: null
+            requests:
+              memory: 16Gi
+              cpu: 8
+            seccompProfile:
+              type: RuntimeDefault
+          image: gcr.io/o1labs-192920/mina-daemon:1.2.0beta8-5b35b27-devnet
+          args:
+            - daemon
+            - -log-level
+            - Debug
+            - -log-json
+            - -config-directory
+            - /root/.mina-config
+            - -log-snark-work-gossip
+            - "true"
+            - -client-port
+            - $(DAEMON_CLIENT_PORT)
+            - -rest-port
+            - $(DAEMON_REST_PORT)
+            - -external-port
+            - $(DAEMON_EXTERNAL_PORT)
+            - -metrics-port
+            - $(DAEMON_METRICS_PORT)
+            - -run-snark-coordinator
+            - $(CODA_SNARK_KEY)
+            - -snark-worker-fee
+            - $(CODA_SNARK_FEE)
+            - -work-selection
+            - $(WORK_SELECTION)
+            - -enable-peer-exchange
+            - "true"
+            - -peer
+            - /ip4/35.185.66.37/tcp/10105/p2p/12D3KooWQ7Pz3SPizarzx9ZhCJ6jNmQ2iDPgHQxVzRzqYU2SgRSd
+            - -peer
+            - /ip4/35.237.214.144/tcp/10120/p2p/12D3KooWGtjWnCcvkaSEbKuNbPivEogxqtLWcsJiQtURydptvrsA
+            - -generate-genesis-proof
+            - "true"
+          env:
+            - name: RAYON_NUM_THREADS
+              value: "7"
+            - name: DAEMON_REST_PORT
+              value: "3085"
+            - name: DAEMON_CLIENT_PORT
+              value: "8301"
+            - name: DAEMON_METRICS_PORT
+              value: "10001"
+            - name: MINA_CLIENT_TRUSTLIST
+              value: 10.0.0.0/8
+            - name: CODA_SNARK_KEY
+              value: ""
+            - name: CODA_SNARK_FEE
+              value: "0.025"
+            - name: DAEMON_EXTERNAL_PORT
+              value: "10909"
+            - name: WORK_SELECTION
+              value: seq
+          ports:
+            - name: client-port
+              protocol: TCP
+              containerPort: 8301
+            - name: graphql-port
+              protocol: TCP
+              containerPort: 3085
+            - name: metrics-port
+              protocol: TCP
+              containerPort: 10001
+            - name: external-port
+              protocol: TCP
+              containerPort: 10909
+              hostPort: 10909
+          livenessProbe:
+            tcpSocket:
+              port: external-port
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - source /healthcheck/utilities.sh && isDaemonSynced && hasSnarkWorker && updateSyncStatusLabel snark-coordinator
+          imagePullPolicy: Always
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: cloud.google.com/gke-preemptible
+                    operator: In
+                    values:
+                      - "true"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: snark-worker
+  labels:
+    app: snark-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: snark-worker
+  template:
+    metadata:
+      labels:
+        app: snark-worker
+        testnet: testnet
+        role: snark-worker
+        version: 1.2.0b
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "10000"
+        prometheus.io/path: /metrics
+    spec:
+      containers:
+        - name: worker
+          resources:
+            limits:
+              memory: 16.0Gi
+            requests:
+              memory: 6.0Gi
+              cpu: 4
+            seccompProfile:
+              type: RuntimeDefault
+          image: gcr.io/o1labs-192920/mina-daemon:1.2.0beta8-5b35b27-devnet
+          args:
+            - internal
+            - snark-worker
+            - -proof-level
+            - full
+            - -shutdown-on-disconnect
+            - "false"
+            - -daemon-address
+            - :8301
+          env:
+            - name: RAYON_NUM_THREADS
+              value: "4"
+          imagePullPolicy: Always
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: cloud.google.com/gke-preemptible
+                    operator: In
+                    values:
+                      - "true"

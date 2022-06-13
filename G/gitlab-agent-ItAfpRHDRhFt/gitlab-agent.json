@@ -1,0 +1,177 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-gitlab-agent",
+      "labels": {
+        "helm.sh/chart": "gitlab-agent-1.1.0",
+        "app.kubernetes.io/name": "gitlab-agent",
+        "app": "gitlab-agent",
+        "app.kubernetes.io/version": "v15.0.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-gitlab-agent",
+      "labels": {
+        "helm.sh/chart": "gitlab-agent-1.1.0",
+        "app.kubernetes.io/name": "gitlab-agent",
+        "app": "gitlab-agent",
+        "app.kubernetes.io/version": "v15.0.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": null
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "default:release-name-gitlab-agent-cluster-admin",
+      "labels": {
+        "helm.sh/chart": "gitlab-agent-1.1.0",
+        "app.kubernetes.io/name": "gitlab-agent",
+        "app": "gitlab-agent",
+        "app.kubernetes.io/version": "v15.0.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "cluster-admin"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-gitlab-agent",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-gitlab-agent",
+      "labels": {
+        "helm.sh/chart": "gitlab-agent-1.1.0",
+        "app.kubernetes.io/name": "gitlab-agent",
+        "app": "gitlab-agent",
+        "app.kubernetes.io/version": "v15.0.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "rollingUpdate": {
+          "maxSurge": 0,
+          "maxUnavailable": 1
+        },
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "gitlab-agent",
+          "app": "gitlab-agent"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "prometheus.io/path": "/metrics",
+            "prometheus.io/port": "8080",
+            "prometheus.io/scrape": "true"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "gitlab-agent",
+            "app": "gitlab-agent"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-gitlab-agent",
+          "containers": [
+            {
+              "name": "gitlab-agent",
+              "image": "registry.gitlab.com/gitlab-org/cluster-integration/gitlab-agent/agentk:v15.0.0",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "--token-file=/etc/agentk/secrets/token",
+                "--kas-address=wss://kas.gitlab.com"
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/liveness",
+                  "port": 8080
+                },
+                "initialDelaySeconds": 15,
+                "periodSeconds": 20
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/readiness",
+                  "port": 8080
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "env": [
+                {
+                  "name": "POD_NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "secret-volume",
+                  "mountPath": "/etc/agentk/secrets"
+                },
+                {
+                  "name": "config-volume",
+                  "mountPath": "/etc/agentk/config"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "secret-volume",
+              "secret": {
+                "secretName": "release-name-gitlab-agent-token"
+              }
+            },
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "release-name-gitlab-agent"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

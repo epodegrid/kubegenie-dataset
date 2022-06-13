@@ -1,0 +1,197 @@
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: release-name-prometheus-node-exporter
+  namespace: default
+  labels:
+    app: prometheus-node-exporter
+    heritage: Helm
+    release: release-name
+    chart: prometheus-node-exporter-2.0.4
+spec:
+  privileged: false
+  volumes:
+    - configMap
+    - emptyDir
+    - projected
+    - secret
+    - downwardAPI
+    - persistentVolumeClaim
+    - hostPath
+  hostNetwork: false
+  hostIPC: false
+  hostPID: true
+  hostPorts:
+    - min: 0
+      max: 65535
+  runAsUser:
+    rule: RunAsAny
+  seLinux:
+    rule: RunAsAny
+  supplementalGroups:
+    rule: MustRunAs
+    ranges:
+      - min: 0
+        max: 65535
+  fsGroup:
+    rule: MustRunAs
+    ranges:
+      - min: 0
+        max: 65535
+  readOnlyRootFilesystem: false
+  rule: MustRunAsNonRoot
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-prometheus-node-exporter
+  namespace: V3OkTx
+  labels:
+    app: prometheus-node-exporter
+    chart: prometheus-node-exporter-2.0.4
+    release: release-name
+    heritage: Helm
+  annotations: {}
+imagePullSecrets: []
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: psp-release-name-prometheus-node-exporter
+  labels:
+    app: prometheus-node-exporter
+    heritage: Helm
+    release: release-name
+    chart: prometheus-node-exporter-2.0.4
+rules:
+  - apiGroups:
+      - extensions
+    resources:
+      - podsecuritypolicies
+    verbs:
+      - use
+    resourceNames:
+      - release-name-prometheus-node-exporter
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: psp-release-name-prometheus-node-exporter
+  labels:
+    app: prometheus-node-exporter
+    heritage: Helm
+    release: release-name
+    chart: prometheus-node-exporter-2.0.4
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: psp-release-name-prometheus-node-exporter
+subjects:
+  - kind: ServiceAccount
+    name: release-name-prometheus-node-exporter
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-prometheus-node-exporter
+  namespace: V3OkTx
+  annotations:
+    prometheus.io/scrape: "true"
+  labels:
+    app: prometheus-node-exporter
+    heritage: Helm
+    release: release-name
+    chart: prometheus-node-exporter-2.0.4
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9100
+      targetPort: 9100
+      protocol: TCP
+      name: metrics
+  selector:
+    app: prometheus-node-exporter
+    release: release-name
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: release-name-prometheus-node-exporter
+  namespace: V3OkTx
+  labels:
+    app: prometheus-node-exporter
+    heritage: Helm
+    release: release-name
+    chart: prometheus-node-exporter-2.0.4
+spec:
+  selector:
+    matchLabels:
+      app: prometheus-node-exporter
+      release: release-name
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 1
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: prometheus-node-exporter
+        heritage: Helm
+        release: release-name
+        chart: prometheus-node-exporter-2.0.4
+      annotations:
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
+    spec:
+      automountServiceAccountToken: false
+      serviceAccountName: release-name-prometheus-node-exporter
+      securityContext:
+        fsGroup: 65534
+        runAsGroup: 65534
+        runAsNonRoot: true
+        runAsUser: 65534
+      containers:
+        - name: node-exporter
+          image: quay.io/prometheus/node-exporter:v1.2.2
+          imagePullPolicy: IfNotPresent
+          args:
+            - --path.procfs=/host/proc
+            - --path.sysfs=/host/sys
+            - --web.listen-address=$(HOST_IP):9100
+          env:
+            - name: HOST_IP
+              value: 0.0.0.0
+          ports:
+            - name: metrics
+              containerPort: 9100
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 9100
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 9100
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys

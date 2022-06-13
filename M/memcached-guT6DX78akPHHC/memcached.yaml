@@ -1,0 +1,172 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-memcached
+  namespace: guT6DX78akPHHC
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-memcached-bin
+data:
+  memcached.sh: |
+    #!/bin/sh
+
+
+
+    set -ex
+
+    memcached --version
+    exec memcached -v \
+      -p ${MEMCACHED_PORT} \
+      -U 0 \
+      -c ${MEMCACHED_MAX_CONNECTIONS} \
+      -m ${MEMCACHED_MEMORY}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: memcached
+spec:
+  sessionAffinity: ClientIP
+  ports:
+    - port: 11211
+  selector:
+    release_group: release-name
+    application: memcached
+    component: server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-memcached
+  annotations:
+    openstackhelm.openstack.org/release_uuid: ""
+  labels:
+    release_group: release-name
+    application: memcached
+    component: server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      release_group: release-name
+      application: memcached
+      component: server
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 3
+  template:
+    metadata:
+      annotations:
+        openstackhelm.openstack.org/release_uuid: ""
+        configmap-bin-hash: 825a65926cc2984fae93dbd668b6ab50bdb9094420480cb41b2809d6618edf24
+      labels:
+        release_group: release-name
+        application: memcached
+        component: server
+    spec:
+      securityContext:
+        runAsUser: 65534
+      shareProcessNamespace: true
+      serviceAccountName: release-name-memcached
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: release_group
+                      operator: In
+                      values:
+                        - release-name
+                    - key: application
+                      operator: In
+                      values:
+                        - memcached
+                    - key: component
+                      operator: In
+                      values:
+                        - server
+                topologyKey: kubernetes.io/hostname
+              weight: 10
+      nodeSelector:
+        openstack-control-plane: enabled
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: init
+          image: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: INTERFACE_NAME
+              value: eth0
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: DEPENDENCY_SERVICE
+              value: ""
+            - name: DEPENDENCY_DAEMONSET
+              value: ""
+            - name: DEPENDENCY_CONTAINER
+              value: ""
+            - name: DEPENDENCY_POD_JSON
+              value: ""
+            - name: DEPENDENCY_CUSTOM_RESOURCE
+              value: ""
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+      containers:
+        - name: memcached
+          image: docker.io/memcached:1.5.5
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                "": NET_RAW
+          env:
+            - name: MEMCACHED_PORT
+              value: "11211"
+            - name: MEMCACHED_MAX_CONNECTIONS
+              value: "8192"
+            - name: MEMCACHED_MEMORY
+              value: "1024"
+          command:
+            - /tmp/memcached.sh
+          ports:
+            - containerPort: 11211
+          readinessProbe:
+            tcpSocket:
+              port: 11211
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: memcached-bin
+              mountPath: /tmp/memcached.sh
+              subPath: memcached.sh
+              readOnly: true
+      volumes:
+        - name: pod-tmp
+          emptyDir: {}
+        - name: memcached-bin
+          configMap:
+            name: release-name-memcached-bin
+            defaultMode: 365

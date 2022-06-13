@@ -1,0 +1,695 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-radondb-postgresql-pgpool",
+      "labels": {
+        "app.kubernetes.io/name": "radondb-postgresql",
+        "helm.sh/chart": "radondb-postgresql-1.0.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "pgpool"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "admin-password": "UGdwb29sQDEyMw=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-radondb-postgresql",
+      "labels": {
+        "app.kubernetes.io/name": "radondb-postgresql",
+        "helm.sh/chart": "radondb-postgresql-1.0.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "postgresql"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "postgresql-password": "UWluZ0AxMjM=",
+      "repmgr-password": "UmVwbWdyXzEyMw=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-radondb-postgresql-hooks-scripts",
+      "labels": {
+        "app.kubernetes.io/name": "radondb-postgresql",
+        "helm.sh/chart": "radondb-postgresql-1.0.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "postgresql"
+      }
+    },
+    "data": {
+      "pre-stop.sh": "#!/bin/bash\nset -o errexit\nset -o pipefail\nset -o nounset\n\n# Debug section\nexec 3>&1\nexec 4>&2\n\n# Load Libraries\n. /opt/qingcloud/scripts/liblog.sh\n. /opt/qingcloud/scripts/libpostgresql.sh\n. /opt/qingcloud/scripts/librepmgr.sh\n\n# Auxiliary functions\nis_new_primary_ready() {\n    return_value=1\n    currenty_primary_node=\"$(repmgr_get_primary_node)\"\n    currenty_primary_host=\"$(echo $currenty_primary_node | awk '{print $1}')\"\n\n    info \"$currenty_primary_host != $REPMGR_NODE_NETWORK_NAME\"\n    if [[ $(echo $currenty_primary_node | wc -w) -eq 2 ]] && [[ \"$currenty_primary_host\" != \"$REPMGR_NODE_NETWORK_NAME\" ]]; then\n        info \"New primary detected, leaving the cluster...\"\n        return_value=0\n    else\n        info \"Waiting for a new primary to be available...\"\n    fi\n    return $return_value\n}\n\nexport MODULE=\"pre-stop-hook\"\n\nif [[ \"${QINGCLOUD_DEBUG}\" == \"true\" ]]; then\n    info \"Bash debug is on\"\nelse\n    info \"Bash debug is off\"\n    exec 1>/dev/null\n    exec 2>/dev/null\nfi\n\n# Load PostgreSQL & repmgr environment variables\n. /opt/qingcloud/scripts/postgresql-env.sh\n\npostgresql_enable_nss_wrapper\n\n# Prepare env vars for managing roles\nprimary_node=\"$(repmgr_get_upstream_node)\"\nprimary_host=\"$(echo $primary_node | awk '{print $1}')\"\n# unregister standby node before leaving\nif ! [[ \"$primary_host\" == \"$REPMGR_NODE_NETWORK_NAME\" ]] ; then\n    info \"Unregister standby before leaving the cluster.\"\n    repmgr_unregister_standby\nfi\n\n# Stop postgresql for graceful exit.\npostgresql_stop\n\nif [[ \"$primary_host\" == \"$REPMGR_NODE_NETWORK_NAME\" ]] ; then\n    info \"Primary node need to wait for a new primary node before leaving the cluster\"\n    retry_while is_new_primary_ready 10 5\nelse\n    info \"Standby node doesn't need to wait, leaving the cluster.\"\nfi"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-radondb-postgresql-pgpool",
+      "labels": {
+        "app.kubernetes.io/name": "radondb-postgresql",
+        "helm.sh/chart": "radondb-postgresql-1.0.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "pgpool"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "postgresql",
+          "port": 5432,
+          "targetPort": "postgresql",
+          "protocol": "TCP",
+          "nodePort": null
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "radondb-postgresql",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "pgpool"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-radondb-postgresql-headless",
+      "labels": {
+        "app.kubernetes.io/name": "radondb-postgresql",
+        "helm.sh/chart": "radondb-postgresql-1.0.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "postgresql",
+          "port": 5432,
+          "targetPort": "postgresql",
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "radondb-postgresql",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "postgresql"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-radondb-postgresql",
+      "labels": {
+        "app.kubernetes.io/name": "radondb-postgresql",
+        "helm.sh/chart": "radondb-postgresql-1.0.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "postgresql"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "postgresql",
+          "port": 5432,
+          "targetPort": "postgresql",
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "radondb-postgresql",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "postgresql"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-radondb-postgresql-pgpool",
+      "labels": {
+        "app.kubernetes.io/name": "radondb-postgresql",
+        "helm.sh/chart": "radondb-postgresql-1.0.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "pgpool"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "radondb-postgresql",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "pgpool"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "radondb-postgresql",
+            "helm.sh/chart": "radondb-postgresql-1.0.2",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "pgpool"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "podAffinity": null,
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app.kubernetes.io/name": "radondb-postgresql",
+                        "app.kubernetes.io/instance": "release-name",
+                        "app.kubernetes.io/component": "pgpool"
+                      }
+                    },
+                    "namespaces": [
+                      "default"
+                    ],
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 1
+                }
+              ]
+            },
+            "nodeAffinity": null
+          },
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "initContainers": null,
+          "containers": [
+            {
+              "name": "pgpool",
+              "image": "docker.io/radondb/pgpool:4.2.2-debian-10-r1",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 10884,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "env": [
+                {
+                  "name": "QINGCLOUD_DEBUG",
+                  "value": "false"
+                },
+                {
+                  "name": "PGPOOL_NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "PGPOOL_BACKEND_NODES",
+                  "value": "0:release-name-radondb-postgresql-0.release-name-radondb-postgresql-headless.$(PGPOOL_NAMESPACE).svc.cluster.local:5432,1:release-name-radondb-postgresql-1.release-name-radondb-postgresql-headless.$(PGPOOL_NAMESPACE).svc.cluster.local:5432,2:release-name-radondb-postgresql-2.release-name-radondb-postgresql-headless.$(PGPOOL_NAMESPACE).svc.cluster.local:5432,"
+                },
+                {
+                  "name": "PGPOOL_SR_CHECK_USER",
+                  "value": "repmgr"
+                },
+                {
+                  "name": "PGPOOL_SR_CHECK_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-radondb-postgresql",
+                      "key": "repmgr-password"
+                    }
+                  }
+                },
+                {
+                  "name": "PGPOOL_SR_CHECK_DATABASE",
+                  "value": "postgres"
+                },
+                {
+                  "name": "PGPOOL_ENABLE_LDAP",
+                  "value": "no"
+                },
+                {
+                  "name": "PGPOOL_POSTGRES_USERNAME",
+                  "value": "postgres"
+                },
+                {
+                  "name": "PGPOOL_POSTGRES_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-radondb-postgresql",
+                      "key": "postgresql-password"
+                    }
+                  }
+                },
+                {
+                  "name": "PGPOOL_ADMIN_USERNAME",
+                  "value": "admin"
+                },
+                {
+                  "name": "PGPOOL_ADMIN_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-radondb-postgresql-pgpool",
+                      "key": "admin-password"
+                    }
+                  }
+                },
+                {
+                  "name": "PGPOOL_ENABLE_LOAD_BALANCING",
+                  "value": "yes"
+                },
+                {
+                  "name": "PGPOOL_ENABLE_LOG_CONNECTIONS",
+                  "value": "no"
+                },
+                {
+                  "name": "PGPOOL_ENABLE_LOG_HOSTNAME",
+                  "value": "yes"
+                },
+                {
+                  "name": "PGPOOL_ENABLE_LOG_PER_NODE_STATEMENT",
+                  "value": "no"
+                },
+                {
+                  "name": "PGPOOL_ENABLE_TLS",
+                  "value": "no"
+                }
+              ],
+              "envFrom": null,
+              "ports": [
+                {
+                  "name": "postgresql",
+                  "containerPort": 5432,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "/opt/qingcloud/scripts/pgpool/healthcheck.sh"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 5
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "bash",
+                    "-ec",
+                    "PGPASSWORD=${PGPOOL_POSTGRES_PASSWORD} psql -U \"postgres\" -d \"postgres\" -h /opt/qingcloud/pgpool/tmp -tA -c \"SELECT 1\" >/dev/null"
+                  ]
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 5,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 5
+              },
+              "resources": {
+                "limits": {},
+                "requests": {},
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/dev/shm",
+                  "name": "dshm"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "emptyDir": {
+                "medium": "Memory"
+              },
+              "name": "dshm"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-radondb-postgresql",
+      "labels": {
+        "app.kubernetes.io/name": "radondb-postgresql",
+        "helm.sh/chart": "radondb-postgresql-1.0.2",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "postgresql"
+      }
+    },
+    "spec": {
+      "serviceName": "release-name-radondb-postgresql-headless",
+      "replicas": 3,
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "podManagementPolicy": "Parallel",
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "radondb-postgresql",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "postgresql"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "radondb-postgresql",
+            "helm.sh/chart": "radondb-postgresql-1.0.2",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "postgresql"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "podAffinity": null,
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app.kubernetes.io/name": "radondb-postgresql",
+                        "app.kubernetes.io/instance": "release-name",
+                        "app.kubernetes.io/component": "postgresql"
+                      }
+                    },
+                    "namespaces": [
+                      "default"
+                    ],
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 1
+                }
+              ]
+            },
+            "nodeAffinity": null
+          },
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "initContainers": null,
+          "containers": [
+            {
+              "name": "postgresql",
+              "lifecycle": {
+                "preStop": {
+                  "exec": {
+                    "command": [
+                      "/bin/sh",
+                      "-c",
+                      "/pre-stop.sh; while [ $(pgrep -f /opt/bitnami/postgresql/bin/postgres) ] ;  do sleep 1 ; done"
+                    ]
+                  }
+                }
+              },
+              "image": "docker.io/radondb/postgresql-repmgr:11.11.0-debian-r1",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 11577,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "env": [
+                {
+                  "name": "QINGCLOUD_DEBUG",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_VOLUME_DIR",
+                  "value": "/qingcloud/postgresql"
+                },
+                {
+                  "name": "PGDATA",
+                  "value": "/qingcloud/postgresql/data"
+                },
+                {
+                  "name": "POSTGRES_USER",
+                  "value": "postgres"
+                },
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-radondb-postgresql",
+                      "key": "postgresql-password"
+                    }
+                  }
+                },
+                {
+                  "name": "POSTGRES_DB",
+                  "value": "postgres"
+                },
+                {
+                  "name": "POSTGRESQL_LOG_HOSTNAME",
+                  "value": "true"
+                },
+                {
+                  "name": "POSTGRESQL_LOG_CONNECTIONS",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_LOG_DISCONNECTIONS",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_PGAUDIT_LOG_CATALOG",
+                  "value": "off"
+                },
+                {
+                  "name": "POSTGRESQL_CLIENT_MIN_MESSAGES",
+                  "value": "error"
+                },
+                {
+                  "name": "POSTGRESQL_SHARED_PRELOAD_LIBRARIES",
+                  "value": "pgaudit, repmgr"
+                },
+                {
+                  "name": "MY_POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "REPMGR_UPGRADE_EXTENSION",
+                  "value": "no"
+                },
+                {
+                  "name": "REPMGR_PGHBA_TRUST_ALL",
+                  "value": "no"
+                },
+                {
+                  "name": "REPMGR_MOUNTED_CONF_DIR",
+                  "value": "/qingcloud/repmgr/conf"
+                },
+                {
+                  "name": "REPMGR_NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "REPMGR_PARTNER_NODES",
+                  "value": "release-name-radondb-postgresql-0.release-name-radondb-postgresql-headless.$(REPMGR_NAMESPACE).svc.cluster.local,release-name-radondb-postgresql-1.release-name-radondb-postgresql-headless.$(REPMGR_NAMESPACE).svc.cluster.local,release-name-radondb-postgresql-2.release-name-radondb-postgresql-headless.$(REPMGR_NAMESPACE).svc.cluster.local,"
+                },
+                {
+                  "name": "REPMGR_PRIMARY_HOST",
+                  "value": "release-name-radondb-postgresql-0.release-name-radondb-postgresql-headless.$(REPMGR_NAMESPACE).svc.cluster.local"
+                },
+                {
+                  "name": "REPMGR_NODE_NAME",
+                  "value": "$(MY_POD_NAME)"
+                },
+                {
+                  "name": "REPMGR_NODE_NETWORK_NAME",
+                  "value": "$(MY_POD_NAME).release-name-radondb-postgresql-headless.$(REPMGR_NAMESPACE).svc.cluster.local"
+                },
+                {
+                  "name": "REPMGR_LOG_LEVEL",
+                  "value": "NOTICE"
+                },
+                {
+                  "name": "REPMGR_CONNECT_TIMEOUT",
+                  "value": "5"
+                },
+                {
+                  "name": "REPMGR_RECONNECT_ATTEMPTS",
+                  "value": "3"
+                },
+                {
+                  "name": "REPMGR_RECONNECT_INTERVAL",
+                  "value": "5"
+                },
+                {
+                  "name": "REPMGR_USERNAME",
+                  "value": "repmgr"
+                },
+                {
+                  "name": "REPMGR_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-radondb-postgresql",
+                      "key": "repmgr-password"
+                    }
+                  }
+                },
+                {
+                  "name": "REPMGR_DATABASE",
+                  "value": "repmgr"
+                },
+                {
+                  "name": "POSTGRESQL_NUM_SYNCHRONOUS_REPLICAS",
+                  "value": "2"
+                }
+              ],
+              "envFrom": null,
+              "ports": [
+                {
+                  "name": "postgresql",
+                  "containerPort": 5432,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "bash",
+                    "-ec",
+                    "PGPASSWORD=$POSTGRES_PASSWORD psql -w -U \"postgres\" -d \"postgres\"  -h 127.0.0.1 -c \"SELECT 1\""
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "bash",
+                    "-ec",
+                    "PGPASSWORD=$POSTGRES_PASSWORD psql -w -U \"postgres\" -d \"postgres\"  -h 127.0.0.1 -c \"SELECT 1\""
+                  ]
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "resources": {
+                "limits": {},
+                "requests": {},
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/qingcloud/postgresql"
+                },
+                {
+                  "name": "hooks-scripts",
+                  "mountPath": "/pre-stop.sh",
+                  "subPath": "pre-stop.sh"
+                },
+                {
+                  "mountPath": "/dev/shm",
+                  "name": "dshm"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "emptyDir": {
+                "medium": "Memory",
+                "sizeLimit": "512Mi"
+              },
+              "name": "dshm"
+            },
+            {
+              "name": "hooks-scripts",
+              "configMap": {
+                "name": "release-name-radondb-postgresql-hooks-scripts",
+                "defaultMode": 493
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "8Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+]

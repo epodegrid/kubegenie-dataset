@@ -1,0 +1,287 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-cert-manager-webhook-inwx
+  namespace: 1FR9O6A9
+  labels:
+    app: cert-manager-webhook-inwx
+    chart: cert-manager-webhook-inwx-0.5.0
+    release: release-name
+    heritage: Helm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-cert-manager-webhook-inwx:domain-solver
+  labels:
+    app: cert-manager-webhook-inwx
+    chart: cert-manager-webhook-inwx-0.5.0
+    release: release-name
+    heritage: Helm
+rules:
+  - apiGroups:
+      - cert-manager-webhook-inwx.smueller18.gitlab.com
+    resources:
+      - '*'
+    verbs:
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-cert-manager-webhook-inwx:auth-delegator
+  labels:
+    app: cert-manager-webhook-inwx
+    chart: cert-manager-webhook-inwx-0.5.0
+    release: release-name
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: release-name-cert-manager-webhook-inwx
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-cert-manager-webhook-inwx:domain-solver
+  labels:
+    app: cert-manager-webhook-inwx
+    chart: cert-manager-webhook-inwx-0.5.0
+    release: release-name
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-cert-manager-webhook-inwx:domain-solver
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: cert-manager
+    namespace: cert-manager
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-cert-manager-webhook-inwx:secret-reader
+  namespace: 1FR9O6A9
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    resourceNames:
+      - inwx-credentials
+    verbs:
+      - get
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-cert-manager-webhook-inwx:webhook-authentication-reader
+  namespace: kube-system
+  labels:
+    app: cert-manager-webhook-inwx
+    chart: cert-manager-webhook-inwx-0.5.0
+    release: release-name
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: release-name-cert-manager-webhook-inwx
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-cert-manager-webhook-inwx:secret-reader
+  namespace: 1FR9O6A9
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-cert-manager-webhook-inwx:secret-reader
+subjects:
+  - apiGroup: ""
+    kind: ServiceAccount
+    name: release-name-cert-manager-webhook-inwx
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-cert-manager-webhook-inwx
+  namespace: 1FR9O6A9
+  labels:
+    app: cert-manager-webhook-inwx
+    chart: cert-manager-webhook-inwx-0.5.0
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 443
+      targetPort: https
+      protocol: TCP
+      name: https
+  selector:
+    app: cert-manager-webhook-inwx
+    release: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-cert-manager-webhook-inwx
+  namespace: 1FR9O6A9
+  labels:
+    app: cert-manager-webhook-inwx
+    chart: cert-manager-webhook-inwx-0.5.0
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: null
+  selector:
+    matchLabels:
+      app: cert-manager-webhook-inwx
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: cert-manager-webhook-inwx
+        release: release-name
+    spec:
+      serviceAccountName: release-name-cert-manager-webhook-inwx
+      containers:
+        - name: cert-manager-webhook-inwx
+          image: registry.gitlab.com/smueller18/cert-manager-webhook-inwx:v0.5.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --tls-cert-file=/tls/tls.crt
+            - --tls-private-key-file=/tls/tls.key
+            - --secure-port=8443
+            - -v=2
+          securityContext:
+            runAsUser: 10119
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          ports:
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /healthz
+              port: https
+          readinessProbe:
+            httpGet:
+              scheme: HTTPS
+              path: /healthz
+              port: https
+          volumeMounts:
+            - name: certs
+              mountPath: /tls
+              readOnly: true
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: certs
+          secret:
+            secretName: release-name-cert-manager-webhook-inwx-webhook-tls
+---
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1alpha1.cert-manager-webhook-inwx.smueller18.gitlab.com
+  labels:
+    app: cert-manager-webhook-inwx
+    chart: cert-manager-webhook-inwx-0.5.0
+    release: release-name
+    heritage: Helm
+  annotations:
+    cert-manager.io/inject-ca-from: default/release-name-cert-manager-webhook-inwx-webhook-tls
+spec:
+  group: cert-manager-webhook-inwx.smueller18.gitlab.com
+  groupPriorityMinimum: 1000
+  versionPriority: 15
+  service:
+    name: release-name-cert-manager-webhook-inwx
+    namespace: default
+  version: v1alpha1
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: release-name-cert-manager-webhook-inwx-ca
+  namespace: default
+  labels:
+    app: cert-manager-webhook-inwx
+    chart: cert-manager-webhook-inwx-0.5.0
+    release: release-name
+    heritage: Helm
+spec:
+  secretName: release-name-cert-manager-webhook-inwx-ca
+  duration: 43800h
+  issuerRef:
+    name: release-name-cert-manager-webhook-inwx-selfsign
+  commonName: ca.cert-manager-webhook-inwx.cert-manager
+  isCA: true
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: release-name-cert-manager-webhook-inwx-webhook-tls
+  namespace: default
+  labels:
+    app: cert-manager-webhook-inwx
+    chart: cert-manager-webhook-inwx-0.5.0
+    release: release-name
+    heritage: Helm
+spec:
+  secretName: release-name-cert-manager-webhook-inwx-webhook-tls
+  duration: 8760h
+  issuerRef:
+    name: release-name-cert-manager-webhook-inwx-ca
+  dnsNames:
+    - release-name-cert-manager-webhook-inwx
+    - release-name-cert-manager-webhook-inwx.default
+    - release-name-cert-manager-webhook-inwx.default.svc
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: release-name-cert-manager-webhook-inwx-selfsign
+  namespace: default
+  labels:
+    app: cert-manager-webhook-inwx
+    chart: cert-manager-webhook-inwx-0.5.0
+    release: release-name
+    heritage: Helm
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: release-name-cert-manager-webhook-inwx-ca
+  namespace: default
+  labels:
+    app: cert-manager-webhook-inwx
+    chart: cert-manager-webhook-inwx-0.5.0
+    release: release-name
+    heritage: Helm
+spec:
+  ca:
+    secretName: release-name-cert-manager-webhook-inwx-ca

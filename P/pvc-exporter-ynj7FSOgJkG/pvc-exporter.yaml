@@ -1,0 +1,229 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: default
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-pvc-exporter-sa
+  namespace: ynj7FSOgJkG
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-pvc-exporter-cr
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - get
+      - list
+      - watch
+  - nonResourceURLs:
+      - '*'
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-pvc-exporter-crbinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-pvc-exporter-cr
+subjects:
+  - kind: ServiceAccount
+    name: release-name-pvc-exporter-sa
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: release-name-pvc-exporter
+    com: release-name-pvc-exporter-pod-pvc-mapping
+  name: release-name-pvc-exporter-pod-pvc-mapping
+  namespace: ynj7FSOgJkG
+spec:
+  ports:
+    - port: 8849
+      name: metrics
+      protocol: TCP
+      targetPort: 8849
+  selector:
+    app: release-name-pvc-exporter
+    com: release-name-pvc-exporter-pod-pvc-mapping
+  type: NodePort
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: release-name-pvc-exporter-block-pvc-scanner
+  namespace: ynj7FSOgJkG
+  labels:
+    app: release-name-pvc-exporter
+    com: release-name-pvc-exporter-block-pvc-scanner
+spec:
+  selector:
+    matchLabels:
+      app: release-name-pvc-exporter
+      com: release-name-pvc-exporter-block-pvc-scanner
+  template:
+    metadata:
+      labels:
+        app: release-name-pvc-exporter
+        com: release-name-pvc-exporter-block-pvc-scanner
+    spec:
+      imagePullSecrets:
+        - name: regsecret
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+      containers:
+        - name: block-pvc-scanner
+          image: balihb/block-pvc-scanner:0.2.4
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8848
+              name: metrics
+              protocol: TCP
+          resources:
+            limits:
+              memory: 200Mi
+            requests:
+              cpu: 100m
+              memory: 200Mi
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: root-path
+              mountPath: /host
+              readOnly: true
+            - name: host-kubelet
+              mountPath: /var/lib/kubelet
+              readOnly: true
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                "": NET_RAW
+      volumes:
+        - name: root-path
+          hostPath:
+            path: /
+        - name: host-kubelet
+          hostPath:
+            path: /var/lib/kubelet
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-pvc-exporter-pod-pvc-mapping
+  namespace: ynj7FSOgJkG
+  labels:
+    app: release-name-pvc-exporter
+    com: release-name-pvc-exporter-pod-pvc-mapping
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: release-name-pvc-exporter
+      com: release-name-pvc-exporter-pod-pvc-mapping
+  template:
+    metadata:
+      labels:
+        app: release-name-pvc-exporter
+        com: release-name-pvc-exporter-pod-pvc-mapping
+    spec:
+      imagePullSecrets:
+        - name: regsecret
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+      containers:
+        - name: pod-pvc-mapping
+          image: balihb/pod-pvc-mapping:0.2.4
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8849
+              name: metrics
+              protocol: TCP
+          resources:
+            limits:
+              memory: 200Mi
+            requests:
+              cpu: 100m
+              memory: 200Mi
+            seccompProfile:
+              type: RuntimeDefault
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                "": NET_RAW
+      serviceAccountName: release-name-pvc-exporter-sa
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  labels:
+    app: release-name-pvc-exporter
+  name: release-name-pvc-exporter
+  namespace: default
+spec:
+  jobLabel: app
+  selector:
+    matchLabels:
+      com: release-name-pvc-exporter-block-pvc-scanner
+  podMetricsEndpoints:
+    - port: metrics
+      scheme: http
+      path: /
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    app: release-name-pvc-exporter
+  name: release-name-pvc-exporter
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      com: release-name-pvc-exporter-pod-pvc-mapping
+  endpoints:
+    - interval: 30s
+      targetPort: metrics
+      scheme: http
+      path: /
+      port: metrics
+  jobLabel: app

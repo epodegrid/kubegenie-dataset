@@ -1,0 +1,622 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-mongodb
+  labels:
+    app: mongodb
+    chart: mongodb-7.2.10
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  mongodb-root-password: TlNicE1BaXE5Sg==
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-monocular-ui-config
+  labels:
+    app: release-name-monocular
+    chart: monocular-1.4.15
+    release: release-name
+    heritage: Helm
+data:
+  overrides.js: |-
+    window.monocular = {
+      overrides: {
+        googleAnalyticsId: 'UA-XXXXXX-X',
+        appName: 'Monocular',
+        aboutUrl: 'https://github.com/helm/monocular/blob/master/docs/about.md',
+        backendHostname: '/api',
+      }
+    };
+  repos.json: '{"data": [{"name":"stable","url":"https://kubernetes-charts.storage.googleapis.com"},{"name":"incubator","url":"https://kubernetes-charts-incubator.storage.googleapis.com"}]}'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-monocular-ui-vhost
+  labels:
+    app: release-name-monocular
+    chart: monocular-1.4.15
+    release: release-name
+    heritage: Helm
+data:
+  vhost.conf: |
+    upstream target_service {
+      server release-name-monocular-prerender;
+    }
+
+    server {
+      listen 8080;
+
+      gzip on;
+      # Angular CLI already has gzipped the assets (ng build --prod --aot)
+      gzip_static  on;
+
+      location / {
+        try_files $uri @prerender;
+      }
+
+      location @prerender {
+        set $prerender 0;
+
+        if ($http_user_agent ~* "baiduspider|twitterbot|facebookexternalhit|rogerbot|linkedinbot|embedly|quora link preview|showyoubot|outbrain|pinterest|slackbot|vkShare|W3C_Validator") {
+          set $prerender 1;
+        }
+
+        if ($args ~ "_escaped_fragment_") {
+          set $prerender 1;
+        }
+
+        if ($http_user_agent ~ "Prerender") {
+          set $prerender 0;
+        }
+
+        if ($uri ~* "\.(js|css|xml|less|png|jpg|jpeg|gif|pdf|doc|txt|ico|rss|zip|mp3|rar|exe|wmv|doc|avi|ppt|mpg|mpeg|tif|wav|mov|psd|ai|xls|mp4|m4a|swf|dat|dmg|iso|flv|m4v|torrent|ttf|woff|svg|eot)") {
+          set $prerender 0;
+        }
+
+        if ($prerender = 1) {
+          rewrite .* /https://$host$request_uri? break;
+          proxy_pass http://target_service;
+        }
+        if ($prerender = 0) {
+          rewrite .* /index.html break;
+        }
+      }
+    }
+
+    # Redirect www to non-www
+    # Taken from https://easyengine.io/tutorials/nginx/www-non-www-redirection/
+    server {
+      server_name "~^www\.(.*)$" ;
+      return 301 $scheme://$1$request_uri ;
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-mongodb
+  labels:
+    app: mongodb
+    chart: mongodb-7.2.10
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: mongodb
+      port: 27017
+      targetPort: mongodb
+  selector:
+    app: mongodb
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-monocular-chartsvc
+  labels:
+    app: release-name-monocular-chartsvc
+    chart: monocular-1.4.15
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: release-name-monocular-chartsvc
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-monocular-prerender
+  labels:
+    chart: monocular-1.4.15
+spec:
+  type: NodePort
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP
+      name: prerender
+  selector:
+    app: release-name-monocular-prerender
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-monocular-ui
+  labels:
+    chart: monocular-1.4.15
+spec:
+  type: NodePort
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+      name: monocular-ui
+  selector:
+    app: release-name-monocular-ui
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-mongodb
+  labels:
+    app: mongodb
+    chart: mongodb-7.2.10
+    release: release-name
+    heritage: Helm
+spec:
+  selector:
+    matchLabels:
+      app: mongodb
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: mongodb
+        release: release-name
+        chart: mongodb-7.2.10
+    spec:
+      securityContext:
+        fsGroup: 1001
+      initContainers: null
+      containers:
+        - name: release-name-mongodb
+          image: docker.io/bitnami/mongodb:4.0.12-debian-9-r43
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 11990
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: MONGODB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-mongodb
+                  key: mongodb-root-password
+            - name: MONGODB_SYSTEM_LOG_VERBOSITY
+              value: "0"
+            - name: MONGODB_DISABLE_SYSTEM_LOG
+              value: "no"
+            - name: MONGODB_ENABLE_IPV6
+              value: "no"
+            - name: MONGODB_ENABLE_DIRECTORY_PER_DB
+              value: "no"
+          ports:
+            - name: mongodb
+              containerPort: 27017
+          livenessProbe:
+            exec:
+              command:
+                - mongo
+                - --eval
+                - db.adminCommand('ping')
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - mongo
+                - --eval
+                - db.adminCommand('ping')
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/mongodb
+              subPath: null
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-monocular-chartsvc
+  labels:
+    app: release-name-monocular-chartsvc
+    chart: monocular-1.4.15
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: release-name-monocular-chartsvc
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: release-name-monocular-chartsvc
+        release: release-name
+    spec:
+      containers:
+        - name: chartsvc
+          image: quay.io/helmpack/chartsvc:v1.10.0
+          command:
+            - /chartsvc
+          args:
+            - --mongo-user=root
+            - --mongo-url=release-name-mongodb
+          env:
+            - name: MONGO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-mongodb
+                  key: mongodb-root-password
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: 8080
+            initialDelaySeconds: 60
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 0
+            timeoutSeconds: 5
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-monocular-prerender
+  labels:
+    chart: monocular-1.4.15
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: release-name-monocular-prerender
+  template:
+    metadata:
+      labels:
+        app: release-name-monocular-prerender
+    spec:
+      containers:
+        - name: monocular
+          image: docker.io/migmartri/prerender:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          env:
+            - name: IN_MEMORY_CACHE
+              value: "true"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-monocular-ui
+  labels:
+    chart: monocular-1.4.15
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: release-name-monocular-ui
+  template:
+    metadata:
+      labels:
+        app: release-name-monocular-ui
+      annotations:
+        checksum/config: cad860be318c02cf67b094cb5818b1977de27bc96c14b940e9b61f2eef9a7191
+    spec:
+      containers:
+        - name: monocular
+          image: quay.io/helmpack/monocular-ui:v1.10.0
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 60
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: vhost
+              mountPath: /bitnami/nginx/conf/vhosts
+            - name: config
+              mountPath: /app/assets/js
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+      volumes:
+        - name: vhost
+          configMap:
+            name: release-name-monocular-ui-vhost
+        - name: config
+          configMap:
+            name: release-name-monocular-ui-config
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-monocular-sync-initial-stable-nv2nj
+  labels:
+    monocular.helm.sh/repo-name: stable
+    app: release-name-monocular
+    chart: monocular-1.4.15
+    release: release-name
+    heritage: Helm
+spec:
+  template:
+    metadata:
+      labels:
+        monocular.helm.sh/repo-name: stable
+        app: release-name-monocular
+        release: release-name
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: sync
+          image: quay.io/helmpack/chart-repo:v1.10.0
+          args:
+            - sync
+            - --user-agent-comment=monocular/v1.10.0
+            - --mongo-url=release-name-mongodb
+            - --mongo-user=root
+            - stable
+            - https://kubernetes-charts.storage.googleapis.com
+          command:
+            - /chart-repo
+          env:
+            - name: HTTP_PROXY
+              value: null
+            - name: HTTPS_PROXY
+              value: null
+            - name: NO_PROXY
+              value: null
+            - name: MONGO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: mongodb-root-password
+                  name: release-name-mongodb
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-monocular-sync-initial-incubator-gfqtn
+  labels:
+    monocular.helm.sh/repo-name: incubator
+    app: release-name-monocular
+    chart: monocular-1.4.15
+    release: release-name
+    heritage: Helm
+spec:
+  template:
+    metadata:
+      labels:
+        monocular.helm.sh/repo-name: incubator
+        app: release-name-monocular
+        release: release-name
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: sync
+          image: quay.io/helmpack/chart-repo:v1.10.0
+          args:
+            - sync
+            - --user-agent-comment=monocular/v1.10.0
+            - --mongo-url=release-name-mongodb
+            - --mongo-user=root
+            - incubator
+            - https://kubernetes-charts-incubator.storage.googleapis.com
+          command:
+            - /chart-repo
+          env:
+            - name: HTTP_PROXY
+              value: null
+            - name: HTTPS_PROXY
+              value: null
+            - name: NO_PROXY
+              value: null
+            - name: MONGO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: mongodb-root-password
+                  name: release-name-mongodb
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: release-name-monocular-sync-scheduled-stable
+  labels:
+    monocular.helm.sh/repo-name: stable
+    app: release-name-monocular
+    chart: monocular-1.4.15
+    release: release-name
+    heritage: Helm
+spec:
+  jobTemplate:
+    metadata:
+      labels:
+        monocular.helm.sh/repo-name: stable
+        app: release-name-monocular
+        release: release-name
+    spec:
+      template:
+        metadata:
+          labels:
+            monocular.helm.sh/repo-name: stable
+            app: release-name-monocular
+            release: release-name
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: sync
+              image: quay.io/helmpack/chart-repo:v1.10.0
+              args:
+                - sync
+                - --user-agent-comment=monocular/v1.10.0
+                - --mongo-url=release-name-mongodb
+                - --mongo-user=root
+                - stable
+                - https://kubernetes-charts.storage.googleapis.com
+              command:
+                - /chart-repo
+              env:
+                - name: HTTP_PROXY
+                  value: null
+                - name: HTTPS_PROXY
+                  value: null
+                - name: NO_PROXY
+                  value: null
+                - name: MONGO_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      key: mongodb-root-password
+                      name: release-name-mongodb
+              resources: {}
+  schedule: 0 * * * *
+  successfulJobsHistoryLimit: 3
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: release-name-monocular-sync-scheduled-incubator
+  labels:
+    monocular.helm.sh/repo-name: incubator
+    app: release-name-monocular
+    chart: monocular-1.4.15
+    release: release-name
+    heritage: Helm
+spec:
+  jobTemplate:
+    metadata:
+      labels:
+        monocular.helm.sh/repo-name: incubator
+        app: release-name-monocular
+        release: release-name
+    spec:
+      template:
+        metadata:
+          labels:
+            monocular.helm.sh/repo-name: incubator
+            app: release-name-monocular
+            release: release-name
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: sync
+              image: quay.io/helmpack/chart-repo:v1.10.0
+              args:
+                - sync
+                - --user-agent-comment=monocular/v1.10.0
+                - --mongo-url=release-name-mongodb
+                - --mongo-user=root
+                - incubator
+                - https://kubernetes-charts-incubator.storage.googleapis.com
+              command:
+                - /chart-repo
+              env:
+                - name: HTTP_PROXY
+                  value: null
+                - name: HTTPS_PROXY
+                  value: null
+                - name: NO_PROXY
+                  value: null
+                - name: MONGO_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      key: mongodb-root-password
+                      name: release-name-mongodb
+              resources: {}
+  schedule: 0 * * * *
+  successfulJobsHistoryLimit: 3
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: release-name-monocular
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+  labels:
+    app: release-name-monocular
+    chart: monocular-1.4.15
+    release: release-name
+    heritage: Helm
+spec:
+  rules:
+    - http:
+        paths:
+          - backend:
+              serviceName: release-name-monocular-ui
+              servicePort: 80
+            path: /?(.*)
+          - backend:
+              serviceName: release-name-monocular-chartsvc
+              servicePort: 8080
+            path: /api/chartsvc/?(.*)
+      host: null

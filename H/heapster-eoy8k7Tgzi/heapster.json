@@ -1,0 +1,236 @@
+[
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-influxdb",
+      "labels": {
+        "app": "release-name-influxdb",
+        "chart": "heapster-0.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": {
+        "volume.alpha.kubernetes.io/storage-class": "generic"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "8Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "heapster",
+      "labels": {
+        "task": "monitoring",
+        "kubernetes.io/cluster-service": "true",
+        "kubernetes.io/name": "Heapster",
+        "chart": "heapster-0.1.0"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 8082,
+          "targetPort": 8082
+        }
+      ],
+      "selector": {
+        "k8s-app": "heapster"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "labels": {
+        "task": "monitoring",
+        "kubernetes.io/cluster-service": "true",
+        "kubernetes.io/name": "monitoring-influxdb"
+      },
+      "name": "release-name-influxdb"
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "api",
+          "port": 8086,
+          "targetPort": 8086
+        }
+      ],
+      "selector": {
+        "k8s-app": "release-name-influxdb"
+      }
+    }
+  },
+  {
+    "apiVersion": "extensions/v1beta1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "heapster",
+      "labels": {
+        "task": "monitoring",
+        "chart": "heapster-0.1.0",
+        "k8s-app": "heapster",
+        "version": "v1.2.0"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "task": "monitoring",
+            "k8s-app": "heapster",
+            "version": "v1.2.0"
+          }
+        },
+        "spec": {
+          "volumes": [
+            {
+              "name": "ssl-certs",
+              "hostPath": {
+                "path": "/etc/ssl/certs"
+              }
+            },
+            {
+              "name": "usr-ca-certs",
+              "hostPath": {
+                "path": "/usr/share/ca-certificates"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "eventer",
+              "image": "gcr.io/google_containers/heapster:v1.2.0",
+              "command": [
+                "/eventer",
+                "--source=kubernetes",
+                "--sink=influxdb:http://$RELEASE-NAME_INFLUXDB_SERVICE_HOST:8086"
+              ]
+            },
+            {
+              "name": "heapster",
+              "image": "gcr.io/google_containers/heapster:v1.2.0",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/heapster",
+                "--source=kubernetes",
+                "--sink=influxdb:http://$RELEASE-NAME_INFLUXDB_SERVICE_HOST:8086"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "ssl-certs",
+                  "mountPath": "/etc/ssl/certs",
+                  "readOnly": true
+                },
+                {
+                  "name": "usr-ca-certs",
+                  "mountPath": "/usr/share/ca-certificates",
+                  "readOnly": true
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 8082,
+                  "name": "http"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": 8082,
+                  "scheme": "HTTP"
+                },
+                "initialDelaySeconds": 180,
+                "timeoutSeconds": 5
+              },
+              "resources": {
+                "limits": {
+                  "cpu": "100m",
+                  "memory": "128Mi"
+                },
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "128Mi"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "extensions/v1beta1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-influxdb",
+      "labels": {
+        "task": "monitoring",
+        "k8s-app": "release-name-influxdb"
+      }
+    },
+    "spec": {
+      "revisionHistoryLimit": 10,
+      "replicas": 1,
+      "strategy": {
+        "type": "RollingUpdate",
+        "rollingUpdate": {
+          "maxUnavailable": 0
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "task": "monitoring",
+            "k8s-app": "release-name-influxdb"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "release-name-influxdb",
+              "image": "gcr.io/google_containers/heapster_influxdb:v0.7",
+              "ports": [
+                {
+                  "containerPort": 8083
+                },
+                {
+                  "containerPort": 8086
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/data",
+                  "name": "release-name-influxdb"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "release-name-influxdb",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-influxdb"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,204 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "name": "jackett-config-pvc"
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "storageClassName": "local-path",
+      "resources": {
+        "requests": {
+          "storage": "1G"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "jackett-svc",
+      "labels": {
+        "helm.sh/chart": "jackett-0.2",
+        "app-name": "jackett",
+        "component": "torrent-downloader",
+        "hostNetwork": "false",
+        "internal-service": "true",
+        "managed-by": "chynten",
+        "created-by": "chynten",
+        "version": "0.20.399"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "http",
+          "protocol": "TCP",
+          "port": 9117,
+          "targetPort": 9117
+        }
+      ],
+      "selector": {
+        "app-name": "jackett"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "jackett-deployment",
+      "labels": {
+        "helm.sh/chart": "jackett-0.2",
+        "app-name": "jackett",
+        "component": "torrent-downloader",
+        "hostNetwork": "false",
+        "internal-service": "true",
+        "managed-by": "chynten",
+        "created-by": "chynten",
+        "version": "0.20.399"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app-name": "jackett"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app-name": "jackett"
+          }
+        },
+        "spec": {
+          "securityContext": null,
+          "containers": [
+            {
+              "name": "jackett",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "linuxserver/jackett:0.20.399",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "PUID",
+                  "value": "1000"
+                },
+                {
+                  "name": "PGID",
+                  "value": "1000"
+                },
+                {
+                  "name": "TZ",
+                  "value": "UTC"
+                },
+                {
+                  "name": "AUTO_UPDATE",
+                  "value": null
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/downloads",
+                  "subPath": "jackett/data"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/config",
+                  "subPath": "jackett/config"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 9117,
+                  "protocol": "TCP"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "persistentVolumeClaim": {
+                "claimName": "jackett-config-pvc"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "jackett-ingress",
+      "labels": {
+        "helm.sh/chart": "jackett-0.2",
+        "app-name": "jackett",
+        "component": "torrent-downloader",
+        "hostNetwork": "false",
+        "internal-service": "true",
+        "managed-by": "chynten",
+        "created-by": "chynten",
+        "version": "0.20.399"
+      },
+      "annotations": {
+        "cert-manager.io/cluster-issuer": "letsencrypt",
+        "kubernetes.io/ingress.class": "nginx"
+      }
+    },
+    "spec": {
+      "tls": [
+        {
+          "hosts": [
+            "jackett.example.com"
+          ],
+          "secretName": "jackett-letsencrypt-certificate"
+        }
+      ],
+      "rules": [
+        {
+          "host": "jackett.example.com",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "pathType": "Prefix",
+                "backend": {
+                  "service": {
+                    "name": "jackett-svc",
+                    "port": {
+                      "number": 9117
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

@@ -1,0 +1,122 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-hetzner-dyndns"
+    },
+    "type": "Opaque",
+    "data": {
+      "apiToken": ""
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-hetzner-dyndns-terraform-files"
+    },
+    "data": {
+      "base.tf": "terraform {\n  required_providers {\n    hetznerdns = {\n      source = \"timohirt/hetznerdns\"\n      version = \"2.1.0\"\n    }\n    http = {\n      source = \"hashicorp/http\"\n      version = \"2.1.0\"\n    }\n  }\n  required_version = \">= 0.13\"\n}\n\nvariable \"hetznerdns_token\" {}\n\nprovider \"hetznerdns\" {\n  apitoken = var.hetznerdns_token\n}\n\nprovider \"http\" {}\n\ndata \"http\" \"ifconfig_ip\" {\n  url = \"https://ifconfig.me/ip\"\n}\n",
+      "example_com.tf": "data \"hetznerdns_zone\" \"example_com\" {\n    name = \"example.com\"\n}\nresource \"hetznerdns_record\" \"example_com_at_root\" {\n    zone_id = data.hetznerdns_zone.example_com.id\n    name    = \"@\"\n    value   = data.http.ifconfig_ip.body\n    type    = \"A\"\n}\nresource \"hetznerdns_record\" \"example_com_www\" {\n    zone_id = data.hetznerdns_zone.example_com.id\n    name    = \"www\"\n    value   = data.http.ifconfig_ip.body\n    type    = \"A\"\n}\n"
+    }
+  },
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-hetzner-dyndns",
+      "annotations": null
+    },
+    "spec": {
+      "storageClassName": "local-path",
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "1Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "release-name-hetzner-dyndns"
+    },
+    "spec": {
+      "schedule": "*/15  * * * *",
+      "concurrencyPolicy": "Forbid",
+      "failedJobsHistoryLimit": 1,
+      "jobTemplate": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "hetzner-dyndns",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "backoffLimit": 0,
+          "template": {
+            "spec": {
+              "containers": [
+                {
+                  "name": "terraform-plan",
+                  "image": "zenika/terraform-azure-cli:release-6.1_terraform-1.0.6_azcli-2.28.1",
+                  "imagePullPolicy": "IfNotPresent",
+                  "workingDir": "/terraform-dir",
+                  "command": [
+                    "bash"
+                  ],
+                  "args": [
+                    "-c",
+                    "cd /terraform-dir && rm -rf *.tf && cp /terraform-templates/*.tf . && /terraform init && /terraform apply -auto-approve\n"
+                  ],
+                  "volumeMounts": [
+                    {
+                      "mountPath": "/terraform-dir",
+                      "name": "release-name-hetzner-dyndns-volume"
+                    },
+                    {
+                      "mountPath": "/terraform-templates",
+                      "name": "release-name-hetzner-dyndns-terraform-files"
+                    }
+                  ],
+                  "env": [
+                    {
+                      "name": "TF_VAR_hetznerdns_token",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "release-name-hetzner-dyndns",
+                          "key": "apiToken",
+                          "optional": false
+                        }
+                      }
+                    }
+                  ]
+                }
+              ],
+              "volumes": [
+                {
+                  "name": "release-name-hetzner-dyndns-volume",
+                  "persistentVolumeClaim": {
+                    "claimName": "release-name-hetzner-dyndns"
+                  }
+                },
+                {
+                  "configMap": {
+                    "name": "release-name-hetzner-dyndns-terraform-files"
+                  },
+                  "name": "release-name-hetzner-dyndns-terraform-files"
+                }
+              ],
+              "restartPolicy": "Never"
+            }
+          }
+        }
+      }
+    }
+  }
+]

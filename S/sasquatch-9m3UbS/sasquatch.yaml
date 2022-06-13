@@ -1,0 +1,837 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-influxdb
+  labels:
+    helm.sh/chart: influxdb-4.10.6
+    app.kubernetes.io/name: influxdb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.8.10
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-kapacitor
+  namespace: 9m3UbS
+  labels:
+    chart: kapacitor-1.4.3
+    release: release-name
+    heritage: Helm
+    app: release-name-kapacitor
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: strimzi-registry-operator
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-influxdb
+  labels:
+    helm.sh/chart: influxdb-4.10.6
+    app.kubernetes.io/name: influxdb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.8.10
+    app.kubernetes.io/managed-by: Helm
+data:
+  influxdb.conf: |
+    reporting-disabled = false
+    bind-address = ":8088"
+
+    [meta]
+      dir = "/var/lib/influxdb/meta"
+
+    [data]
+      dir = "/var/lib/influxdb/data"
+      wal-dir = "/var/lib/influxdb/wal"
+      cache_max_memory_size = 0
+      trace_logging_enabled = true
+      wal_fsync_delay = "100ms"
+
+    [coordinator]
+      log_queries_after = "15s"
+      max_concurrent_queries = 10
+      query_timeout = "900s"
+      write_timeout = "60s"
+
+    [retention]
+
+    [shard-precreation]
+
+    [monitor]
+
+    [subscriber]
+
+    [http]
+      auth_enabled = true
+      enabled = true
+      max_row_limit = 0
+
+    # TODO: allow multiple graphite listeners
+
+    [[graphite]]
+
+    # TODO: allow multiple collectd listeners with templates
+
+    [[collectd]]
+
+    # TODO: allow multiple opentsdb listeners with templates
+
+    [[opentsdb]]
+
+    # TODO: allow multiple udp listeners with templates
+
+    [[udp]]
+
+    [continuous_queries]
+      enabled = false
+
+    [logging]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-influxdb-init
+  labels:
+    helm.sh/chart: influxdb-4.10.6
+    app.kubernetes.io/name: influxdb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.8.10
+    app.kubernetes.io/managed-by: Helm
+data:
+  init.iql: |
+    CREATE DATABASE "telegraf" WITH DURATION 30d REPLICATION 1 NAME "rp_30d"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: release-name-chronograf
+  labels:
+    app: release-name-chronograf
+    chart: chronograf-1.2.3
+    release: release-name
+    heritage: Helm
+  annotations: null
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 16Gi
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-kapacitor
+  labels:
+    chart: kapacitor-1.4.3
+    release: release-name
+    heritage: Helm
+    app: release-name-kapacitor
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 16Gi
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-kapacitor-clusterrole
+  labels:
+    chart: kapacitor-1.4.3
+    release: release-name
+    heritage: Helm
+    app: release-name-kapacitor
+rules: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: strimzi-registry-operator
+rules:
+  - apiGroups:
+      - apiextensions.k8s.io
+    resources:
+      - customresourcedefinitions
+    verbs:
+      - list
+      - get
+  - apiGroups:
+      - events.k8s.io
+    resources:
+      - events
+    verbs:
+      - create
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+  - apiGroups:
+      - roundtable.lsst.codes
+    resources:
+      - strimzischemaregistries
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+      - configmaps
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+      - create
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+      - create
+  - apiGroups:
+      - kafka.strimzi.io
+    resources:
+      - kafkausers
+      - kafkas
+    verbs:
+      - list
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-kapacitor-clusterrolebinding
+  labels:
+    chart: kapacitor-1.4.3
+    release: release-name
+    heritage: Helm
+    app: release-name-kapacitor
+subjects:
+  - kind: ServiceAccount
+    name: release-name-kapacitor
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: release-name-kapacitor-clusterrole
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: strimzi-registry-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: strimzi-registry-operator
+subjects:
+  - kind: ServiceAccount
+    name: strimzi-registry-operator
+    namespace: sasquatch
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-chronograf
+  labels:
+    app: release-name-chronograf
+    chart: chronograf-1.2.3
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8888
+  selector:
+    app: release-name-chronograf
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-influxdb
+  labels:
+    helm.sh/chart: influxdb-4.10.6
+    app.kubernetes.io/name: influxdb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.8.10
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: api
+      port: 8086
+      targetPort: api
+    - name: rpc
+      port: 8088
+      targetPort: rpc
+  selector:
+    app.kubernetes.io/name: influxdb
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-kapacitor
+  labels:
+    chart: kapacitor-1.4.3
+    release: release-name
+    heritage: Helm
+    app: release-name-kapacitor
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9092
+      targetPort: 9092
+      name: api
+  selector:
+    app: release-name-kapacitor
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-chronograf
+  labels:
+    app: release-name-chronograf
+    chart: chronograf-1.2.3
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: release-name-chronograf
+  template:
+    metadata:
+      labels:
+        app: release-name-chronograf
+    spec:
+      containers:
+        - name: chronograf
+          image: quay.io/influxdb/chronograf:1.9.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: HOST_PAGE_DISABLED
+              value: "true"
+          envFrom:
+            - secretRef:
+                name: sasquatch
+          ports:
+            - containerPort: 8888
+              name: api
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: api
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: api
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/chronograf
+          resources:
+            limits:
+              cpu: 2
+              memory: 2Gi
+            requests:
+              cpu: 0.10000000000000001
+              memory: 256Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: release-name-chronograf
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: influxdb-sink
+  labels:
+    helm.sh/chart: kafka-connect-manager-0.9.9
+    app.kubernetes.io/instance: release-name
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-connect-manager
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app: kafka-connect-manager
+        app.kubernetes.io/instance: release-name
+    spec:
+      containers:
+        - name: kafka-connect-manager
+          image: lsstsqre/kafkaconnect:0.9.3
+          imagePullPolicy: Always
+          command:
+            - kafkaconnect
+            - create
+            - influxdb-sink
+            - --auto-update
+          env:
+            - name: KAFKA_CONNECT_NAME
+              value: influxdb-sink
+            - name: KAFKA_CONNECT_INFLUXDB_URL
+              value: http://sasquatch.influxdb:8086
+            - name: KAFKA_CONNECT_DATABASE
+              value: efd
+            - name: KAFKA_CONNECT_INFLUXDB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: sasquatch
+                  key: influxdb-user
+            - name: KAFKA_CONNECT_INFLUXDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sasquatch
+                  key: influxdb-password
+            - name: KAFKA_CONNECT_TASKS_MAX
+              value: "1"
+            - name: KAFKA_CONNECT_TOPIC_REGEX
+              value: lsst.sal.*
+            - name: KAFKA_CONNECT_CHECK_INTERVAL
+              value: "15000"
+            - name: KAFKA_CONNECT_EXCLUDED_TOPIC_REGEX
+              value: ""
+            - name: KAFKA_CONNECT_INFLUXDB_TIMESTAMP
+              value: private_efdStamp
+            - name: KAFKA_CONNECT_ERROR_POLICY
+              value: NOOP
+            - name: KAFKA_CONNECT_MAX_RETRIES
+              value: "10"
+            - name: KAFKA_CONNECT_RETRY_INTERVAL
+              value: "60000"
+            - name: KAFKA_CONNECT_PROGRESS_ENABLED
+              value: "false"
+            - name: KAFKA_BROKER_URL
+              value: sasquatch-kafka-bootstrap.sasquatch:9092
+            - name: KAFKA_CONNECT_URL
+              value: http://sasquatch-connect-api.sasquatch:8083
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-kapacitor
+  namespace: 9m3UbS
+  labels:
+    chart: kapacitor-1.4.3
+    release: release-name
+    heritage: Helm
+    app: release-name-kapacitor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: release-name-kapacitor
+  template:
+    metadata:
+      labels:
+        app: release-name-kapacitor
+    spec:
+      serviceAccountName: release-name-kapacitor
+      containers:
+        - name: kapacitor
+          image: kapacitor:1.6.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: KAPACITOR_HOSTNAME
+              value: release-name-kapacitor.default
+            - name: KAPACITOR_INFLUXDB_0_URLS_0
+              value: http://sasquatch.influxdb:8086
+            - name: KAPACITOR_SLACK_ENABLED
+              value: "true"
+            - name: KAPACITOR_INFLUXDB_0_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  key: influxdb-user
+                  name: sasquatch
+            - name: KAPACITOR_INFLUXDB_0_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: influxdb-password
+                  name: sasquatch
+          ports:
+            - containerPort: 9092
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/kapacitor
+          resources:
+            limits:
+              cpu: 2
+              memory: 2Gi
+            requests:
+              cpu: 0.10000000000000001
+              memory: 256Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: release-name-kapacitor
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: strimzi-registry-operator
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: strimzi-registry-operator
+  template:
+    metadata:
+      labels:
+        app: strimzi-registry-operator
+    spec:
+      serviceAccountName: strimzi-registry-operator
+      containers:
+        - name: operator
+          image: lsstsqre/strimzi-registry-operator:0.4.1
+          imagePullPolicy: Always
+          env:
+            - name: SSR_CLUSTER_NAME
+              value: sasquatch
+            - name: SSR_NAMESPACE
+              value: sasquatch
+          command:
+            - kopf
+          args:
+            - run
+            - --standalone
+            - -m
+            - strimziregistryoperator.handlers
+            - --namespace
+            - sasquatch
+            - --verbose
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-influxdb
+  labels:
+    helm.sh/chart: influxdb-4.10.6
+    app.kubernetes.io/name: influxdb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.8.10
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: influxdb
+      app.kubernetes.io/instance: release-name
+  serviceName: release-name-influxdb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: influxdb
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-influxdb
+      containers:
+        - name: release-name-influxdb
+          image: influxdb:1.8.10
+          imagePullPolicy: IfNotPresent
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            - name: api
+              containerPort: 8086
+            - name: rpc
+              containerPort: 8088
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: api
+              scheme: HTTP
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: api
+              scheme: HTTP
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+          volumeMounts:
+            - name: release-name-influxdb-data
+              mountPath: /var/lib/influxdb
+            - name: config
+              mountPath: /etc/influxdb
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-influxdb
+        - name: init
+          configMap:
+            name: release-name-influxdb-init
+  volumeClaimTemplates:
+    - metadata:
+        name: release-name-influxdb-data
+        annotations: null
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: sasquatch
+spec:
+  kafka:
+    version: 3.0.0
+    replicas: 3
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+        authentication:
+          type: tls
+    authorization:
+      type: simple
+      superUsers:
+        - kafka-admin
+    config:
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 3
+      default.replication.factor: 3
+      min.insync.replicas: 3
+      log.retention.bytes: 644245094400
+      log.retention.hours: 168
+      offsets.retention.minutes: 10080
+    storage:
+      type: jbod
+      volumes:
+        - id: 0
+          type: persistent-claim
+          size: 100Gi
+          deleteClaim: false
+  zookeeper:
+    replicas: 3
+    storage:
+      type: persistent-claim
+      size: 100Gi
+      class: null
+      deleteClaim: false
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnect
+metadata:
+  name: sasquatch
+  annotations:
+    strimzi.io/use-connector-resources: "false"
+spec:
+  version: 3.0.0
+  replicas: 1
+  bootstrapServers: sasquatch-kafka-bootstrap:9093
+  tls:
+    trustedCertificates:
+      - secretName: sasquatch-cluster-ca-cert
+        certificate: ca.crt
+  authentication:
+    type: tls
+    certificateAndKey:
+      secretName: sasquatch-connect
+      certificate: user.crt
+      key: user.key
+  config:
+    group.id: sasquatch-connect
+    offset.storage.topic: sasquatch-connect-offsets
+    config.storage.topic: sasquatch-connect-configs
+    status.storage.topic: sasquatch-connect-status
+    config.storage.replication.factor: -1
+    offset.storage.replication.factor: -1
+    status.storage.replication.factor: -1
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: registry-schemas
+  labels:
+    strimzi.io/cluster: sasquatch
+spec:
+  partitions: 1
+  replicas: 3
+  config:
+    cleanup.policy: compact
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: sasquatch-connect
+  labels:
+    strimzi.io/cluster: sasquatch
+spec:
+  authentication:
+    type: tls
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: group
+          name: sasquatch-connect
+        operation: Read
+      - resource:
+          type: topic
+          name: '*'
+          patternType: literal
+        type: allow
+        host: '*'
+        operation: All
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: sasquatch-schema-registry
+  labels:
+    strimzi.io/cluster: sasquatch
+spec:
+  authentication:
+    type: tls
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: topic
+          name: registry-schemas
+          patternType: literal
+        operation: Read
+        type: allow
+      - resource:
+          type: topic
+          name: registry-schemas
+          patternType: literal
+        operation: Write
+        type: allow
+      - resource:
+          type: topic
+          name: registry-schemas
+          patternType: literal
+        operation: DescribeConfigs
+        type: allow
+      - resource:
+          type: group
+          name: schema-registry
+          patternType: prefix
+        operation: All
+        type: allow
+      - resource:
+          type: topic
+          name: __consumer_offsets
+          patternType: literal
+        operation: Describe
+        type: allow
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: kafka-admin
+  labels:
+    strimzi.io/cluster: sasquatch
+spec:
+  authentication:
+    type: tls
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: topic
+          name: '*'
+          patternType: literal
+        type: allow
+        host: '*'
+        operation: All
+---
+apiVersion: roundtable.lsst.codes/v1beta1
+kind: StrimziSchemaRegistry
+metadata:
+  name: sasquatch-schema-registry
+spec:
+  listener: tls
+---
+apiVersion: ricoberger.de/v1alpha1
+kind: VaultSecret
+metadata:
+  name: sasquatch
+  namespace: sasquatch
+spec:
+  path: null
+  type: Opaque
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-influxdb-set-auth
+  labels:
+    helm.sh/chart: influxdb-4.10.6
+    app.kubernetes.io/name: influxdb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.8.10
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-delete-policy: hook-succeeded
+spec:
+  activeDeadlineSeconds: null
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: influxdb
+        app.kubernetes.io/instance: release-name
+    spec:
+      containers:
+        - name: release-name-influxdb-set-auth
+          image: appropriate/curl:latest
+          env:
+            - name: INFLUXDB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: sasquatch
+                  key: influxdb-user
+            - name: INFLUXDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sasquatch
+                  key: influxdb-password
+          args:
+            - /bin/sh
+            - -c
+            - |
+              curl -X POST http://release-name-influxdb:8086/query \
+              --data-urlencode \
+              "q=CREATE USER \"${INFLUXDB_USER}\" WITH PASSWORD '${INFLUXDB_PASSWORD}' WITH ALL PRIVILEGES"
+      restartPolicy: OnFailure

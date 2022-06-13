@@ -1,0 +1,127 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-postgrest
+  labels:
+    helm.sh/chart: postgrest-0.3.2
+    app.kubernetes.io/name: postgrest
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v8.0.0
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-postgrest-secret
+  namespace: rPlfj6yP
+stringData:
+  db-uri.txt: ""
+  jwt-secret.txt: ""
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-postgrest
+  labels:
+    helm.sh/chart: postgrest-0.3.2
+    app.kubernetes.io/name: postgrest
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v8.0.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: postgrest
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-postgrest
+  labels:
+    helm.sh/chart: postgrest-0.3.2
+    app.kubernetes.io/name: postgrest
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v8.0.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgrest
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/secret: f8d591f63c963d34433321a45122db2a0c16292a9417d62c9a3dc65f485b8cd7
+      labels:
+        app.kubernetes.io/name: postgrest
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-postgrest
+      securityContext: {}
+      containers:
+        - name: postgrest
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: postgrest/postgrest:v8.0.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PGRST_SERVER_PORT
+              value: "9000"
+          ports:
+            - name: http
+              containerPort: 9000
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - mountPath: /mnt/secret
+              name: secret-mount
+      volumes:
+        - name: secret-mount
+          secret:
+            secretName: release-name-postgrest-secret
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-postgrest-test-connection
+  labels:
+    helm.sh/chart: postgrest-0.3.2
+    app.kubernetes.io/name: postgrest
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v8.0.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-postgrest:80
+  restartPolicy: Never

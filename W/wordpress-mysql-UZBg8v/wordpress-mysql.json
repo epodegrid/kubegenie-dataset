@@ -1,0 +1,243 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "wordpress-mysql-secret-db-secret"
+    },
+    "data": {
+      "rootpass": "cjAwdHBhNTU=",
+      "userpass": "dTVlcnBhNTU="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "name": "mysql-pvc-db-pvc"
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteMany"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "5Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "name": "wordpress-pvc-wp-pvc"
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteMany"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "5Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "wplb"
+    },
+    "spec": {
+      "selector": {
+        "type": "wordpress"
+      },
+      "type": "NodePort",
+      "ports": [
+        {
+          "targetPort": 80,
+          "port": 80,
+          "nodePort": 30001
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "dblb"
+    },
+    "spec": {
+      "selector": {
+        "type": "database"
+      },
+      "ports": [
+        {
+          "port": 3306
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "dbdply-deployment",
+      "labels": {
+        "app": "dbdply"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchExpressions": [
+          {
+            "key": "type",
+            "operator": "In",
+            "values": [
+              "database"
+            ]
+          }
+        ]
+      },
+      "template": {
+        "metadata": {
+          "name": "pod",
+          "labels": {
+            "type": "database"
+          }
+        },
+        "spec": {
+          "volumes": [
+            {
+              "name": "pvcmount-db",
+              "persistentVolumeClaim": {
+                "claimName": "mysql-pvc-db-pvc"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "dbdply-db-pod",
+              "image": "mysql:5.7",
+              "env": [
+                {
+                  "name": "MYSQL_ROOT_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "wordpress-mysql-secret-db-secret",
+                      "key": "rootpass"
+                    }
+                  }
+                },
+                {
+                  "name": "MYSQL_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "wordpress-mysql-secret-db-secret",
+                      "key": "userpass"
+                    }
+                  }
+                },
+                {
+                  "name": "MYSQL_USER",
+                  "value": "user1"
+                },
+                {
+                  "name": "MYSQL_DATABASE",
+                  "value": "wordpressdb"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/var/lib/mysql",
+                  "name": "pvcmount-db"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "wpdply-deployment",
+      "labels": {
+        "app": "wpdply"
+      }
+    },
+    "spec": {
+      "replicas": 3,
+      "selector": {
+        "matchExpressions": [
+          {
+            "key": "type",
+            "operator": "In",
+            "values": [
+              "wordpress"
+            ]
+          }
+        ]
+      },
+      "template": {
+        "metadata": {
+          "name": "pod",
+          "labels": {
+            "type": "wordpress"
+          }
+        },
+        "spec": {
+          "volumes": [
+            {
+              "name": "pvcmount-wp",
+              "persistentVolumeClaim": {
+                "claimName": "wordpress-pvc-wp-pvc"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "wpdply-wordpress-pod",
+              "image": "wordpress:5.1.1-php7.3-apache",
+              "env": [
+                {
+                  "name": "WORDPRESS_DB_HOST",
+                  "value": "dblb"
+                },
+                {
+                  "name": "WORDPRESS_DB_USER",
+                  "value": "user1"
+                },
+                {
+                  "name": "WORDPRESS_DB_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "wordpress-mysql-secret-db-secret",
+                      "key": "userpass"
+                    }
+                  }
+                },
+                {
+                  "name": "WORDPRESS_DB_NAME",
+                  "value": "wordpressdb"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/var/www/html",
+                  "name": "pvcmount-wp"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+]

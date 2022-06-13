@@ -1,0 +1,249 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "openldap"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-seedusers"
+    },
+    "data": {
+      "seedusers.ldif": "dn: ou=Groups,dc=local,dc=io\nchangetype: add\nobjectclass: organizationalUnit\nou: Groups\n\n# Add People OU\ndn: ou=People,dc=local,dc=io\nchangetype: add\nobjectclass: organizationalUnit\nou: People\n\n# Add users\ndn: uid=user1,ou=People,dc=local,dc=io\nchangetype: add\nobjectclass: inetOrgPerson\nobjectclass: organizationalPerson\nobjectclass: person\nobjectclass: top\nuid: user1\ndisplayname: user1\nsn: user1\ncn: user1\nuserpassword: ChangeMe\n\ndn: uid=user2,ou=People,dc=local,dc=io\nchangetype: add\nobjectclass: inetOrgPerson\nobjectclass: organizationalPerson\nobjectclass: person\nobjectclass: top\nuid: user2\ndisplayname: user2\nsn: user2\ncn: user2\nuserpassword: ChangeMe\n\ndn: uid=user3,ou=People,dc=local,dc=io\nchangetype: add\nobjectclass: inetOrgPerson\nobjectclass: organizationalPerson\nobjectclass: person\nobjectclass: top\nuid: user3\ndisplayname: user3\nsn: user3\ncn: user3\nuserpassword: ChangeMe\n\ndn: uid=user4,ou=People,dc=local,dc=io\nchangetype: add\nobjectclass: inetOrgPerson\nobjectclass: organizationalPerson\nobjectclass: person\nobjectclass: top\nuid: user4\ndisplayname: user4\nsn: user4\ncn: user4\nuserpassword: ChangeMe\n\n\n# Create ICP user group\ndn: cn=icpusers,ou=Groups,dc=local,dc=io\nchangetype: add\ncn: icpusers\nobjectclass: groupOfUniqueNames\nobjectclass: top\nowner: cn=admin,dc=local,dc=io\nuniquemember: uid=user1,ou=People,dc=local,dc=io\nuniquemember: uid=user2,ou=People,dc=local,dc=io\nuniquemember: uid=user3,ou=People,dc=local,dc=io\nuniquemember: uid=user4,ou=People,dc=local,dc=io\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "labels": {
+        "app": "release-name"
+      },
+      "name": "release-name"
+    },
+    "spec": {
+      "ports": [
+        {
+          "port": 389
+        }
+      ],
+      "selector": {
+        "app": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-admin"
+    },
+    "spec": {
+      "type": "NodePort",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": 80,
+          "nodePort": 31080
+        }
+      ],
+      "selector": {
+        "app": "release-name-admin"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name",
+      "labels": {
+        "app": "release-name"
+      },
+      "annotations": {
+        "argocd.argoproj.io/sync-wave": "200",
+        "helm.sh/hook-weight": "200"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "release-name"
+          }
+        },
+        "spec": {
+          "initContainers": [
+            {
+              "name": "init-copy",
+              "image": "docker.io/busybox:1.30.1",
+              "imagePullPolicy": "Always",
+              "command": [
+                "sh",
+                "-c",
+                "cp /config-map/* /config-storage; ls -lrt /config-storage"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "release-name-seedusers",
+                  "mountPath": "/config-map"
+                },
+                {
+                  "name": "config-storage",
+                  "mountPath": "/config-storage"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "release-name",
+              "image": "docker.io/osixia/openldap:1.1.10",
+              "imagePullPolicy": "Always",
+              "args": [
+                "--loglevel",
+                "debug"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config-storage",
+                  "mountPath": "/container/service/slapd/assets/config/bootstrap/ldif/custom"
+                },
+                {
+                  "name": "ldap-certs",
+                  "mountPath": "/container/service/slapd/assets/certs"
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 389
+                },
+                {
+                  "containerPort": 636
+                }
+              ],
+              "env": [
+                {
+                  "name": "LDAP_LOG_LEVEL",
+                  "value": "256"
+                },
+                {
+                  "name": "LDAP_ORGANISATION",
+                  "value": "Example Inc."
+                },
+                {
+                  "name": "LDAP_DOMAIN",
+                  "value": "local.io"
+                },
+                {
+                  "name": "LDAP_ADMIN_PASSWORD",
+                  "value": "admin"
+                },
+                {
+                  "name": "LDAP_REMOVE_CONFIG_AFTER_SETUP",
+                  "value": "false"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config-storage",
+              "emptyDir": {}
+            },
+            {
+              "name": "ldap-certs",
+              "emptyDir": {}
+            },
+            {
+              "name": "release-name-seedusers",
+              "configMap": {
+                "name": "release-name-seedusers"
+              }
+            }
+          ],
+          "serviceAccount": "openldap"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-admin",
+      "annotations": {
+        "argocd.argoproj.io/sync-wave": "200",
+        "helm.sh/hook-weight": "200"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "release-name-admin"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "release-name-admin"
+          }
+        },
+        "spec": {
+          "serviceAccount": "openldap",
+          "containers": [
+            {
+              "name": "release-name-admin",
+              "image": "docker.io/osixia/phpldapadmin:0.7.0",
+              "imagePullPolicy": "Always",
+              "ports": [
+                {
+                  "containerPort": 80
+                }
+              ],
+              "env": [
+                {
+                  "name": "PHPLDAPADMIN_HTTPS",
+                  "value": "false"
+                },
+                {
+                  "name": "PHPLDAPADMIN_LDAP_HOSTS",
+                  "value": "release-name"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "kind": "Route",
+    "apiVersion": "route.openshift.io/v1",
+    "metadata": {
+      "name": "release-name-admin"
+    },
+    "spec": {
+      "port": {
+        "targetPort": 80
+      },
+      "to": {
+        "kind": "Service",
+        "name": "release-name-admin",
+        "weight": 100
+      },
+      "wildcardPolicy": "None"
+    }
+  }
+]

@@ -1,0 +1,210 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-hello-nodejs",
+      "labels": {
+        "helm.sh/chart": "hello-nodejs-0.1.7",
+        "app.kubernetes.io/name": "hello-nodejs",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "latest",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-hello-nodejs",
+      "labels": {
+        "helm.sh/chart": "hello-nodejs-0.1.7",
+        "app.kubernetes.io/name": "hello-nodejs",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "latest",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "hello-nodejs",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1beta1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "release-name-hello-nodejs",
+      "labels": {
+        "helm.sh/chart": "hello-nodejs-0.1.7",
+        "app.kubernetes.io/name": "hello-nodejs",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "latest",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "kubernetes.io/ingress.class": "nginx"
+      }
+    },
+    "spec": {
+      "rules": [
+        {
+          "host": "hello-nodejs.local",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "backend": {
+                  "serviceName": "release-name-hello-nodejs",
+                  "servicePort": 80
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "argoproj.io/v1alpha1",
+    "kind": "Rollout",
+    "metadata": {
+      "name": "release-name-hello-nodejs",
+      "labels": {
+        "helm.sh/chart": "hello-nodejs-0.1.7",
+        "app.kubernetes.io/name": "hello-nodejs",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "latest",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 5,
+      "strategy": {
+        "canary": {
+          "steps": [
+            {
+              "setWeight": 20
+            },
+            {
+              "pause": {
+                "duration": "5m"
+              }
+            },
+            {
+              "analysis": {
+                "templates": [
+                  {
+                    "templateName": "success-rate",
+                    "clusterScope": true
+                  }
+                ],
+                "args": [
+                  {
+                    "name": "service-name",
+                    "value": "release-name-hello-nodejs"
+                  },
+                  {
+                    "name": "prometheus-host",
+                    "value": "prometheus-kube-prometheus-prometheus.monitor.svc.cluster.local"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "revisionHistoryLimit": 2,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "hello-nodejs",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "hello-nodejs",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-hello-nodejs",
+          "securityContext": {},
+          "containers": [
+            {
+              "name": "hello-nodejs",
+              "securityContext": {},
+              "image": "olivanov/hello-nodejs:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8000,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "http"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "http"
+                }
+              },
+              "resources": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-hello-nodejs-test-connection",
+      "labels": {
+        "helm.sh/chart": "hello-nodejs-0.1.7",
+        "app.kubernetes.io/name": "hello-nodejs",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "latest",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "wget",
+          "image": "busybox",
+          "command": [
+            "wget"
+          ],
+          "args": [
+            "release-name-hello-nodejs:80"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

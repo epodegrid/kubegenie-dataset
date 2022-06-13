@@ -1,0 +1,388 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-cassandra-entrypoint",
+      "namespace": "zyMBi4PKM3ozG",
+      "labels": {
+        "app": "cassandra",
+        "chart": "cassandra-6.0.0",
+        "release": "release",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "docker-entrypoint.sh": "#!/bin/bash\nset -e\n\n# first arg is `-f` or `--some-option`\n# or there are no args\nif [ \"$#\" -eq 0 ] || [ \"${1#-}\" != \"$1\" ]; then\n        set -- cassandra -f \"$@\"\nfi\n\n# allow the container to be started with `--user`\nif [ \"$1\" = 'cassandra' -a \"$(id -u)\" = '0' ]; then\n        find /var/lib/cassandra /var/log/cassandra \"$CASSANDRA_CONFIG\" \\\n                \\! -user cassandra -exec chown cassandra '{}' +\n        exec gosu cassandra \"$BASH_SOURCE\" \"$@\"\nfi\n\n_ip_address() {\n        # scrape the first non-localhost IP address of the container\n        # in Swarm Mode, we often get two IPs -- the container IP, and the (shared) VIP, and the container IP should always be first\n        ip address | awk '\n                $1 == \"inet\" && $NF != \"lo\" {\n                        gsub(/\\/.+$/, \"\", $2)\n                        print $2\n                        exit\n                }\n        '\n}\n\n# \"sed -i\", but without \"mv\" (which doesn't work on a bind-mounted file, for example)\n_sed-in-place() {\n        local filename=\"$1\"; shift\n        local tempFile\n        tempFile=\"$(mktemp)\"\n        sed \"$@\" \"$filename\" > \"$tempFile\"\n        cat \"$tempFile\" > \"$filename\"\n        rm \"$tempFile\"\n}\n\nif [ \"$1\" = 'cassandra' ]; then\n        : ${CASSANDRA_RPC_ADDRESS='0.0.0.0'}\n\n        : ${CASSANDRA_LISTEN_ADDRESS='auto'}\n        if [ \"$CASSANDRA_LISTEN_ADDRESS\" = 'auto' ]; then\n                CASSANDRA_LISTEN_ADDRESS=\"$(_ip_address)\"\n        fi\n\n        : ${CASSANDRA_BROADCAST_ADDRESS=\"$CASSANDRA_LISTEN_ADDRESS\"}\n\n        if [ \"$CASSANDRA_BROADCAST_ADDRESS\" = 'auto' ]; then\n                CASSANDRA_BROADCAST_ADDRESS=\"$(_ip_address)\"\n        fi\n        : ${CASSANDRA_BROADCAST_RPC_ADDRESS:=$CASSANDRA_BROADCAST_ADDRESS}\n\n        if [ -n \"${CASSANDRA_NAME:+1}\" ]; then\n                : ${CASSANDRA_SEEDS:=\"cassandra\"}\n        fi\n        : ${CASSANDRA_SEEDS:=\"$CASSANDRA_BROADCAST_ADDRESS\"}\n\n        _sed-in-place \"$CASSANDRA_CONFIG/cassandra.yaml\" \\\n                -r 's/(- seeds:).*/\\1 \"'\"$CASSANDRA_SEEDS\"'\"/'\n\n        for yaml in \\\n                broadcast_address \\\n                broadcast_rpc_address \\\n                cluster_name \\\n                endpoint_snitch \\\n                listen_address \\\n                num_tokens \\\n                rpc_address \\\n                start_rpc \\\n                authenticator \\\n        ; do\n                var=\"CASSANDRA_${yaml^^}\"\n                val=\"${!var}\"\n                if [ \"$val\" ]; then\n                        _sed-in-place \"$CASSANDRA_CONFIG/cassandra.yaml\" \\\n                                -r 's/^(# )?('\"$yaml\"':).*/\\2 '\"$val\"'/'\n                fi\n        done\n\n        for rackdc in dc rack; do\n                var=\"CASSANDRA_${rackdc^^}\"\n                val=\"${!var}\"\n                if [ \"$val\" ]; then\n                        _sed-in-place \"$CASSANDRA_CONFIG/cassandra-rackdc.properties\" \\\n                                -r 's/^('\"$rackdc\"'=).*/\\1 '\"$val\"'/'\n                fi\n        done\nfi\n\nexec \"$@\"\n"
+    }
+  },
+  {
+    "kind": "PersistentVolume",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-cassandra--0",
+      "namespace": "default",
+      "labels": {
+        "app.kubernetes.io/name": "cassandra",
+        "helm.sh/chart": "cassandra-6.0.0",
+        "app.kubernetes.io/instance": "release",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "capacity": {
+        "storage": "2Gi"
+      },
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "persistentVolumeReclaimPolicy": "Retain",
+      "storageClassName": "release-cassandra-data",
+      "hostPath": {
+        "path": "/dockerdata-nfs/release/cassandra-0"
+      }
+    }
+  },
+  {
+    "kind": "PersistentVolume",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-cassandra--1",
+      "namespace": "default",
+      "labels": {
+        "app.kubernetes.io/name": "cassandra",
+        "helm.sh/chart": "cassandra-6.0.0",
+        "app.kubernetes.io/instance": "release",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "capacity": {
+        "storage": "2Gi"
+      },
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "persistentVolumeReclaimPolicy": "Retain",
+      "storageClassName": "release-cassandra-data",
+      "hostPath": {
+        "path": "/dockerdata-nfs/release/cassandra-1"
+      }
+    }
+  },
+  {
+    "kind": "PersistentVolume",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-cassandra--2",
+      "namespace": "default",
+      "labels": {
+        "app.kubernetes.io/name": "cassandra",
+        "helm.sh/chart": "cassandra-6.0.0",
+        "app.kubernetes.io/instance": "release",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "capacity": {
+        "storage": "2Gi"
+      },
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "persistentVolumeReclaimPolicy": "Retain",
+      "storageClassName": "release-cassandra-data",
+      "hostPath": {
+        "path": "/dockerdata-nfs/release/cassandra-2"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "annotations": {
+        "service.alpha.kubernetes.io/tolerate-unready-endpoints": "true"
+      },
+      "name": "cassandra",
+      "namespace": "zyMBi4PKM3ozG",
+      "labels": {
+        "app.kubernetes.io/name": "cassandra",
+        "helm.sh/chart": "cassandra-6.0.0",
+        "app.kubernetes.io/instance": "release",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "port": 7000,
+          "targetPort": "tcp-intra",
+          "name": "tcp-intra"
+        },
+        {
+          "port": 7001,
+          "targetPort": "tls",
+          "name": "tls"
+        },
+        {
+          "port": 7199,
+          "targetPort": "tcp-jmx",
+          "name": "tcp-jmx"
+        },
+        {
+          "port": 9042,
+          "targetPort": "tcp-cql",
+          "name": "tcp-cql"
+        },
+        {
+          "port": 9160,
+          "targetPort": "tcp-thrift",
+          "name": "tcp-thrift"
+        },
+        {
+          "port": 61621,
+          "targetPort": "tcp-agent",
+          "name": "tcp-agent"
+        }
+      ],
+      "publishNotReadyAddresses": true,
+      "type": "ClusterIP",
+      "selector": {
+        "app.kubernetes.io/name": "cassandra",
+        "app.kubernetes.io/instance": "release"
+      },
+      "sessionAffinity": "None"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-cassandra",
+      "namespace": "zyMBi4PKM3ozG",
+      "labels": {
+        "app.kubernetes.io/name": "cassandra",
+        "helm.sh/chart": "cassandra-6.0.0",
+        "app.kubernetes.io/instance": "release",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "cassandra",
+          "app.kubernetes.io/instance": "release"
+        }
+      },
+      "serviceName": "cassandra",
+      "replicas": 3,
+      "podManagementPolicy": "OrderedReady",
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "cassandra",
+            "helm.sh/chart": "cassandra-6.0.0",
+            "app.kubernetes.io/instance": "release",
+            "app.kubernetes.io/managed-by": "Helm"
+          },
+          "name": "cassandra"
+        },
+        "spec": {
+          "hostNetwork": false,
+          "containers": [
+            {
+              "name": "cassandra",
+              "image": "nexus3.onap.org:10001/library/cassandra:3.11.4",
+              "imagePullPolicy": "Always",
+              "ports": [
+                {
+                  "containerPort": 7000,
+                  "name": "tcp-intra"
+                },
+                {
+                  "containerPort": 7001,
+                  "name": "tls"
+                },
+                {
+                  "containerPort": 7199,
+                  "name": "tcp-jmx"
+                },
+                {
+                  "containerPort": 9042,
+                  "name": "tcp-cql"
+                },
+                {
+                  "containerPort": 9160,
+                  "name": "tcp-thrift"
+                },
+                {
+                  "containerPort": 61621,
+                  "name": "tcp-agent"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "release-cassandra-data",
+                  "mountPath": "/var/lib/cassandra"
+                },
+                {
+                  "name": "localtime",
+                  "mountPath": "/etc/localtime",
+                  "readOnly": true
+                },
+                {
+                  "name": "cassandra-entrypoint",
+                  "mountPath": "/docker-entrypoint.sh",
+                  "subPath": "docker-entrypoint.sh"
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/bash",
+                    "-c",
+                    "nodetool status | grep $POD_IP | awk '$1!=\"UN\" { exit 1; }'"
+                  ]
+                },
+                "initialDelaySeconds": 60,
+                "periodSeconds": 10,
+                "timeoutSeconds": 3,
+                "successThreshold": 1,
+                "failureThreshold": 3
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/bash",
+                    "-c",
+                    "nodetool status | grep $POD_IP | awk '$1!=\"UN\" { exit 1; }'"
+                  ]
+                },
+                "initialDelaySeconds": 120,
+                "periodSeconds": 10,
+                "timeoutSeconds": 3,
+                "successThreshold": 1,
+                "failureThreshold": 3
+              },
+              "env": [
+                {
+                  "name": "CASSANDRA_SEEDS",
+                  "value": "release-cassandra-0.cassandra.default.svc.cluster.local,release-cassandra-1.cassandra.default.svc.cluster.local,release-cassandra-2.cassandra.default.svc.cluster.local"
+                },
+                {
+                  "name": "MAX_HEAP_SIZE",
+                  "value": "2048M"
+                },
+                {
+                  "name": "HEAP_NEWSIZE",
+                  "value": "100M"
+                },
+                {
+                  "name": "JVM_OPTS",
+                  "value": "-Dcassandra.consistent.rangemovement=false"
+                },
+                {
+                  "name": "CASSANDRA_CLUSTER_NAME",
+                  "value": "cassandra"
+                },
+                {
+                  "name": "CASSANDRA_DC",
+                  "value": "Pod"
+                },
+                {
+                  "name": "CASSANDRA_RACK",
+                  "value": "Rack"
+                },
+                {
+                  "name": "CASSANDRA_AUTO_BOOTSTRAP",
+                  "value": "true"
+                },
+                {
+                  "name": "CASSANDRA_START_RPC",
+                  "value": "true"
+                },
+                {
+                  "name": "CASSANDRA_ENDPOINT_SNITCH",
+                  "value": "GossipingPropertyFileSnitch"
+                },
+                {
+                  "name": "CASSANDRA_AUTHENTICATOR",
+                  "value": "PasswordAuthenticator"
+                },
+                {
+                  "name": "POD_IP",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "status.podIP"
+                    }
+                  }
+                }
+              ],
+              "lifecycle": {
+                "preStop": {
+                  "exec": {
+                    "command": [
+                      "/bin/sh",
+                      "-c",
+                      "PID=$(pidof java) && kill $PID && while ps -p $PID > /dev/null; do sleep 1; done"
+                    ]
+                  }
+                }
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "localtime",
+              "hostPath": {
+                "path": "/etc/localtime"
+              }
+            },
+            {
+              "name": "cassandra-entrypoint",
+              "configMap": {
+                "name": "release-cassandra-entrypoint",
+                "defaultMode": 493
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "release-cassandra-data",
+            "labels": {
+              "name": "release-cassandra",
+              "chart": "cassandra-6.0.0",
+              "release": "release",
+              "heritage": "Helm"
+            }
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "storageClassName": "release-cassandra-data",
+            "resources": {
+              "requests": {
+                "storage": "2Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  null
+]

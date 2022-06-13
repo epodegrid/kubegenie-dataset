@@ -1,0 +1,2032 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-9.4.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "postgresql-password": "dGVzdHBhc3N3b3Jk"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "ad-scan-cronjob-init"
+    },
+    "type": "Opaque",
+    "stringData": {
+      "dbConnectionString": "postgresql://:@:/",
+      "canRun": "false",
+      "projectsIgnoreList": "",
+      "accessToken": "",
+      "elasticSearchUrl": null,
+      "elasticSearchUsername": null,
+      "elasticSearchPassword": null,
+      "elasticSearchLogsIndex": null,
+      "elasticSearchErrorsIndex": null
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-vetting-configmodulepy-secret",
+      "labels": {
+        "app.kubernetes.io/name": "release-name-vetting",
+        "helm.sh/chart": "vetting-0.1.134",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "stringData": {
+      "configmodule.py": "class Config:\n  SQLALCHEMY_DATABASE_URI = \"postgresql://testuser:testpassword@release-name-postgresql:5432/DisclosureVettingDB\"\n  SQLALCHEMY_TRACK_MODIFICATIONS = \"False\"\n  SECRET_KEY = \"\"\n  \n  SESSION_TYPE=\"sqlalchemy\"\n  PERMANENT_SESSION_LIFETIME=1200\n  SESSION_USE_SIGNER=True\n  SESSION_SQLALCHEMY_TABLE=\"Sessions\"\n  EMAIL_ENABLE_NOTIFICATIONS=False\n  EMAIL_STMP_SERVER=\"\"\n  EMAIL_USERNAME=\"\"\n  EMAIL_PASSWORD=\"\"\n  EMAIL_SENDER_EMAIL=\"\"\n  EMAIL_RECEIVER_EMAIL=\"\"\n  EMAIL_PORT=25\n\n  CLIENT_SECRET = \"\"\n\n  CLIENT_ID = \"\"\n  \n  STORAGE_ANALYST_NAME = \"\"\n  STORAGE_ANALYST_RESOURCE_GROUP = \"\"\n  STORAGE_RESEARCHER_NAME = \"\"\n  STORAGE_RESEARCHER_RESOURCE_GROUP = \"\"\n\n  AUTHORITY = \"https://login.microsoftonline.com/\"\n  LOGOUT=\"https://login.microsoftonline.com//oauth2/v2.0/logout\"\n\n  ENDPOINT = 'https://graph.microsoft.com/v1.0/users'\n  SCOPE = [\"User.ReadBasic.All\"]\n  APP_RELEASE_DATE=\"\"\n  APP_RELEASE_HASH=\"\"\n  APP_RELEASE_VERSION=\"\"\n\n  ELASTIC_SEARCH_URL=\"\"\n  ELASTIC_SEARCH_USERNAME=\"\"\n  ELASTIC_SEARCH_PASSWORD=\"\"\n\n  ELASTIC_SEARCH_LOGS_INDEX=\"\"\n  ELASTIC_SEARCH_ERRORS_INDEX=\"\"\n\nclass ProductionConfig(Config):\n  SQLALCHEMY_DATABASE_URI = \"postgresql://testuser:testpassword@release-name-postgresql:5432/DisclosureVettingDB\""
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-vetting-db-cronjob-entrypointsh-secret"
+    },
+    "type": "Opaque",
+    "stringData": {
+      "entrypoint.sh": "#!/bin/bash\nset -e\nwhile ! nc -z release-name-postgresql 5432; do\n\n  echo \"Waiting for POSTGRES!\"\n  sleep 0.1\ndone\n\necho \"First input is $1\"\necho \"Second input is $2\"\n\nif [ $2 == 'init' ]\nthen\n  flask vettingDb wipeTables\n  flask db upgrade\nelif [ $2 == 'initWithData' ]\nthen\n  flask vettingDb wipeTables\n  flask db upgrade\n  flask vettingDb populateInitData\nelif [ $2 == 'initWithDataAndUsers' ]\nthen\n  flask vettingDb wipeTables\n  flask db upgrade\n  flask vettingDb populateInitData\n  flask vettingDb populateInitUsers\nelif [ $2 == 'populateInitData' ]\nthen\n  flask vettingDb populateInitData\nelif [ $2 == 'populateInitUsers' ]\nthen\n  flask vettingDb populateInitUsers\nelif [ $2 == 'update' ]\nthen\n  flask db upgrade\nelif [ $2 == 'addmigration' ]\nthen\n  flask db migrate -m $3\n  flask db upgrade\nfi\n\ngunicorn --bind 0.0.0.0:5000 --workers 4 --threads 50 run:app"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "db-cronjob-init"
+    },
+    "type": "Opaque",
+    "stringData": {
+      "dbConnectionString": "postgresql://:@:/",
+      "researcherAccounts": "insertData",
+      "analystAccounts": "insertData",
+      "adminAccounts": "insertData",
+      "projectsData": "insertData"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-vetting-ad-scan-cronjob-entrypointsh-secret",
+      "labels": {
+        "app.kubernetes.io/name": "release-name-vetting",
+        "helm.sh/chart": "vetting-0.1.134",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "stringData": {
+      "entrypoint.sh": "#!/bin/bash\nset -e\nwhile ! nc -z release-name-postgresql 5432; do\n\n  echo \"Waiting for POSTGRES!\"\n  sleep 0.1\ndone\n\necho \"Scan for new users and projects\"\nflask users scan_for_users\n\ngunicorn --bind 0.0.0.0:5000 --workers 4 --threads 50 run:app"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-vetting-reports-cronjob-entrypointsh-secret",
+      "labels": {
+        "app.kubernetes.io/name": "release-name-vetting",
+        "helm.sh/chart": "vetting-0.1.134",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "stringData": {
+      "entrypoint.sh": "#!/bin/bash\nset -e\n\nsleep 15\n    while ! nc -z release-name-postgresql 5432; do\n\n  echo \"Waiting for POSTGRES!\"\n  sleep 0.1\ndone\n\necho \"Report type is $1\"\n\nif [ $1 == 'time_spent_vetting' ]\nthen\n\n  if [ $2 == 'monthly' ]\n  then\n    flask reports time_spent_vetting month\n  else\n    flask reports time_spent_vetting  year\n  fi\n\nelif [ $1 == 'vetting_analyst_project' ]\nthen\n  flask reports vetting_analyst_project\n\nelif [ $1 == 'vetting_project' ]\nthen\n  flask reports vetting_project\n\nelif [ $1 == 'vetting_analyst' ]\nthen\n  flask reports vetting_analyst\n\nelif [ $1 == 'vetting_requests_analyst' ]\nthen\n  flask reports vetting_requests_analyst\n\nelif [ $1 == 'requests_sent_back' ]\nthen\n  flask reports requests_sent_back\n\nelif [ $1 == 'vetting_hours_org' ]\nthen\n  flask reports vetting_hours_org\n\nelif [ $1 == 'open_requests_analysts' ]\nthen\n  flask reports open_requests_analysts\n\nfi\n\n#flask run --host=0.0.0.0"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-vetting-entrypointsh-secret",
+      "labels": {
+        "app.kubernetes.io/name": "release-name-vetting",
+        "helm.sh/chart": "vetting-0.1.134",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "stringData": {
+      "entrypoint.sh": "#!/bin/bash\nset -e\nwhile ! nc -z release-name-postgresql 5432; do\n\n  echo \"Waiting for POSTGRES!\"\n  sleep 0.1\ndone\n\n# python setup.py develop\n# disclosureVetting db initdb\n# disclosureVetting db populatecodesets\n# disclosureVetting db initdbdata\n# disclosureVetting run --host=0.0.0.0\n\n\ngunicorn --bind 0.0.0.0:5000 --workers 4 --threads 50 run:app"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "reports-cronjob-init"
+    },
+    "type": "Opaque",
+    "stringData": {
+      "dbConnectionString": "postgresql://:@:/",
+      "storageAccountName": null,
+      "storageAccountResourceGroup": null,
+      "storageAccountFileShareName": null,
+      "elasticSearchUrl": null,
+      "elasticSearchUsername": null,
+      "elasticSearchPassword": null,
+      "elasticSearchLogsIndex": null,
+      "elasticSearchErrorsIndex": null
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "vetting-fluentd-config",
+      "labels": {
+        "app": "fluentd",
+        "kubernetes.io/cluster-service": "true"
+      }
+    },
+    "data": {
+      "fluent.conf": "<filter **>\n  @type record_transformer\n  <record>\n    cluster \n  </record>\n</filter>\n\n<match **>\n  @type copy\n\n  <store ignore_error>\n    @type elasticsearch\n    hosts https://\n    ssl_version TLSv1_2\n    user \n    password \n\n    pipeline \"vetting requests\"\n    include_timestamp true\n    index_name \"vetting-logs-\"\n\n    <buffer tag, time>\n      @type memory\n      timekey 60\n      timekey_wait 0\n    </buffer>\n  </store>\n\n  <store ignore_error>\n    @type elasticsearch\n    hosts https://\n    ssl_version TLSv1_2\n    user \n    password \n\n    pipeline \"vetting errors\"\n    include_timestamp true\n    index_name \"vetting-error-logs-\"\n\n    <buffer tag, time>\n      @type memory\n      timekey 60\n      timekey_wait 0\n    </buffer>\n  </store>\n</match>\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-postgresql-headless",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-9.4.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "tcp-postgresql",
+          "port": 5432,
+          "targetPort": "tcp-postgresql"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "postgresql",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-9.4.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "tcp-postgresql",
+          "port": 5432,
+          "targetPort": "tcp-postgresql"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "postgresql",
+        "app.kubernetes.io/instance": "release-name",
+        "role": "master"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-vetting",
+      "labels": {
+        "app.kubernetes.io/name": "vetting",
+        "helm.sh/chart": "vetting-0.1.134",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 5000,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "vetting",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-vetting",
+      "labels": {
+        "app.kubernetes.io/name": "vetting",
+        "helm.sh/chart": "vetting-0.1.134",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "vetting",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "aadpodidbinding": "disclosure-vetting",
+            "app.kubernetes.io/name": "vetting",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "vetting",
+              "image": "statcan/disclosure-vetting-app:0.1.1",
+              "imagePullPolicy": "Always",
+              "env": [
+                {
+                  "name": "FLASK_ENV",
+                  "value": "development"
+                },
+                {
+                  "name": "APP_SETTINGS",
+                  "value": "project.config.DevelopmentConfig"
+                },
+                {
+                  "name": "POSTGRES_USER",
+                  "value": "testuser"
+                },
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "value": "testpassword"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 5000,
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "release-name-vetting-configmodulepy",
+                  "mountPath": "/app/app/configmodule.py",
+                  "subPath": "configmodule.py"
+                },
+                {
+                  "name": "release-name-vetting-entrypointsh",
+                  "mountPath": "/app/entrypoint.sh",
+                  "subPath": "entrypoint.sh"
+                },
+                {
+                  "name": "vetting-app",
+                  "mountPath": "/app/app/logs"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "imagePullSecrets": [
+            {
+              "name": "artifactory-prod"
+            }
+          ],
+          "volumes": [
+            {
+              "name": "vetting-app",
+              "emptyDir": {}
+            },
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "vetting-fluentd-config"
+              }
+            },
+            {
+              "name": "release-name-vetting-configmodulepy",
+              "secret": {
+                "secretName": "release-name-vetting-configmodulepy-secret"
+              }
+            },
+            {
+              "name": "release-name-vetting-entrypointsh",
+              "secret": {
+                "secretName": "release-name-vetting-entrypointsh-secret",
+                "defaultMode": 493
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-9.4.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "serviceName": "release-name-postgresql-headless",
+      "replicas": 1,
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "postgresql",
+          "app.kubernetes.io/instance": "release-name",
+          "role": "master"
+        }
+      },
+      "template": {
+        "metadata": {
+          "name": "release-name-postgresql",
+          "labels": {
+            "app.kubernetes.io/name": "postgresql",
+            "helm.sh/chart": "postgresql-9.4.1",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "role": "master"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "containers": [
+            {
+              "name": "release-name-postgresql",
+              "image": "docker.io/bitnami/postgresql:11.9.0-debian-10-r16",
+              "imagePullPolicy": "IfNotPresent",
+              "resources": {
+                "requests": {
+                  "cpu": "250m",
+                  "memory": "256Mi"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "securityContext": {
+                "runAsUser": 10839,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "env": [
+                {
+                  "name": "BITNAMI_DEBUG",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_PORT_NUMBER",
+                  "value": "5432"
+                },
+                {
+                  "name": "POSTGRESQL_VOLUME_DIR",
+                  "value": "/bitnami/postgresql"
+                },
+                {
+                  "name": "PGDATA",
+                  "value": "/bitnami/postgresql/data"
+                },
+                {
+                  "name": "POSTGRES_USER",
+                  "value": "testuser"
+                },
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-postgresql",
+                      "key": "postgresql-password"
+                    }
+                  }
+                },
+                {
+                  "name": "POSTGRES_DB",
+                  "value": "DisclosureVettingDB"
+                },
+                {
+                  "name": "POSTGRESQL_ENABLE_LDAP",
+                  "value": "no"
+                },
+                {
+                  "name": "POSTGRESQL_ENABLE_TLS",
+                  "value": "no"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "tcp-postgresql",
+                  "containerPort": 5432
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/sh",
+                    "-c",
+                    "exec pg_isready -U \"testuser\" -d \"dbname=DisclosureVettingDB\" -h 127.0.0.1 -p 5432"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/sh",
+                    "-c",
+                    "-e",
+                    "exec pg_isready -U \"testuser\" -d \"dbname=DisclosureVettingDB\" -h 127.0.0.1 -p 5432\n[ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]\n"
+                  ]
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "volumeMounts": [
+                {
+                  "name": "dshm",
+                  "mountPath": "/dev/shm"
+                },
+                {
+                  "name": "data",
+                  "mountPath": "/bitnami/postgresql",
+                  "subPath": null
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "dshm",
+              "emptyDir": {
+                "medium": "Memory",
+                "sizeLimit": "1Gi"
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "20Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "ad-scan-users-projects"
+    },
+    "spec": {
+      "schedule": "0 0 * * *",
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "metadata": {
+              "labels": {
+                "aadpodidbinding": "disclosure-vetting",
+                "app.kubernetes.io/name": "ad-scan-app.name",
+                "app.kubernetes.io/instance": "release-name"
+              }
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "ad-scan-users-projects",
+                  "image": "statcan/disclosure-vetting-app:0.1.1",
+                  "imagePullPolicy": "Always",
+                  "env": [
+                    {
+                      "name": "CAN_RUN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "ad-scan-cronjob-init",
+                          "key": "canRun"
+                        }
+                      }
+                    },
+                    {
+                      "name": "PROJECTS_IGNORE_LIST",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "ad-scan-cronjob-init",
+                          "key": "projectsIgnoreList"
+                        }
+                      }
+                    },
+                    {
+                      "name": "DB_CONNECTION_STRING",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "ad-scan-cronjob-init",
+                          "key": "dbConnectionString"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ACCESS_TOKEN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "ad-scan-cronjob-init",
+                          "key": "accessToken"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_URL",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "ad-scan-cronjob-init",
+                          "key": "elasticSearchUrl"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_USERNAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "ad-scan-cronjob-init",
+                          "key": "elasticSearchUsername"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_PASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "ad-scan-cronjob-init",
+                          "key": "elasticSearchPassword"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_LOGS_INDEX",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "ad-scan-cronjob-init",
+                          "key": "elasticSearchLogsIndex"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_ERRORS_INDEX",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "ad-scan-cronjob-init",
+                          "key": "elasticSearchErrorsIndex"
+                        }
+                      }
+                    }
+                  ],
+                  "volumeMounts": [
+                    {
+                      "name": "release-name-vetting-entrypointsh",
+                      "mountPath": "/app/entrypoint.sh",
+                      "subPath": "entrypoint.sh"
+                    }
+                  ]
+                }
+              ],
+              "volumes": [
+                {
+                  "name": "release-name-vetting-entrypointsh",
+                  "secret": {
+                    "secretName": "release-name-vetting-ad-scan-cronjob-entrypointsh-secret",
+                    "defaultMode": 493
+                  }
+                }
+              ],
+              "restartPolicy": "OnFailure"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "db-vetting-job"
+    },
+    "spec": {
+      "schedule": "*/1 * * * *",
+      "suspend": true,
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "spec": {
+              "containers": [
+                {
+                  "name": "db-vetting-job",
+                  "image": "statcan/disclosure-vetting-app:0.1.1",
+                  "imagePullPolicy": "Always",
+                  "args": [
+                    "false",
+                    "update"
+                  ],
+                  "env": [
+                    {
+                      "name": "RESEARCHER_ACCOUNTS",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "db-cronjob-init",
+                          "key": "researcherAccounts"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ANALYST_ACCOUNTS",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "db-cronjob-init",
+                          "key": "analystAccounts"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ADMIN_ACCOUNTS",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "db-cronjob-init",
+                          "key": "adminAccounts"
+                        }
+                      }
+                    },
+                    {
+                      "name": "PROJECTS_DATA",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "db-cronjob-init",
+                          "key": "projectsData"
+                        }
+                      }
+                    },
+                    {
+                      "name": "DB_CONNECTION_STRING",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "db-cronjob-init",
+                          "key": "dbConnectionString"
+                        }
+                      }
+                    }
+                  ],
+                  "volumeMounts": [
+                    {
+                      "name": "release-name-vetting-entrypointsh",
+                      "mountPath": "/app/entrypoint.sh",
+                      "subPath": "entrypoint.sh"
+                    }
+                  ]
+                }
+              ],
+              "volumes": [
+                {
+                  "name": "release-name-vetting-entrypointsh",
+                  "secret": {
+                    "secretName": "release-name-vetting-db-cronjob-entrypointsh-secret",
+                    "defaultMode": 493
+                  }
+                }
+              ],
+              "restartPolicy": "OnFailure"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "report-time-open-requests-by-analysts-biweelky-job"
+    },
+    "spec": {
+      "schedule": "0 5 * * 1",
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "metadata": {
+              "labels": {
+                "aadpodidbinding": "disclosure-vetting",
+                "app.kubernetes.io/name": "reports-app.name",
+                "app.kubernetes.io/instance": "release-name"
+              }
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "report-time-open-requests-by-analysts-biweelky-job",
+                  "image": "statcan/disclosure-vetting-app:0.1.1",
+                  "imagePullPolicy": "Always",
+                  "args": [
+                    "open_requests_analysts"
+                  ],
+                  "env": [
+                    {
+                      "name": "STORAGE_ACCOUNT_NAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountName"
+                        }
+                      }
+                    },
+                    {
+                      "name": "STORAGE_ACCOUNT_RESOURCE_GROUP",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountResourceGroup"
+                        }
+                      }
+                    },
+                    {
+                      "name": "STORAGE_ACCOUNT_FILE_SHARE_NAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountFileShareName"
+                        }
+                      }
+                    },
+                    {
+                      "name": "DB_CONNECTION_STRING",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "dbConnectionString"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_URL",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchUrl"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_USERNAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchUsername"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_PASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchPassword"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_LOGS_INDEX",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchLogsIndex"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_ERRORS_INDEX",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchErrorsIndex"
+                        }
+                      }
+                    }
+                  ],
+                  "volumeMounts": [
+                    {
+                      "name": "release-name-vetting-entrypointsh",
+                      "mountPath": "/app/entrypoint.sh",
+                      "subPath": "entrypoint.sh"
+                    }
+                  ]
+                }
+              ],
+              "volumes": [
+                {
+                  "name": "release-name-vetting-entrypointsh",
+                  "secret": {
+                    "secretName": "release-name-vetting-reports-cronjob-entrypointsh-secret",
+                    "defaultMode": 493
+                  }
+                }
+              ],
+              "restartPolicy": "OnFailure"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "report-time-vetting-analyst-project-monthly-job"
+    },
+    "spec": {
+      "schedule": "0 5 1 * *",
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "metadata": {
+              "labels": {
+                "aadpodidbinding": "disclosure-vetting",
+                "app.kubernetes.io/name": "reports-app.name",
+                "app.kubernetes.io/instance": "release-name"
+              }
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "report-time-vetting-analyst-project-monthly-job",
+                  "image": "statcan/disclosure-vetting-app:0.1.1",
+                  "imagePullPolicy": "Always",
+                  "args": [
+                    "vetting_analyst_project"
+                  ],
+                  "env": [
+                    {
+                      "name": "STORAGE_ACCOUNT_NAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountName"
+                        }
+                      }
+                    },
+                    {
+                      "name": "STORAGE_ACCOUNT_RESOURCE_GROUP",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountResourceGroup"
+                        }
+                      }
+                    },
+                    {
+                      "name": "STORAGE_ACCOUNT_FILE_SHARE_NAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountFileShareName"
+                        }
+                      }
+                    },
+                    {
+                      "name": "DB_CONNECTION_STRING",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "dbConnectionString"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_URL",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchUrl"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_USERNAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchUsername"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_PASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchPassword"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_LOGS_INDEX",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchLogsIndex"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_ERRORS_INDEX",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchErrorsIndex"
+                        }
+                      }
+                    }
+                  ],
+                  "volumeMounts": [
+                    {
+                      "name": "release-name-vetting-entrypointsh",
+                      "mountPath": "/app/entrypoint.sh",
+                      "subPath": "entrypoint.sh"
+                    }
+                  ]
+                }
+              ],
+              "volumes": [
+                {
+                  "name": "release-name-vetting-entrypointsh",
+                  "secret": {
+                    "secretName": "release-name-vetting-reports-cronjob-entrypointsh-secret",
+                    "defaultMode": 493
+                  }
+                }
+              ],
+              "restartPolicy": "OnFailure"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "report-time-vetting-annually-job"
+    },
+    "spec": {
+      "schedule": "0 5 1 1 *",
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "metadata": {
+              "labels": {
+                "aadpodidbinding": "disclosure-vetting",
+                "app.kubernetes.io/name": "reports-app.name",
+                "app.kubernetes.io/instance": "release-name"
+              }
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "report-time-vetting-annually-job",
+                  "image": "statcan/disclosure-vetting-app:0.1.1",
+                  "imagePullPolicy": "Always",
+                  "args": [
+                    "time_spent_vetting",
+                    "annually"
+                  ],
+                  "env": [
+                    {
+                      "name": "STORAGE_ACCOUNT_NAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountName"
+                        }
+                      }
+                    },
+                    {
+                      "name": "STORAGE_ACCOUNT_RESOURCE_GROUP",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountResourceGroup"
+                        }
+                      }
+                    },
+                    {
+                      "name": "STORAGE_ACCOUNT_FILE_SHARE_NAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountFileShareName"
+                        }
+                      }
+                    },
+                    {
+                      "name": "DB_CONNECTION_STRING",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "dbConnectionString"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_URL",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchUrl"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_USERNAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchUsername"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_PASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchPassword"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_LOGS_INDEX",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchLogsIndex"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_ERRORS_INDEX",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchErrorsIndex"
+                        }
+                      }
+                    }
+                  ],
+                  "volumeMounts": [
+                    {
+                      "name": "release-name-vetting-entrypointsh",
+                      "mountPath": "/app/entrypoint.sh",
+                      "subPath": "entrypoint.sh"
+                    }
+                  ]
+                }
+              ],
+              "volumes": [
+                {
+                  "name": "release-name-vetting-entrypointsh",
+                  "secret": {
+                    "secretName": "release-name-vetting-reports-cronjob-entrypointsh-secret",
+                    "defaultMode": 493
+                  }
+                }
+              ],
+              "restartPolicy": "OnFailure"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "report-time-vetting-hours-per-org-monthly-job"
+    },
+    "spec": {
+      "schedule": "0 5 1 * *",
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "metadata": {
+              "labels": {
+                "aadpodidbinding": "disclosure-vetting",
+                "app.kubernetes.io/name": "reports-app.name",
+                "app.kubernetes.io/instance": "release-name"
+              }
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "report-time-vetting-hours-per-org-monthly-job",
+                  "image": "statcan/disclosure-vetting-app:0.1.1",
+                  "imagePullPolicy": "Always",
+                  "args": [
+                    "vetting_hours_org"
+                  ],
+                  "env": [
+                    {
+                      "name": "STORAGE_ACCOUNT_NAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountName"
+                        }
+                      }
+                    },
+                    {
+                      "name": "STORAGE_ACCOUNT_RESOURCE_GROUP",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountResourceGroup"
+                        }
+                      }
+                    },
+                    {
+                      "name": "STORAGE_ACCOUNT_FILE_SHARE_NAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountFileShareName"
+                        }
+                      }
+                    },
+                    {
+                      "name": "DB_CONNECTION_STRING",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "dbConnectionString"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_URL",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchUrl"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_USERNAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchUsername"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_PASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchPassword"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_LOGS_INDEX",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchLogsIndex"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_ERRORS_INDEX",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchErrorsIndex"
+                        }
+                      }
+                    }
+                  ],
+                  "volumeMounts": [
+                    {
+                      "name": "release-name-vetting-entrypointsh",
+                      "mountPath": "/app/entrypoint.sh",
+                      "subPath": "entrypoint.sh"
+                    }
+                  ]
+                }
+              ],
+              "volumes": [
+                {
+                  "name": "release-name-vetting-entrypointsh",
+                  "secret": {
+                    "secretName": "release-name-vetting-reports-cronjob-entrypointsh-secret",
+                    "defaultMode": 493
+                  }
+                }
+              ],
+              "restartPolicy": "OnFailure"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "report-time-vetting-monthly-job"
+    },
+    "spec": {
+      "schedule": "0 5 1 * *",
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "metadata": {
+              "labels": {
+                "aadpodidbinding": "disclosure-vetting",
+                "app.kubernetes.io/name": "reports-app.name",
+                "app.kubernetes.io/instance": "release-name"
+              }
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "report-time-vetting-monthly-job",
+                  "image": "statcan/disclosure-vetting-app:0.1.1",
+                  "imagePullPolicy": "Always",
+                  "args": [
+                    "time_spent_vetting",
+                    "monthly"
+                  ],
+                  "env": [
+                    {
+                      "name": "STORAGE_ACCOUNT_NAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountName"
+                        }
+                      }
+                    },
+                    {
+                      "name": "STORAGE_ACCOUNT_RESOURCE_GROUP",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountResourceGroup"
+                        }
+                      }
+                    },
+                    {
+                      "name": "STORAGE_ACCOUNT_FILE_SHARE_NAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountFileShareName"
+                        }
+                      }
+                    },
+                    {
+                      "name": "DB_CONNECTION_STRING",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "dbConnectionString"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_URL",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchUrl"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_USERNAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchUsername"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_PASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchPassword"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_LOGS_INDEX",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchLogsIndex"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_ERRORS_INDEX",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchErrorsIndex"
+                        }
+                      }
+                    }
+                  ],
+                  "volumeMounts": [
+                    {
+                      "name": "release-name-vetting-entrypointsh",
+                      "mountPath": "/app/entrypoint.sh",
+                      "subPath": "entrypoint.sh"
+                    }
+                  ]
+                }
+              ],
+              "volumes": [
+                {
+                  "name": "release-name-vetting-entrypointsh",
+                  "secret": {
+                    "secretName": "release-name-vetting-reports-cronjob-entrypointsh-secret",
+                    "defaultMode": 493
+                  }
+                }
+              ],
+              "restartPolicy": "OnFailure"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "report-time-vetting-per-analyst-monthly-job"
+    },
+    "spec": {
+      "schedule": "0 5 1 * *",
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "metadata": {
+              "labels": {
+                "aadpodidbinding": "disclosure-vetting",
+                "app.kubernetes.io/name": "reports-app.name",
+                "app.kubernetes.io/instance": "release-name"
+              }
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "report-time-vetting-per-analyst-monthly-job",
+                  "image": "statcan/disclosure-vetting-app:0.1.1",
+                  "imagePullPolicy": "Always",
+                  "args": [
+                    "vetting_analyst"
+                  ],
+                  "env": [
+                    {
+                      "name": "STORAGE_ACCOUNT_NAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountName"
+                        }
+                      }
+                    },
+                    {
+                      "name": "STORAGE_ACCOUNT_RESOURCE_GROUP",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountResourceGroup"
+                        }
+                      }
+                    },
+                    {
+                      "name": "STORAGE_ACCOUNT_FILE_SHARE_NAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountFileShareName"
+                        }
+                      }
+                    },
+                    {
+                      "name": "DB_CONNECTION_STRING",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "dbConnectionString"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_URL",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchUrl"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_USERNAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchUsername"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_PASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchPassword"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_LOGS_INDEX",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchLogsIndex"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_ERRORS_INDEX",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchErrorsIndex"
+                        }
+                      }
+                    }
+                  ],
+                  "volumeMounts": [
+                    {
+                      "name": "release-name-vetting-entrypointsh",
+                      "mountPath": "/app/entrypoint.sh",
+                      "subPath": "entrypoint.sh"
+                    }
+                  ]
+                }
+              ],
+              "volumes": [
+                {
+                  "name": "release-name-vetting-entrypointsh",
+                  "secret": {
+                    "secretName": "release-name-vetting-reports-cronjob-entrypointsh-secret",
+                    "defaultMode": 493
+                  }
+                }
+              ],
+              "restartPolicy": "OnFailure"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "report-time-vetting-per-project-monthly-job"
+    },
+    "spec": {
+      "schedule": "0 5 1 * *",
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "metadata": {
+              "labels": {
+                "aadpodidbinding": "disclosure-vetting",
+                "app.kubernetes.io/name": "reports-app.name",
+                "app.kubernetes.io/instance": "release-name"
+              }
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "report-time-vetting-per-project-monthly-job",
+                  "image": "statcan/disclosure-vetting-app:0.1.1",
+                  "imagePullPolicy": "Always",
+                  "args": [
+                    "vetting_project"
+                  ],
+                  "env": [
+                    {
+                      "name": "STORAGE_ACCOUNT_NAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountName"
+                        }
+                      }
+                    },
+                    {
+                      "name": "STORAGE_ACCOUNT_RESOURCE_GROUP",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountResourceGroup"
+                        }
+                      }
+                    },
+                    {
+                      "name": "STORAGE_ACCOUNT_FILE_SHARE_NAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountFileShareName"
+                        }
+                      }
+                    },
+                    {
+                      "name": "DB_CONNECTION_STRING",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "dbConnectionString"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_URL",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchUrl"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_USERNAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchUsername"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_PASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchPassword"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_LOGS_INDEX",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchLogsIndex"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_ERRORS_INDEX",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchErrorsIndex"
+                        }
+                      }
+                    }
+                  ],
+                  "volumeMounts": [
+                    {
+                      "name": "release-name-vetting-entrypointsh",
+                      "mountPath": "/app/entrypoint.sh",
+                      "subPath": "entrypoint.sh"
+                    }
+                  ]
+                }
+              ],
+              "volumes": [
+                {
+                  "name": "release-name-vetting-entrypointsh",
+                  "secret": {
+                    "secretName": "release-name-vetting-reports-cronjob-entrypointsh-secret",
+                    "defaultMode": 493
+                  }
+                }
+              ],
+              "restartPolicy": "OnFailure"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "report-time-vetting-requests-per-analyst-monthly-job"
+    },
+    "spec": {
+      "schedule": "0 5 1 * *",
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "metadata": {
+              "labels": {
+                "aadpodidbinding": "disclosure-vetting",
+                "app.kubernetes.io/name": "reports-app.name",
+                "app.kubernetes.io/instance": "release-name"
+              }
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "report-time-vetting-requests-per-analyst-monthly-job",
+                  "image": "statcan/disclosure-vetting-app:0.1.1",
+                  "imagePullPolicy": "Always",
+                  "args": [
+                    "vetting_requests_analyst"
+                  ],
+                  "env": [
+                    {
+                      "name": "STORAGE_ACCOUNT_NAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountName"
+                        }
+                      }
+                    },
+                    {
+                      "name": "STORAGE_ACCOUNT_RESOURCE_GROUP",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountResourceGroup"
+                        }
+                      }
+                    },
+                    {
+                      "name": "STORAGE_ACCOUNT_FILE_SHARE_NAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountFileShareName"
+                        }
+                      }
+                    },
+                    {
+                      "name": "DB_CONNECTION_STRING",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "dbConnectionString"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_URL",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchUrl"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_USERNAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchUsername"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_PASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchPassword"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_LOGS_INDEX",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchLogsIndex"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_ERRORS_INDEX",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchErrorsIndex"
+                        }
+                      }
+                    }
+                  ],
+                  "volumeMounts": [
+                    {
+                      "name": "release-name-vetting-entrypointsh",
+                      "mountPath": "/app/entrypoint.sh",
+                      "subPath": "entrypoint.sh"
+                    }
+                  ]
+                }
+              ],
+              "volumes": [
+                {
+                  "name": "release-name-vetting-entrypointsh",
+                  "secret": {
+                    "secretName": "release-name-vetting-reports-cronjob-entrypointsh-secret",
+                    "defaultMode": 493
+                  }
+                }
+              ],
+              "restartPolicy": "OnFailure"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "report-time-vetting-requests-sent-back-monthly-job"
+    },
+    "spec": {
+      "schedule": "0 5 1 * *",
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "metadata": {
+              "labels": {
+                "aadpodidbinding": "disclosure-vetting",
+                "app.kubernetes.io/name": "reports-app.name",
+                "app.kubernetes.io/instance": "release-name"
+              }
+            },
+            "spec": {
+              "containers": [
+                {
+                  "name": "report-time-vetting-requests-sent-back-monthly-job",
+                  "image": "statcan/disclosure-vetting-app:0.1.1",
+                  "imagePullPolicy": "Always",
+                  "args": [
+                    "requests_sent_back"
+                  ],
+                  "env": [
+                    {
+                      "name": "STORAGE_ACCOUNT_NAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountName"
+                        }
+                      }
+                    },
+                    {
+                      "name": "STORAGE_ACCOUNT_RESOURCE_GROUP",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountResourceGroup"
+                        }
+                      }
+                    },
+                    {
+                      "name": "STORAGE_ACCOUNT_FILE_SHARE_NAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "storageAccountFileShareName"
+                        }
+                      }
+                    },
+                    {
+                      "name": "DB_CONNECTION_STRING",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "dbConnectionString"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_URL",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchUrl"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_USERNAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchUsername"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_PASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchPassword"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_LOGS_INDEX",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchLogsIndex"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ELASTIC_SEARCH_ERRORS_INDEX",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "reports-cronjob-init",
+                          "key": "elasticSearchErrorsIndex"
+                        }
+                      }
+                    }
+                  ],
+                  "volumeMounts": [
+                    {
+                      "name": "release-name-vetting-entrypointsh",
+                      "mountPath": "/app/entrypoint.sh",
+                      "subPath": "entrypoint.sh"
+                    }
+                  ]
+                }
+              ],
+              "volumes": [
+                {
+                  "name": "release-name-vetting-entrypointsh",
+                  "secret": {
+                    "secretName": "release-name-vetting-reports-cronjob-entrypointsh-secret",
+                    "defaultMode": 493
+                  }
+                }
+              ],
+              "restartPolicy": "OnFailure"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "networking.istio.io/v1beta1",
+    "kind": "VirtualService",
+    "metadata": {
+      "name": "disclosure-vetting-pb",
+      "namespace": "org-ces-system"
+    },
+    "spec": {
+      "gateways": [
+        "istio-system/disclosure-vetting"
+      ],
+      "hosts": [
+        "vma-agdcc.statcan.gc.ca"
+      ],
+      "http": [
+        {
+          "match": [
+            {
+              "uri": {
+                "prefix": "/"
+              }
+            }
+          ],
+          "route": [
+            {
+              "destination": {
+                "host": "disclosure-vetting.org-ces-system.svc.cluster.local",
+                "port": {
+                  "number": 5000
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

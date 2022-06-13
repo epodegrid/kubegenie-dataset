@@ -1,0 +1,294 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: drycc-passport
+  labels:
+    heritage: drycc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: drycc-passport
+  annotations: null
+  labels:
+    heritage: drycc
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+  selector:
+    app: drycc-passport
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drycc-passport
+  labels:
+    heritage: drycc
+  annotations:
+    component.drycc.cc/version: canary
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: drycc-passport
+  template:
+    metadata:
+      labels:
+        app: drycc-passport
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 2
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - drycc-passport
+                topologyKey: topology.kubernetes.io/zone
+            - weight: 1
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - drycc-passport
+                topologyKey: kubernetes.io/hostname
+      serviceAccount: drycc-passport
+      initContainers:
+        - name: drycc-passport-init
+          image: registry.drycc.cc/drycc/python-dev:latest
+          imagePullPolicy: Always
+          args:
+            - netcat
+            - -v
+            - -u
+            - $(DRYCC_DATABASE_URL)
+          env:
+            - name: TZ
+              value: UTC
+            - name: DRYCC_CONTROLLER_DOMAIN
+              value: https://drycc.
+            - name: DRYCC_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: django-secret-key
+            - name: DRYCC_PASSPORT_CONTROLLER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: drycc-passport-controller-key
+            - name: DRYCC_PASSPORT_CONTROLLER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: drycc-passport-controller-secret
+            - name: WORKFLOW_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: ADMIN_USERNAME
+              value: admin
+            - name: ADMIN_PASSWORD
+              value: admin
+            - name: ADMIN_EMAIL
+              value: admin@email.com
+            - name: DRYCC_MONITOR_GRAFANA_DOMAIN
+              value: https://drycc-monitor-grafana.
+            - name: GRAFANA_ON_CLUSTER
+              value: "true"
+            - name: DRYCC_PASSPORT_GRAFANA_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: drycc-passport-grafana-key
+            - name: DRYCC_PASSPORT_GRAFANA_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: drycc-passport-grafana-secret
+            - name: DRYCC_DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: user
+            - name: DRYCC_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: password
+            - name: DRYCC_DATABASE_URL
+              value: postgres://$(DRYCC_DATABASE_USER):$(DRYCC_DATABASE_PASSWORD)@$(DRYCC_DATABASE_SERVICE_HOST):$(DRYCC_DATABASE_SERVICE_PORT)/passport
+            - name: DRYCC_REDIS_ADDRS
+              valueFrom:
+                secretKeyRef:
+                  name: redis-creds
+                  key: addrs
+            - name: DRYCC_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-creds
+                  key: password
+      containers:
+        - name: drycc-passport
+          image: registry.drycc.cc/drycc/passport:canary
+          imagePullPolicy: Always
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readiness
+              port: 8000
+            initialDelaySeconds: 30
+            timeoutSeconds: 10
+            periodSeconds: 5
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: TZ
+              value: UTC
+            - name: DRYCC_CONTROLLER_DOMAIN
+              value: https://drycc.
+            - name: DRYCC_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: django-secret-key
+            - name: DRYCC_PASSPORT_CONTROLLER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: drycc-passport-controller-key
+            - name: DRYCC_PASSPORT_CONTROLLER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: drycc-passport-controller-secret
+            - name: WORKFLOW_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: ADMIN_USERNAME
+              value: admin
+            - name: ADMIN_PASSWORD
+              value: admin
+            - name: ADMIN_EMAIL
+              value: admin@email.com
+            - name: DRYCC_MONITOR_GRAFANA_DOMAIN
+              value: https://drycc-monitor-grafana.
+            - name: GRAFANA_ON_CLUSTER
+              value: "true"
+            - name: DRYCC_PASSPORT_GRAFANA_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: drycc-passport-grafana-key
+            - name: DRYCC_PASSPORT_GRAFANA_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: passport-creds
+                  key: drycc-passport-grafana-secret
+            - name: DRYCC_DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: user
+            - name: DRYCC_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: database-creds
+                  key: password
+            - name: DRYCC_DATABASE_URL
+              value: postgres://$(DRYCC_DATABASE_USER):$(DRYCC_DATABASE_PASSWORD)@$(DRYCC_DATABASE_SERVICE_HOST):$(DRYCC_DATABASE_SERVICE_PORT)/passport
+            - name: DRYCC_REDIS_ADDRS
+              valueFrom:
+                secretKeyRef:
+                  name: redis-creds
+                  key: addrs
+            - name: DRYCC_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-creds
+                  key: password
+          volumeMounts:
+            - name: passport-creds
+              mountPath: /var/run/secrets/drycc/passport
+              readOnly: true
+      volumes:
+        - name: passport-creds
+          secret:
+            secretName: passport-creds
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: passport-api-server
+  labels:
+    app: passport
+    chart: passport-v1.0.0
+    release: release-name
+    heritage: Helm
+  annotations:
+    kubernetes.io/tls-acme: "true"
+spec:
+  rules:
+    - host: drycc-passport.
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: drycc-passport
+                port:
+                  number: 80
+  tls:
+    - secretName: drycc-passport-certificate-auto
+      hosts:
+        - drycc-passport.
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: drycc-passport
+spec:
+  secretName: drycc-passport-certificate-auto
+  issuerRef:
+    name: drycc-cluster-issuer
+    kind: ClusterIssuer
+  dnsNames:
+    - drycc-passport.
+  privateKey:
+    rotationPolicy: Always
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: passport-creds
+  labels:
+    heritage: drycc
+  annotations:
+    helm.sh/hook: pre-install
+data:
+  django-secret-key: cG1KJX1QeTFyNSZYZGorRil1YW9mdHVkPWJTbWNGfHVKWlVKbEhMPnEqJFI5WDpoSTNQbXJHbEVYeXNxaXo+Sg==
+  drycc-passport-controller-key: SGZYd2VsdEcxWGg0WWFjQkJYbWZ2d2Vhd3I2ZU5yOTBrdXpSQ3hvTA==
+  drycc-passport-controller-secret: THgzb01pSkhsYmFkeFYzZXJYNUtnalg4emp3dkI1UFdDUDhKbjJDNTdjVHhoc0x1SUhKVmY5YTdURHFPeXY0Yg==
+  drycc-passport-grafana-key: N1hKSGxLOUp5ZWNYcjdxODZjVHRXbU85NVlxMkdGM3JibkduTEhxSA==
+  drycc-passport-grafana-secret: ckpyWUgyZ1M1OVpDUE5yT3ZtZ1oybEhDTnQxR3R4Mms1VjJzZWpFaDVqeDhRWjRoTEJ4Z2s3d3RuS0hIMlVEdg==
+  oidc-rsa-private-key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlKS0FJQkFBS0NBZ0VBbEVaU1FUUFFEV1g0d0xQVzVkMGluQVp4RGp1eU5mdXAreStlbk1TRlQrRkpFVGx5CjdUUFJtT3gxazJVcHRpMWpISGswQ0NLU01EdnBWTVNnelM3djUxNFNWanZRejFvZHd6RWRHMmZKcDVDdnpzTW4KalZaRjZiR1BPMmxmbWxKdzZCaHlrUTFjVnBrUUc3WTl3S1pKWTFJQ01wTmN0ekNEWFRzM0dUSjZ0NVROV0JuVQpJbWVycFVqamttbG1xd2Q3OUJENkpnT0I3OHBhMUZVQXZraFlPSERIaVhjR2xlRFZmUmgwRzFPaTN2MzRJdTJQCjBBdkwvcnhkbjBZanJRclBHUUVMY0w3QlpSUGN2dmJVYUxPUGVJeTY1S3c3cnNucmFxa01SNXNzei9pUjZGSDEKVHQ4UERrQkV4L1NRM29menREQi9iaWFaQVNUV2JQR1ZjNWMwaFd6NXRVVVNQdHluNkFqSHVTdW9HNTBWek5CaQp4NFZHYVQzV3IrSGRZdys0NHgwYkpYcldJM0tQWEhtVDM0eXBqSHBTTDFRR1ZNOWRJdVZKRE1ObXdzMnZtOENuCk1XeWMwcWdicHNuM1FMWXpubVJsakd0NHdEZzhKY2hyTE9mMnNITGJML3hSL0pXSmtCckVha2V6dWNxSHdqVWgKbnQzamlKVTRmcFR4Y3FGVE93cHNtU0NiZEVBd0tXdjJ5TmRVOU1YWlplSnpvWEhQUUR4SkxrOXZSMVVzaDdTSgpnaXVZQXFKMnhHS01ZcHh1dEUvNmZXcDJjSkg0czJTRHFZbWRLeWQzODdwVjgvMVpndW9WUHVPd2RuUXNxQWJ6CkcxT3VRdU9uc0xmWDE4UlZjSVI2QXYyd1FQMHljbVVTcWYxVklZWmo1Q3hHaExteE5jVzVpNVlqYmtjQ0F3RUEKQVFLQ0FnQU9GOFQzcDRvTnkvUmh0SFluY09ZNk9DNkVzTTNXYmE0UlRzeGZrQm92cG5VQWF4cHVTeStQdm1ISwplYUlHUzdnUTI4QkRTYTNsWWJ4aXJ6R3RidG1rZnY5MUxNaEMvUWk1SmJEaml2RFN1V0RNWVNZZ08rUDNPMFltCjJuUVl3ZDh6WUNkN2UrNmIySDU4Yzh6WXc3VlQrRlozSWlSODBPS2JlT1phd2I2Q05tVnlDenByYnJrVXc2SEYKcDdqM1pvVzBnK3lTc21DbVB2QjFJQU1yRXNzM3loaGRDM0FYekwvZDNQWWtKc1hqTmZaZ3MzMm93NFpIRnZZNwpEanFUMXVRcU56dzBJaDFWa3hhM0c5VENndGFQR2FrbDFPenpSd1BXSm0waFhURmNMdjhIT3NyN0RSNXNOMVdTClA3K0pOeGpGdHBwV0NOc2dEYlZIczRxRjZ3ZzF4VVY1MkNlWHFPcFdRM2RJTGhRM2t2WEZrN0Y3L2krMFdFMXcKNG1QQjlvdUFRanhlWlFoMXI0ejhmdWZMSWs4QjBZYnJtN002Y2g2VlY1WHNoeHNxY0pkM2Zmd0pXRFpjanhVbworc3BINllmbmxsOHZ2MDlqMUUySFRwbUJGTFVaZmZoSWFwbmlvZW8vWElabVdacUNsZFI0SHVSTDFGNUliOE5jCnpCeE1DYXdud2VyUEwwS0drZm5jakFHRFlmVENsUTlyTDFLb1UyU0JOY1drUzEvWmNHR1lmajZZeGxyeW01L0sKTnFxNldPVVVmOHZSZmZIY3FBUHVJWGNLd1hlVGN6TGhSbEE1TXNwRzZyU0xrM0ltdkx0RkNoL3U5WWk3ODVzbgp1SWdmVFZZd0psRGhrLytUb2VXQnlHcDhDcTJmdEQrWlIxR0dsbDB5Mk9MTGpTeEFXUUtDQVFFQXdhTWw4R050ClA2RStRMGhkV3NoYTRTR3VBSVQxL1NzNEZsUzBZR2ZjMGxRRHZtek5aVjVaQ3RkM09Ec2tDNEs2Vml4cDB4RFAKbWYvTnB0MkhVcnNwWG82dlh6YTJOWWdVY3JLS1pFSEJaVzlaZTRDMXAwQlF2ekJTR1VMOFBUR2ozWEhWSW1rVgo4Z0ptcjRMNm5MQ2k3NHNQWlhKWmNtdnkrOXlUckhMYmt6VWt3NW9aRk9MOGZrcHpCS2wwQkU0U0dkU2JMNWt1CkEza29LYVBNZXlReEpUT3gxd3FvUTRVbHdYcDhEVTZrU0luN003aUZ0UlNMbTQ2OUk5MEVIaW13Y3JHRSs4Z1UKeVMwaVZTaW9objMxNi9SdVUxd0RVQkFMQ05yYXBUZ3JHejBtOHBnZkFDMmhrSTBMQjhVeGszR3YzTEJPN1ZxQQpDWGJvcGU5MFdreWk4d0tDQVFFQXhBY25VNk15RjBCN0Y1Yk1rd0ZObkhWUGlRTEhUOUIwTDEzRWNQUE41d2NpCnlCSmtXdzJRU3NIMmNFOVJ3VUpFNS8yYzlKMmxpZEhveDI0YkU3Z1NHNm1IcS9nMisyc3VndTdoOVRaNXNWck8KZnFvbFhlRnMwR2Z4bVMxaHNEcDFUSGpBTkRDYmhRbkNtZFJkOUdDK2V3VlV3NVd0c3c0dEFLV1ZYUlg5UkhEMgoxV2pLclZTR05BelEvOXNRREVWS2swY1NyQW1hMTQzcjdBK2VNNktORXg2bW0rWTJUQWtmdzFaZ1VNT082b0FaClNQV1ljL0NQNzRiRUE3SUZjZTVUTGRZbldWbW9BaTIwVnlKL0dsZUdJRkxJdjIxMVB4bCtFOHgrZHVqVi9JRDgKUGw2ck1wcEU4clBOSUdKZTJBdUtQcXRzaFY5QzM5UC8yelllb2ZuVVhRS0NBUUVBakJRc00vU1phYmlKeEQ2cgpXaXNxbzBhc0M3QWtDOXVpSFhWMWIzQnpiS3hlY1BsZ3RQNUZ4L1FMU09CdnVPdi9SS3VvZW9ua3hQRXFvcFlMCmVTdndSM2xOSU1JQm1rUXhGckJXTVNUb2RTclNQdWZqZ1hTamRVdk5lSHplNEozeWZ4WUVLM3A5NTY4WS9jcncKNVQxYkFaTkZ0Z3U4N1d0dVFnbFZ3eURyKzFnc21sdjEzUWcveEZTelZDSUp6YnQwbUw4VzdKNFJqVzJ1UWtFKwpnYTZ5NXNpNDFHbmZROGtrZ1F6TWhRdnBDSmpZNHBlUUVta2tmWW9MQmRDelUrYXd3S2Z2SGYybUc4ck0xWEl1ClIrMERaSWhVNzNUVzZLcFNjVHR4aEtoWGRzTU1VOTc4UGpMRWVEK3dSUlRBUW51eHp5SzBWanhyOTJ6UDdJcUgKVDNPMVJRS0NBUUFwWUQwcnlUR0VlT2JDWnVFTlVtUVlWeWFQaTllWUFDN1Y1SnZYSDQ3aGFiOHNyYjBpL3V6cQo2cC9pdXN0TjJIZ0U0NklpZTdmNkxDVlBHdTE2THdzYmJhQW1hMERudG9yZHRpQlppc01LN1ZqU29ZVTdtSjVJCkt2aHkxWUplR1NpekdIV3hUbVUxSW9kQnd2S0Y1M210SzhYbGRvMXdVdGlxMzBoMG1uU1g0cVFuRFhSaU80b00KS0h4ZzFOTkJVOHJXNVZTS25ZaGlZU0ZmOVRmMlBDUTgyZVplMTZ1MFJ1UytiVmZ0RkNueFUxS0M5TnZWOVB2YwptZng3cnpLNUJvM21DZUxLV0VNL0duaUxQOHZHT3AwajYzVlYrbnVaOHY2S25VcEFQUXNWdmdBQUJpbHFoK2R2CnR3WGdCUU54NUpXc2ZyQnNRbHd5TkdRMzErZUZWdDg5QW9JQkFEQW92Yk13N25oWjZMdjhLekNvTnUyQmFSaUUKL21QRGcrUkx5N1BuZkhJVlI3aFQ0U0hONzhVRUJuaFN4WGJiRms0VEcvSURGSEdkbkxuM3A4UkwwcWJKSkhKVgppUjN6bVVhMzlmd3lFOXBRZUNtbEZrR3BXR1JnYS9sRE5ZbFRzVVNEck5UOXY2VitCUG1DVVJwcm4xSUpDRTlsCjA2VHc2ZEl6cllLS2pTNE5pOTRBWFI0WTBjSzRqZnNHa1llbFdUb1V6dnhYUlkxZkUvdDNZKzhFeVBXYjAwK3MKQ3pxYmhQcDlSR0cwY05VdjRtYXB6NHFzTlZqeEVKa0JOc09MOHVmSEJjczF6dnhvSlZUaG5KWGx1bnpOSnBMdwpPNGFzeE16YXk3SUpDblpwQW5CUUlTZWMyQ1VZam5CbVg1MTZ5aGQ2ZExUT3VJM3RKOUlxcEhvaEQ5WT0KLS0tLS1FTkQgUlNBIFBSSVZBVEUgS0VZLS0tLS0K

@@ -1,0 +1,290 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-zipkin-collector",
+      "labels": {
+        "app.kubernetes.io/component": "collector",
+        "app.kubernetes.io/version": "2.21.0",
+        "helm.sh/chart": "zipkin-0.2.0",
+        "app.kubernetes.io/name": "zipkin",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-zipkin-dependencies",
+      "labels": {
+        "app.kubernetes.io/component": "dependencies",
+        "app.kubernetes.io/version": "2.4.1",
+        "helm.sh/chart": "zipkin-0.2.0",
+        "app.kubernetes.io/name": "zipkin",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-zipkin-ui",
+      "labels": {
+        "app.kubernetes.io/component": "ui",
+        "app.kubernetes.io/version": "2.21.0",
+        "helm.sh/chart": "zipkin-0.2.0",
+        "app.kubernetes.io/name": "zipkin",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-zipkin-ui",
+      "labels": {
+        "app.kubernetes.io/component": "ui",
+        "app.kubernetes.io/version": "2.21.0",
+        "helm.sh/chart": "zipkin-0.2.0",
+        "app.kubernetes.io/name": "zipkin",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "zipkin.conf.template": "user  nginx nginx;\nworker_processes  2;\n\nerror_log  /dev/stderr warn;\npid        /var/run/nginx.pid;\n\ndaemon off;\n\nevents {\n    worker_connections  1024;\n}\n\n\nhttp {\n    include       /etc/nginx/mime.types;\n    default_type  application/octet-stream;\n\n    log_format  main  '$remote_addr - $remote_user [$time_local] \"$request\" '\n                    '$status $body_bytes_sent \"$http_referer\" '\n                    '\"$http_user_agent\" \"$http_x_forwarded_for\"';\n\n    access_log  /dev/stdout  main;\n\n    sendfile        on;\n    #tcp_nopush     on;\n\n    keepalive_timeout  65;\n\n    gzip  on;\n    gzip_types    application/javascript application/json text/css;\n\n    server_tokens off;\n\n    types {\n        application/font-woff2  woff2;\n    }\n\n    server {\n        listen 8080;\n\n        root /var/www/html;\n\n        index index.html;\n\n        # Make site accessible from http://set-ip-address.xip.io\n        server_name localhost;\n\n        charset utf-8;\n\n        # redirect root as UI is hosted under /zipkin\n        location / {\n        return 302 /zipkin/;\n        }\n\n        # the entrypoint of the app will expire every day.\n        # this includes links to js assets with random names.\n        location /zipkin/index.html {\n            expires 1d;\n        }\n\n        location /zipkin {\n        try_files $uri /zipkin/index.html = 404;\n        }\n\n        # accept UI config from the server\n        location /zipkin/config.json {\n            expires 10m;\n            proxy_pass ${ZIPKIN_BASE_URL};\n        }\n\n        # the UI looks for the api under the same relative path\n        location /zipkin/api {\n            expires off;\n            proxy_pass ${ZIPKIN_BASE_URL};\n        }\n\n        # due to minification, the js assets will change names.\n        # this makes them safe to cache longer\n        location ~* \\.(?:ico|css|js|gif|jpe?g|png)$ {\n            expires 1y;\n            add_header Cache-Control \"public\";\n        }\n\n        location = /favicon.ico { log_not_found off; access_log off; }\n        location = /robots.txt  { access_log off; log_not_found off; }\n\n        # Deny .htaccess file access\n        location ~ /\\.ht {\n            deny all;\n        }\n\n    }\n}\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-zipkin-collector",
+      "labels": {
+        "app.kubernetes.io/component": "collector",
+        "app.kubernetes.io/version": "2.21.0",
+        "helm.sh/chart": "zipkin-0.2.0",
+        "app.kubernetes.io/name": "zipkin",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 9411,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/component": "collector",
+        "app.kubernetes.io/name": "zipkin",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-zipkin-ui",
+      "labels": {
+        "app.kubernetes.io/component": "ui",
+        "app.kubernetes.io/version": "2.21.0",
+        "helm.sh/chart": "zipkin-0.2.0",
+        "app.kubernetes.io/name": "zipkin",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 8080,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/component": "ui",
+        "app.kubernetes.io/name": "zipkin",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-zipkin-collector",
+      "labels": {
+        "app.kubernetes.io/component": "collector",
+        "app.kubernetes.io/version": "2.21.0",
+        "helm.sh/chart": "zipkin-0.2.0",
+        "app.kubernetes.io/name": "zipkin",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/component": "collector",
+          "app.kubernetes.io/name": "zipkin",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/component": "collector",
+            "app.kubernetes.io/name": "zipkin",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-zipkin-collector",
+          "containers": [
+            {
+              "name": "zipkin-collector",
+              "image": "openzipkin/zipkin:2.21.0",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "QUERY_PORT",
+                  "value": "9411"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 9411,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "http"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "http"
+                }
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-zipkin-ui",
+      "labels": {
+        "app.kubernetes.io/component": "ui",
+        "app.kubernetes.io/version": "2.21.0",
+        "helm.sh/chart": "zipkin-0.2.0",
+        "app.kubernetes.io/name": "zipkin",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/component": "ui",
+          "app.kubernetes.io/name": "zipkin",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/component": "ui",
+            "app.kubernetes.io/name": "zipkin",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-zipkin-ui",
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-zipkin-ui"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "zipkin-ui",
+              "image": "openzipkin/zipkin-ui:2.21.0",
+              "imagePullPolicy": "IfNotPresent",
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/etc/nginx/conf.d/zipkin.conf.template",
+                  "subPath": "zipkin.conf.template"
+                }
+              ],
+              "env": [
+                {
+                  "name": "ZIPKIN_BASE_URL",
+                  "value": "http://release-name-zipkin-collector:9411"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8080,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "http"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "http"
+                }
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

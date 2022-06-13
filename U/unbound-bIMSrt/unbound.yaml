@@ -1,0 +1,116 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-unbound
+  labels:
+    app: unbound
+    chart: unbound-0.0.6
+    release: release-name
+    heritage: Helm
+data:
+  unbound.conf: "server:\n  chroot: \"\"\n  logfile: \"\"\n  log-local-actions: yes\n  log-queries: yes\n  log-replies: yes\n  # log lines that say why queries return SERVFAIL to clients\n  log-servfail: yes\n  verbosity: 2\n  log-tag-queryreply: yes\n\n  num-threads: 1\n  directory: \"/etc/unbound\"\n  port: 53\n  so-reuseport: yes\n  do-daemonize: no\n  use-syslog: no\n  statistics-interval: 0\n  statistics-cumulative: no\n\n  auto-trust-anchor-file: \"/var/lib/unbound/root.key\"\n  root-hints: \"/var/lib/unbound/root.hints\"\n  do-ip4: yes\n  prefer-ip4: yes\n  do-ip6: no\n  prefer-ip6: no\n  # udp must be enabled because healthz nslookup ( busybox variant ) is not supporting tcp\n  do-udp: yes\n  do-tcp: yes\n  tcp-upstream: no\n  udp-upstream-without-downstream: no\n\n  prefetch: yes\n  cache-max-ttl: 3600\n  cache-max-negative-ttl: 10\n  cache-min-ttl: 0\n\n  extended-statistics: yes\n\n  interface: 127.0.0.1\n  interface: 0.0.0.0\n\n  access-control: 127.0.0.1/32 allow\n  access-control: 0.0.0.0/0 allow\n\n  local-data: \"health.check.unbound A 127.0.0.1\"\n  local-data-ptr: \"127.0.0.1 health.check.unbound\"\n\n  \nremote-control:\n  control-enable: yes\n  control-interface: 127.0.0.1\n  control-port: 8953\n  control-use-cert: no"
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: release-name-unbound
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: unbound
+    app.kubernetes.io/version: 0.0.1
+    helm.sh/chart: unbound-0.0.6
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: unbound
+    app.kubernetes.io/instance: release-name
+  ports:
+    - name: dns-udp
+      protocol: UDP
+      port: 53
+      targetPort: dns-udp
+    - name: dns-tcp
+      protocol: TCP
+      port: 53
+      targetPort: dns-tcp
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-unbound
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: unbound
+    app.kubernetes.io/version: 0.0.1
+    helm.sh/chart: unbound-0.0.6
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: unbound
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config: cdcfb5420e226d37201592309334bd07129dfd81f3a590639ce370af61150067
+      labels:
+        app.kubernetes.io/name: unbound
+        app.kubernetes.io/instance: release-name
+    spec:
+      containers:
+        - name: unbound
+          image: tombokombo/unbound:v0.3
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 100m
+              memory: 20Mi
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            - name: dns-tcp
+              containerPort: 53
+              protocol: TCP
+            - name: dns-udp
+              containerPort: 53
+              protocol: UDP
+          volumeMounts:
+            - name: unbound-conf
+              mountPath: /etc/unbound/
+              readOnly: true
+          livenessProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+        - name: healthz
+          image: gcr.io/google-containers/exechealthz:1.2
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 2m
+              memory: 10Mi
+          args:
+            - -cmd=nslookup health.check.unbound. 127.0.0.1:53 > /dev/null
+          ports:
+            - name: healthz
+              containerPort: 8080
+              protocol: TCP
+      volumes:
+        - name: unbound-conf
+          configMap:
+            name: release-name-unbound
+      terminationGracePeriodSeconds: null

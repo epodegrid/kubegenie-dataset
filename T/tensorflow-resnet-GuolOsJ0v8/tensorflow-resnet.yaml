@@ -1,0 +1,142 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-tensorflow-resnet
+  namespace: GuolOsJ0v8
+  labels:
+    app.kubernetes.io/name: tensorflow-resnet
+    helm.sh/chart: tensorflow-resnet-3.5.14
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Cluster
+  sessionAffinity: None
+  ports:
+    - name: tf-serving
+      port: 8500
+      targetPort: tf-serving
+    - name: tf-serving-api
+      port: 8501
+      targetPort: tf-serving-api
+  selector:
+    app.kubernetes.io/name: tensorflow-resnet
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-tensorflow-resnet
+  namespace: GuolOsJ0v8
+  labels:
+    app.kubernetes.io/name: tensorflow-resnet
+    helm.sh/chart: tensorflow-resnet-3.5.14
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tensorflow-resnet
+      app.kubernetes.io/instance: release-name
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tensorflow-resnet
+        helm.sh/chart: tensorflow-resnet-3.5.14
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: tensorflow-resnet
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: master
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+      initContainers:
+        - name: seed
+          image: marketplace.azurecr.io/bitnami/tensorflow-resnet:2.8.2-debian-11-r0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              if [ -f /seed/.initialized ]; then
+                echo "Already initialized. Skipping"
+              else
+                curl -o /seed/resnet_50_classification_1.tar.gz https://storage.googleapis.com/tfhub-modules/tensorflow/resnet_50/classification/1.tar.gz
+                cd /seed/ && mkdir 1 && tar -xzf resnet_50_classification_1.tar.gz -C 1
+                rm resnet_50_classification_1.tar.gz
+                touch /seed/.initialized
+              fi
+          volumeMounts:
+            - name: seed
+              mountPath: /seed
+      containers:
+        - name: tensorflow-serving
+          image: marketplace.azurecr.io/bitnami/tensorflow-serving:2.8.0-debian-11-r1
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10422
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TENSORFLOW_SERVING_MODEL_NAME
+              value: resnet
+            - name: TENSORFLOW_SERVING_PORT_NUMBER
+              value: ""
+            - name: TENSORFLOW_SERVING_REST_API_PORT_NUMBER
+              value: ""
+            - name: TENSORFLOW_SERVING_ENABLE_MONITORING
+              value: "no"
+          envFrom: null
+          ports:
+            - name: tf-serving
+              containerPort: 8500
+            - name: tf-serving-api
+              containerPort: 8501
+          livenessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 5
+            tcpSocket:
+              port: tf-serving
+          readinessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 5
+            tcpSocket:
+              port: tf-serving
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: seed
+              mountPath: /bitnami/model-data
+      volumes:
+        - name: seed
+          emptyDir: {}

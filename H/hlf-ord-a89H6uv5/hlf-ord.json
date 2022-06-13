@@ -1,0 +1,202 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-hlf-ord--ord",
+      "labels": {
+        "app": "hlf-ord",
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "hlf-ord-3.1.0"
+      }
+    },
+    "data": {
+      "FABRIC_CA_CLIENT_HOME": "/var/hyperledger/fabric-ca-client",
+      "ORDERER_CFG_PATH": "/var/hyperledger/config",
+      "ORDERER_GENERAL_LEDGERTYPE": "file",
+      "ORDERER_FILELEDGER_LOCATION": "/var/hyperledger/ledger",
+      "ORDERER_GENERAL_BATCHTIMEOUT": "1s",
+      "ORDERER_GENERAL_BATCHSIZE_MAXMESSAGECOUNT": "10",
+      "ORDERER_GENERAL_MAXWINDOWSIZE": "1000",
+      "ORDERER_GENERAL_ORDERERTYPE": "solo",
+      "ORDERER_GENERAL_LISTENADDRESS": "0.0.0.0",
+      "ORDERER_GENERAL_LISTENPORT": "7050",
+      "ORDERER_GENERAL_LOGLEVEL": "debug",
+      "ORDERER_GENERAL_LOCALMSPDIR": "/var/hyperledger/msp",
+      "ORDERER_GENERAL_LOCALMSPID": "OrdererMSP",
+      "ORDERER_GENERAL_GENESISMETHOD": "file",
+      "ORDERER_GENERAL_GENESISFILE": "/hl_config/genesis/genesis.block",
+      "ORDERER_GENERAL_GENESISPROFILE": "initial",
+      "ORDERER_GENERAL_TLS_ENABLED": "false",
+      "ORDERER_GENERAL_TLS_CERTIFICATE": "/var/hyperledger/tls/server/pair/tls.crt",
+      "ORDERER_GENERAL_TLS_PRIVATEKEY": "/var/hyperledger/tls/server/pair/tls.key",
+      "ORDERER_GENERAL_TLS_ROOTCAS": "/var/hyperledger/tls/server/cert/cacert.pem",
+      "ORDERER_GENERAL_TLS_CLIENTAUTHREQUIRED": "false",
+      "ORDERER_GENERAL_TLS_CLIENTROOTCAS": "/var/hyperledger/tls/client/cert/*",
+      "ORDERER_GENERAL_TLS_CLIENTCERT_FILE": "/var/hyperledger/tls/client/pair/tls.crt",
+      "ORDERER_GENERAL_TLS_CLIENTKEY_FILE": "/var/hyperledger/tls/client/pair/tls.key",
+      "ORDERER_GENERAL_CLUSTER_CLIENTCERTIFICATE": "/var/hyperledger/tls/server/pair/tls.crt",
+      "ORDERER_GENERAL_CLUSTER_CLIENTPRIVATEKEY": "/var/hyperledger/tls/server/pair/tls.key",
+      "ORDERER_GENERAL_CLUSTER_ROOTCAS": "/var/hyperledger/tls/server/cert/cacert.pem",
+      "GODEBUG": "netdns=go",
+      "ADMIN_MSP_PATH": "/var/hyperledger/admin_msp",
+      "FABRIC_LOGGING_SPEC": "",
+      "ORDERER_METRICS_PROVIDER": "disabled"
+    }
+  },
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-hlf-ord",
+      "labels": {
+        "app": "hlf-ord",
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "hlf-ord-3.1.0"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "1Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-hlf-ord",
+      "labels": {
+        "app": "hlf-ord",
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "hlf-ord-3.1.0"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 7050,
+          "targetPort": 7050,
+          "protocol": "TCP",
+          "name": "grpc"
+        }
+      ],
+      "selector": {
+        "app": "hlf-ord",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-hlf-ord",
+      "labels": {
+        "app": "hlf-ord",
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "hlf-ord-3.1.0"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "hlf-ord",
+          "release": "release-name"
+        }
+      },
+      "strategy": {
+        "rollingUpdate": {
+          "maxUnavailable": 1
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "hlf-ord",
+            "heritage": "Helm",
+            "release": "release-name",
+            "chart": "hlf-ord-3.1.0"
+          }
+        },
+        "spec": {
+          "volumes": [
+            {
+              "name": "data",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-hlf-ord"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "orderer",
+              "image": "hyperledger/fabric-orderer:2.2.1",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "ord-port",
+                  "containerPort": 7050,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "ls",
+                    "/var/hyperledger"
+                  ]
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 5
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "ls",
+                    "/var/hyperledger"
+                  ]
+                },
+                "initialDelaySeconds": 15
+              },
+              "command": [
+                "sh",
+                "-c",
+                "\nwhile [ ! -d /var/hyperledger/admin_msp/admincerts ] || [ -z \"$(ls -A /var/hyperledger/admin_msp/admincerts)\" ];\ndo\n  echo \"\\033[0;31m /var/hyperledger/admin_msp/admincerts must contain Ord admin certificates files \\033[0m\"\n  sleep 60\ndone\n\nwhile [ ! -d /hl_config/genesis ] || [ -z \"$(ls -A /hl_config/genesis)\" ];\ndo\n  echo \"\\033[0;31m /hl_config/genesis must contain Genesis transaction \\033[0m\"\n  sleep 60\ndone\n\nwhile [ ! -d ${ORDERER_GENERAL_LOCALMSPDIR}/signcerts ];\ndo\n  echo \"\\033[0;31m ${ORDERER_GENERAL_LOCALMSPDIR}/signcerts directory must exist \\033[0m\"\n  sleep 60\ndone\n\necho \"\\033[0;32m Create ${ORDERER_FILELEDGER_LOCATION} directory to avoid restarts \\033[0m\"\nmkdir -p ${ORDERER_FILELEDGER_LOCATION}\nmkdir -p ${ORDERER_FILELEDGER_LOCATION}/index\n\nif [ $ORDERER_GENERAL_TLS_CLIENTAUTHREQUIRED ]\nthen\n  export ORDERER_GENERAL_TLS_CLIENTROOTCAS=$(echo $(ls $ORDERER_GENERAL_TLS_CLIENTROOTCAS) | echo \"[$(sed 's/ /,/g')]\")\nfi\n\necho \">\\033[0;35m orderer \\033[0m\"\norderer\n"
+              ],
+              "envFrom": [
+                {
+                  "configMapRef": {
+                    "name": "release-name-hlf-ord--ord"
+                  }
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/var/hyperledger",
+                  "name": "data"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

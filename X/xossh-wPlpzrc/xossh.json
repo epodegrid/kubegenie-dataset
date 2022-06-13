@@ -1,0 +1,105 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "xossh"
+    },
+    "data": {
+      "xosshConfig": "accessor:\n  endpoint: xos-core:50051\n  password: letmein\n  username: admin@opencord.org\nlogging:\n  handlers:\n    console:\n      class: logging.StreamHandler\n    file:\n      backupCount: 5\n      class: logging.handlers.RotatingFileHandler\n      filename: /var/log/xos.log\n      maxBytes: 10485760\n  loggers:\n    \"\":\n      handlers:\n      - console\n      - file\n      level: DEBUG\n  version: 1\nname: xossh\n"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-xossh",
+      "labels": {
+        "app": "xossh",
+        "chart": "xossh-3.0.4",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "xossh",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "xossh",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "xossh",
+              "args": [
+                "/usr/bin/xossh",
+                "-u",
+                "admin@opencord.org",
+                "-p",
+                "letmein",
+                "-S",
+                "xos-core:50051"
+              ],
+              "stdin": true,
+              "tty": true,
+              "image": "xosproject/xos-client:4.0.1",
+              "imagePullPolicy": "Always",
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "certchain-volume",
+                  "mountPath": "/usr/local/share/ca-certificates/local_certs.crt",
+                  "subPath": "config/ca_cert_chain.pem"
+                },
+                {
+                  "name": "xossh-config",
+                  "mountPath": "/opt/xos/config.yml",
+                  "subPath": "config.yml"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "certchain-volume",
+              "configMap": {
+                "name": "ca-certificates",
+                "items": [
+                  {
+                    "key": "chain",
+                    "path": "config/ca_cert_chain.pem"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "xossh-config",
+              "configMap": {
+                "name": "xossh",
+                "items": [
+                  {
+                    "key": "xosshConfig",
+                    "path": "config.yml"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

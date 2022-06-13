@@ -1,0 +1,276 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-promtail-config
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: promtail
+    app.kubernetes.io/version: 2.5.0
+    helm-revision: "1"
+    helm.sh/chart: promtail-3.0.3
+stringData:
+  promtail.yaml: "server:\n  log_level: info\n  http_listen_port: 3101\n\nclient:\n  url: http://release-name.default.svc.cluster.local:3100/loki/api/v1/push\n  \n\npositions:\n  filename: /run/promtail/positions.yaml\n\nscrape_configs:\n  # See also https://github.com/grafana/loki/blob/master/production/ksonnet/promtail/scrape_config.libsonnet for reference\n  - job_name: kubernetes-pods\n    pipeline_stages:\n      - cri: {}\n    kubernetes_sd_configs:\n      - role: pod\n    relabel_configs:\n      - source_labels:\n          - __meta_kubernetes_pod_controller_name\n        regex: ([0-9a-z-.]+?)(-[0-9a-f]{8,10})?\n        action: replace\n        target_label: __tmp_controller_name\n      - source_labels:\n          - __meta_kubernetes_pod_label_app_kubernetes_io_name\n          - __meta_kubernetes_pod_label_app\n          - __tmp_controller_name\n          - __meta_kubernetes_pod_name\n        regex: ^;*([^;]+)(;.*)?$\n        action: replace\n        target_label: app\n      - source_labels:\n          - __meta_kubernetes_pod_label_app_kubernetes_io_component\n          - __meta_kubernetes_pod_label_component\n        regex: ^;*([^;]+)(;.*)?$\n        action: replace\n        target_label: component\n      - action: replace\n        source_labels:\n        - __meta_kubernetes_pod_node_name\n        target_label: node_name\n      - action: replace\n        source_labels:\n        - __meta_kubernetes_namespace\n        target_label: namespace\n      - action: replace\n        replacement: $1\n        separator: /\n        source_labels:\n        - namespace\n        - app\n        target_label: job\n      - action: replace\n        source_labels:\n        - __meta_kubernetes_pod_name\n        target_label: pod\n      - action: replace\n        source_labels:\n        - __meta_kubernetes_pod_container_name\n        target_label: container\n      - action: replace\n        replacement: /var/log/pods/*$1/*.log\n        separator: /\n        source_labels:\n        - __meta_kubernetes_pod_uid\n        - __meta_kubernetes_pod_container_name\n        target_label: __path__\n      - action: replace\n        regex: true/(.*)\n        replacement: /var/log/pods/*$1/*.log\n        separator: /\n        source_labels:\n        - __meta_kubernetes_pod_annotationpresent_kubernetes_io_config_hash\n        - __meta_kubernetes_pod_annotation_kubernetes_io_config_hash\n        - __meta_kubernetes_pod_container_name\n        target_label: __path__\n"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-promtail
+  labels:
+    helm.sh/chart: promtail-3.0.3
+    app.kubernetes.io/name: promtail
+    app.kubernetes.io/instance: release-name
+    helm-revision: "1"
+    app.kubernetes.io/version: 2.5.0
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+      - nodes/proxy
+      - services
+      - endpoints
+      - pods
+    verbs:
+      - get
+      - watch
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-promtail
+  labels:
+    helm.sh/chart: promtail-3.0.3
+    app.kubernetes.io/name: promtail
+    app.kubernetes.io/instance: release-name
+    helm-revision: "1"
+    app.kubernetes.io/version: 2.5.0
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-promtail
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-promtail
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: promtail
+    app.kubernetes.io/version: 2.5.0
+    helm-revision: "1"
+    helm.sh/chart: promtail-3.0.3
+  annotations: null
+spec:
+  type: ClusterIP
+  ipFamilyPolicy: SingleStack
+  ports:
+    - port: 3101
+      targetPort: 3101
+      protocol: TCP
+      name: main
+  selector:
+    app.kubernetes.io/name: promtail
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-promtail
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: promtail
+    app.kubernetes.io/version: 2.5.0
+    helm-revision: "1"
+    helm.sh/chart: promtail-3.0.3
+spec:
+  revisionHistoryLimit: 3
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: promtail
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations: null
+      labels:
+        app.kubernetes.io/name: promtail
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      securityContext:
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 0
+        runAsUser: 0
+        supplementalGroups:
+          - 568
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 10
+      initContainers:
+        - name: autopermissions
+          image: ghcr.io/truecharts/alpine:v3.15.2@sha256:29ed3480a0ee43f7af681fed5d4fc215516abf1c41eade6938b26d8c9c2c7583
+          securityContext:
+            runAsUser: 10971
+            privileged: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+          command:
+            - /bin/sh
+            - -c
+            - |
+              /bin/bash <<'EOF'
+              echo "Automatically correcting permissions..."
+              echo "increasing inotify limits..."
+              ( sysctl -w fs.inotify.max_user_watches=524288 || echo "error setting inotify") && ( sysctl -w fs.inotify.max_user_instances=512 || echo "error setting inotify")
+              EOF
+          volumeMounts: null
+      containers:
+        - name: release-name-promtail
+          image: ghcr.io/truecharts/promtail:v2.5.0@sha256:72efc7d761d8a34aba6625370d10170e3c1defffbe71a2d41ca9275ce229029d
+          imagePullPolicy: null
+          args:
+            - -config.file=/etc/promtail/promtail.yaml
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              add: []
+              drop:
+                - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: false
+          env:
+            - name: PUID
+              value: "568"
+            - name: USER_ID
+              value: "568"
+            - name: UID
+              value: "568"
+            - name: UMASK
+              value: "2"
+            - name: UMASK_SET
+              value: "2"
+            - name: PGID
+              value: "568"
+            - name: GROUP_ID
+              value: "568"
+            - name: GID
+              value: "568"
+            - name: S6_READ_ONLY_ROOT
+              value: "1"
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: void
+            - name: TZ
+              value: UTC
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          envFrom: null
+          ports:
+            - name: main
+              containerPort: 3101
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /etc/promtail
+              name: config
+            - mountPath: /mnt
+              name: containers
+              readOnly: true
+            - mountPath: /var/log/pods
+              name: pods
+              readOnly: true
+            - mountPath: /run/promtail
+              name: run
+            - mountPath: /shared
+              name: shared
+            - mountPath: /tmp
+              name: temp
+            - mountPath: /var/logs
+              name: varlogs
+          livenessProbe:
+            tcpSocket:
+              port: 3101
+            initialDelaySeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 3101
+            initialDelaySeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 5
+            periodSeconds: 10
+          startupProbe:
+            tcpSocket:
+              port: 3101
+            initialDelaySeconds: 10
+            failureThreshold: 60
+            timeoutSeconds: 2
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+      volumes:
+        - name: config
+          secret:
+            secretName: release-name-promtail-config
+        - name: containers
+          hostPath:
+            path: /mnt
+        - name: pods
+          hostPath:
+            path: /var/log/pods
+        - name: run
+          hostPath:
+            path: /run/promtail
+        - name: shared
+          emptyDir: {}
+        - name: temp
+          emptyDir:
+            medium: Memory
+        - name: varlogs
+          emptyDir: {}
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
+          operator: Exists
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+          operator: Exists

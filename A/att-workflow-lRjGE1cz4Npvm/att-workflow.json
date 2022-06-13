@@ -1,0 +1,175 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "att-workflow-driver"
+    },
+    "data": {
+      "serviceConfig": "name: att-workflow-driver\naccessor:\n  username: \"admin@opencord.org\"\n  password: \"letmein\"\n  endpoint: \"xos-core:50051\"\nevent_bus:\n  endpoint: \"cord-platform-kafka\"\n  kind: kafka\nlogging:\n  version: 1\n  handlers:\n    console:\n      class: logging.StreamHandler\n    file:\n      class: logging.handlers.RotatingFileHandler\n      filename: /var/log/xos.log\n      maxBytes: 10485760\n      backupCount: 5\n    kafka:\n      class: kafkaloghandler.KafkaLogHandler\n      bootstrap_servers:\n        - \"cord-platform-kafka:9092\"\n      topic: xos.log.att-workflow-driver\n  loggers:\n    '':\n      handlers:\n        - console\n        - file\n        - kafka\n      level: DEBUG\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "att-workflow-tosca"
+    },
+    "data": {
+      "010-fixtures.yaml": "tosca_definitions_version: tosca_simple_yaml_1_0\ndescription: Set up att-workflow-driver service\nimports:\n  - custom_types/attworkflowdriverservice.yaml\n\ntopology_template:\n  node_templates:\n    service#att-workflow-driver:\n      type: tosca.nodes.AttWorkflowDriverService\n      properties:\n        name: att-workflow-driver\n        kind: oss\n",
+      "100-onos-apps.yaml": "tosca_definitions_version: tosca_simple_yaml_1_0\n\nimports:\n   - custom_types/onosapp.yaml\n   - custom_types/onosservice.yaml\n   - custom_types/serviceinstanceattribute.yaml\n\ndescription: Configures workflow-specific ONOS apps\n\ntopology_template:\n  node_templates:\n\n    service#onos:\n      type: tosca.nodes.ONOSService\n      properties:\n          name: onos\n          must-exist: true\n\n    onos_app#dhcpl2relay:\n      type: tosca.nodes.ONOSApp\n      properties:\n        name: dhcpl2relay\n        app_id: org.opencord.dhcpl2relay\n        url: https://oss.sonatype.org/content/groups/public/org/opencord/dhcpl2relay-app/2.0.0/dhcpl2relay-app-2.0.0.oar\n        version: 2.0.0\n        dependencies: org.opencord.sadis\n      requirements:\n        - owner:\n            node: service#onos\n            relationship: tosca.relationships.BelongsToOne\n\n    onos_app#aaa:\n      type: tosca.nodes.ONOSApp\n      properties:\n        name: aaa\n        app_id: org.opencord.aaa\n        url: https://oss.sonatype.org/content/groups/public/org/opencord/aaa-app/2.0.0/aaa-app-2.0.0.oar\n        version: 2.0.0\n        dependencies: org.opencord.sadis\n      requirements:\n        - owner:\n            node: service#onos\n            relationship: tosca.relationships.BelongsToOne\n\n    aaa-config-attr:\n      type: tosca.nodes.ServiceInstanceAttribute\n      properties:\n        name: /onos/v1/network/configuration/apps/org.opencord.aaa\n        value: >\n          {\n            \"AAA\" : {\n              \"radiusConnectionType\" : \"socket\",\n              \"radiusHost\" : \"freeradius.voltha.svc.cluster.local\",\n              \"radiusServerPort\" : \"1812\",\n              \"radiusSecret\" : \"SECRET\"\n            }\n          }\n      requirements:\n        - service_instance:\n            node: onos_app#aaa\n            relationship: tosca.relationships.BelongsToOne\n\n    onos_app#olt:\n      type: tosca.nodes.ONOSApp\n      properties:\n        name: olt\n        must-exist: true\n\n    olt-config-attr:\n      type: tosca.nodes.ServiceInstanceAttribute\n      properties:\n        name: /onos/v1/configuration/org.opencord.olt.impl.Olt?preset=true\n        value: >\n          {\n            \"enableDhcpOnProvisioning\" : true\n          }\n      requirements:\n        - service_instance:\n            node: onos_app#olt\n            relationship: tosca.relationships.BelongsToOne\n",
+      "300-service-graph.yaml": "tosca_definitions_version: tosca_simple_yaml_1_0\nimports:\n  - custom_types/attworkflowdriverservice.yaml\n  - custom_types/voltservice.yaml\n  - custom_types/servicedependency.yaml\n  - custom_types/servicegraphconstraint.yaml\ndescription: att-workflow-driver service graph\ntopology_template:\n  node_templates:\n\n# These services must be defined before loading the graph\n\n    service#volt:\n      type: tosca.nodes.VOLTService\n      properties:\n        name: volt\n        must-exist: true\n\n    service#att-workflow-driver:\n      type: tosca.nodes.AttWorkflowDriverService\n      properties:\n        name: att-workflow-driver\n        must-exist: true\n\n    service_dependency#workflow_volt:\n      type: tosca.nodes.ServiceDependency\n      properties:\n        connect_method: none\n      requirements:\n        - subscriber_service:\n            node: service#att-workflow-driver\n            relationship: tosca.relationships.BelongsToOne\n        - provider_service:\n            node: service#volt\n            relationship: tosca.relationships.BelongsToOne\n\n    constraints:\n      type: tosca.nodes.ServiceGraphConstraint\n      properties:\n        constraints: '[[null, \"rcord\", null], [null, \"volt\", null], [\"onos\", \"fabric-crossconnect\", \"att-workflow-driver\"], [\"fabric\", null, null]]'\n"
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta2",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-att-workflow-driver",
+      "labels": {
+        "app": "att-workflow-driver",
+        "chart": "att-workflow-driver-2.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "att-workflow-driver",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "att-workflow-driver",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "9c4ac8a5bc4bb7b18243a0b56853af581b5167f07766f79eef228d534a8116a9"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "att-workflow-driver",
+              "image": "xosproject/att-workflow-driver-synchronizer:2.0.0",
+              "imagePullPolicy": "Always",
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "att-workflow-driver-config",
+                  "mountPath": "/opt/xos/synchronizers/att-workflow-driver/mounted_config.yaml",
+                  "subPath": "mounted_config.yaml"
+                },
+                {
+                  "name": "certchain-volume",
+                  "mountPath": "/usr/local/share/ca-certificates/local_certs.crt",
+                  "subPath": "config/ca_cert_chain.pem"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "att-workflow-driver-config",
+              "configMap": {
+                "name": "att-workflow-driver",
+                "items": [
+                  {
+                    "key": "serviceConfig",
+                    "path": "mounted_config.yaml"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "certchain-volume",
+              "configMap": {
+                "name": "ca-certificates",
+                "items": [
+                  {
+                    "key": "chain",
+                    "path": "config/ca_cert_chain.pem"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+      "name": "release-name-att-workflow-tosca-loader",
+      "labels": {
+        "app": "att-workflow",
+        "chart": "att-workflow-2.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "backoffLimit": 12,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "att-workflow",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "695e3cdb39af110eda408e8c32b3721ea1ffb962bae5c8ddfa271cf2cb0cdb29"
+          }
+        },
+        "spec": {
+          "restartPolicy": "OnFailure",
+          "containers": [
+            {
+              "name": "att-workflow-tosca-loader",
+              "image": "xosproject/tosca-loader:1.3.1",
+              "imagePullPolicy": "Always",
+              "env": [
+                {
+                  "name": "XOS_USER",
+                  "value": "admin@opencord.org"
+                },
+                {
+                  "name": "XOS_PASSWD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "xos-admin-passwd-secret",
+                      "key": "password"
+                    }
+                  }
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "att-workflow-tosca",
+                  "mountPath": "/opt/tosca"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "att-workflow-tosca",
+              "configMap": {
+                "name": "att-workflow-tosca"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

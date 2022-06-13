@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-dashboard-configmap
+  labels:
+    app.kubernetes.io/name: dashboard
+    helm.sh/chart: dashboard-1.0.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: release-name
+data:
+  nginx.conf: |-
+    server {
+      add_header Cache-Control no-store;
+      listen 80;
+      location / {
+        root /public;
+        index index.html;
+        try_files $uri $uri/ /index.html;
+      }
+
+      location /api {
+        default_type application/json;
+        return 200 '{"name": "Users"}';
+      }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-dashboard-service
+  namespace: 4FADkYD
+  labels:
+    app.kubernetes.io/name: dashboard
+    helm.sh/chart: dashboard-1.0.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: release-name
+spec:
+  ports:
+    - port: 80
+      name: http
+      targetPort: 80
+  selector:
+    app.kubernetes.io/instance: release-name
+  type: LoadBalancer
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-dashboard-deployment
+  labels:
+    app.kubernetes.io/instance: release-name
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: release-name
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: release-name
+    spec:
+      containers:
+        - name: dashboard
+          image: sysnet4admin/dashboard:blue
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/nginx/conf.d/
+          ports:
+            - containerPort: 80
+      volumes:
+        - name: config-volume
+          configMap:
+            name: dashboard-configmap

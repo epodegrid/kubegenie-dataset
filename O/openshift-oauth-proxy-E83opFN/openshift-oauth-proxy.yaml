@@ -1,0 +1,119 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-openshift-oauth-proxy
+  annotations:
+    serviceaccounts.openshift.io/oauth-redirectreference.alertmanager-main: '{"kind":"OAuthRedirectReference","apiVersion":"v1","reference":{"kind":"Route","name":"release-name-openshift-oauth-proxy"}}'
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  labels:
+    app: openshift-oauth-proxy
+    chart: openshift-oauth-proxy-0.2.3
+    release: release-name
+    heritage: Helm
+  name: release-name-openshift-oauth-proxy
+type: Opaque
+data:
+  cookie-secret: c2V6T1JKcXhJTzJiNURKSjQycVFINFliQ1hNM2ZMSnU=
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-openshift-oauth-proxy
+  labels:
+    app: openshift-oauth-proxy
+    chart: openshift-oauth-proxy-0.2.3
+    release: release-name
+    heritage: Helm
+spec:
+  ports:
+    - name: http
+      port: 8080
+      protocol: TCP
+      targetPort: http
+  selector:
+    app: openshift-oauth-proxy
+    chart: openshift-oauth-proxy-0.2.3
+    release: release-name
+    heritage: Helm
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-openshift-oauth-proxy
+  labels:
+    app: openshift-oauth-proxy
+    chart: openshift-oauth-proxy-0.2.3
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openshift-oauth-proxy
+      chart: openshift-oauth-proxy-0.2.3
+      release: release-name
+      heritage: Helm
+  template:
+    metadata:
+      labels:
+        app: openshift-oauth-proxy
+        chart: openshift-oauth-proxy-0.2.3
+        release: release-name
+        heritage: Helm
+    spec:
+      containers:
+        - name: openshift-oauth-proxy
+          image: docker.io/openshift/oauth-proxy:v1.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          args:
+            - -provider=openshift
+            - -openshift-service-account=release-name-openshift-oauth-proxy
+            - -cookie-secret=${COOKIE_SECRET}
+            - -https-address=
+            - -http-address=:8080
+            - -upstream=http://localhost:9090
+            - '-openshift-sar={"resource": "namespaces", "verb": "get"}'
+          env:
+            - name: COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-openshift-oauth-proxy
+                  key: cookie-secret
+          resources:
+            limits:
+              cpu: 200m
+              memory: 128Mi
+            requests:
+              cpu: 50m
+              memory: 32Mi
+      serviceAccountName: release-name-openshift-oauth-proxy
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  annotations:
+    kubernetes.io/tls-acme: "true"
+  labels:
+    app: openshift-oauth-proxy
+    chart: openshift-oauth-proxy-0.2.3
+    release: release-name
+    heritage: Helm
+  name: release-name-openshift-oauth-proxy
+spec:
+  port:
+    targetPort: http
+  to:
+    kind: Service
+    name: release-name-openshift-oauth-proxy
+    weight: 100
+  wildcardPolicy: None
+  tls:
+    insecureEdgeTerminationPolicy: Redirect
+    termination: edge

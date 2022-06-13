@@ -1,0 +1,79 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: olivetin-config
+data:
+  config.yaml: |
+    actions:
+      - title: "Hello world!"
+        shell: echo 'Hello World!'
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: olivetin
+spec:
+  ports:
+    - port: 1337
+      protocol: TCP
+      targetPort: 1337
+  selector:
+    app: olivetin
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: olivetin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: olivetin
+  template:
+    metadata:
+      labels:
+        app: olivetin
+    spec:
+      containers:
+        - name: olivetin
+          image: docker.io/jamesread/olivetin:latest
+          ports:
+            - containerPort: 1337
+          volumeMounts:
+            - name: olivetin-config
+              mountPath: /config
+              readOnly: true
+          livenessProbe:
+            exec:
+              command:
+                - curl
+                - localhost:1337
+            initialDelaySeconds: 5
+            periodSeconds: 30
+      volumes:
+        - name: olivetin-config
+          configMap:
+            name: olivetin-config
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: olivetin-ingress
+spec:
+  defaultBackend:
+    service:
+      name: olivetin
+      port:
+        number: 1337
+  rules:
+    - host: olivetin.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: olivetin
+                port:
+                  number: 1337

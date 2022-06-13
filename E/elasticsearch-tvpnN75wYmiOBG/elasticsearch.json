@@ -1,0 +1,603 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-elasticsearch",
+      "labels": {
+        "app": "release-name-elasticsearch",
+        "chart": "elasticsearch-0.6.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "elasticsearch.yml": "cluster.name: elasticsearch\n\nnode.data: ${NODE_DATA:true}\nnode.master: ${NODE_MASTER:true}\nnode.ingest: ${NODE_INGEST:true}\nnode.name: ${HOSTNAME}\n\nnetwork.host: 0.0.0.0\n# see https://github.com/kubernetes/kubernetes/issues/3595\nbootstrap.memory_lock: ${BOOTSTRAP_MEMORY_LOCK:false}\n\ndiscovery:\n  zen:\n    ping.unicast.hosts: ${DISCOVERY_SERVICE:}\n    minimum_master_nodes: ${MINIMUM_MASTER_NODES:2}\n\n# see https://github.com/elastic/elasticsearch-definitive-guide/pull/679\nprocessors: ${PROCESSORS:}\n\n# avoid split-brain w/ a minimum consensus of two masters plus a data node\ngateway.expected_master_nodes: ${EXPECTED_MASTER_NODES:2}\ngateway.expected_data_nodes: ${EXPECTED_DATA_NODES:1}\ngateway.recover_after_time: ${RECOVER_AFTER_TIME:5m}\ngateway.recover_after_master_nodes: ${RECOVER_AFTER_MASTER_NODES:2}\ngateway.recover_after_data_nodes: ${RECOVER_AFTER_DATA_NODES:1}",
+      "log4j2.properties": "status = error\nappender.console.type = Console\nappender.console.name = console\nappender.console.layout.type = PatternLayout\nappender.console.layout.pattern = [%d{ISO8601}][%-5p][%-25c{1.}] %marker%m%n\nrootLogger.level = info\nrootLogger.appenderRef.console.ref = console\nlogger.searchguard.name = com.floragunn\nlogger.searchguard.level = info",
+      "pre-stop-hook.sh": "#!/bin/bash\nset -e\n\nSERVICE_ACCOUNT_PATH=/var/run/secrets/kubernetes.io/serviceaccount\nKUBE_TOKEN=$(<${SERVICE_ACCOUNT_PATH}/token)\nKUBE_NAMESPACE=$(<${SERVICE_ACCOUNT_PATH}/namespace)\n\nSTATEFULSET_NAME=$(echo \"${HOSTNAME}\" | sed 's/-[0-9]*$//g')\nINSTANCE_ID=$(echo \"${HOSTNAME}\" | grep -o '[0-9]*$')\n\necho \"Prepare stopping of Pet ${KUBE_NAMESPACE}/${HOSTNAME} of StatefulSet ${KUBE_NAMESPACE}/${STATEFULSET_NAME} instance_id ${INSTANCE_ID}\"\n\nINSTANCES_DESIRED=$(curl -s \\\n  --cacert ${SERVICE_ACCOUNT_PATH}/ca.crt \\\n  -H \"Authorization: Bearer $KUBE_TOKEN\" \\\n  \"https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_PORT_443_TCP_PORT}/apis/apps/v1beta1/namespaces/${KUBE_NAMESPACE}/statefulsets/${STATEFULSET_NAME}/status\" | jq -r '.spec.replicas')\n\necho \"Desired instance count is ${INSTANCES_DESIRED}\"\n\nif [ \"${INSTANCE_ID}\" -lt \"${INSTANCES_DESIRED}\" ]; then\n  echo \"No data migration needed\"\n  exit 0\nfi\n\necho \"Prepare to migrate data of the node\"\n\nNODE_STATS=$(curl -s -XGET 'http://localhost:9200/_nodes/stats')\nNODE_IP=$(echo \"${NODE_STATS}\" | jq -r \".nodes[] | select(.name==\\\"${HOSTNAME}\\\") | .host\")\n\necho \"Move all data from node ${NODE_IP}\"\n\ncurl -s -XPUT localhost:9200/_cluster/settings -d \"{\n  \\\"transient\\\" :{\n      \\\"cluster.routing.allocation.exclude._ip\\\" : \\\"${NODE_IP}\\\"\n  }\n}\"\necho\n\necho \"Wait for node to become empty\"\nDOC_COUNT=$(echo \"${NODE_STATS}\" | jq \".nodes[] | select(.name==\\\"${HOSTNAME}\\\") | .indices.docs.count\")\nwhile [ \"${DOC_COUNT}\" -gt 0 ]; do\n  NODE_STATS=$(curl -s -XGET 'http://localhost:9200/_nodes/stats')\n  DOC_COUNT=$(echo \"${NODE_STATS}\" | jq -r \".nodes[] | select(.name==\\\"${HOSTNAME}\\\") | .indices.docs.count\")\n  echo \"Node contains ${DOC_COUNT} documents\"\n  sleep 1\ndone\n\necho \"Wait for node shards to become empty\"\nSHARD_STATS=$(curl -s -XGET 'http://localhost:9200/_cat/shards?format=json')\nSHARD_COUNT=$(echo \"${SHARD_STATS}\" | jq \"[.[] | select(.node==\\\"${HOSTNAME}\\\")] | length\")\nwhile [ \"${SHARD_COUNT}\" -gt 0 ]; do\n  SHARD_STATS=$(curl -s -XGET 'http://localhost:9200/_cat/shards?format=json')\n  SHARD_COUNT=$(echo \"${SHARD_STATS}\" | jq \"[.[] | select(.node==\\\"${HOSTNAME}\\\")] | length\")\n  echo \"Node contains ${SHARD_COUNT} shards\"\n  sleep 1\ndone\n\necho \"Node clear to shutdown\""
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "labels": {
+        "app": "elasticsearch",
+        "chart": "elasticsearch-0.6.1",
+        "component": "client",
+        "heritage": "Helm",
+        "release": "release-name"
+      },
+      "name": "release-name-elasticsearch-client"
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "http",
+          "port": 9200,
+          "targetPort": "http"
+        }
+      ],
+      "selector": {
+        "app": "elasticsearch",
+        "component": "client",
+        "release": "release-name"
+      },
+      "type": "ClusterIP"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "labels": {
+        "app": "elasticsearch",
+        "chart": "elasticsearch-0.6.1",
+        "component": "master",
+        "heritage": "Helm",
+        "release": "release-name"
+      },
+      "name": "release-name-elasticsearch-discovery"
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "port": 9300,
+          "targetPort": "transport"
+        }
+      ],
+      "selector": {
+        "app": "elasticsearch",
+        "component": "master",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta1",
+    "kind": "Deployment",
+    "metadata": {
+      "labels": {
+        "app": "elasticsearch",
+        "chart": "elasticsearch-0.6.1",
+        "component": "client",
+        "heritage": "Helm",
+        "release": "release-name"
+      },
+      "name": "release-name-elasticsearch-client"
+    },
+    "spec": {
+      "replicas": 2,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "elasticsearch",
+            "component": "client",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1000
+          },
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "weight": 1,
+                  "podAffinityTerm": {
+                    "topologyKey": "kubernetes.io/hostname",
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app": "elasticsearch",
+                        "release": "release-name",
+                        "component": "client"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "initContainers": [
+            {
+              "name": "sysctl",
+              "image": "busybox",
+              "imagePullPolicy": "Always",
+              "command": [
+                "sysctl",
+                "-w",
+                "vm.max_map_count=262144"
+              ],
+              "securityContext": {
+                "privileged": true
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "elasticsearch",
+              "env": [
+                {
+                  "name": "NODE_DATA",
+                  "value": "false"
+                },
+                {
+                  "name": "NODE_INGEST",
+                  "value": "false"
+                },
+                {
+                  "name": "NODE_MASTER",
+                  "value": "false"
+                },
+                {
+                  "name": "DISCOVERY_SERVICE",
+                  "value": "release-name-elasticsearch-discovery.default.svc.cluster.local"
+                },
+                {
+                  "name": "PROCESSORS",
+                  "valueFrom": {
+                    "resourceFieldRef": {
+                      "resource": "limits.cpu"
+                    }
+                  }
+                },
+                {
+                  "name": "ES_JAVA_OPTS",
+                  "value": "-Djava.net.preferIPv4Stack=true -Xms512m -Xmx512m"
+                },
+                {
+                  "name": "MINIMUM_MASTER_NODES",
+                  "value": "2"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "1"
+                },
+                "requests": {
+                  "cpu": "25m",
+                  "memory": "512Mi"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/_cluster/health?wait_for_status=yellow",
+                  "port": 9200
+                },
+                "initialDelaySeconds": 5
+              },
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/_cluster/health?wait_for_status=yellow",
+                  "port": 9200
+                },
+                "initialDelaySeconds": 90
+              },
+              "image": "docker.elastic.co/elasticsearch/elasticsearch-oss:6.1.1",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "containerPort": 9200,
+                  "name": "http"
+                },
+                {
+                  "containerPort": 9300,
+                  "name": "transport"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/usr/share/elasticsearch/config/elasticsearch.yml",
+                  "name": "config",
+                  "subPath": "elasticsearch.yml"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-elasticsearch"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "labels": {
+        "app": "elasticsearch",
+        "chart": "elasticsearch-0.6.1",
+        "component": "data",
+        "heritage": "Helm",
+        "release": "release-name"
+      },
+      "name": "release-name-elasticsearch-data"
+    },
+    "spec": {
+      "serviceName": "release-name-elasticsearch-data",
+      "replicas": 2,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "elasticsearch",
+            "component": "data",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1000
+          },
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "weight": 1,
+                  "podAffinityTerm": {
+                    "topologyKey": "kubernetes.io/hostname",
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app": "elasticsearch",
+                        "release": "release-name",
+                        "component": "data"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "initContainers": [
+            {
+              "name": "sysctl",
+              "image": "busybox",
+              "imagePullPolicy": "Always",
+              "command": [
+                "sysctl",
+                "-w",
+                "vm.max_map_count=262144"
+              ],
+              "securityContext": {
+                "privileged": true
+              }
+            },
+            {
+              "name": "chown",
+              "image": "docker.elastic.co/elasticsearch/elasticsearch-oss:6.1.1",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/bin/bash",
+                "-c",
+                "chown -R elasticsearch:elasticsearch /usr/share/elasticsearch/data && chown -R elasticsearch:elasticsearch /usr/share/elasticsearch/logs"
+              ],
+              "securityContext": {
+                "runAsUser": 0
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/usr/share/elasticsearch/data",
+                  "name": "data"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "elasticsearch",
+              "env": [
+                {
+                  "name": "DISCOVERY_SERVICE",
+                  "value": "release-name-elasticsearch-discovery.default.svc.cluster.local"
+                },
+                {
+                  "name": "NODE_MASTER",
+                  "value": "false"
+                },
+                {
+                  "name": "PROCESSORS",
+                  "valueFrom": {
+                    "resourceFieldRef": {
+                      "resource": "limits.cpu"
+                    }
+                  }
+                },
+                {
+                  "name": "ES_JAVA_OPTS",
+                  "value": "-Djava.net.preferIPv4Stack=true -Xms1536m -Xmx1536m"
+                },
+                {
+                  "name": "MINIMUM_MASTER_NODES",
+                  "value": "2"
+                }
+              ],
+              "image": "docker.elastic.co/elasticsearch/elasticsearch-oss:6.1.1",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "containerPort": 9300,
+                  "name": "transport"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "1"
+                },
+                "requests": {
+                  "cpu": "25m",
+                  "memory": "1536Mi"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/_cluster/health?local=true",
+                  "port": 9200
+                },
+                "initialDelaySeconds": 5
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/usr/share/elasticsearch/data",
+                  "name": "data"
+                },
+                {
+                  "mountPath": "/usr/share/elasticsearch/config/elasticsearch.yml",
+                  "name": "config",
+                  "subPath": "elasticsearch.yml"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/pre-stop-hook.sh",
+                  "subPath": "pre-stop-hook.sh"
+                }
+              ],
+              "lifecycle": {
+                "preStop": {
+                  "exec": {
+                    "command": [
+                      "/bin/bash",
+                      "/pre-stop-hook.sh"
+                    ]
+                  }
+                }
+              }
+            }
+          ],
+          "terminationGracePeriodSeconds": 3600,
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-elasticsearch"
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "30Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "labels": {
+        "app": "elasticsearch",
+        "chart": "elasticsearch-0.6.1",
+        "component": "master",
+        "heritage": "Helm",
+        "release": "release-name"
+      },
+      "name": "release-name-elasticsearch-master"
+    },
+    "spec": {
+      "serviceName": "release-name-elasticsearch-master",
+      "replicas": 3,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "elasticsearch",
+            "component": "master",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1000
+          },
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "weight": 1,
+                  "podAffinityTerm": {
+                    "topologyKey": "kubernetes.io/hostname",
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app": "elasticsearch",
+                        "release": "release-name",
+                        "component": "master"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "initContainers": [
+            {
+              "name": "sysctl",
+              "image": "busybox",
+              "imagePullPolicy": "Always",
+              "command": [
+                "sysctl",
+                "-w",
+                "vm.max_map_count=262144"
+              ],
+              "securityContext": {
+                "privileged": true
+              }
+            },
+            {
+              "name": "chown",
+              "image": "docker.elastic.co/elasticsearch/elasticsearch-oss:6.1.1",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/bin/bash",
+                "-c",
+                "chown -R elasticsearch:elasticsearch /usr/share/elasticsearch/data && chown -R elasticsearch:elasticsearch /usr/share/elasticsearch/logs"
+              ],
+              "securityContext": {
+                "runAsUser": 0
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/usr/share/elasticsearch/data",
+                  "name": "data"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "elasticsearch",
+              "env": [
+                {
+                  "name": "NODE_DATA",
+                  "value": "false"
+                },
+                {
+                  "name": "NODE_INGEST",
+                  "value": "false"
+                },
+                {
+                  "name": "DISCOVERY_SERVICE",
+                  "value": "release-name-elasticsearch-discovery.default.svc.cluster.local"
+                },
+                {
+                  "name": "PROCESSORS",
+                  "valueFrom": {
+                    "resourceFieldRef": {
+                      "resource": "limits.cpu"
+                    }
+                  }
+                },
+                {
+                  "name": "ES_JAVA_OPTS",
+                  "value": "-Djava.net.preferIPv4Stack=true -Xms512m -Xmx512m"
+                },
+                {
+                  "name": "MINIMUM_MASTER_NODES",
+                  "value": "2"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "1"
+                },
+                "requests": {
+                  "cpu": "25m",
+                  "memory": "512Mi"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/_cluster/health?local=true",
+                  "port": 9200
+                },
+                "initialDelaySeconds": 5
+              },
+              "image": "docker.elastic.co/elasticsearch/elasticsearch-oss:6.1.1",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "containerPort": 9300,
+                  "name": "transport"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/usr/share/elasticsearch/data",
+                  "name": "data"
+                },
+                {
+                  "mountPath": "/usr/share/elasticsearch/config/elasticsearch.yml",
+                  "name": "config",
+                  "subPath": "elasticsearch.yml"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-elasticsearch"
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "4Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+]

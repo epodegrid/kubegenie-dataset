@@ -1,0 +1,595 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-fluentd-forwarder",
+      "namespace": "vCfYvr7K",
+      "labels": {
+        "app.kubernetes.io/name": "fluentd",
+        "helm.sh/chart": "fluentd-5.1.8",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "forwarder"
+      },
+      "annotations": null
+    },
+    "automountServiceAccountToken": true
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-fluentd-aggregator-cm",
+      "namespace": "vCfYvr7K",
+      "labels": {
+        "app.kubernetes.io/name": "fluentd",
+        "helm.sh/chart": "fluentd-5.1.8",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "aggregator"
+      }
+    },
+    "data": {
+      "fluentd-inputs.conf": "# TCP input to receive logs from\n<source>\n  @type forward\n  bind 0.0.0.0\n  port 24224\n</source>\n\n# HTTP input for the liveness and readiness probes\n<source>\n  @type http\n  bind 0.0.0.0\n  port 9880\n</source>\n",
+      "fluentd-output.conf": "# Throw the healthcheck to the standard output\n<match fluentd.healthcheck>\n  @type stdout\n</match>\n\n# Send the logs to the standard output\n<match **>\n  @type stdout\n</match>\n",
+      "fluentd.conf": "# Ignore fluentd own events\n<match fluent.**>\n  @type null\n</match>\n\n@include fluentd-inputs.conf\n@include fluentd-output.conf\n",
+      "metrics.conf": "# Prometheus Exporter Plugin\n# input plugin that exports metrics\n<source>\n  @type prometheus\n  port 24231\n</source>\n\n# input plugin that collects metrics from MonitorAgent\n<source>\n  @type prometheus_monitor\n  <labels>\n    host ${hostname}\n  </labels>\n</source>\n\n# input plugin that collects metrics for output plugin\n<source>\n  @type prometheus_output_monitor\n  <labels>\n    host ${hostname}\n  </labels>\n</source>\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-fluentd-forwarder-cm",
+      "namespace": "vCfYvr7K",
+      "labels": {
+        "app.kubernetes.io/name": "fluentd",
+        "helm.sh/chart": "fluentd-5.1.8",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "forwarder"
+      }
+    },
+    "data": {
+      "fluentd-inputs.conf": "# HTTP input for the liveness and readiness probes\n<source>\n  @type http\n  port 9880\n</source>\n# Get the logs from the containers running in the node\n<source>\n  @type tail\n  path /var/log/containers/*.log\n  # exclude Fluentd logs\n  exclude_path /var/log/containers/*fluentd*.log\n  pos_file /opt/bitnami/fluentd/logs/buffers/fluentd-docker.pos\n  tag kubernetes.*\n  read_from_head true\n  <parse>\n    @type json\n    time_key time\n    time_format %Y-%m-%dT%H:%M:%S.%NZ\n  </parse>\n</source>\n# enrich with kubernetes metadata\n<filter kubernetes.**>\n  @type kubernetes_metadata\n</filter>\n",
+      "fluentd-output.conf": "# Throw the healthcheck to the standard output instead of forwarding it\n<match fluentd.healthcheck>\n  @type stdout\n</match>\n# Forward all logs to the aggregators\n<match **>\n  @type forward\n  <server>\n    host release-name-fluentd-0.release-name-fluentd-headless.default.svc.cluster.local\n    port 24224\n  </server>\n  <buffer>\n    @type file\n    path /opt/bitnami/fluentd/logs/buffers/logs.buffer\n    flush_thread_count 2\n    flush_interval 5s\n  </buffer>\n</match>\n",
+      "fluentd.conf": "# Ignore fluentd own events\n<match fluent.**>\n  @type null\n</match>\n\n@include fluentd-inputs.conf\n@include fluentd-output.conf\n",
+      "metrics.conf": "# Prometheus Exporter Plugin\n# input plugin that exports metrics\n<source>\n  @type prometheus\n  port 24231\n</source>\n# input plugin that collects metrics from MonitorAgent\n<source>\n  @type prometheus_monitor\n  <labels>\n    host ${hostname}\n  </labels>\n</source>\n# input plugin that collects metrics for output plugin\n<source>\n  @type prometheus_output_monitor\n  <labels>\n    host ${hostname}\n  </labels>\n</source>\n# input plugin that collects metrics for in_tail plugin\n<source>\n  @type prometheus_tail_monitor\n  <labels>\n    host ${hostname}\n  </labels>\n</source>\n"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "name": "release-name-fluentd",
+      "namespace": "default",
+      "labels": {
+        "app.kubernetes.io/name": "fluentd",
+        "helm.sh/chart": "fluentd-5.1.8",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "namespaces",
+          "pods"
+        ],
+        "verbs": [
+          "get",
+          "watch",
+          "list"
+        ]
+      }
+    ]
+  },
+  {
+    "kind": "ClusterRoleBinding",
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "metadata": {
+      "name": "release-name-fluentd",
+      "namespace": "default",
+      "labels": {
+        "app.kubernetes.io/name": "fluentd",
+        "helm.sh/chart": "fluentd-5.1.8",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "roleRef": {
+      "kind": "ClusterRole",
+      "apiGroup": "rbac.authorization.k8s.io",
+      "name": "release-name-fluentd"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-fluentd-forwarder",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-fluentd-headless",
+      "namespace": "vCfYvr7K",
+      "labels": {
+        "app.kubernetes.io/name": "fluentd",
+        "helm.sh/chart": "fluentd-5.1.8",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "aggregator",
+        "app": "aggregator"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "http",
+          "port": 9880,
+          "protocol": "TCP",
+          "targetPort": "http"
+        },
+        {
+          "name": "tcp",
+          "port": 24224,
+          "protocol": "TCP",
+          "targetPort": "tcp"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "fluentd",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "aggregator"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-fluentd-aggregator",
+      "namespace": "vCfYvr7K",
+      "labels": {
+        "app.kubernetes.io/name": "fluentd",
+        "helm.sh/chart": "fluentd-5.1.8",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "aggregator",
+        "app": "aggregator"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "sessionAffinity": "None",
+      "ports": [
+        {
+          "name": "http",
+          "port": 9880,
+          "protocol": "TCP",
+          "targetPort": "http"
+        },
+        {
+          "name": "tcp",
+          "port": 24224,
+          "protocol": "TCP",
+          "targetPort": "tcp"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "fluentd",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "aggregator"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-fluentd-forwarder",
+      "namespace": "vCfYvr7K",
+      "labels": {
+        "app.kubernetes.io/name": "fluentd",
+        "helm.sh/chart": "fluentd-5.1.8",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "forwarder",
+        "app": "forwarder"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "sessionAffinity": "None",
+      "ports": [
+        {
+          "name": "http",
+          "port": 9880,
+          "protocol": "TCP",
+          "targetPort": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "fluentd",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "forwarder"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "DaemonSet",
+    "metadata": {
+      "name": "release-name-fluentd",
+      "namespace": "vCfYvr7K",
+      "labels": {
+        "app.kubernetes.io/name": "fluentd",
+        "helm.sh/chart": "fluentd-5.1.8",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "forwarder",
+        "app": "forwarder"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "fluentd",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "forwarder"
+        }
+      },
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "fluentd",
+            "helm.sh/chart": "fluentd-5.1.8",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "forwarder",
+            "app": "forwarder"
+          },
+          "annotations": {
+            "checksum/config": "8fa1cf5ba5c92ce7aa7bd079e82fac170241d5b02760749939c02b9219c3a83d"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-fluentd-forwarder",
+          "priorityClassName": "",
+          "affinity": {
+            "podAffinity": null,
+            "podAntiAffinity": null,
+            "nodeAffinity": null
+          },
+          "securityContext": {
+            "fsGroup": 0,
+            "runAsGroup": 0,
+            "runAsUser": 0
+          },
+          "terminationGracePeriodSeconds": 30,
+          "containers": [
+            {
+              "name": "fluentd",
+              "image": "marketplace.azurecr.io/bitnami/fluentd:1.14.6-debian-11-r0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": [
+                    "ALL"
+                  ]
+                },
+                "privileged": false,
+                "readOnlyRootFilesystem": true
+              },
+              "env": [
+                {
+                  "name": "BITNAMI_DEBUG",
+                  "value": "false"
+                },
+                {
+                  "name": "FLUENTD_CONF",
+                  "value": "fluentd.conf"
+                },
+                {
+                  "name": "FLUENTD_OPT",
+                  "value": ""
+                },
+                {
+                  "name": "FLUENTD_DAEMON_USER",
+                  "value": "root"
+                },
+                {
+                  "name": "FLUENTD_DAEMON_GROUP",
+                  "value": "root"
+                }
+              ],
+              "envFrom": null,
+              "resources": {
+                "limits": {},
+                "requests": {},
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "ports": [
+                {
+                  "containerPort": 9880,
+                  "name": "http",
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/fluentd.healthcheck?json=%7B%22ping%22%3A+%22pong%22%7D",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 60,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/fluentd.healthcheck?json=%7B%22ping%22%3A+%22pong%22%7D",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "volumeMounts": [
+                {
+                  "name": "fluentd-config",
+                  "mountPath": "/opt/bitnami/fluentd/conf"
+                },
+                {
+                  "name": "buffer",
+                  "mountPath": "/opt/bitnami/fluentd/logs/buffers"
+                },
+                {
+                  "name": "varlog",
+                  "mountPath": "/var/log"
+                },
+                {
+                  "name": "varlibdockercontainers",
+                  "mountPath": "/var/lib/docker/containers",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "fluentd-config",
+              "configMap": {
+                "name": "release-name-fluentd-forwarder-cm"
+              }
+            },
+            {
+              "name": "buffer",
+              "emptyDir": {}
+            },
+            {
+              "name": "varlog",
+              "hostPath": {
+                "path": "/var/log"
+              }
+            },
+            {
+              "name": "varlibdockercontainers",
+              "hostPath": {
+                "path": "/var/lib/docker/containers"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-fluentd",
+      "namespace": "vCfYvr7K",
+      "labels": {
+        "app.kubernetes.io/name": "fluentd",
+        "helm.sh/chart": "fluentd-5.1.8",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "aggregator",
+        "app": "aggregator"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "fluentd",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "aggregator"
+        }
+      },
+      "serviceName": "release-name-fluentd-headless",
+      "podManagementPolicy": null,
+      "replicas": 1,
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "fluentd",
+            "helm.sh/chart": "fluentd-5.1.8",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "aggregator",
+            "app": "aggregator"
+          },
+          "annotations": {
+            "checksum/config": "331fad3971d6afb0f1d11b8411763332dc644a276ebce7a569fb9e3a8657aac0"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "securityContext": {
+            "fsGroup": 1001,
+            "runAsGroup": 1001,
+            "runAsUser": 1001
+          },
+          "affinity": {
+            "podAffinity": null,
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app.kubernetes.io/name": "fluentd",
+                        "app.kubernetes.io/instance": "release-name",
+                        "app.kubernetes.io/component": "aggregator"
+                      }
+                    },
+                    "namespaces": [
+                      "default"
+                    ],
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 1
+                }
+              ]
+            },
+            "nodeAffinity": null
+          },
+          "terminationGracePeriodSeconds": 30,
+          "containers": [
+            {
+              "name": "fluentd",
+              "image": "marketplace.azurecr.io/bitnami/fluentd:1.14.6-debian-11-r0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": [
+                    "ALL"
+                  ]
+                },
+                "privileged": false,
+                "readOnlyRootFilesystem": true
+              },
+              "env": [
+                {
+                  "name": "BITNAMI_DEBUG",
+                  "value": "false"
+                },
+                {
+                  "name": "FLUENTD_CONF",
+                  "value": "fluentd.conf"
+                },
+                {
+                  "name": "FLUENTD_OPT",
+                  "value": ""
+                }
+              ],
+              "envFrom": null,
+              "resources": {
+                "limits": {},
+                "requests": {},
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "ports": [
+                {
+                  "name": "tcp",
+                  "containerPort": 24224,
+                  "protocol": "TCP"
+                },
+                {
+                  "containerPort": 9880,
+                  "name": "http",
+                  "protocol": "TCP"
+                }
+              ],
+              "startupProbe": {
+                "httpGet": {
+                  "path": "/fluentd.healthcheck?json=%7B%22ping%22%3A+%22pong%22%7D",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 60,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/fluentd.healthcheck?json=%7B%22ping%22%3A+%22pong%22%7D",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 60,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/fluentd.healthcheck?json=%7B%22ping%22%3A+%22pong%22%7D",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "volumeMounts": [
+                {
+                  "name": "fluentd-config",
+                  "mountPath": "/opt/bitnami/fluentd/conf"
+                },
+                {
+                  "name": "buffer",
+                  "mountPath": "/opt/bitnami/fluentd/logs/buffers"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "fluentd-config",
+              "configMap": {
+                "name": "release-name-fluentd-aggregator-cm"
+              }
+            },
+            {
+              "name": "buffer",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  }
+]

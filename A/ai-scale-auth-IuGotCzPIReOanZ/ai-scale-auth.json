@@ -1,0 +1,233 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-ai-scale-auth",
+      "labels": {
+        "app.kubernetes.io/name": "ai-scale-auth",
+        "helm.sh/chart": "ai-scale-auth-0.1.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "immutable": false,
+    "metadata": {
+      "name": "release-name-ai-scale-auth",
+      "labels": {
+        "app.kubernetes.io/name": "ai-scale-auth",
+        "helm.sh/chart": "ai-scale-auth-0.1.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "configs.yaml": "debugMode: true\ngrpc:\n  compression:\n    enabled: false\n    type: Zstd\n  connection:\n    host: 0.0.0.0\n    insecure: true\n    maxMessageSize: 1MiB\n    port: 8091\n    readBufferSize: 4MiB\n    timeout: 15s\n    writeBufferSize: 4MiB\n  enabled: true\n  keepalive:\n    enforcementPolicy:\n      minTime: 20m\n      permitWithoutStream: false\n    time: 5m\n    timeout: 5m\n  useReflection: true\nmonitoring:\n  enabled: true\npostgres:\n  database: ai-scale\n  host: release-name-ai-scale-auth-postgresql.default.svc.cluster.local\n  password: \"\"\n  pool:\n    connMaxLifetime: 1m\n    maxIdleConns: 1\n    maxOpenConns: 10\n  port: 5432\n  schema: public\n  sslmode: disable\n  username: ai-scale\nprofiling:\n  enabled: true\nsingle:\n  buffer:\n    readBufferSize: 4MiB\n    writeBufferSize: 4MiB\n  concurrency: 100000\n  enabled: true\n  host: 0.0.0.0\n  httptransport:\n    maxIdleConnDuration: 15s\n    readTimeout: 7s\n    writeTimeout: 7s\n  name: pprof/monitoring server\n  port: 8097\n  tcpKeepalive:\n    enabled: true\n    period: 1s\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-ai-scale-auth",
+      "labels": {
+        "app.kubernetes.io/name": "ai-scale-auth",
+        "helm.sh/chart": "ai-scale-auth-0.1.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "grpc",
+          "port": 8091,
+          "protocol": "TCP",
+          "targetPort": "grpc"
+        },
+        {
+          "name": "monitoring",
+          "port": 8097,
+          "protocol": "TCP",
+          "targetPort": "monitoring"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "ai-scale-auth",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-ai-scale-auth",
+      "labels": {
+        "app.kubernetes.io/name": "ai-scale-auth",
+        "helm.sh/chart": "ai-scale-auth-0.1.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "ai-scale-auth",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config": "88f75383872abd16c2ca3138cb8852b4082c80f5a69cb0c04fbfb81eeaa376bc"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "ai-scale-auth",
+            "helm.sh/chart": "ai-scale-auth-0.1.1",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-ai-scale-auth",
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app.kubernetes.io/name": "ai-scale-auth",
+                        "app.kubernetes.io/instance": "release-name"
+                      }
+                    },
+                    "namespaces": [
+                      "default"
+                    ],
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 1
+                }
+              ]
+            }
+          },
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "initContainers": [
+            {
+              "command": [
+                "sh",
+                "-c",
+                "until printf \".\" && nc -z -w 2 release-name-ai-scale-auth-postgresql.default.svc.cluster.local 5432; do\n    sleep 2;\ndone;\n\necho 'PostgreSQL OK ✓'\n"
+              ],
+              "image": "alpine:3.9.2",
+              "name": "check-postgresql"
+            },
+            {
+              "args": [
+                "-source",
+                "file://./migrations",
+                "-database",
+                "postgres://ai-scale:%!s(<nil>)@release-name-ai-scale-auth-postgresql.default.svc.cluster.local:5432/ai-scale?sslmode=disable",
+                "up"
+              ],
+              "command": [
+                "/usr/local/bin/migrate"
+              ],
+              "image": "alex6021710/ai-scale-migrator:latest",
+              "name": "migrations"
+            }
+          ],
+          "containers": [
+            {
+              "name": "ai-scale-auth",
+              "image": "alex6021710/ai-scale-auth:latest",
+              "securityContext": {
+                "runAsNonRoot": true,
+                "runAsUser": 10441,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "command": [
+                "/app"
+              ],
+              "args": [
+                "-conf=/etc/auth/configs/configs.yaml"
+              ],
+              "resources": {
+                "limits": {},
+                "requests": {},
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "ports": [
+                {
+                  "name": "grpc",
+                  "containerPort": 8091
+                },
+                {
+                  "name": "monitoring",
+                  "containerPort": 8097
+                }
+              ],
+              "livenessProbe": {
+                "failureThreshold": 3,
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": 8097
+                },
+                "initialDelaySeconds": 20,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 5
+              },
+              "readinessProbe": {
+                "failureThreshold": 3,
+                "httpGet": {
+                  "path": "/readyz",
+                  "port": 8097
+                },
+                "initialDelaySeconds": 20,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 5
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/etc/auth/configs",
+                  "name": "configs",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "configMap": {
+                "name": "release-name-ai-scale-auth"
+              },
+              "name": "configs"
+            }
+          ]
+        }
+      }
+    }
+  }
+]

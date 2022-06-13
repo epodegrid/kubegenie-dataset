@@ -1,0 +1,101 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-postgresql
+  labels:
+    app: postgresql
+    chart: postgresql-0.2.3
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: postgresql
+  selector:
+    app: postgresql
+    release: release-name
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-postgresql
+  labels:
+    app: postgresql
+    chart: postgresql-0.2.3
+    release: release-name
+    heritage: Helm
+spec:
+  serviceName: release-name-postgresql-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgresql
+      release: release-name
+  template:
+    metadata:
+      name: release-name-postgresql
+      labels:
+        app: postgresql
+        chart: postgresql-0.2.3
+        release: release-name
+        heritage: Helm
+    spec:
+      initContainers:
+        - name: init-chmod-data
+          image: debian:buster-slim
+          imagePullPolicy: Always
+          resources: {}
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /var/lib/postgresql/data
+              chmod 700 /var/lib/postgresql/data
+              find /var/lib/postgresql -mindepth 1 -maxdepth 1 -not -name ".snapshot" -not -name "lost+found" | \
+                xargs chown -R 1001:1001
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql
+              subPath: null
+      containers:
+        - name: release-name-postgresql
+          image: postgres:11.5
+          imagePullPolicy: IfNotPresent
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: POSTGRES_PASSWORD
+              value: postgres
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_DB
+              value: postgres
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgresql
+              containerPort: 5432
+          livenessProbe: null
+          readinessProbe: null
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+              subPath: null
+              readOnly: false
+      volumes: null
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+---
+null

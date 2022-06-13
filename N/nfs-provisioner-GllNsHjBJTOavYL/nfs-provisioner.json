@@ -1,0 +1,120 @@
+[
+  {
+    "kind": "StorageClass",
+    "apiVersion": "storage.k8s.io/v1",
+    "metadata": {
+      "name": "nfs-provisioner",
+      "labels": {
+        "kubernetes.io/cluster-service": "true"
+      }
+    },
+    "provisioner": "choerodon.io/nfs-provisioner",
+    "reclaimPolicy": "Delete",
+    "parameters": {
+      "mountOptions": "vers=4.0"
+    }
+  },
+  {
+    "kind": "Deployment",
+    "apiVersion": "extensions/v1beta1",
+    "metadata": {
+      "labels": {
+        "choerodon.io/release": "release-name",
+        "choerodon.io/infra": "nfs-provisioner"
+      },
+      "name": "release-name"
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "choerodon.io/release": "release-name",
+          "choerodon.io/infra": "nfs-provisioner"
+        }
+      },
+      "replicas": 1,
+      "strategy": {
+        "type": "Recreate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "choerodon.io/release": "release-name",
+            "choerodon.io/infra": "nfs-provisioner"
+          }
+        },
+        "spec": {
+          "serviceAccount": "default",
+          "containers": [
+            {
+              "name": "nfs-provisioner",
+              "image": "registry.cn-hangzhou.aliyuncs.com/choerodon-tools/nfs-provisioner:v1.0.9",
+              "ports": [
+                {
+                  "name": "nfs",
+                  "containerPort": 2049,
+                  "hostPort": 2049
+                },
+                {
+                  "name": "mountd",
+                  "containerPort": 20048
+                },
+                {
+                  "name": "rpcbind",
+                  "containerPort": 111
+                },
+                {
+                  "name": "rpcbind-udp",
+                  "containerPort": 111,
+                  "protocol": "UDP"
+                }
+              ],
+              "securityContext": {
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true
+              },
+              "args": [
+                "-provisioner=choerodon.io/nfs-provisioner"
+              ],
+              "env": [
+                {
+                  "name": "POD_IP",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "status.podIP"
+                    }
+                  }
+                },
+                {
+                  "name": "NODE_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "status.hostIP"
+                    }
+                  }
+                }
+              ],
+              "imagePullPolicy": "IfNotPresent",
+              "volumeMounts": [
+                {
+                  "name": "export-volume",
+                  "mountPath": "/export"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "export-volume",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,127 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-etherpad
+  labels:
+    helm.sh/chart: etherpad-0.0.7
+    app.kubernetes.io/name: etherpad
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-etherpad
+  labels:
+    helm.sh/chart: etherpad-0.0.7
+    app.kubernetes.io/name: etherpad
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9001
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: etherpad
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-etherpad
+  labels:
+    helm.sh/chart: etherpad-0.0.7
+    app.kubernetes.io/name: etherpad
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: etherpad
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: etherpad
+        app.kubernetes.io/instance: release-name
+    spec:
+      securityContext: {}
+      containers:
+        - env:
+            - name: TITLE
+              value: Labs Etherpad
+            - name: DEFAULT_PAD_TEXT
+              value: ✍️ Assign yourself a user and share your ideas! ✍️
+          name: etherpad
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: etherpad/etherpad:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9001
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: etherpad-data
+              mountPath: /opt/etherpad-lite/var
+      volumes:
+        - name: etherpad-data
+          persistentVolumeClaim:
+            claimName: release-name-etherpad
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  annotations:
+    openshift.io/host.generated: "true"
+  name: release-name-etherpad
+  labels:
+    helm.sh/chart: etherpad-0.0.7
+    app.kubernetes.io/name: etherpad
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  host: null
+  port:
+    targetPort: http
+  to:
+    kind: Service
+    name: release-name-etherpad
+    weight: 100
+  tls:
+    insecureEdgeTerminationPolicy: Redirect
+    termination: edge
+status:
+  ingress:
+    - conditions:
+        - status: "True"
+          type: Admitted

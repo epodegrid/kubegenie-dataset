@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backup-db1
+  labels: null
+type: Opaque
+data:
+  AWS_ACCESS_KEY_ID: ""
+  AWS_SECRET_ACCESS_KEY: ""
+  BUCKET_NAME: ""
+  ENDPOINT_URL: ""
+  BACKUP_NAME: ZGIx
+  DATABASE_URL: bW9uZ29kYjovL3VzZXI6cGFzc0Bob3N0OnBvcnQvZGF0YWJhc2U/YXV0aFNvdXJjZT1zcmM=
+  ENCRYPTION_KEY: ""
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-db1
+  labels: null
+spec:
+  schedule: 0 * * * *
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 3300
+      backoffLimit: 3
+      template:
+        metadata: null
+        spec:
+          restartPolicy: Never
+          serviceAccountName: default
+          automountServiceAccountToken: false
+          securityContext:
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 1000
+          dnsPolicy: ClusterFirst
+          enableServiceLinks: false
+          containers:
+            - name: backup
+              image: ghcr.io/alexanderbabel/database-s3-backup:1.3.3
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                capabilities:
+                  drop:
+                    - SETPCAP
+                    - MKNOD
+                    - AUDIT_WRITE
+                    - CHOWN
+                    - NET_RAW
+                    - DAC_OVERRIDE
+                    - FOWNER
+                    - FSETID
+                    - KILL
+                    - SETGID
+                    - SETUID
+                    - NET_BIND_SERVICE
+                    - SYS_CHROOT
+                    - SETFCAP
+                readOnlyRootFilesystem: true
+              envFrom:
+                - secretRef:
+                    name: backup-db1
+              volumeMounts:
+                - mountPath: /.gnupg
+                  name: backup
+                  subPath: gnupg
+                - mountPath: /backup
+                  name: backup
+                  subPath: backup
+          volumes:
+            - emptyDir: {}
+              name: backup

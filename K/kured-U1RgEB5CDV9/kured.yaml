@@ -1,0 +1,186 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-kured
+  namespace: U1RgEB5CDV9
+  labels:
+    app: kured
+    chart: kured-2.15.0
+    release: release-name
+    heritage: Helm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-kured
+  labels:
+    app: kured
+    chart: kured-2.15.0
+    release: release-name
+    heritage: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - list
+      - delete
+      - get
+  - apiGroups:
+      - extensions
+    resources:
+      - daemonsets
+    verbs:
+      - get
+  - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+    verbs:
+      - get
+  - apiGroups:
+      - ""
+    resources:
+      - pods/eviction
+    verbs:
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-kured
+  labels:
+    app: kured
+    chart: kured-2.15.0
+    release: release-name
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-kured
+subjects:
+  - kind: ServiceAccount
+    name: release-name-kured
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: U1RgEB5CDV9
+  name: release-name-kured
+  labels:
+    app: kured
+    chart: kured-2.15.0
+    release: release-name
+    heritage: Helm
+rules:
+  - apiGroups:
+      - extensions
+    resources:
+      - daemonsets
+    resourceNames:
+      - release-name-kured
+    verbs:
+      - update
+      - patch
+  - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+    resourceNames:
+      - release-name-kured
+    verbs:
+      - update
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  namespace: U1RgEB5CDV9
+  name: release-name-kured
+  labels:
+    app: kured
+    chart: kured-2.15.0
+    release: release-name
+    heritage: Helm
+subjects:
+  - kind: ServiceAccount
+    namespace: default
+    name: release-name-kured
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-kured
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: release-name-kured
+  namespace: U1RgEB5CDV9
+  labels:
+    app: kured
+    chart: kured-2.15.0
+    release: release-name
+    heritage: Helm
+spec:
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: kured
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: kured
+        chart: kured-2.15.0
+        release: release-name
+        heritage: Helm
+    spec:
+      serviceAccountName: release-name-kured
+      hostPID: true
+      restartPolicy: Always
+      containers:
+        - name: kured
+          image: weaveworks/kured:1.10.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - /usr/bin/kured
+          args:
+            - --ds-name=release-name-kured
+            - --ds-namespace=default
+            - --reboot-command=/bin/systemctl reboot
+            - --log-format=text
+          ports:
+            - containerPort: 8080
+              name: metrics
+          env:
+            - name: KURED_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          effect: NoSchedule

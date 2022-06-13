@@ -1,0 +1,424 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-keycloak-admin
+type: kubernetes.io/basic-auth
+data:
+  username: YWRtaW4=
+  password: M1k1VjJyUHJzdk1XM0E3RTVkSjUxa1BSbQ==
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-postgresql-admin
+type: kubernetes.io/basic-auth
+data:
+  username: YWRtaW4=
+  password: NXRvMWl1S3Q5UnRkRzl0OW1xc05LRlhHUg==
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-postgresql-keycloak
+type: kubernetes.io/basic-auth
+data:
+  username: a2V5Y2xvYWs=
+  password: WWk4bnc4SUR4WmNORjcyTVN3eDJacEJ1Uw==
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-postgresql-musicociel
+type: kubernetes.io/basic-auth
+data:
+  username: bXVzaWNvY2llbA==
+  password: dXNaZDY2bWFwWXBkYU91cjNkdFhjTFhRNg==
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-postgresql
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-keycloak
+  labels:
+    app.kubernetes.io/name: keycloak
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  selector:
+    app.kubernetes.io/name: keycloak
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-musicociel
+  labels:
+    app.kubernetes.io/name: musicociel
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  selector:
+    app.kubernetes.io/name: musicociel
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-postgresql
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  ports:
+    - name: postgresql
+      port: 5432
+      targetPort: 5432
+  selector:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-keycloak
+  labels:
+    app.kubernetes.io/name: keycloak
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/managed-by: Helm
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:18.0.0-legacy
+          env:
+            - name: DB_VENDOR
+              value: postgres
+            - name: DB_ADDR
+              value: release-name-postgresql
+            - name: DB_DATABASE
+              value: keycloak
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql-keycloak
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql-keycloak
+                  key: password
+            - name: KEYCLOAK_USER
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-keycloak-admin
+                  key: username
+            - name: KEYCLOAK_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-keycloak-admin
+                  key: password
+            - name: PROXY_ADDRESS_FORWARDING
+              value: "true"
+            - name: KEYCLOAK_FRONTEND_URL
+              value: http://keycloak.local/auth
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /auth/realms/master
+              port: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-musicociel
+  labels:
+    app.kubernetes.io/name: musicociel
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: musicociel
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/managed-by: Helm
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: musicociel
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      containers:
+        - name: musicociel
+          image: docker.io/davdiv/musicociel:dev
+          env:
+            - name: MUSICOCIEL_PORT
+              value: "8080"
+            - name: MUSICOCIEL_ADDRESS
+              value: http://musicociel.local
+            - name: MUSICOCIEL_TRUST_PROXY
+              value: "true"
+            - name: MUSICOCIEL_KEYCLOAK
+              value: '{"realm":"musicociel","auth-server-url":"http://keycloak.local/auth","ssl-required":"external","resource":"musicociel","public-client":true,"confidential-port":0}'
+            - name: MUSICOCIEL_DATABASE
+              value: postgresql://release-name-postgresql:5432/musicociel
+            - name: MUSICOCIEL_DATABASE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql-musicociel
+                  key: username
+            - name: MUSICOCIEL_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql-musicociel
+                  key: password
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              httpHeaders:
+                - name: X-Forwarded-For
+                  value: 127.0.0.1
+                - name: X-Forwarded-Proto
+                  value: http
+                - name: X-Forwarded-Host
+                  value: musicociel.local
+              path: /musicociel.json
+              port: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-postgresql
+  labels:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/managed-by: Helm
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgresql
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      containers:
+        - name: postgresql
+          image: docker.io/library/postgres:14.2-alpine
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql-admin
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql-admin
+                  key: password
+            - name: POSTGRES_DB
+              value: admin
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgresql
+              containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: release-name-postgresql
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: release-name-keycloak
+spec:
+  rules:
+    - host: keycloak.local
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: release-name-keycloak
+                port:
+                  name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: release-name-musicociel
+spec:
+  rules:
+    - host: musicociel.local
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: release-name-musicociel
+                port:
+                  name: http
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-keycloak-postinstall
+  labels:
+    app.kubernetes.io/name: keycloak-postinstall
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-weight: "-4"
+    helm.sh/hook-delete-policy: hook-succeeded
+spec:
+  template:
+    metadata:
+      name: release-name-keycloak-postinstall
+      labels:
+        app.kubernetes.io/name: keycloak-postinstall
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: keycloak-post-install
+          image: quay.io/keycloak/keycloak:18.0.0-legacy
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - while [[ "$(curl -s -o /dev/null -L -w ''%{http_code}'' http://release-name-keycloak:8080/auth)" != "200" ]]; do sleep 1; done && /opt/jboss/keycloak/bin/kcadm.sh config credentials --server http://release-name-keycloak:8080/auth --realm master --user "$KEYCLOAK_USER" --password "$KEYCLOAK_PASSWORD" && /opt/jboss/keycloak/bin/kcadm.sh create realms -s realm=musicociel -s enabled=true && /opt/jboss/keycloak/bin/kcadm.sh create clients -r musicociel -s clientId=musicociel -s publicClient=true -s 'redirectUris=["http://musicociel.local/*"]'
+          env:
+            - name: KEYCLOAK_USER
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-keycloak-admin
+                  key: username
+            - name: KEYCLOAK_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-keycloak-admin
+                  key: password
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-postgres-postinstall
+  labels:
+    app.kubernetes.io/name: postgres-postinstall
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: hook-succeeded
+spec:
+  template:
+    metadata:
+      name: release-name-postgres-postinstall
+      labels:
+        app.kubernetes.io/name: postgres-postinstall
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: postgres-post-install
+          image: docker.io/library/postgres:14.2-alpine
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - while ! nc -z "$PGHOST" "$PGPORT"; do sleep 1; done && echo "$PGHOST:$PGPORT:$PGDATABASE:$PGUSER:$PGPASSWORD" > ~/.pgpass && echo " CREATE USER $MUSICOCIEL_USER WITH PASSWORD '$MUSICOCIEL_PASSWORD'; CREATE DATABASE musicociel; GRANT ALL PRIVILEGES ON DATABASE musicociel TO $MUSICOCIEL_USER; CREATE USER $KEYCLOAK_USER WITH PASSWORD '$KEYCLOAK_PASSWORD'; CREATE DATABASE keycloak; GRANT ALL PRIVILEGES ON DATABASE keycloak TO $KEYCLOAK_USER; " | psql -v ON_ERROR_STOP=1 -w
+          env:
+            - name: PGHOST
+              value: release-name-postgresql
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql-admin
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql-admin
+                  key: password
+            - name: PGDATABASE
+              value: admin
+            - name: MUSICOCIEL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql-musicociel
+                  key: username
+            - name: MUSICOCIEL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql-musicociel
+                  key: password
+            - name: KEYCLOAK_USER
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql-keycloak
+                  key: username
+            - name: KEYCLOAK_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql-keycloak
+                  key: password

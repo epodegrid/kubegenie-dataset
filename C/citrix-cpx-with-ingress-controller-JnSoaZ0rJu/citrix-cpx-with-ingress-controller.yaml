@@ -1,0 +1,265 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-citrix-cpx-with-ingress-controller
+  namespace: JnSoaZ0rJu
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-cpx-cic-configmap
+  namespace: JnSoaZ0rJu
+data:
+  LOGLEVEL: info
+  JSONLOG: "false"
+  NS_PROTOCOL: http
+  NS_PORT: "80"
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-citrix-cpx-with-ingress-controller
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+      - pods
+      - secrets
+      - routes
+      - nodes
+      - namespaces
+      - configmaps
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - services/status
+    verbs:
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+  - apiGroups:
+      - extensions
+      - networking.k8s.io
+    resources:
+      - ingresses
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - extensions
+      - networking.k8s.io
+    resources:
+      - ingresses/status
+    verbs:
+      - patch
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - ingressclasses
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apiextensions.k8s.io
+    resources:
+      - customresourcedefinitions
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - citrix.com
+    resources:
+      - rewritepolicies
+      - continuousdeployments
+      - authpolicies
+      - ratelimits
+      - listeners
+      - httproutes
+      - wafs
+      - apigatewaypolicies
+      - bots
+      - corspolicies
+      - appqoepolicies
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - delete
+      - patch
+  - apiGroups:
+      - citrix.com
+    resources:
+      - rewritepolicies/status
+      - continuousdeployments/status
+      - authpolicies/status
+      - ratelimits/status
+      - listeners/status
+      - httproutes/status
+      - wafs/status
+      - apigatewaypolicies/status
+      - bots/status
+      - corspolicies/status
+      - appqoepolicies/status
+    verbs:
+      - patch
+  - apiGroups:
+      - citrix.com
+    resources:
+      - vips
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - delete
+  - apiGroups:
+      - crd.projectcalico.org
+    resources:
+      - ipamblocks
+    verbs:
+      - get
+      - list
+      - watch
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-citrix-cpx-with-ingress-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-citrix-cpx-with-ingress-controller
+subjects:
+  - kind: ServiceAccount
+    name: release-name-citrix-cpx-with-ingress-controller
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-cpx-service
+  labels:
+    app: cpx-service
+    service-type: release-name-citrix-adc-cpx-svcmon
+spec:
+  ports:
+    - port: 80
+      protocol: TCP
+      name: http
+    - port: 443
+      protocol: TCP
+      name: https
+  selector:
+    app: release-name-citrix-cpx-with-ingress-controller
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-citrix-cpx-with-ingress-controller
+  namespace: JnSoaZ0rJu
+spec:
+  selector:
+    matchLabels:
+      app: release-name-citrix-cpx-with-ingress-controller
+  replicas: 1
+  template:
+    metadata:
+      name: release-name-citrix-cpx-with-ingress-controller
+      labels:
+        app: release-name-citrix-cpx-with-ingress-controller
+        adc: citrix
+    spec:
+      serviceAccountName: release-name-citrix-cpx-with-ingress-controller
+      containers:
+        - name: cpx-ingress
+          image: quay.io/citrix/citrix-k8s-cpx-ingress:13.0-83.27
+          imagePullPolicy: IfNotPresent
+          tty: true
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: EULA
+              value: "false"
+            - name: KUBERNETES_TASK_ID
+              value: ""
+            - name: LS_PORT
+              value: "27000"
+            - name: MGMT_HTTP_PORT
+              value: "9080"
+            - name: MGMT_HTTPS_PORT
+              value: "9443"
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - mountPath: /var/deviceinfo
+              name: shared-data
+            - mountPath: /cpx/
+              name: cpx-volume
+        - name: cic
+          image: quay.io/citrix/citrix-k8s-ingress-controller:1.25.6
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: EULA
+              value: "false"
+            - name: NS_IP
+              value: 127.0.0.1
+            - name: NS_APPS_NAME_PREFIX
+              value: k8s
+            - name: NS_DEPLOYMENT_MODE
+              value: SIDECAR
+            - name: NS_ENABLE_MONITORING
+              value: "YES"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+          args:
+            - --configmap default/release-name-cpx-cic-configmap
+          volumeMounts:
+            - mountPath: /var/deviceinfo
+              name: shared-data
+          resources: {}
+      volumes:
+        - name: shared-data
+          emptyDir: {}
+        - name: cpx-volume
+          emptyDir: {}

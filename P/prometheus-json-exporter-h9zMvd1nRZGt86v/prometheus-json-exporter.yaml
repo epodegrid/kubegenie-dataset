@@ -1,0 +1,132 @@
+apiVersion: v1
+data:
+  config.yml: |
+    metrics:
+    - help: Example of a top-level global value scrape in the json
+      labels:
+        environment: beta
+        location: $.location
+      name: example_global_value
+      path: $.counter
+kind: ConfigMap
+metadata:
+  name: release-name-prometheus-json-exporter
+  labels:
+    helm.sh/chart: prometheus-json-exporter-0.1.0
+    app.kubernetes.io/name: prometheus-json-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-prometheus-json-exporter
+  labels:
+    helm.sh/chart: prometheus-json-exporter-0.1.0
+    app.kubernetes.io/name: prometheus-json-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 7979
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: prometheus-json-exporter
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-prometheus-json-exporter
+  labels:
+    helm.sh/chart: prometheus-json-exporter-0.1.0
+    app.kubernetes.io/name: prometheus-json-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus-json-exporter
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: prometheus-json-exporter
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      volumes:
+        - configMap:
+            defaultMode: 420
+            name: release-name-prometheus-json-exporter
+          name: config
+      securityContext: {}
+      containers:
+        - name: prometheus-json-exporter
+          command:
+            - /opt/app-root/gobinary
+          args:
+            - --config.file
+            - /json-exporter/config.yml
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10478
+            allowPrivilegeEscalation: false
+          image: pub-registry.dev.witcom.services/prometheus/json-exporter:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 7979
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /json-exporter
+              name: config
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-prometheus-json-exporter-test-connection
+  labels:
+    helm.sh/chart: prometheus-json-exporter-0.1.0
+    app.kubernetes.io/name: prometheus-json-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-prometheus-json-exporter:7979
+  restartPolicy: Never

@@ -1,0 +1,605 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "taco-clair",
+      "namespace": "aKmRJc"
+    },
+    "data": {
+      "config.yaml": "clair:\n  database:\n    type: pgsql\n    options:\n      source: postgresql://clair@taco-db.default.svc:5432/clair?password=clair&sslmode=disable\n      cachesize: 16384\n  api:\n    healthport: 6061\n    port: 6060\n    timeout: 900s\n    paginationkey:"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "taco-db",
+      "namespace": "aKmRJc"
+    },
+    "data": {
+      "init.sh": "#!/bin/bash\nset -x\nCLAIR_DB=\"clair\"\nCLAIR_USER=\"clair\"\nCLAIR_PASS=\"clair\"\n\nAPP_DB=\"registry\"\nAPP_USER=\"registry\"\nAPP_PASS=\"registry1234\"\n\n\npsql -U postgres << EOF\n  create database ${CLAIR_DB} encoding 'utf-8';\n  create user ${CLAIR_USER} password '${CLAIR_PASS}';\n  grant all privileges on database ${CLAIR_DB} to ${CLAIR_USER} with grant option;\n\n  create database ${APP_DB} encoding 'utf-8';\n  create user ${APP_USER} password '${APP_PASS}';\n  grant all privileges on database ${APP_DB} to ${APP_USER} with grant option;\nEOF\n\npsql -U ${APP_USER} << EOF\n  create table oauth_client_details (client_id VARCHAR(256) PRIMARY KEY,resource_ids VARCHAR(256),client_secret VARCHAR(256),scope VARCHAR(256),authorized_grant_types VARCHAR(256),web_server_redirect_uri VARCHAR(256),authorities VARCHAR(256),access_token_validity INTEGER,refresh_token_validity INTEGER,additional_information VARCHAR(4096),autoapprove VARCHAR(256));\n  create table oauth_client_token (token_id VARCHAR(256),token bytea,authentication_id VARCHAR(256) PRIMARY KEY,user_name VARCHAR(256),client_id VARCHAR(256));\n  create table oauth_access_token (token_id VARCHAR(256),token bytea,authentication_id VARCHAR(256) PRIMARY KEY,user_name VARCHAR(256),client_id VARCHAR(256),authentication bytea,refresh_token VARCHAR(256));\n  create table oauth_refresh_token (token_id VARCHAR(256),token bytea,authentication bytea);\n  create table oauth_code (code VARCHAR(256), authentication bytea);\n  create table oauth_approvals (userId VARCHAR(256),clientId VARCHAR(256),scope VARCHAR(256),status VARCHAR(10),expiresAt TIMESTAMP,lastModifiedAt TIMESTAMP);\n\n  create table users (username VARCHAR(40) NOT NULL PRIMARY KEY, enabled BOOLEAN NOT NULL, password VARCHAR(255) NOT NULL, name VARCHAR(40) NOT NULL, email VARCHAR(255) NOT NULL, del_yn BOOLEAN NOT NULL, super_user BOOLEAN NOT NULL, minio_enabled BOOLEAN DEFAULT false, minio_host VARCHAR(255), minio_port INTEGER);\n  create table common_code (code_seq INTEGER NOT NULL PRIMARY KEY, group_code VARCHAR(10) NOT NULL, code VARCHAR(10) NOT NULL, code_name VARCHAR(30) NOT NULL, comment VARCHAR(255) NOT NULL, enabled BOOLEAN NOT NULL);\n  INSERT INTO users ( email, enabled, del_yn, name, password, username, super_user ) values ( 'admin@sktelecom.com', true, false, 'admin', '\\$2a\\$10\\$IDw2a0sOsi8Zp6myDhAbYOKT1uDr11XYuVoi6ltOi85WME.lL7M9O', 'admin', true );\n  INSERT INTO common_code (code_seq, group_code, code, code_name, comment, enabled) VALUES (1, 'ROLE', 'A', 'ADMIN', 'ROLE 타입', true);\n  INSERT INTO common_code (code_seq, group_code, code, code_name, comment, enabled) VALUES (2, 'ROLE', 'U', 'USER', 'ROLE 타입', true);\nEOF"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "taco-registry-builder",
+      "namespace": "aKmRJc"
+    },
+    "data": {
+      "config.yml": "#####################################\n# Taco-registry builder configuration\n#####################################\n\n# default configuration\ndefault:\n  domain: taco-registry-builder\n  port: 4000\n  # DEBUG, INFO, ERROR\n  loglevel: INFO\n  tmp: \"/tmp\"\n\n# database configuration\ndatabase:\n  # postgres, mysql\n  type: postgres\n  host: taco-db.default.svc\n  port: 5432\n  name: registry\n  user: registry\n  password: registry1234\n  xargs:\n\n# docker private registry configuration\nregistry:\n  name: taco-registry\n  insecure: true\n  \n  endpoint: \"taco-registry.com:30080\"\n  auth: http://taco-registry-app:8080/api/oauth/token\n  mirrors:\n    - taco-registry-1.com:30080\n\n\n# webhook listener\nwebhook:\n  listener:\n    - http://taco-registry-app:8080/api/notification\n\n# clair configuration\nclair:\n  endpoint: \"taco-private-registry:6060\""
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "taco-private-registry",
+      "namespace": "aKmRJc"
+    },
+    "data": {
+      "config.yml": "version: 0.1\nlog:\n  level: info\n  formatter: text\n  fields:\n    service: registry\nstorage:\n  filesystem:\n    rootdirectory: /var/lib/registry\n  delete:\n    enabled: true\n  cache:\n    blobdescriptor: inmenory\nauth:\n  token:\n    realm: http://taco.com:30080/api/oauth/token\n    service: taco-registry\n    issuer: taco-registry\n    rootcertbundle: /ssl/server.crt\nhttp:\n  addr: :5000\n  headers:\n    X-Content-Type-Options: [nosniff]\nnotifications:\n  events:\n    includereferences: true\n  endpoints:\n    - name: builder-listener\n      disabled: false\n      url: http://taco-registry-builder:4000/v1/listener\n      timeout: 3s\n      threshold: 10\n      backoff: 1s\n      ignoredmediatypes:\n        - application/octet-stream\n      ignore:\n        mediatypes:\n          - application/octet-stream\n        actions:\n          - pull\n          - delete"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "taco-private-registry-ssl",
+      "namespace": "aKmRJc"
+    },
+    "data": {
+      "server.crt": "-----BEGIN CERTIFICATE-----\nMIICljCCAX4CCQCRVZw4rRv0hTANBgkqhkiG9w0BAQsFADANMQswCQYDVQQGEwJr\ncjAeFw0yMDA3MTQwODM2MzFaFw00NzExMjkwODM2MzFaMA0xCzAJBgNVBAYTAmty\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1upYzB72PshCKevSbMWC\nl/NtBjSXp+YfDwST8ovNJ0Jsr5w9BFVLdxlCfj8DvxTZLtbWSpRf4PGB2Pq70l8o\nkE2gZCQ6Qo3UNt3AU1eUV4DUeNWQ5a8rZt9kAIIdbxqnIFJbfbuCbGd4TEEiKjrA\neEXcVd2Ln06oTwDkc9wrICX5V4wPLJgvGJDzl+gC+Pc39E52LeL+q7/41clhIxPe\nwHk8MsIz2Cda1DcJQKDfve/a0J7H7kcdlGVDyBLBClCCMnFFSFzlYaNiM4l79kMr\neX3mOjezjMNxOeqlhoBfw4vQiNCjzBp2ek1fKU6cr0cDkO0Ikww9L2DpolTYMdiK\nQQIDAQABMA0GCSqGSIb3DQEBCwUAA4IBAQC8PbQFbzBSZFHz6JGc9ZFkPJWpJ/wy\n4GFV1esHkzk6zCJxRO51FxDd5z7RQum0OC+vgSLODxoZXzqc4pJYU9JfqIzbNLO9\n+lzLqhdr2Wdj360hcH3jbZA6IjOIXHXKBtFLw6wLUULk6RZxs0kRkWupyq9ywkSN\n03bYmo1pMhcBA09J/1DOAzyfrlNUvImIHoGWuqJMYtH37YkgX1jGN23o8xRbhQwe\nQ0dHXF+S/RSxKScrKPLpkmX8HzQtMC9jc1C+pWsfWjsQC9reHMe8bByAY3ihmYcH\ng0fZI3/I8A2930dKcKGHmz85O2eeUB8OWe2CLs4YDb5g8/KSNSEGn0vc\n-----END CERTIFICATE-----"
+    }
+  },
+  {
+    "kind": "PersistentVolume",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "taco-registry-builder-sock",
+      "namespace": "default"
+    },
+    "spec": {
+      "storageClassName": "ceph",
+      "capacity": {
+        "storage": "100Mi"
+      },
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "hostPath": {
+        "path": "/var/run/docker.sock"
+      }
+    }
+  },
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "taco-db-data",
+      "namespace": "default"
+    },
+    "spec": {
+      "storageClassName": null,
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "10Gi"
+        }
+      }
+    }
+  },
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "taco-registry-builder-sock",
+      "namespace": "default"
+    },
+    "spec": {
+      "storageClassName": "ceph",
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "100Mi"
+        }
+      }
+    }
+  },
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "taco-private-registry-data",
+      "namespace": "default"
+    },
+    "spec": {
+      "storageClassName": "ceph",
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "10Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "taco-db",
+      "namespace": "aKmRJc",
+      "labels": {
+        "app": "taco-db"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "http",
+          "port": 5432,
+          "targetPort": 5432
+        }
+      ],
+      "selector": {
+        "app": "taco-db"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "taco-registry-app",
+      "namespace": "aKmRJc",
+      "labels": {
+        "app": "taco-registry-app"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "http",
+          "port": 8080,
+          "targetPort": 8080
+        }
+      ],
+      "selector": {
+        "app": "taco-registry-app"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "taco-registry-builder",
+      "namespace": "aKmRJc",
+      "labels": {
+        "app": "taco-registry-builder"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "http",
+          "port": 4000,
+          "targetPort": 4000
+        }
+      ],
+      "selector": {
+        "app": "taco-registry-builder"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "taco-private-registry",
+      "namespace": "aKmRJc",
+      "labels": {
+        "app": "taco-private-registry"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "http",
+          "port": 5000,
+          "targetPort": 5000
+        },
+        {
+          "name": "http-clair",
+          "port": 6060,
+          "targetPort": 6060
+        },
+        {
+          "name": "health-clair",
+          "port": 6061,
+          "targetPort": 6061
+        }
+      ],
+      "selector": {
+        "app": "taco-private-registry"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "taco-db",
+      "namespace": "aKmRJc",
+      "labels": {
+        "app": "taco-db"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "taco-db"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "taco-db"
+          }
+        },
+        "spec": {
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "taco-db"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "taco-db",
+              "image": "postgres:latest",
+              "imagePullPolicy": "Always",
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/docker-entrypoint-initdb.d/"
+                }
+              ],
+              "env": [
+                {
+                  "name": "POSTGRES_DB",
+                  "value": "postgres"
+                },
+                {
+                  "name": "POSTGRES_USER",
+                  "value": "postgres"
+                },
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "value": "postgres1234"
+                },
+                {
+                  "name": "POSTGRES_INITDB_ARGS",
+                  "value": "--encoding=UTF-8"
+                },
+                {
+                  "name": "APP_TIME_ZONE",
+                  "value": "Asia/Seoul"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "taco-registry-app",
+      "namespace": "aKmRJc",
+      "labels": {
+        "app": "taco-registry-app"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "taco-registry-app"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "taco-registry-app"
+          }
+        },
+        "spec": {
+          "hostAliases": [
+            {
+              "hostnames": [
+                "keycloak.skb-doj-dev01.btvpaas.com"
+              ],
+              "ip": "175.113.150.30"
+            }
+          ],
+          "volumes": [
+            {
+              "name": "data",
+              "configMap": {
+                "name": "taco-private-registry"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "taco-registry-app",
+              "image": "boozer83/taco-registry-app:latest",
+              "imagePullPolicy": "Always",
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/app/portal/registry-server/target/classes"
+                }
+              ],
+              "env": [
+                {
+                  "name": "APP_MINIO_AVAILABLE",
+                  "value": "false"
+                },
+                {
+                  "name": "SPRING_PROFILES_ACTIVE",
+                  "value": "prod-update,log"
+                },
+                {
+                  "name": "APP_TIME_ZONE",
+                  "value": "Asia/Seoul"
+                },
+                {
+                  "name": "REGISTRY_URL",
+                  "value": "taco-registry.com:30080"
+                },
+                {
+                  "name": "REGISTRY_AUTH_ISSUER",
+                  "value": "taco-registry"
+                },
+                {
+                  "name": "REGISTRY_AUTH_KEY_PASSWORD",
+                  "value": "taco-registry"
+                },
+                {
+                  "name": "REGISTRY_AUTH_KEY_PAIR_ALIAS",
+                  "value": "servercert"
+                },
+                {
+                  "name": "REGISTRY_AUTH_KEY_PAIR_PASSWORD",
+                  "value": "taco-registry"
+                },
+                {
+                  "name": "POSTGRES_HOST",
+                  "value": "taco-db.default.svc"
+                },
+                {
+                  "name": "POSTGRES_PORT",
+                  "value": "5432"
+                },
+                {
+                  "name": "POSTGRES_DB",
+                  "value": "registry"
+                },
+                {
+                  "name": "POSTGRES_USER",
+                  "value": "registry"
+                },
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "value": "registry1234"
+                },
+                {
+                  "name": "BUILDER_URL",
+                  "value": "http://taco-registry-builder:4000"
+                },
+                {
+                  "name": "KEYCLOAK_AUTH_SERVER_URI",
+                  "value": "https://keycloak.skb-doj-dev01.btvpaas.com/auth"
+                },
+                {
+                  "name": "KEYCLOAK_CLIENT_ID",
+                  "value": "registry"
+                },
+                {
+                  "name": "KEYCLOAK_REALM",
+                  "value": "nextpaas"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "taco-registry-builder",
+      "namespace": "aKmRJc",
+      "labels": {
+        "app": "taco-registry-builder"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "taco-registry-builder"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "taco-registry-builder"
+          }
+        },
+        "spec": {
+          "hostAliases": [
+            {
+              "hostnames": [
+                "taco-registry.com"
+              ],
+              "ip": "192.168.201.11"
+            },
+            {
+              "ip": "192.168.0.1",
+              "hostnames": [
+                "taco-registry-1.com"
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "taco-registry-builder"
+              }
+            },
+            {
+              "name": "docker-sock",
+              "persistentVolumeClaim": {
+                "claimName": "taco-registry-builder-sock"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "taco-registry-builder",
+              "image": "boozer83/taco-registry-builder:latest",
+              "imagePullPolicy": "Always",
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/etc/conf"
+                },
+                {
+                  "name": "docker-sock",
+                  "mountPath": "/var/run/docker.sock"
+                }
+              ],
+              "env": [
+                {
+                  "name": "BUILDER_CONFIG",
+                  "value": "/etc/conf/config.yml"
+                },
+                {
+                  "name": "BUILDER_LOG_LEVEL",
+                  "value": "INFO"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "taco-private-registry",
+      "namespace": "aKmRJc",
+      "labels": {
+        "app": "taco-private-registry"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "taco-private-registry"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "taco-private-registry"
+          }
+        },
+        "spec": {
+          "hostAliases": [
+            {
+              "hostnames": [
+                "taco-registry.com"
+              ],
+              "ip": "192.168.201.11"
+            }
+          ],
+          "volumes": [
+            {
+              "name": "ssl",
+              "configMap": {
+                "name": "taco-private-registry-ssl"
+              }
+            },
+            {
+              "name": "config",
+              "configMap": {
+                "name": "taco-private-registry"
+              }
+            },
+            {
+              "name": "config-clair",
+              "configMap": {
+                "name": "taco-clair"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "taco-private-registry",
+              "image": "registry:2",
+              "imagePullPolicy": "Always",
+              "volumeMounts": [
+                {
+                  "name": "ssl",
+                  "mountPath": "/ssl"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/etc/docker/registry"
+                }
+              ]
+            },
+            {
+              "name": "taco-clair",
+              "image": "quay.io/coreos/clair:latest",
+              "imagePullPolicy": "Always",
+              "volumeMounts": [
+                {
+                  "name": "config-clair",
+                  "mountPath": "/etc/clair"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+]

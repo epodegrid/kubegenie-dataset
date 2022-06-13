@@ -1,0 +1,271 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-wordpress",
+      "labels": {
+        "helm.sh/chart": "wordpress-0.6.1",
+        "app.kubernetes.io/name": "wordpress",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "6.0.0-apache",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": null
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-wordpress-extended",
+      "labels": {
+        "helm.sh/chart": "wordpress-0.6.1",
+        "app.kubernetes.io/name": "wordpress",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "6.0.0-apache",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "000-default.conf": "<VirtualHost *:8000>\n        ServerAdmin webmaster@localhost\n        DocumentRoot /var/www/html\n\n        ErrorLog ${APACHE_LOG_DIR}/error.log\n        CustomLog ${APACHE_LOG_DIR}/access.log combined\n</VirtualHost>\n",
+      "ports.conf": "Listen 8000\n",
+      "custom.ini": "upload_max_filesize = 64M\npost_max_size = 64M\nmemory_limit = 128M\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-wordpress",
+      "labels": {
+        "helm.sh/chart": "wordpress-0.6.1",
+        "app.kubernetes.io/name": "wordpress",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "6.0.0-apache",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "wordpress",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-wordpress",
+      "labels": {
+        "helm.sh/chart": "wordpress-0.6.1",
+        "app.kubernetes.io/name": "wordpress",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "6.0.0-apache",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "wordpress",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/secureconfig": "dba331b1d354d50887e27fa7f2c735a06b93a762e397851b22164098fa98cc75",
+            "checksum/extendedconfig": "1e1b6b8c17505d45f8e0bd76b025fdae89c67f101d56ccd750f7de846ec2cc00"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "wordpress",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "securityContext": {
+            "fsGroup": 33,
+            "runAsNonRoot": true,
+            "runAsUser": 33
+          },
+          "containers": [
+            {
+              "name": "wordpress",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "privileged": false,
+                "readOnlyRootFilesystem": true,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "image": "wordpress:6.0.0-apache",
+              "imagePullPolicy": "IfNotPresent",
+              "envFrom": [
+                {
+                  "secretRef": {
+                    "name": "release-name-wordpress"
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8000,
+                  "protocol": "TCP"
+                }
+              ],
+              "startupProbe": {
+                "httpGet": {
+                  "path": "/wp-login.php",
+                  "port": "http",
+                  "httpHeaders": [
+                    {
+                      "name": "Host",
+                      "value": "localhost:8000"
+                    }
+                  ]
+                },
+                "initialDelaySeconds": 10,
+                "timeoutSeconds": 5,
+                "failureThreshold": 30,
+                "successThreshold": 1,
+                "periodSeconds": 10
+              },
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/wp-admin/install.php",
+                  "port": "http",
+                  "httpHeaders": [
+                    {
+                      "name": "Host",
+                      "value": "localhost:8000"
+                    }
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 5,
+                "failureThreshold": 5,
+                "successThreshold": 1,
+                "periodSeconds": 10
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/wp-login.php",
+                  "port": "http",
+                  "httpHeaders": [
+                    {
+                      "name": "Host",
+                      "value": "localhost:8000"
+                    }
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 5,
+                "failureThreshold": 5,
+                "successThreshold": 1,
+                "periodSeconds": 10
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/var/www/html",
+                  "name": "wordpress-vol"
+                },
+                {
+                  "mountPath": "/tmp",
+                  "name": "tmp"
+                },
+                {
+                  "mountPath": "/var/run",
+                  "name": "run"
+                },
+                {
+                  "mountPath": "/etc/apache2/ports.conf",
+                  "subPath": "ports.conf",
+                  "name": "extended"
+                },
+                {
+                  "mountPath": "/etc/apache2/000-default.conf",
+                  "subPath": "000-default.conf",
+                  "name": "extended"
+                },
+                {
+                  "mountPath": "/usr/local/etc/php/conf.d/custom.ini",
+                  "subPath": "custom.ini",
+                  "name": "extended"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "tmp",
+              "emptyDir": {}
+            },
+            {
+              "name": "run",
+              "emptyDir": {}
+            },
+            {
+              "name": "extended",
+              "configMap": {
+                "name": "release-name-wordpress-extended"
+              }
+            },
+            {
+              "name": "wordpress-vol",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-wordpress-test-connection",
+      "labels": {
+        "helm.sh/chart": "wordpress-0.6.1",
+        "app.kubernetes.io/name": "wordpress",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "6.0.0-apache",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test-success"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "wget",
+          "image": "busybox",
+          "command": [
+            "wget"
+          ],
+          "args": [
+            "release-name-wordpress:80"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

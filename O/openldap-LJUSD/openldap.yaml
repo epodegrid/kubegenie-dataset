@@ -1,0 +1,124 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-openldap
+  labels:
+    app: openldap
+    chart: openldap-1.0.0
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  LDAP_ADMIN_PASSWORD: WjJ2QUVYVm9nVXdJZW80OEdXQnhHdUplRTJ4SmNXNWk=
+  LDAP_CONFIG_PASSWORD: cHF3am9hSGRKZWZVWFBwd2ZNdnU3NUVnQVNoVlh2WGI=
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-openldap-env
+  labels:
+    app: openldap
+    chart: openldap-1.0.0
+    release: release-name
+    heritage: Helm
+data:
+  LDAP_BACKEND: hdb
+  LDAP_DOMAIN: example.org
+  LDAP_ORGANISATION: Example Inc.
+  LDAP_REMOVE_CONFIG_AFTER_SETUP: "true"
+  LDAP_TLS: "true"
+  LDAP_TLS_ENFORCE: "false"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-openldap
+  labels:
+    app: openldap
+    chart: openldap-1.0.0
+    release: release-name
+    heritage: Helm
+spec:
+  clusterIP: ""
+  ports:
+    - name: ldap-port
+      protocol: TCP
+      port: 389
+      targetPort: ldap-port
+    - name: ssl-ldap-port
+      protocol: TCP
+      port: 636
+      targetPort: ssl-ldap-port
+  selector:
+    app: openldap
+    release: release-name
+  type: ClusterIP
+---
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  name: release-name-openldap
+  labels:
+    app: openldap
+    chart: openldap-1.0.0
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openldap
+      release: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/configmap-env: c14a3e842182244b456670c679518380ba438c769fd5f0cf176f617d6dd50269
+      labels:
+        app: openldap
+        release: release-name
+    spec:
+      containers:
+        - name: openldap
+          image: osixia/openldap:1.2.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: ldap-port
+              containerPort: 389
+            - name: ssl-ldap-port
+              containerPort: 636
+          envFrom:
+            - configMapRef:
+                name: release-name-openldap-env
+            - secretRef:
+                name: release-name-openldap
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/ldap
+              subPath: data
+            - name: data
+              mountPath: /etc/ldap/slapd.d
+              subPath: config-data
+          env: null
+          livenessProbe:
+            tcpSocket:
+              port: ldap-port
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 10
+          readinessProbe:
+            tcpSocket:
+              port: ldap-port
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 10
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: certs
+          emptyDir:
+            medium: Memory
+        - name: data
+          emptyDir: {}
+---
+null

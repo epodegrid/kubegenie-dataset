@@ -1,0 +1,251 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: dstorageclass-manager-role
+rules:
+  - apiGroups:
+      - storage.k8s.io
+    resources:
+      - storageclasses
+    verbs:
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: dstorageclass-proxy-role
+rules:
+  - apiGroups:
+      - authentication.k8s.io
+    resources:
+      - tokenreviews
+    verbs:
+      - create
+  - apiGroups:
+      - authorization.k8s.io
+    resources:
+      - subjectaccessreviews
+    verbs:
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  creationTimestamp: null
+  name: dstorageclass-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: dstorageclass-manager-role
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  creationTimestamp: null
+  name: dstorageclass-proxy-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: dstorageclass-proxy-role
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  creationTimestamp: null
+  name: dstorageclass-leader-election-role
+  namespace: VCRiQctmaPKKJm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps/status
+    verbs:
+      - get
+      - update
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  creationTimestamp: null
+  name: dstorageclass-leader-election-rolebinding
+  namespace: VCRiQctmaPKKJm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dstorageclass-leader-election-role
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    control-plane: controller-manager
+    servicemonitor.kubeaddons.mesosphere.io/path: metrics
+    kubeaddons.mesosphere.io/name: defaultstorageclass
+  name: dstorageclass-controller-manager-metrics-service
+  namespace: VCRiQctmaPKKJm
+spec:
+  ports:
+    - name: https
+      port: 8443
+      targetPort: https
+  selector:
+    app: defaultstorageclass
+    control-plane: controller-manager
+status:
+  loadBalancer: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  name: dstorageclass-webhook-service
+  namespace: VCRiQctmaPKKJm
+spec:
+  ports:
+    - port: 443
+      targetPort: 443
+  selector:
+    app: defaultstorageclass
+    control-plane: controller-manager
+status:
+  loadBalancer: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  creationTimestamp: null
+  labels:
+    app: defaultstorageclass
+    control-plane: controller-manager
+  name: dstorageclass-controller-manager
+  namespace: VCRiQctmaPKKJm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: defaultstorageclass
+      control-plane: controller-manager
+  strategy: {}
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: defaultstorageclass
+        control-plane: controller-manager
+    spec:
+      containers:
+        - args:
+            - --secure-listen-address=0.0.0.0:8443
+            - --upstream=http://127.0.0.1:8080/
+            - --logtostderr=true
+            - --ignore-paths=/metrics
+            - --v=10
+          image: gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0
+          name: kube-rbac-proxy
+          ports:
+            - containerPort: 8443
+              name: https
+          resources: null
+        - args:
+            - --metrics-addr=127.0.0.1:8080
+            - --enable-leader-election
+          command:
+            - /manager
+          image: mesosphere/default-storage-class:v0.0.1
+          name: manager
+          ports:
+            - containerPort: 443
+              name: webhook-server
+              protocol: TCP
+          resources: null
+          volumeMounts:
+            - mountPath: /tmp/k8s-webhook-server/serving-certs
+              name: cert
+              readOnly: true
+      terminationGracePeriodSeconds: 10
+      volumes:
+        - name: cert
+          secret:
+            defaultMode: 420
+            secretName: dstorageclass-webhook-server-cert
+status: {}
+---
+apiVersion: certmanager.k8s.io/v1alpha1
+kind: Certificate
+metadata:
+  creationTimestamp: null
+  name: dstorageclass-serving-cert
+  namespace: default
+spec:
+  commonName: dstorageclass-webhook-service.default.svc
+  dnsNames:
+    - dstorageclass-webhook-service.default.svc.cluster.local
+    - dstorageclass-webhook-service.default.svc.cluster
+    - dstorageclass-webhook-service.default.svc
+    - dstorageclass-webhook-service.default
+    - dstorageclass-webhook-service
+  issuerRef:
+    kind: ClusterIssuer
+    name: issuer-name
+  secretName: dstorageclass-webhook-server-cert
+status: {}
+---
+apiVersion: admissionregistration.k8s.io/v1beta1
+kind: ValidatingWebhookConfiguration
+metadata:
+  annotations:
+    certmanager.k8s.io/inject-ca-from: default/dstorageclass-serving-cert
+  name: dstorageclass-validating-webhook-configuration
+webhooks:
+  - clientConfig:
+      caBundle: Cg==
+      service:
+        name: dstorageclass-webhook-service
+        namespace: default
+        path: /validate-storage-k8s-io-v1-storageclass
+    failurePolicy: Fail
+    name: vstorageclasses.kb.io
+    rules:
+      - apiGroups:
+          - storage.k8s.io
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - storageclasses

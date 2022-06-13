@@ -1,0 +1,222 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-questdb",
+      "labels": {
+        "helm.sh/chart": "questdb-0.20.3",
+        "app.kubernetes.io/name": "questdb",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "6.4.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "server.conf": "shared.worker.count = 2\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-questdb-headless",
+      "labels": {
+        "helm.sh/chart": "questdb-0.20.3",
+        "app.kubernetes.io/name": "questdb",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "6.4.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "postgresql",
+          "port": 8812,
+          "targetPort": "postgresql"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "questdb",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-questdb",
+      "labels": {
+        "helm.sh/chart": "questdb-0.20.3",
+        "app.kubernetes.io/name": "questdb",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "6.4.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 9000,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "questdb",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-questdb",
+      "labels": {
+        "helm.sh/chart": "questdb-0.20.3",
+        "app.kubernetes.io/name": "questdb",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "6.4.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "questdb",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "serviceName": "release-name-questdb-headless",
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "questdb",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "securityContext": {},
+          "containers": [
+            {
+              "name": "questdb",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "questdb/questdb:6.4.1",
+              "imagePullPolicy": "IfNotPresent",
+              "volumeMounts": [
+                {
+                  "name": "release-name-questdb",
+                  "mountPath": "/root/.questdb/db"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/root/.questdb/conf/server.conf",
+                  "subPath": "server.conf"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 9000,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "postgresql",
+                  "containerPort": 8812,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "influxdb",
+                  "containerPort": 9009,
+                  "protocol": "TCP"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-questdb"
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "release-name-questdb",
+            "annotations": null
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "50Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-questdb-test-connection",
+      "labels": {
+        "helm.sh/chart": "questdb-0.20.3",
+        "app.kubernetes.io/name": "questdb",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "6.4.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test-success"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "curl",
+          "image": "curlimages/curl:7.71.0",
+          "command": [
+            "curl"
+          ],
+          "args": [
+            "-G",
+            "release-name-questdb:9000",
+            "--data-urlencode",
+            "query=\"SHOW TABLES;\""
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

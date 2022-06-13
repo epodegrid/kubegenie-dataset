@@ -1,0 +1,315 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/name": "fluentd-cloudwatch",
+        "helm.sh/chart": "fluentd-cloudwatch-1.0.6",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app": "fluentd-cloudwatch",
+        "app.kubernetes.io/component": "logging",
+        "k8s-app": "fluentd-cloudwatch"
+      },
+      "name": "fluentd",
+      "namespace": "DmQnHbdwfQuv6g"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "cluster-info",
+      "labels": {
+        "app.kubernetes.io/name": "fluentd-cloudwatch",
+        "helm.sh/chart": "fluentd-cloudwatch-1.0.6",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app": "fluentd-cloudwatch",
+        "app.kubernetes.io/component": "logging",
+        "k8s-app": "fluentd-cloudwatch"
+      },
+      "namespace": "DmQnHbdwfQuv6g"
+    },
+    "data": {
+      "cluster.name": "",
+      "logs.region": ""
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-fluentd-cloudwatch-configmap",
+      "labels": {
+        "app.kubernetes.io/name": "fluentd-cloudwatch",
+        "helm.sh/chart": "fluentd-cloudwatch-1.0.6",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app": "fluentd-cloudwatch",
+        "app.kubernetes.io/component": "logging",
+        "k8s-app": "fluentd-cloudwatch"
+      },
+      "namespace": "DmQnHbdwfQuv6g"
+    },
+    "data": {
+      "containers.conf": "<source>\n  @type tail\n  @id in_tail_container_logs\n  @label @containers\n  path /var/log/containers/*.log\n  exclude_path [\"/var/log/containers/cloudwatch-agent*\", \"/var/log/containers/fluentd*\"]\n  pos_file /var/log/fluentd-containers.log.pos\n  tag *\n  read_from_head true\n  <parse>\n    @type json\n    time_format %Y-%m-%dT%H:%M:%S.%NZ\n  </parse>\n</source>\n\n<source>\n  @type tail\n  @id in_tail_cwagent_logs\n  @label @cwagentlogs\n  path /var/log/containers/cloudwatch-agent*\n  pos_file /var/log/cloudwatch-agent.log.pos\n  tag *\n  read_from_head true\n  <parse>\n    @type json\n    time_format %Y-%m-%dT%H:%M:%S.%NZ\n  </parse>\n</source>\n\n<source>\n  @type tail\n  @id in_tail_fluentd_logs\n  @label @fluentdlogs\n  path /var/log/containers/fluentd*\n  pos_file /var/log/fluentd.log.pos\n  tag *\n  read_from_head true\n  <parse>\n    @type json\n    time_format %Y-%m-%dT%H:%M:%S.%NZ\n  </parse>\n</source>\n\n<label @fluentdlogs>\n  <filter **>\n    @type kubernetes_metadata\n    @id filter_kube_metadata_fluentd\n  </filter>\n\n  <filter **>\n    @type record_transformer\n    @id filter_fluentd_stream_transformer\n    <record>\n      stream_name ${tag_parts[3]}\n    </record>\n    remove_keys $.kubernetes.pod_id, $.kubernetes.master_url, $.kubernetes.container_image_id, $.kubernetes.namespace_id\n  </filter>\n\n  <match **>\n    @type relabel\n    @label @NORMAL\n  </match>\n</label>\n\n<label @containers>\n  <filter **>\n    @type kubernetes_metadata\n    @id filter_kube_metadata\n  </filter>\n\n  <filter **>\n    @type record_transformer\n    @id filter_containers_stream_transformer\n    <record>\n      stream_name ${tag_parts[3]}\n    </record>\n    remove_keys $.kubernetes.pod_id, $.kubernetes.master_url, $.kubernetes.container_image_id, $.kubernetes.namespace_id\n  </filter>\n\n  <filter **>\n    @type concat\n    key log\n    multiline_start_regexp /^\\S/\n    separator \"\"\n    flush_interval 5\n    timeout_label @NORMAL\n  </filter>\n\n  <match **>\n    @type relabel\n    @label @NORMAL\n  </match>\n</label>\n\n<label @cwagentlogs>\n  <filter **>\n    @type kubernetes_metadata\n    @id filter_kube_metadata_cwagent\n  </filter>\n\n  <filter **>\n    @type record_transformer\n    @id filter_cwagent_stream_transformer\n    <record>\n      stream_name ${tag_parts[3]}\n    </record>\n    remove_keys $.kubernetes.pod_id, $.kubernetes.master_url, $.kubernetes.container_image_id, $.kubernetes.namespace_id\n  </filter>\n\n  <filter **>\n    @type concat\n    key log\n    multiline_start_regexp /^\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}/\n    separator \"\"\n    flush_interval 5\n    timeout_label @NORMAL\n  </filter>\n\n  <match **>\n    @type relabel\n    @label @NORMAL\n  </match>\n</label>\n\n<label @NORMAL>\n  <match **>\n    @type cloudwatch_logs\n    @id out_cloudwatch_logs_containers\n    region \"#{ENV.fetch('REGION')}\"\n    log_group_name \"/aws/containerinsights/#{ENV.fetch('CLUSTER_NAME')}/application\"\n    log_stream_name_key stream_name\n    remove_log_stream_name_key true\n    auto_create_stream true\n    <buffer>\n      flush_interval 5\n      chunk_limit_size 2m\n      queued_chunks_limit_size 32\n      retry_forever true\n    </buffer>\n  </match>\n</label>\n",
+      "fluent.conf": "@include containers.conf\n@include systemd.conf\n@include host.conf\n\n<match fluent.**>\n  @type null\n</match>\n",
+      "host.conf": "<source>\n  @type tail\n  @id in_tail_dmesg\n  @label @hostlogs\n  path /var/log/dmesg\n  pos_file /var/log/dmesg.log.pos\n  tag host.dmesg\n  read_from_head true\n  <parse>\n    @type syslog\n  </parse>\n</source>\n\n<source>\n  @type tail\n  @id in_tail_secure\n  @label @hostlogs\n  path /var/log/secure\n  pos_file /var/log/secure.log.pos\n  tag host.secure\n  read_from_head true\n  <parse>\n    @type syslog\n  </parse>\n</source>\n\n<source>\n  @type tail\n  @id in_tail_messages\n  @label @hostlogs\n  path /var/log/messages\n  pos_file /var/log/messages.log.pos\n  tag host.messages\n  read_from_head true\n  <parse>\n    @type syslog\n  </parse>\n</source>\n\n<label @hostlogs>\n  <filter **>\n    @type kubernetes_metadata\n    @id filter_kube_metadata_host\n  </filter>\n\n  <filter **>\n    @type record_transformer\n    @id filter_containers_stream_transformer_host\n    <record>\n      stream_name ${tag}-${record[\"host\"]}\n    </record>\n    remove_keys $.kubernetes.pod_id, $.kubernetes.master_url, $.kubernetes.container_image_id, $.kubernetes.namespace_id\n  </filter>\n\n  <match host.**>\n    @type cloudwatch_logs\n    @id out_cloudwatch_logs_host_logs\n    region \"#{ENV.fetch('REGION')}\"\n    log_group_name \"/aws/containerinsights/#{ENV.fetch('CLUSTER_NAME')}/host\"\n    log_stream_name_key stream_name\n    remove_log_stream_name_key true\n    auto_create_stream true\n    <buffer>\n      flush_interval 5\n      chunk_limit_size 2m\n      queued_chunks_limit_size 32\n      retry_forever true\n    </buffer>\n  </match>\n</label>",
+      "systemd.conf": "<source>\n  @type systemd\n  @id in_systemd_kubelet\n  @label @systemd\n  filters [{ \"_SYSTEMD_UNIT\": \"kubelet.service\" }]\n  <entry>\n    field_map {\"MESSAGE\": \"message\", \"_HOSTNAME\": \"hostname\", \"_SYSTEMD_UNIT\": \"systemd_unit\"}\n    field_map_strict true\n  </entry>\n  path /var/log/journal\n  <storage>\n    @type local\n    persistent true\n    path /var/log/fluentd-journald-kubelet-pos.json\n  </storage>\n  read_from_head true\n  tag kubelet.service\n</source>\n\n<source>\n  @type systemd\n  @id in_systemd_kubeproxy\n  @label @systemd\n  filters [{ \"_SYSTEMD_UNIT\": \"kubeproxy.service\" }]\n  <entry>\n    field_map {\"MESSAGE\": \"message\", \"_HOSTNAME\": \"hostname\", \"_SYSTEMD_UNIT\": \"systemd_unit\"}\n    field_map_strict true\n  </entry>\n  path /var/log/journal\n  <storage>\n    @type local\n    persistent true\n    path /var/log/fluentd-journald-kubeproxy-pos.json\n  </storage>\n  read_from_head true\n  tag kubeproxy.service\n</source>\n\n<source>\n  @type systemd\n  @id in_systemd_docker\n  @label @systemd\n  filters [{ \"_SYSTEMD_UNIT\": \"docker.service\" }]\n  <entry>\n    field_map {\"MESSAGE\": \"message\", \"_HOSTNAME\": \"hostname\", \"_SYSTEMD_UNIT\": \"systemd_unit\"}\n    field_map_strict true\n  </entry>\n  path /var/log/journal\n  <storage>\n    @type local\n    persistent true\n    path /var/log/fluentd-journald-docker-pos.json\n  </storage>\n  read_from_head true\n  tag docker.service\n</source>\n\n<label @systemd>\n  <filter **>\n    @type kubernetes_metadata\n    @id filter_kube_metadata_systemd\n  </filter>\n\n  <filter **>\n    @type record_transformer\n    @id filter_systemd_stream_transformer\n    <record>\n      stream_name ${tag}-${record[\"hostname\"]}\n    </record>\n    remove_keys $.kubernetes.pod_id, $.kubernetes.master_url, $.kubernetes.container_image_id, $.kubernetes.namespace_id\n  </filter>\n\n  <match **>\n    @type cloudwatch_logs\n    @id out_cloudwatch_logs_systemd\n    region \"#{ENV.fetch('REGION')}\"\n    log_group_name \"/aws/containerinsights/#{ENV.fetch('CLUSTER_NAME')}/dataplane\"\n    log_stream_name_key stream_name\n    auto_create_stream true\n    remove_log_stream_name_key true\n    <buffer>\n      flush_interval 5\n      chunk_limit_size 2m\n      queued_chunks_limit_size 32\n      retry_forever true\n    </buffer>\n  </match>\n</label>\n"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "name": "release-name-fluentd-cloudwatch",
+      "labels": {
+        "app.kubernetes.io/name": "fluentd-cloudwatch",
+        "helm.sh/chart": "fluentd-cloudwatch-1.0.6",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app": "fluentd-cloudwatch",
+        "app.kubernetes.io/component": "logging",
+        "k8s-app": "fluentd-cloudwatch"
+      },
+      "namespace": "default"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "namespaces",
+          "pods",
+          "pods/logs"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/name": "fluentd-cloudwatch",
+        "helm.sh/chart": "fluentd-cloudwatch-1.0.6",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app": "fluentd-cloudwatch",
+        "app.kubernetes.io/component": "logging",
+        "k8s-app": "fluentd-cloudwatch"
+      },
+      "name": "release-name-fluentd-cloudwatch",
+      "namespace": "default"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "release-name-fluentd-cloudwatch"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "fluentd",
+        "apiGroup": "",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "DaemonSet",
+    "metadata": {
+      "name": "release-name-fluentd-cloudwatch",
+      "labels": {
+        "app.kubernetes.io/name": "fluentd-cloudwatch",
+        "helm.sh/chart": "fluentd-cloudwatch-1.0.6",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app": "fluentd-cloudwatch",
+        "app.kubernetes.io/component": "logging",
+        "k8s-app": "fluentd-cloudwatch"
+      },
+      "namespace": "DmQnHbdwfQuv6g"
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "fluentd-cloudwatch",
+          "app.kubernetes.io/component": "logging",
+          "app.kubernetes.io/name": "fluentd-cloudwatch",
+          "k8s-app": "fluentd-cloudwatch"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "fluentd-cloudwatch",
+            "app.kubernetes.io/component": "logging",
+            "app.kubernetes.io/name": "fluentd-cloudwatch",
+            "k8s-app": "fluentd-cloudwatch"
+          },
+          "annotations": {
+            "configHash": "8915de4cf9c3551a8dc74c0137a3e83569d28c71044b0359c2578d2e0461825"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "fluentd",
+          "terminationGracePeriodSeconds": 30,
+          "initContainers": [
+            {
+              "name": "copy-fluentd-config",
+              "image": "busybox",
+              "command": [
+                "sh",
+                "-c",
+                "cp /config-volume/..data/* /fluentd/etc"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config-volume",
+                  "mountPath": "/config-volume"
+                },
+                {
+                  "name": "fluentdconf",
+                  "mountPath": "/fluentd/etc"
+                }
+              ]
+            },
+            {
+              "name": "update-log-driver",
+              "image": "busybox",
+              "command": [
+                "sh",
+                "-c",
+                ""
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "fluentd-cloudwatch",
+              "image": "fluent/fluentd-kubernetes-daemonset:v1.7.3-debian-cloudwatch-1.0",
+              "env": [
+                {
+                  "name": "AWS_REGION",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "name": "cluster-info",
+                      "key": "logs.region"
+                    }
+                  }
+                },
+                {
+                  "name": "REGION",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "name": "cluster-info",
+                      "key": "logs.region"
+                    }
+                  }
+                },
+                {
+                  "name": "CLUSTER_NAME",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "name": "cluster-info",
+                      "key": "cluster.name"
+                    }
+                  }
+                },
+                {
+                  "name": "CI_VERSION",
+                  "value": "k8s/1.3.9"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "100m",
+                  "memory": "512Mi"
+                },
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "256Mi"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "config-volume",
+                  "mountPath": "/config-volume"
+                },
+                {
+                  "name": "fluentdconf",
+                  "mountPath": "/fluentd/etc"
+                },
+                {
+                  "name": "varlog",
+                  "mountPath": "/var/log"
+                },
+                {
+                  "name": "varlibdockercontainers",
+                  "mountPath": "/var/lib/docker/containers",
+                  "readOnly": true
+                },
+                {
+                  "name": "runlogjournal",
+                  "mountPath": "/run/log/journal",
+                  "readOnly": true
+                },
+                {
+                  "name": "dmesg",
+                  "mountPath": "/var/log/dmesg",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "release-name-fluentd-cloudwatch-configmap"
+              }
+            },
+            {
+              "name": "fluentdconf",
+              "emptyDir": {}
+            },
+            {
+              "name": "varlog",
+              "hostPath": {
+                "path": "/var/log"
+              }
+            },
+            {
+              "name": "varlibdockercontainers",
+              "hostPath": {
+                "path": "/var/lib/docker/containers"
+              }
+            },
+            {
+              "name": "runlogjournal",
+              "hostPath": {
+                "path": "/run/log/journal"
+              }
+            },
+            {
+              "name": "dmesg",
+              "hostPath": {
+                "path": "/var/log/dmesg"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

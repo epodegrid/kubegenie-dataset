@@ -1,0 +1,298 @@
+[
+  {
+    "kind": "Service",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "etcd-ui",
+      "labels": {
+        "app": "etcd-ui",
+        "release": "release-name",
+        "heritage": "Helm",
+        "third-party": "true"
+      }
+    },
+    "spec": {
+      "selector": {
+        "app": "etcd-ui"
+      },
+      "ports": [
+        {
+          "name": "server",
+          "protocol": "TCP",
+          "port": 8080,
+          "targetPort": 8080
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "annotations": {
+        "service.alpha.kubernetes.io/tolerate-unready-endpoints": "true"
+      },
+      "name": "release-name-etcd",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "etcd-0.7.2018",
+        "app": "etcd"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "port": 2379,
+          "name": "etcd-client"
+        },
+        {
+          "port": 2380,
+          "name": "etcd-server"
+        }
+      ],
+      "clusterIP": "None",
+      "selector": {
+        "app": "etcd",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "etcd-client",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "etcd-0.7.2018",
+        "app": "etcd",
+        "metrics": "true"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "port": 2379,
+          "name": "etcd-client"
+        },
+        {
+          "port": 2380,
+          "name": "etcd-server"
+        }
+      ],
+      "selector": {
+        "app": "etcd",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "etcd-ui",
+      "labels": {
+        "app": "etcd-ui",
+        "group": "hkube",
+        "third-party": "true"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "etcd-ui"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "etcd-ui",
+            "group": "hkube"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "etcd-ui",
+              "image": "hkube/etcd-ui:v1.0.3",
+              "env": [
+                {
+                  "name": "HOST",
+                  "value": "0.0.0.0"
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 8080
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-etcd",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "etcd-0.7.2018",
+        "app": "etcd",
+        "app.kubernetes.io/name": "etcd",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "etcd"
+        }
+      },
+      "serviceName": "release-name-etcd",
+      "replicas": 3,
+      "template": {
+        "metadata": {
+          "name": "release-name-etcd",
+          "labels": {
+            "heritage": "Helm",
+            "release": "release-name",
+            "chart": "etcd-0.7.2018",
+            "app": "etcd",
+            "affinity": "etcd"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "release-name-etcd",
+              "image": "hkube/etcd:3.3.1",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "containerPort": 2380,
+                  "name": "peer"
+                },
+                {
+                  "containerPort": 2379,
+                  "name": "client"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "env": [
+                {
+                  "name": "ETCD_HEARTBEAT_INTERVAL",
+                  "value": "1000"
+                },
+                {
+                  "name": "ETCD_ELECTION_TIMEOUT",
+                  "value": "5000"
+                },
+                {
+                  "name": "ETCD_AUTO_COMPACTION_RETENTION",
+                  "value": "5m"
+                },
+                {
+                  "name": "ETCD_AUTO_COMPACTION_MODE",
+                  "value": "periodic"
+                },
+                {
+                  "name": "ETCD_QUOTA_BACKEND_BYTES",
+                  "value": "8589934592"
+                },
+                {
+                  "name": "ETCDCTL_API",
+                  "value": "3"
+                },
+                {
+                  "name": "INITIAL_CLUSTER_SIZE",
+                  "value": "3"
+                },
+                {
+                  "name": "SET_NAME",
+                  "value": "release-name-etcd"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "datadir",
+                  "mountPath": "/var/run/etcd"
+                }
+              ],
+              "lifecycle": {
+                "preStop": {
+                  "exec": {
+                    "command": [
+                      "/bin/sh",
+                      "-ec",
+                      "EPS=\"\"\nfor i in $(seq 0 $((${INITIAL_CLUSTER_SIZE} - 1))); do\n    EPS=\"${EPS}${EPS:+,}http://${SET_NAME}-${i}.${SET_NAME}:2379\"\ndone\n\nHOSTNAME=$(hostname)\nAUTH_OPTIONS=\"\"                  \n\nmember_hash() {\n    etcdctl $AUTH_OPTIONS member list | grep http://${HOSTNAME}.${SET_NAME}:2380 | cut -d ',' -f1\n}\n\nSET_ID=${HOSTNAME##*[^0-9]}\n\nif [ \"${SET_ID}\" -ge ${INITIAL_CLUSTER_SIZE} ]; then\n    echo \"Removing ${HOSTNAME} from etcd cluster\"\n    ETCDCTL_ENDPOINT=${EPS} etcdctl $AUTH_OPTIONS member remove $(member_hash)\n    if [ $? -eq 0 ]; then\n        # Remove everything otherwise the cluster will no longer scale-up\n        rm -rf /var/run/etcd/*\n    fi\nfi\n"
+                    ]
+                  }
+                }
+              },
+              "command": [
+                "/bin/sh",
+                "-ec",
+                "HOSTNAME=$(hostname)\nAUTH_OPTIONS=\"\"\n# store member id into PVC for later member replacement\ncollect_member() {                \n    while ! etcdctl $AUTH_OPTIONS member list > /dev/null 2>&1; do sleep 1; done\n    etcdctl $AUTH_OPTIONS member list | grep http://${HOSTNAME}.${SET_NAME}:2380 | cut -d ',' -f1 > /var/run/etcd/member_id\n    exit 0\n}\n\neps() {\n    EPS=\"\"\n    for i in $(seq 0 $((${INITIAL_CLUSTER_SIZE} - 1))); do\n        EPS=\"${EPS}${EPS:+,}http://${SET_NAME}-${i}.${SET_NAME}:2379\"\n    done\n    echo ${EPS}\n}\n\nmember_hash() {\n    etcdctl $AUTH_OPTIONS member list | grep http://${HOSTNAME}.${SET_NAME}:2380 | cut -d ',' -f1\n}\n\n# we should wait for other pods to be up before trying to join\n# otherwise we got \"no such host\" errors when trying to resolve other members\nfor i in $(seq 0 $((${INITIAL_CLUSTER_SIZE} - 1))); do\n    while true; do\n        echo \"Waiting for ${SET_NAME}-${i}.${SET_NAME} to come up\"\n        ping -W 1 -c 1 ${SET_NAME}-${i}.${SET_NAME} > /dev/null && break\n        sleep 1s\n    done                \ndone\n\n# re-joining after failure?\nif [ -e /var/run/etcd/default.etcd ] && [ -e /var/run/etcd/member_id ]; then\n    echo \"Re-joining etcd member\"\n    member_id=$(cat /var/run/etcd/member_id)\n\n    # re-join member\n    ETCDCTL_ENDPOINT=$(eps) etcdctl $AUTH_OPTIONS member update ${member_id} http://${HOSTNAME}.${SET_NAME}:2380 | true\n    exec etcd --name ${HOSTNAME} \\\n        --listen-peer-urls http://0.0.0.0:2380 \\\n        --listen-client-urls http://0.0.0.0:2379\\\n        --advertise-client-urls http://${HOSTNAME}.${SET_NAME}:2379 \\\n        --data-dir /var/run/etcd/default.etcd\n        \nfi\n\n# etcd-SET_ID\nSET_ID=${HOSTNAME##*[^0-9]}\n\n# adding a new member to existing cluster (assuming all initial pods are available)\nif [ \"${SET_ID}\" -ge ${INITIAL_CLUSTER_SIZE} ]; then\n    export ETCDCTL_ENDPOINT=$(eps)\n\n    # member already added?\n    MEMBER_HASH=$(member_hash)\n    if [ -n \"${MEMBER_HASH}\" ]; then\n        # the member hash exists but for some reason etcd failed\n        # as the datadir has not be created, we can remove the member\n        # and retrieve new hash\n        etcdctl $AUTH_OPTIONS member remove ${MEMBER_HASH}\n    fi\n\n    echo \"Adding new member\"\n    etcdctl $AUTH_OPTIONS member add ${HOSTNAME} http://${HOSTNAME}.${SET_NAME}:2380 | grep \"^ETCD_\" > /var/run/etcd/new_member_envs\n\n    if [ $? -ne 0 ]; then\n        echo \"Exiting\"\n        rm -f /var/run/etcd/new_member_envs\n        exit 1\n    fi\n\n    cat /var/run/etcd/new_member_envs\n    source /var/run/etcd/new_member_envs\n\n    collect_member &\n\n    exec etcd --name ${HOSTNAME} \\\n        --listen-peer-urls http://0.0.0.0:2380 \\\n        --listen-client-urls http://0.0.0.0:2379 \\\n        --advertise-client-urls http://${HOSTNAME}.${SET_NAME}:2379 \\\n        --data-dir /var/run/etcd/default.etcd \\\n        --initial-advertise-peer-urls http://${HOSTNAME}.${SET_NAME}:2380 \\\n        --initial-cluster ${ETCD_INITIAL_CLUSTER} \\\n        --initial-cluster-state ${ETCD_INITIAL_CLUSTER_STATE}\n        \nfi\n\nPEERS=\"\"\nfor i in $(seq 0 $((${INITIAL_CLUSTER_SIZE} - 1))); do\n    PEERS=\"${PEERS}${PEERS:+,}${SET_NAME}-${i}=http://${SET_NAME}-${i}.${SET_NAME}:2380\"\ndone\n\ncollect_member &\n\n# join member\nexec etcd --name ${HOSTNAME} \\\n    --initial-advertise-peer-urls http://${HOSTNAME}.${SET_NAME}:2380 \\\n    --listen-peer-urls http://0.0.0.0:2380 \\\n    --listen-client-urls http://0.0.0.0:2379 \\\n    --advertise-client-urls http://${HOSTNAME}.${SET_NAME}:2379 \\\n    --initial-cluster-token etcd-cluster-1 \\\n    --initial-cluster ${PEERS} \\\n    --initial-cluster-state new \\\n    --data-dir /var/run/etcd/default.etcd\n"
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "datadir",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "etcd-ui",
+      "annotations": {
+        "nginx.ingress.kubernetes.io/rewrite-target": "/$2"
+      },
+      "labels": {
+        "app": "etcd-ui",
+        "release": "release-name",
+        "heritage": "Helm",
+        "core": "true"
+      }
+    },
+    "spec": {
+      "rules": [
+        {
+          "http": {
+            "paths": [
+              {
+                "path": "/hkube/etcd-ui(/|$)(.*)",
+                "backend": {
+                  "service": {
+                    "name": "etcd-ui",
+                    "port": {
+                      "number": 8080
+                    }
+                  }
+                },
+                "pathType": "ImplementationSpecific"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

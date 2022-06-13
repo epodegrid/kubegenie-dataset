@@ -1,0 +1,239 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-ambd-config
+  labels:
+    helm.sh/chart: ambd-0.0.11
+    app.kubernetes.io/name: ambd
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 999Gi
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-ambd-hostpathfordownloads-ambd
+  labels:
+    helm.sh/chart: ambd-0.0.11
+    app.kubernetes.io/name: ambd
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 999Gi
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-ambd-hostpathforlibrary-ambd
+  labels:
+    helm.sh/chart: ambd-0.0.11
+    app.kubernetes.io/name: ambd
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 999Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-ambd
+  labels:
+    helm.sh/chart: ambd-0.0.11
+    app.kubernetes.io/name: ambd
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    rollme: ajJ4x
+spec:
+  revisionHistoryLimit: 3
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ambd
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        rollme: ZaQf1
+      labels:
+        app.kubernetes.io/name: ambd
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      securityContext:
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 0
+        runAsUser: 0
+        supplementalGroups:
+          - 568
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 10
+      initContainers:
+        - name: autopermissions
+          image: ghcr.io/truecharts/alpine:v3.15.2@sha256:29ed3480a0ee43f7af681fed5d4fc215516abf1c41eade6938b26d8c9c2c7583
+          securityContext:
+            runAsUser: 0
+            privileged: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+          command:
+            - /bin/sh
+            - -c
+            - echo 'Automatically correcting permissions...';
+          volumeMounts: null
+        - name: hostpatch
+          image: ghcr.io/truecharts/alpine:v3.15.2@sha256:29ed3480a0ee43f7af681fed5d4fc215516abf1c41eade6938b26d8c9c2c7583
+          securityContext:
+            runAsUser: 11024
+            privileged: true
+            allowPrivilegeEscalation: false
+          command:
+            - /bin/sh
+            - -c
+            - ( sysctl -w fs.inotify.max_user_watches=524288 || echo "error setting inotify") && ( sysctl -w fs.inotify.max_user_instances=512 || echo "error setting inotify") && ( chmod -x /host/usr/bin/docker-compose || echo "error locking docker-compose") && ( chmod -x /host/bin/docker-compose || echo "error locking docker-compose")
+          volumeMounts:
+            - mountPath: /host/usr/bin
+              name: host-usr-bin
+            - mountPath: /host/bin
+              name: host-bin
+      containers:
+        - name: release-name-ambd
+          image: tccr.io/truecharts/ambd:latest
+          imagePullPolicy: IfNotPresent
+          tty: false
+          stdin: false
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: false
+          env:
+            - name: PUID
+              value: "568"
+            - name: USER_ID
+              value: "568"
+            - name: UID
+              value: "568"
+            - name: UMASK
+              value: "2"
+            - name: UMASK_SET
+              value: "2"
+            - name: PGID
+              value: "568"
+            - name: GROUP_ID
+              value: "568"
+            - name: GID
+              value: "568"
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: void
+            - name: TZ
+              value: UTC
+            - name: ARL_TOKEN
+              value: ""
+            - name: AUTOSTART
+              value: ""
+            - name: CONCURRENT_DOWNLOADS
+              value: ""
+            - name: EMBEDDED_COVER_QUALITY
+              value: ""
+            - name: FILE_PERMISSIONS
+              value: ""
+            - name: FOLDER_PERMISSIONS
+              value: ""
+            - name: NOTIFYPLEX
+              value: ""
+            - name: PLEXLIBRARYNAME
+              value: ""
+            - name: PLEXTOKEN
+              value: ""
+            - name: PLEXURL
+              value: ""
+            - name: QUALITY
+              value: ""
+            - name: SCRIPTINTERVAL
+              value: ""
+          envFrom: null
+          ports: null
+          volumeMounts:
+            - mountPath: /config
+              name: config
+            - mountPath: /downloads-ambd
+              name: hostpathfordownloads-ambd
+            - mountPath: /library-ambd
+              name: hostpathforlibrary-ambd
+            - mountPath: /shared
+              name: shared
+            - mountPath: /tmp
+              name: temp
+            - mountPath: /var/logs
+              name: varlogs
+          livenessProbe: null
+          readinessProbe: null
+          startupProbe: null
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: release-name-ambd-config
+        - name: host-bin
+          hostPath:
+            path: /bin
+        - name: host-usr-bin
+          hostPath:
+            path: /usr/bin
+        - name: hostpathfordownloads-ambd
+          persistentVolumeClaim:
+            claimName: release-name-ambd-hostpathfordownloads-ambd
+        - name: hostpathforlibrary-ambd
+          persistentVolumeClaim:
+            claimName: release-name-ambd-hostpathforlibrary-ambd
+        - name: shared
+          emptyDir: {}
+        - name: temp
+          emptyDir:
+            medium: Memory
+        - name: varlogs
+          emptyDir: {}

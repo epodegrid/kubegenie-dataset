@@ -1,0 +1,160 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: anchore-kai
+  labels:
+    helm.sh/chart: kai-0.3.0
+    app.kubernetes.io/name: kai
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.3.0
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-kai
+  labels:
+    app: release-name-kai
+    chart: kai-0.3.0
+    release: release-name
+    heritage: Helm
+type: Opaque
+stringData:
+  KAI_ANCHORE_PASSWORD: foobar
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: release-name-kai
+  labels:
+    app: release-name-kai
+    chart: kai-0.3.0
+    release: release-name
+    heritage: Helm
+data:
+  .kai.yaml: "kubeconfig:\n  path: use-in-cluster\n  cluster: docker-desktop\noutput: json\nquiet: false\nlog:\n  structured: false\n  level: debug\n  file: \nnamespaces:\n  null\nnamespace-selectors:\n  exclude: []\n  include: []\nmode: periodic\npolling-interval-seconds: 60\nkubernetes-request-timeout-seconds: \nkubernetes:\n  request-timeout-seconds: 60\n  request-batch-size: 100\n  worker-pool-size: 100\nignore-not-running: true\nmissing-tag-policy:\n  policy: digest\n  tag: UNKNOWN\nanchore:\n  url: \n  user: admin\n  password: $KAI_ANCHORE_PASSWORD\n  account: admin\n  http:\n    insecure: true\n    timeout-seconds: 10\n"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kai-read-only
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - namespaces
+    verbs:
+      - get
+      - watch
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kai-read-only-binding
+subjects:
+  - kind: ServiceAccount
+    name: anchore-kai
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: kai-read-only
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-kai
+  labels:
+    helm.sh/chart: kai-0.3.0
+    app.kubernetes.io/name: kai
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.3.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: kai
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-kai
+  labels:
+    helm.sh/chart: kai-0.3.0
+    app.kubernetes.io/name: kai
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.3.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kai
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config: 40e99902eb59c85e2b0504b1084091473e80675a4a0a9968e61bd5c0ba804dd7
+      labels:
+        app.kubernetes.io/name: kai
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: anchore-kai
+      securityContext: {}
+      containers:
+        - name: kai
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: anchore/kai:v0.3.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - kai
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          livenessProbe:
+            exec:
+              command:
+                - kai
+                - version
+            initialDelaySeconds: 1
+            timeoutSeconds: 10
+            periodSeconds: 5
+            failureThreshold: 6
+            successThreshold: 1
+          readinessProbe:
+            exec:
+              command:
+                - kai
+                - version
+            timeoutSeconds: 10
+            periodSeconds: 15
+            failureThreshold: 3
+            successThreshold: 1
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: config-volume
+              mountPath: /home/nonroot/.kai.yaml
+              subPath: .kai.yaml
+          envFrom:
+            - secretRef:
+                name: release-name-kai
+      volumes:
+        - name: config-volume
+          configMap:
+            name: release-name-kai

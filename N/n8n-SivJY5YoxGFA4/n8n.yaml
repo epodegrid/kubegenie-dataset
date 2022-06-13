@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-n8n
+  labels:
+    helm.sh/chart: n8n-0.136.0
+    app.kubernetes.io/name: n8n
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.136.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: n8n
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-n8n
+  labels:
+    helm.sh/chart: n8n-0.136.0
+    app.kubernetes.io/name: n8n
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.136.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: n8n
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: n8n
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 1000
+        runAsUser: 1000
+      containers:
+        - name: n8n
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+          image: n8nio/n8n:0.136.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - n8n
+          env: null
+          ports:
+            - name: http
+              containerPort: 5678
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: release-name-n8n
+              mountPath: /home/node
+      volumes:
+        - name: release-name-n8n
+          emptyDir: {}

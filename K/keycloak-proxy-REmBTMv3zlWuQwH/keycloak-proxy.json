@@ -1,0 +1,113 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-keycloak-proxy",
+      "labels": {
+        "app": "keycloak-proxy",
+        "chart": "keycloak-proxy-0.0.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "proxy.json": "{\n   \"target-url\":\"http://url-to-the-target-server.example.com\",\n   \"bind-address\":\"0.0.0.0\",\n   \"http-port\":\"8080\",\n   \"applications\":[\n      {\n         \"base-path\":\"/\",\n         \"adapter-config\":{\n            \"realm\":\"REALM_NAME\",\n            \"auth-server-url\":\"http://url-to-keycloak.example.com/auth\",\n            \"ssl-required\":\"external\",\n            \"resource\":\"CLIENT_ID\",\n            \"credentials\": {\n              \"secret\": \"CLIENT_SECRET\"\n            }\n         },\n         \"constraints\":[\n           {\n              \"pattern\":\"/admin\",\n              \"roles-allowed\":[\n                \"admin\"\n              ]\n           }\n         ],\n         \"proxy-address-forwarding\": true\n      }\n   ]\n}\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-keycloak-proxy",
+      "labels": {
+        "app": "keycloak-proxy",
+        "chart": "keycloak-proxy-0.0.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app": "keycloak-proxy",
+        "release": "release-name"
+      },
+      "sessionAffinity": "None"
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta2",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-keycloak-proxy",
+      "labels": {
+        "app": "keycloak-proxy",
+        "chart": "keycloak-proxy-0.0.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "keycloak-proxy",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "keycloak-proxy",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "keycloak-proxy",
+              "image": "jboss/keycloak-proxy:3.4.2.Final",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8080,
+                  "protocol": "TCP"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/opt/jboss/conf",
+                  "name": "proxy-config"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "proxy-config",
+              "configMap": {
+                "defaultMode": 420,
+                "name": "release-name-keycloak-proxy"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

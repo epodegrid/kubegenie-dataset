@@ -1,0 +1,224 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-config",
+      "labels": {
+        "app": "release-name",
+        "chart": "stan-0.13.0"
+      }
+    },
+    "data": {
+      "stan.conf": "#########################\n# NATS Streaming Config #\n#########################\nstreaming {\n  id: release-name\n\n  ###############################\n  #  Store Config               #\n  ###############################\n  store: \"file\"\n  dir: /data/stan/store\n  partitioning: false\n}\n\n###############################################\n#                                             #\n#            Embedded NATS Config             #\n#                                             #\n###############################################\n\n\n# PID file shared with configuration reloader.\npid_file: \"/var/run/stan/stan.pid\"\n\n###############\n#             #\n# Monitoring  #\n#             #\n###############\nhttp: 8222\nserver_name: $POD_NAME"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name",
+      "labels": {
+        "app": "release-name",
+        "chart": "stan-0.13.0"
+      }
+    },
+    "spec": {
+      "selector": {
+        "app": "release-name"
+      },
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "metrics",
+          "port": 7777
+        },
+        {
+          "name": "monitor",
+          "port": 8222
+        },
+        {
+          "name": "client",
+          "port": 4222,
+          "appProtocol": "tcp"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name",
+      "labels": {
+        "app": "release-name",
+        "chart": "stan-0.13.0"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "release-name"
+        }
+      },
+      "replicas": 1,
+      "serviceName": "release-name",
+      "template": {
+        "metadata": {
+          "annotations": {
+            "prometheus.io/path": "/metrics",
+            "prometheus.io/port": "7777",
+            "prometheus.io/scrape": "true"
+          },
+          "labels": {
+            "app": "release-name",
+            "chart": "stan-0.13.0"
+          }
+        },
+        "spec": {
+          "terminationGracePeriodSeconds": 30,
+          "volumes": [
+            {
+              "configMap": {
+                "name": "release-name-config",
+                "defaultMode": 493
+              },
+              "name": "config-volume"
+            },
+            {
+              "name": "pid",
+              "emptyDir": {}
+            }
+          ],
+          "affinity": {
+            "podAntiAffinity": {
+              "requiredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "labelSelector": {
+                    "matchExpressions": [
+                      {
+                        "key": "app",
+                        "operator": "In",
+                        "values": [
+                          "release-name"
+                        ]
+                      }
+                    ]
+                  },
+                  "topologyKey": "kubernetes.io/hostname"
+                }
+              ]
+            }
+          },
+          "containers": [
+            {
+              "name": "stan",
+              "image": "nats-streaming:0.23.2",
+              "args": [
+                "-sc",
+                "/etc/stan-config/stan.conf"
+              ],
+              "env": [
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "POD_NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "CLUSTER_ADVERTISE",
+                  "value": "$(POD_NAME).release-name.$(POD_NAMESPACE).svc"
+                },
+                {
+                  "name": "STAN_SERVICE_NAME",
+                  "value": "release-name"
+                },
+                {
+                  "name": "STAN_REPLICAS",
+                  "value": "1"
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 8222,
+                  "name": "monitor"
+                },
+                {
+                  "containerPort": 7777,
+                  "name": "metrics"
+                }
+              ],
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/streaming/serverz",
+                  "port": "monitor"
+                },
+                "timeoutSeconds": 2
+              },
+              "volumeMounts": [
+                {
+                  "name": "config-volume",
+                  "mountPath": "/etc/stan-config"
+                },
+                {
+                  "name": "release-name-pvc",
+                  "mountPath": "/data/stan"
+                },
+                {
+                  "name": "pid",
+                  "mountPath": "/var/run/stan"
+                }
+              ]
+            },
+            {
+              "name": "metrics",
+              "image": "natsio/prometheus-nats-exporter:latest",
+              "args": [
+                "-connz",
+                "-routez",
+                "-subz",
+                "-varz",
+                "-channelz",
+                "-serverz",
+                "http://localhost:8222/"
+              ],
+              "ports": [
+                {
+                  "containerPort": 7777,
+                  "name": "metrics"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "release-name-pvc"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "1Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+]

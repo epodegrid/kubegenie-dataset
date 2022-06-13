@@ -1,0 +1,1184 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app": "postgresql",
+        "chart": "postgresql-1.0.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "postgres-password": "YW5jaG9yZS1wb3N0Z3JlcywxMjM="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-anchore-engine-admin-pass",
+      "labels": {
+        "app": "release-name-anchore-engine",
+        "chart": "anchore-engine-1.13.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "stringData": {
+      "ANCHORE_ADMIN_PASSWORD": "hzcNAdzGrcdl1L1haVE32I9lsuMoHkcg"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-anchore-engine",
+      "labels": {
+        "app": "release-name-anchore-engine",
+        "chart": "anchore-engine-1.13.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "stringData": {
+      "ANCHORE_DB_PASSWORD": "anchore-postgres,123"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app": "postgresql",
+        "chart": "postgresql-1.0.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": null
+  },
+  {
+    "kind": "ConfigMap",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-anchore-engine-analyzer",
+      "labels": {
+        "app": "release-name-anchore-engine",
+        "chart": "anchore-engine-1.13.0",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "analyzer"
+      }
+    },
+    "data": {
+      "analyzer_config.yaml": "retrieve_files:\n  file_list:\n  - /etc/passwd\nsecret_search:\n  match_params:\n  - MAXFILESIZE=10000\n  - STOREONMATCH=n\n  regexp_match:\n  - AWS_ACCESS_KEY=(?i).*aws_access_key_id( *=+ *).*(?<![A-Z0-9])[A-Z0-9]{20}(?![A-Z0-9]).*\n  - AWS_SECRET_KEY=(?i).*aws_secret_access_key( *=+ *).*(?<![A-Za-z0-9/+=])[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=]).*\n  - PRIV_KEY=(?i)-+BEGIN(.*)PRIVATE KEY-+\n  - 'DOCKER_AUTH=(?i).*\"auth\": *\".+\"'\n  - API_KEY=(?i).*api(-|_)key( *=+ *).*(?<![A-Z0-9])[A-Z0-9]{20,60}(?![A-Z0-9]).*\n"
+    }
+  },
+  {
+    "kind": "ConfigMap",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-anchore-engine",
+      "labels": {
+        "app": "release-name-anchore-engine",
+        "chart": "anchore-engine-1.13.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "config.yaml": "# Anchore Service Configuration File from ConfigMap\nservice_dir: /anchore_service\ntmp_dir: /analysis_scratch\nlog_level: INFO\nimage_analyze_timeout_seconds: 36000\nallow_awsecr_iam_auto: false\nhost_id: \"${ANCHORE_POD_NAME}\"\ninternal_ssl_verify: false\nauto_restart_services: false\n\nglobal_client_connect_timeout: 0\nglobal_client_read_timeout: 0\nserver_request_timeout_seconds: 60\n\nmetrics:\n  enabled: false\n  auth_disabled: false\n\n\ndefault_admin_password: ${ANCHORE_ADMIN_PASSWORD}\ndefault_admin_email: example@email.com\n\n# Defines a maximum compressed image size (MB) to be added for analysis\n# Value < 0 disables feature. Disabled by default\nmax_compressed_image_size_mb: -1\n\n# Locations for keys used for signing and encryption. Only one of 'secret' or 'public_key_path'/'private_key_path' needs to be set. If all are set then the keys take precedence over the secret value\n# Secret is for a shared secret and if set, all components in anchore should have the exact same value in their configs.\nkeys:\n\n# Configuring supported user authentication and credential management\nuser_authentication:\n  oauth:\n    enabled: false\n    default_token_expiration_seconds: 3600\n\n  # Set this to True to enable storing user passwords only as secure hashes in the db. This can dramatically increase CPU usage if you\n  # don't also use oauth and tokens for internal communications (which requires keys/secret to be configured as well)\n  # WARNING: you should not change this after a system has been initialized as it may cause a mismatch in existing passwords\n  hashed_passwords: false\n\ncredentials:\n  database:\n    db_connect: \"postgresql://${ANCHORE_DB_USER}:${ANCHORE_DB_PASSWORD}@${ANCHORE_DB_HOST}/${ANCHORE_DB_NAME}\"\n    db_connect_args:\n      timeout: 120\n      ssl: false\n    db_pool_size: 30\n    db_pool_max_overflow: 100\nservices:\n  apiext:\n    enabled: true\n    require_auth: true\n    endpoint_hostname: release-name-anchore-engine-api\n    max_request_threads: 50\n    listen: 0.0.0.0\n    port: 8228\n  analyzer:\n    enabled: true\n    require_auth: true\n    endpoint_hostname: release-name-anchore-engine-analyzer\n    listen: 0.0.0.0\n    port: 8084\n    max_request_threads: 50\n    cycle_timer_seconds: 1\n    cycle_timers:\n      image_analyzer: 5\n    max_threads: 1\n    analyzer_driver: 'nodocker'\n    layer_cache_enable: false\n    layer_cache_max_gigabytes: 0\n    enable_hints: false\n    enable_owned_package_filtering: true\n  catalog:\n    enabled: true\n    require_auth: true\n    endpoint_hostname: release-name-anchore-engine-catalog\n    listen: 0.0.0.0\n    port: 8082\n    max_request_threads: 50\n    cycle_timer_seconds: 1\n    cycle_timers:\n      # Interval to check for an update to a tag\n      image_watcher: 3600\n      # Interval to run a policy evaluation on images with the policy_eval subscription activated.\n      policy_eval: 3600\n      # Interval to run a vulnerability scan on images with the vuln_update subscription activated.\n      vulnerability_scan: 14400\n      # Interval at which the catalog looks for new work to put on the image analysis queue.\n      analyzer_queue: 1\n      # Interval at which the catalog archival tasks are triggered.\n      archive_tasks: 43200\n      image_gc: 60\n      # Interval notifications will be processed for state changes\n      notifications: 30\n      # Intervals service state updates are polled for the system status\n      service_watcher: 15\n      # Interval between checks to repo for new tags\n      repo_watcher: 60\n      k8s_watcher: 300\n      k8s_image_watcher: 150\n    event_log:\n      notification:\n        enabled: false\n        level:\n        - error\n    analysis_archive:\n      compression:\n        enabled: true\n        min_size_kbytes: 100\n      storage_driver:\n        config: {}\n        name: db\n    object_store:\n      compression:\n        enabled: true\n        min_size_kbytes: 100\n      storage_driver:\n        config: {}\n        name: db\n    runtime_inventory:\n      image_ttl_days: 1\n      kubernetes:\n        report_anchore_cluster:\n          enabled: true\n          anchore_cluster_name: anchore-k8s\n          namespaces:\n            - all\n  simplequeue:\n    enabled: true\n    require_auth: true\n    endpoint_hostname: release-name-anchore-engine-simplequeue\n    listen: 0.0.0.0\n    port: 8083\n    max_request_threads: 50\n  policy_engine:\n    enabled: true\n    require_auth: true\n    max_request_threads: 50\n    endpoint_hostname: release-name-anchore-engine-policy\n    listen: 0.0.0.0\n    port: 8087\n    cycle_timer_seconds: 1\n    cycle_timers:\n      feed_sync: 14400\n      feed_sync_checker: 3600\n      grypedb_sync: 60\n    vulnerabilities:\n      provider: legacy\n      sync:\n        enabled: true\n        ssl_verify: false\n        connection_timeout_seconds: 3\n        read_timeout_seconds: 180\n        data:\n          # grypedb feed is synced if the provider is set to grype. All the remaining feeds except for packages are ignored even if they are enabled\n          grypedb:\n            enabled: true\n            url: \"https://toolbox-data.anchore.io/grype/databases/listing.json\"\n          # The following feeds are synced if provider is set to legacy\n          # Vulnerabilities feed is the feed for distro cve sources (redhat, debian, ubuntu, oracle, alpine....)\n          vulnerabilities:\n            enabled: true\n            url: https://ancho.re/v1/service/feeds\n          # NVD Data is used for non-distro CVEs (jars, npm, etc) that are not packaged and released by distros as rpms, debs, etc\n          nvdv2:\n            enabled: true\n            url: https://ancho.re/v1/service/feeds\n          github:\n            enabled: true\n            url: https://ancho.re/v1/service/feeds\n          # Warning: enabling the packages and nvd sync causes the service to require much more memory to do process the significant data volume. We recommend at least 4GB available for the container\n          # packages feed is synced if it is enabled regardless of the provider\n          packages:\n            enabled: false\n            url: https://ancho.re/v1/service/feeds\n"
+    }
+  },
+  {
+    "kind": "ConfigMap",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-anchore-engine-env",
+      "labels": {
+        "app": "release-name-anchore-engine",
+        "chart": "anchore-engine-1.13.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "ANCHORE_DB_NAME": "anchore",
+      "ANCHORE_DB_USER": "anchoreengine",
+      "ANCHORE_DB_HOST": "release-name-postgresql:5432"
+    }
+  },
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app": "postgresql",
+        "chart": "postgresql-1.0.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": {
+        "helm.sh/resource-policy": "nil"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "20Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app": "postgresql",
+        "chart": "postgresql-1.0.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "postgresql",
+          "port": 5432,
+          "targetPort": "postgresql"
+        }
+      ],
+      "selector": {
+        "app": "postgresql",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-anchore-engine-api",
+      "labels": {
+        "app": "release-name-anchore-engine",
+        "chart": "anchore-engine-1.13.0",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "api"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "anchore-external-api",
+          "port": 8228,
+          "targetPort": 8228,
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app": "release-name-anchore-engine",
+        "component": "api"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-anchore-engine-catalog",
+      "labels": {
+        "app": "release-name-anchore-engine",
+        "chart": "anchore-engine-1.13.0",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "catalog"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "anchore-catalog-api",
+          "port": 8082,
+          "targetPort": 8082,
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app": "release-name-anchore-engine",
+        "component": "catalog"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-anchore-engine-policy",
+      "labels": {
+        "app": "release-name-anchore-engine",
+        "chart": "anchore-engine-1.13.0",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "policy"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "anchore-policy-api",
+          "port": 8087,
+          "targetPort": 8087,
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app": "release-name-anchore-engine",
+        "component": "policy"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-anchore-engine-simplequeue",
+      "labels": {
+        "app": "release-name-anchore-engine",
+        "chart": "anchore-engine-1.13.0",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "simplequeue"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "anchore-simplequeue-api",
+          "port": 8083,
+          "targetPort": 8083,
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app": "release-name-anchore-engine",
+        "component": "simplequeue"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app": "postgresql",
+        "chart": "postgresql-1.0.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "postgresql",
+          "release": "release-name"
+        }
+      },
+      "strategy": {
+        "type": "Recreate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "postgresql",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "release-name-postgresql",
+              "image": "postgres:9.6.18",
+              "imagePullPolicy": "",
+              "args": null,
+              "env": [
+                {
+                  "name": "POSTGRES_USER",
+                  "value": "anchoreengine"
+                },
+                {
+                  "name": "PGUSER",
+                  "value": "anchoreengine"
+                },
+                {
+                  "name": "POSTGRES_DB",
+                  "value": "anchore"
+                },
+                {
+                  "name": "POSTGRES_INITDB_ARGS",
+                  "value": ""
+                },
+                {
+                  "name": "PGDATA",
+                  "value": "/var/lib/postgresql/data/pgdata"
+                },
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-postgresql",
+                      "key": "postgres-password"
+                    }
+                  }
+                },
+                {
+                  "name": "POD_IP",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "status.podIP"
+                    }
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "name": "postgresql",
+                  "containerPort": 5432
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "exec pg_isready --host $POD_IP"
+                  ]
+                },
+                "initialDelaySeconds": 60,
+                "timeoutSeconds": 5,
+                "failureThreshold": 6
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "exec pg_isready --host $POD_IP"
+                  ]
+                },
+                "initialDelaySeconds": 5,
+                "timeoutSeconds": 3,
+                "periodSeconds": 5
+              },
+              "resources": {
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "256Mi"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/var/lib/postgresql/data/pgdata",
+                  "subPath": "postgresql-db"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "data",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-postgresql"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-anchore-engine-analyzer",
+      "labels": {
+        "app": "release-name-anchore-engine",
+        "chart": "anchore-engine-1.13.0",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "analyzer"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "release-name-anchore-engine",
+          "component": "analyzer"
+        }
+      },
+      "replicas": 1,
+      "strategy": {
+        "type": "Recreate",
+        "rollingUpdate": null
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "release-name-anchore-engine",
+            "component": "analyzer"
+          },
+          "annotations": {
+            "checksum/secrets": "9e33c3e2ae9dc5baefd802cad24f626eeff562d442690c01a36b459822e51ed5",
+            "checksum/env": "4dfe60b080a8af861f3f680adbee1a07975739c27cd668ccc14e9d1a8eccd005",
+            "checksum/engine-config": "d21eda19792a92686425d6b5a0bdf25395ff28f736a969e1267e14f549c049e2",
+            "checksum/analyzer-config": "fe6a0539099fef985aaf05c56cac8e12e713e5cf9bccf8295dc90051ee7363a7"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1000,
+            "runAsGroup": 1000,
+            "runAsUser": 1000
+          },
+          "containers": [
+            {
+              "name": "anchore-engine-analyzer",
+              "image": "docker.io/anchore/anchore-engine:v0.10.0",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "anchore-manager",
+                "service",
+                "start",
+                "--no-auto-upgrade",
+                "analyzer"
+              ],
+              "envFrom": [
+                {
+                  "secretRef": {
+                    "name": "release-name-anchore-engine"
+                  }
+                },
+                {
+                  "secretRef": {
+                    "name": "release-name-anchore-engine-admin-pass"
+                  }
+                },
+                {
+                  "configMapRef": {
+                    "name": "release-name-anchore-engine-env"
+                  }
+                }
+              ],
+              "env": [
+                {
+                  "name": "ANCHORE_POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "name": "analyzer-api",
+                  "containerPort": 8084
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "analyzer-config-volume",
+                  "mountPath": "/anchore_service/analyzer_config.yaml",
+                  "subPath": "analyzer_config.yaml"
+                },
+                {
+                  "name": "config-volume",
+                  "mountPath": "/config/config.yaml",
+                  "subPath": "config.yaml"
+                },
+                {
+                  "name": "analyzer-scratch",
+                  "mountPath": "/analysis_scratch"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "analyzer-api"
+                },
+                "initialDelaySeconds": 120,
+                "timeoutSeconds": 10,
+                "periodSeconds": 10,
+                "failureThreshold": 6,
+                "successThreshold": 1
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "analyzer-api"
+                },
+                "timeoutSeconds": 10,
+                "periodSeconds": 10,
+                "failureThreshold": 3,
+                "successThreshold": 1
+              },
+              "resources": null
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "release-name-anchore-engine"
+              }
+            },
+            {
+              "name": "analyzer-scratch",
+              "emptyDir": {}
+            },
+            {
+              "name": "analyzer-config-volume",
+              "configMap": {
+                "name": "release-name-anchore-engine-analyzer"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-anchore-engine-api",
+      "labels": {
+        "app": "release-name-anchore-engine",
+        "component": "api",
+        "chart": "anchore-engine-1.13.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "release-name-anchore-engine",
+          "component": "api"
+        }
+      },
+      "replicas": 1,
+      "strategy": {
+        "type": "Recreate",
+        "rollingUpdate": null
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "release-name-anchore-engine",
+            "component": "api"
+          },
+          "annotations": {
+            "checksum/secrets": "9e33c3e2ae9dc5baefd802cad24f626eeff562d442690c01a36b459822e51ed5",
+            "checksum/env": "4dfe60b080a8af861f3f680adbee1a07975739c27cd668ccc14e9d1a8eccd005",
+            "checksum/engine-config": "d21eda19792a92686425d6b5a0bdf25395ff28f736a969e1267e14f549c049e2"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1000,
+            "runAsGroup": 1000,
+            "runAsUser": 1000
+          },
+          "containers": [
+            {
+              "name": "anchore-engine-api",
+              "image": "docker.io/anchore/anchore-engine:v0.10.0",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "anchore-manager",
+                "service",
+                "start",
+                "--no-auto-upgrade",
+                "apiext"
+              ],
+              "envFrom": [
+                {
+                  "secretRef": {
+                    "name": "release-name-anchore-engine"
+                  }
+                },
+                {
+                  "secretRef": {
+                    "name": "release-name-anchore-engine-admin-pass"
+                  }
+                },
+                {
+                  "configMapRef": {
+                    "name": "release-name-anchore-engine-env"
+                  }
+                }
+              ],
+              "env": [
+                {
+                  "name": "ANCHORE_POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "ANCHORE_CLI_PASS",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-anchore-engine-admin-pass",
+                      "key": "ANCHORE_ADMIN_PASSWORD"
+                    }
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 8228,
+                  "name": "external-api"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config-volume",
+                  "mountPath": "/config/config.yaml",
+                  "subPath": "config.yaml"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "external-api"
+                },
+                "initialDelaySeconds": 120,
+                "timeoutSeconds": 10,
+                "periodSeconds": 10,
+                "failureThreshold": 6,
+                "successThreshold": 1
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "external-api"
+                },
+                "timeoutSeconds": 10,
+                "periodSeconds": 10,
+                "failureThreshold": 3,
+                "successThreshold": 1
+              },
+              "resources": null
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "release-name-anchore-engine"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-anchore-engine-catalog",
+      "labels": {
+        "app": "release-name-anchore-engine",
+        "chart": "anchore-engine-1.13.0",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "catalog"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "release-name-anchore-engine",
+          "component": "catalog"
+        }
+      },
+      "replicas": 1,
+      "strategy": {
+        "type": "Recreate",
+        "rollingUpdate": null
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "release-name-anchore-engine",
+            "component": "catalog"
+          },
+          "annotations": {
+            "checksum/secrets": "9e33c3e2ae9dc5baefd802cad24f626eeff562d442690c01a36b459822e51ed5",
+            "checksum/env": "4dfe60b080a8af861f3f680adbee1a07975739c27cd668ccc14e9d1a8eccd005",
+            "checksum/engine-config": "d21eda19792a92686425d6b5a0bdf25395ff28f736a969e1267e14f549c049e2"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1000,
+            "runAsGroup": 1000,
+            "runAsUser": 1000
+          },
+          "containers": [
+            {
+              "name": "anchore-engine-catalog",
+              "image": "docker.io/anchore/anchore-engine:v0.10.0",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "anchore-manager",
+                "service",
+                "start",
+                "--no-auto-upgrade",
+                "catalog"
+              ],
+              "envFrom": [
+                {
+                  "secretRef": {
+                    "name": "release-name-anchore-engine"
+                  }
+                },
+                {
+                  "secretRef": {
+                    "name": "release-name-anchore-engine-admin-pass"
+                  }
+                },
+                {
+                  "configMapRef": {
+                    "name": "release-name-anchore-engine-env"
+                  }
+                }
+              ],
+              "env": [
+                {
+                  "name": "ANCHORE_POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "name": "catalog",
+                  "containerPort": 8082
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config-volume",
+                  "mountPath": "/config/config.yaml",
+                  "subPath": "config.yaml"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "catalog"
+                },
+                "initialDelaySeconds": 120,
+                "timeoutSeconds": 10,
+                "periodSeconds": 10,
+                "failureThreshold": 6,
+                "successThreshold": 1
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "catalog"
+                },
+                "timeoutSeconds": 10,
+                "periodSeconds": 10,
+                "failureThreshold": 3,
+                "successThreshold": 1
+              },
+              "resources": null
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "release-name-anchore-engine"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-anchore-engine-policy",
+      "labels": {
+        "app": "release-name-anchore-engine",
+        "chart": "anchore-engine-1.13.0",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "policy"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "release-name-anchore-engine",
+          "component": "policy"
+        }
+      },
+      "replicas": 1,
+      "strategy": {
+        "type": "Recreate",
+        "rollingUpdate": null
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "release-name-anchore-engine",
+            "component": "policy"
+          },
+          "annotations": {
+            "checksum/secrets": "9e33c3e2ae9dc5baefd802cad24f626eeff562d442690c01a36b459822e51ed5",
+            "checksum/env": "4dfe60b080a8af861f3f680adbee1a07975739c27cd668ccc14e9d1a8eccd005",
+            "checksum/engine-config": "d21eda19792a92686425d6b5a0bdf25395ff28f736a969e1267e14f549c049e2"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1000,
+            "runAsGroup": 1000,
+            "runAsUser": 1000
+          },
+          "containers": [
+            {
+              "name": "anchore-engine-policy",
+              "image": "docker.io/anchore/anchore-engine:v0.10.0",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "anchore-manager",
+                "service",
+                "start",
+                "--no-auto-upgrade",
+                "policy_engine"
+              ],
+              "envFrom": [
+                {
+                  "secretRef": {
+                    "name": "release-name-anchore-engine"
+                  }
+                },
+                {
+                  "secretRef": {
+                    "name": "release-name-anchore-engine-admin-pass"
+                  }
+                },
+                {
+                  "configMapRef": {
+                    "name": "release-name-anchore-engine-env"
+                  }
+                }
+              ],
+              "env": [
+                {
+                  "name": "ANCHORE_POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "name": "policy",
+                  "containerPort": 8087
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config-volume",
+                  "mountPath": "/config/config.yaml",
+                  "subPath": "config.yaml"
+                },
+                {
+                  "name": "policy-scratch",
+                  "mountPath": "/analysis_scratch"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "policy"
+                },
+                "initialDelaySeconds": 120,
+                "timeoutSeconds": 10,
+                "periodSeconds": 10,
+                "failureThreshold": 6,
+                "successThreshold": 1
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "policy"
+                },
+                "timeoutSeconds": 10,
+                "periodSeconds": 10,
+                "failureThreshold": 3,
+                "successThreshold": 1
+              },
+              "resources": null
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "release-name-anchore-engine"
+              }
+            },
+            {
+              "name": "policy-scratch",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-anchore-engine-simplequeue",
+      "labels": {
+        "app": "release-name-anchore-engine",
+        "chart": "anchore-engine-1.13.0",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "simplequeue"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "release-name-anchore-engine",
+          "component": "simplequeue"
+        }
+      },
+      "replicas": 1,
+      "strategy": {
+        "type": "Recreate",
+        "rollingUpdate": null
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "release-name-anchore-engine",
+            "component": "simplequeue"
+          },
+          "annotations": {
+            "checksum/secrets": "9e33c3e2ae9dc5baefd802cad24f626eeff562d442690c01a36b459822e51ed5",
+            "checksum/env": "4dfe60b080a8af861f3f680adbee1a07975739c27cd668ccc14e9d1a8eccd005",
+            "checksum/engine-config": "d21eda19792a92686425d6b5a0bdf25395ff28f736a969e1267e14f549c049e2"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1000,
+            "runAsGroup": 1000,
+            "runAsUser": 1000
+          },
+          "containers": [
+            {
+              "name": "anchore-engine-simplequeue",
+              "image": "docker.io/anchore/anchore-engine:v0.10.0",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "anchore-manager",
+                "service",
+                "start",
+                "--no-auto-upgrade",
+                "simplequeue"
+              ],
+              "envFrom": [
+                {
+                  "secretRef": {
+                    "name": "release-name-anchore-engine"
+                  }
+                },
+                {
+                  "secretRef": {
+                    "name": "release-name-anchore-engine-admin-pass"
+                  }
+                },
+                {
+                  "configMapRef": {
+                    "name": "release-name-anchore-engine-env"
+                  }
+                }
+              ],
+              "env": [
+                {
+                  "name": "ANCHORE_POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "name": "simplequeue",
+                  "containerPort": 8083
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config-volume",
+                  "mountPath": "/config/config.yaml",
+                  "subPath": "config.yaml"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "simplequeue"
+                },
+                "initialDelaySeconds": 120,
+                "timeoutSeconds": 10,
+                "periodSeconds": 10,
+                "failureThreshold": 6,
+                "successThreshold": 1
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "simplequeue"
+                },
+                "timeoutSeconds": 10,
+                "periodSeconds": 10,
+                "failureThreshold": 3,
+                "successThreshold": 1
+              },
+              "resources": null
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "release-name-anchore-engine"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+      "name": "release-name-engine-upgrade",
+      "labels": {
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.10.0",
+        "helm.sh/chart": "anchore-engine-1.13.0"
+      },
+      "annotations": {
+        "helm.sh/hook": "post-upgrade",
+        "helm.sh/hook-weight": "-5"
+      }
+    },
+    "spec": {
+      "template": {
+        "metadata": {
+          "name": "release-name-engine-upgrade",
+          "labels": {
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/instance": "release-name",
+            "helm.sh/chart": "anchore-engine-1.13.0"
+          },
+          "annotations": null
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1000,
+            "runAsGroup": 1000,
+            "runAsUser": 1000
+          },
+          "restartPolicy": "Never",
+          "containers": [
+            {
+              "name": "release-name-engine-upgrade",
+              "image": "docker.io/anchore/anchore-engine:v0.10.0",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/bin/bash",
+                "-c"
+              ],
+              "args": [
+                "anchore-manager db --db-connect postgresql://${ANCHORE_DB_USER}:${ANCHORE_DB_PASSWORD}@${ANCHORE_DB_HOST}/${ANCHORE_DB_NAME} upgrade --dontask;\n"
+              ],
+              "envFrom": [
+                {
+                  "secretRef": {
+                    "name": "release-name-anchore-engine"
+                  }
+                },
+                {
+                  "secretRef": {
+                    "name": "release-name-anchore-engine-admin-pass"
+                  }
+                },
+                {
+                  "configMapRef": {
+                    "name": "release-name-anchore-engine-env"
+                  }
+                }
+              ],
+              "env": null
+            }
+          ]
+        }
+      }
+    }
+  }
+]

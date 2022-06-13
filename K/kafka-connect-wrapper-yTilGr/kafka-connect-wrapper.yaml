@@ -1,0 +1,155 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-kafka-connect-wrapper
+  labels:
+    helm.sh/chart: kafka-connect-wrapper-0.1.0
+    app.kubernetes.io/name: kafka-connect-wrapper
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 6.1.0-0.1
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-connect-wrapper-configmap
+data:
+  worker.properties: "client.id=release-name-client\nrest.port=80\ngroup.id=release-name-groupId\n\nbootstrap.servers= \n\nerror.tolerance=org.apache.kafka.connect.storage.StringConverter\ntopic=demo\n\nkey.converter=org.apache.kafka.connect.storage.StringConverter\nkey.converter.schemas.enable=false\nkey.converter.schema.registry.url=\nvalue.converter=org.apache.kafka.connect.storage.StringConverter\nvalue.converter.schemas.enable=all\nvalue.converter.schema.registry.url=\n\noffset.storage.file.filename=/tmp/offset"
+  source.properties: "name=release-name-source\nkey.converter=org.apache.kafka.connect.storage.StringConverter\nkey.converter.schemas.enable=false\nkey.converter.schema.registry.url=\nvalue.converter=org.apache.kafka.connect.storage.StringConverter\nvalue.converter.schemas.enable=false\nvalue.converter.schema.registry.url=\nfile=/opt/out/kafka.in\nconnector.class=\nconnection.url=\nconnection.user=\nconnection.password= "
+  sink.properties: "name=release-name-sink\ntopics=demo\nconnection.url=\nconnector.class=org.apache.kafka.connect.file.FileStreamSinkConnector\nconnection.user=\nconnection.password= \ntasks.max=1\nerror.tolerance=all\nkey.converter=org.apache.kafka.connect.storage.StringConverter\nkey.converter.schemas.enable=false\nkey.converter.schema.registry.url=\nvalue.converter=org.apache.kafka.connect.storage.StringConverter\nvalue.converter.schemas.enable=false\nvalue.converter.schema.registry.url=\nfile=/opt/out/kafka.out\n\nauto.create=true\nauto.evolve=true"
+  log4j: |-
+    log4j.rootLogger=INFO, stdout
+
+    log4j.appender.stdout=org.apache.log4j.ConsoleAppender
+    log4j.appender.stdout.layout=org.apache.log4j.PatternLayout
+    log4j.appender.stdout.layout.ConversionPattern=[%d] %p %m (%c:%L)%n
+
+    log4j.logger.org.apache.zookeeper=ERROR
+    log4j.logger.org.I0Itec.zkclient=ERROR
+    log4j.logger.org.reflections=ERROR
+
+
+    log4j.appender.kafkaConnectRestAppender=org.apache.log4j.DailyRollingFileAppender
+    log4j.appender.kafkaConnectRestAppender.DatePattern='.'yyyy-MM-dd-HH
+    log4j.appender.kafkaConnectRestAppender.File=/opt/logs/connect-rest.log
+    log4j.appender.kafkaConnectRestAppender.layout=org.apache.log4j.PatternLayout
+    log4j.appender.kafkaConnectRestAppender.layout.ConversionPattern=[%d] %p %m (%c)%n
+
+    log4j.logger.org.apache.kafka.connect.runtime.rest=INFO, kafkaConnectRestAppender
+    log4j.additivity.org.apache.kafka.connect.runtime.rest=false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-kafka-connect-wrapper
+  labels:
+    helm.sh/chart: kafka-connect-wrapper-0.1.0
+    app.kubernetes.io/name: kafka-connect-wrapper
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 6.1.0-0.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: kafka-connect-wrapper
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-kafka-connect-wrapper
+  labels:
+    helm.sh/chart: kafka-connect-wrapper-0.1.0
+    app.kubernetes.io/name: kafka-connect-wrapper
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 6.1.0-0.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka-connect-wrapper
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafka-connect-wrapper
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-kafka-connect-wrapper
+      securityContext: {}
+      containers:
+        - name: kafka-connect-wrapper
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: lsmaster/kafka-connect-wrapper:6.1.0-0.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          livenessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            httpGet:
+              path: /
+              port: http
+          volumeMounts:
+            - name: kafka-connect-wrapper-configmap-volume
+              mountPath: /opt/connect-config/worker/worker.properties
+              subPath: worker.properties
+            - name: kafka-connect-wrapper-configmap-volume
+              mountPath: /opt/config/connect-log4j.properties
+              subPath: log4j
+            - name: kafka-connect-wrapper-configmap-volume
+              mountPath: /opt/connect-config/sink/sink.properties
+              subPath: sink.properties
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: kafka-connect-wrapper-configmap-volume
+          configMap:
+            name: kafka-connect-wrapper-configmap
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-kafka-connect-wrapper-test-connection
+  labels:
+    helm.sh/chart: kafka-connect-wrapper-0.1.0
+    app.kubernetes.io/name: kafka-connect-wrapper
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 6.1.0-0.1
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-kafka-connect-wrapper:80
+  restartPolicy: Never

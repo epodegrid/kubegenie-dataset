@@ -1,0 +1,129 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-freeipa-proxy-ha",
+      "labels": {
+        "app": "freeipa-proxy-ha",
+        "chart": "freeipa-proxy-ha-0.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "20-freeipa-backend.ldif": "dn: cn=Pass Through Authentication,cn=plugins,cn=config\nchangetype: modify\nreplace: nsslapd-pluginEnabled\nnsslapd-pluginEnabled: on\n-\nadd: nsslapd-pluginarg0\nnsslapd-pluginarg0: ldap://freeipa1.example.com freeipa2.example.com freeipa3.example.com/dc=example,dc=com\n\ndn: cn=freeipa,cn=chaining database,cn=plugins,cn=config\nchangetype: add\nobjectclass: nsBackendInstance\nobjectclass: extensibleObject\nnsslapd-suffix: dc=example,dc=com\nnsfarmserverurl: ldap://freeipa1.example.com freeipa2.example.com freeipa3.example.com/\nnsMultiplexorBindDN: uid=user,cn=users,cn=accounts,dc=example,dc=com\nnsMultiplexorCredentials: changeme\ncn: freeipa\n\ndn: cn=\"dc=example,dc=com\",cn=mapping tree,cn=config\nchangetype: add\nobjectclass: extensibleObject\nobjectclass: nsMappingTree\nnsslapd-state: backend\nnsslapd-backend: freeipa\ncn: dc=example,dc=com\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-freeipa-proxy-ha",
+      "labels": {
+        "app": "freeipa-proxy-ha",
+        "chart": "freeipa-proxy-ha-0.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": {}
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 389,
+          "targetPort": "ldap",
+          "protocol": "TCP",
+          "name": "ldap"
+        }
+      ],
+      "selector": {
+        "app": "freeipa-proxy-ha",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-freeipa-proxy-ha",
+      "labels": {
+        "app": "freeipa-proxy-ha",
+        "chart": "freeipa-proxy-ha-0.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": null,
+      "selector": {
+        "matchLabels": {
+          "app": "freeipa-proxy-ha",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "freeipa-proxy-ha",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "freeipa-proxy-ha",
+              "image": "camptocamp/389ds:latest",
+              "imagePullPolicy": "Always",
+              "ports": [
+                {
+                  "name": "ldap",
+                  "containerPort": "3389",
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": null,
+              "env": [
+                {
+                  "name": "LDAP_ROOT_PASSWORD",
+                  "value": null
+                },
+                {
+                  "name": "LDAP_ROOT_DN",
+                  "value": "cn=Directory Manager"
+                },
+                {
+                  "name": "LDAP_RUN_USER",
+                  "value": "random"
+                },
+                {
+                  "name": "LDAP_RUN_GROUP",
+                  "value": "random"
+                },
+                {
+                  "name": "LDAP_PORT",
+                  "value": "3389"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "freeipa-backend-setup-volume",
+              "configMap": {
+                "name": "release-name-freeipa-proxy-ha"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

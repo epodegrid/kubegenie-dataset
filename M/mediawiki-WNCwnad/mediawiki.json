@@ -1,0 +1,346 @@
+[
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "NetworkPolicy",
+    "metadata": {
+      "name": "mediawiki-release-name",
+      "labels": {
+        "app": "mediawiki",
+        "chart": "mediawiki-0.2.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "podSelector": {
+        "matchLabels": {
+          "app": "mediawiki",
+          "release": "release-name"
+        }
+      },
+      "policyTypes": [
+        "Ingress"
+      ],
+      "ingress": [
+        {
+          "ports": [
+            {
+              "port": 8080,
+              "protocol": "TCP"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "mediawiki-release-name-httpd-sites-config",
+      "labels": {
+        "app": "mediawiki",
+        "chart": "mediawiki-0.2.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "01-wikipedia.local.conf": "# VirtualHost for wikipedia.local\n<VirtualHost *:8080>\n    ServerName wikipedia.local\n    DocumentRoot /srv/mediawiki/docroot/wikipedia.org\n    ServerAlias *.wikipedia.org\n    UseCanonicalName Off\n\n    AllowEncodedSlashes On\n\n    RewriteEngine On\n    RewriteRule . - [E=RW_PROTO:%{HTTP:X-Forwarded-Proto}]\n    RewriteCond %{ENV:RW_PROTO} !=https\n    RewriteRule . - [E=RW_PROTO:http]\n    # Uploads to the host-specific directory\n    RewriteCond %{HTTP_HOST} ([a-z\\-]+)\\.wikipedia\\.org\n    RewriteRule ^/upload/(.*)$ %{ENV:RW_PROTO}://upload.wikimedia.org/wikipedia/%1/$1 [R=302]\n    \n    RewriteRule . - [E=RW_PROTO:%{HTTP:X-Forwarded-Proto}]\n    RewriteCond %{ENV:RW_PROTO} !=https\n    RewriteRule . - [E=RW_PROTO:http]\n    # RDF URIs\n    # Note that for Q and P, we support both lower and upper case for historical\n    # reason, for L and M there is no use case for lower case, so we only support\n    # upper case.\n    \n    # Direct link to the statement using the EntityID$StatementID URL anchor (T203397).\n    # We exclude the M prefix (MediaInfo on commons) as it lacks support for such an anchor.\n    #\n    # First try to capture Lexeme forms and senses as their statement anchors are a bit special\n    # e.g /entity/statement/L123-S18-1695a65e-4e4a-ba7d-5939-c58b300792a6 -> Special:EntityData/L123#L123-S18$1695a65e-4e4a-ba7d-5939-c58b300792a6\n    # (we use the NE flag to make sure we do not url encode the anchor char #)\n    RewriteRule ^/entity/statement/(L\\d+)-([SF]\\d+)-(.*)$ %{ENV:RW_PROTO}://%{SERVER_NAME}/wiki/Special:EntityData/$1#$1-$2\\$$3 [NE,R=303,L]\n    # Then capture other statements\n    # e.g. /entity/statement/Q2-50fad68d-4f91-f878-6f29-e655af54690e -> Special:EntityData/Q2#Q2$50fad68d-4f91-f878-6f29-e655af54690e\n    RewriteRule ^/entity/statement/([QqPpL]\\d+)-(.*)$ %{ENV:RW_PROTO}://%{SERVER_NAME}/wiki/Special:EntityData/$1#$1\\$$2 [NE,R=303,L]\n    \n    # Catch-up any other statement URLs and redirect it to Special:EntityData forgetting everything added after the entity ID\n    RewriteRule ^/entity/statement/([QpPpLM]\\d+) %{ENV:RW_PROTO}://%{SERVER_NAME}/wiki/Special:EntityData/$1 [R=303,L]\n    \n    # TODO: value & reference handling can be improved to refer to something better\n    # like DESCRIBE query\n    RewriteRule ^/value/(.*)$ %{ENV:RW_PROTO}://%{SERVER_NAME}/wiki/Special:ListDatatypes [R=303,L]\n    RewriteRule ^/reference/(.*)$ %{ENV:RW_PROTO}://%{SERVER_NAME}/wiki/Help:Sources [R=303,L]\n    RewriteRule ^/prop/direct/(.*)$ %{ENV:RW_PROTO}://%{SERVER_NAME}/wiki/Property:$1 [R=303,L]\n    RewriteRule ^/prop/direct-normalized/(.*)$ %{ENV:RW_PROTO}://%{SERVER_NAME}/wiki/Property:$1 [R=303,L]\n    RewriteRule ^/prop/novalue/(.*)$ %{ENV:RW_PROTO}://%{SERVER_NAME}/wiki/Property:$1 [R=303,L]\n    RewriteRule ^/prop/statement/value/(.*)$ %{ENV:RW_PROTO}://%{SERVER_NAME}/wiki/Property:$1 [R=303,L]\n    RewriteRule ^/prop/statement/value-normalized/(.*)$ %{ENV:RW_PROTO}://%{SERVER_NAME}/wiki/Property:$1 [R=303,L]\n    RewriteRule ^/prop/qualifier/value/(.*)$ %{ENV:RW_PROTO}://%{SERVER_NAME}/wiki/Property:$1 [R=303,L]\n    RewriteRule ^/prop/qualifier/value-normalized/(.*)$ %{ENV:RW_PROTO}://%{SERVER_NAME}/wiki/Property:$1 [R=303,L]\n    RewriteRule ^/prop/reference/value/(.*)$ %{ENV:RW_PROTO}://%{SERVER_NAME}/wiki/Property:$1 [R=303,L]\n    RewriteRule ^/prop/reference/value-normalized/(.*)$ %{ENV:RW_PROTO}://%{SERVER_NAME}/wiki/Property:$1 [R=303,L]\n    RewriteRule ^/prop/statement/(.*)$ %{ENV:RW_PROTO}://%{SERVER_NAME}/wiki/Property:$1 [R=303,L]\n    RewriteRule ^/prop/qualifier/(.*)$ %{ENV:RW_PROTO}://%{SERVER_NAME}/wiki/Property:$1 [R=303,L]\n    RewriteRule ^/prop/reference/(.*)$ %{ENV:RW_PROTO}://%{SERVER_NAME}/wiki/Property:$1 [R=303,L]\n    RewriteRule ^/prop/(.*)$ %{ENV:RW_PROTO}://%{SERVER_NAME}/wiki/Property:$1 [R=303,L]\n    # https://meta.wikimedia.org/wiki/Wikidata/Notes/URI_scheme\n    RewriteRule ^/entity/(.*)$ %{ENV:RW_PROTO}://%{SERVER_NAME}/wiki/Special:EntityData/$1 [R=303,QSA]\n    \n    ### Common rewrite rules for all wikis\n\n    # Redirect /wiki, /w to the fcgi backend\n    RewriteRule     ^/w/wiki.phtml$      /w/index.php [L,QSA,NE]\n\n    # Primary wiki redirector:\n    RewriteRule ^/wiki /w/index.php [L]\n    # Make robots.txt editable via MediaWiki:robots.txt\n    RewriteRule ^/robots\\.txt$ /w/robots.php [L]\n    # Primary wiki redirector:\n    RewriteRule ^/$ /w/index.php\n    # Configurable favicon\n    RewriteRule ^/favicon\\.ico$ /w/favicon.php [L]\n    # Configurable apple-touch-icon.png\n    RewriteRule ^/apple-touch-icon\\.png$ /w/touch.php [L]\n\n    # Multiversion static files (T99096)\n    RewriteRule ^/w/skins/.*$ /w/static.php [PT]\n    RewriteRule ^/w/resources/.*$ /w/static.php [PT]\n    RewriteRule ^/w/extensions/.*$ /w/static.php [PT]\n\n\n    # Common API-related rewrites\n    # API listing\n    RewriteRule ^/api$ %{ENV:RW_PROTO}://%{SERVER_NAME}/api/ [R=301]\n    RewriteRule ^/api/$ /w/extract2.php?template=API_listing_template [L]\n\n    # Math compatibility mode\n    RewriteCond %{ENV:RW_PROTO} !=\"\"\n    RewriteRule ^/math/(.*) %{ENV:RW_PROTO}://upload.wikimedia.local/math/$1 [R=301]\n    RewriteRule ^/math/(.*) https://upload.wikimedia.local/math/$1 [R=301]\n    # ShortUrl support, for wikis where it's enabled\n    RewriteRule ^/s/.*$     /w/index.php\n    # UseMod compatibility URLs\n    RewriteCond %{QUERY_STRING} ([^&;]+)\n    RewriteRule ^/wiki\\.cgi$ %{ENV:RW_PROTO}://%{SERVER_NAME}/w/index.php?title=%1 [R=301,L]\n    RewriteRule ^/wiki\\.cgi$ %{ENV:RW_PROTO}://%{SERVER_NAME}/w/index.php [R=301,L]\n    # Early phase 2 compatibility URLs\n    RewriteRule ^/wiki\\.phtml$ %{ENV:RW_PROTO}://%{SERVER_NAME}/w/index.php [R=301,L]\n    # Custom rewrite rules (late)\n    # moved wikistats off NFS\n    RewriteRule ^/wikistats(/(.*$)|$) %{ENV:RW_PROTO}://stats.wikimedia.org/$2 [R=302,L]\n\n    RewriteRule ^/sr /w/index.php [L]\n    RewriteRule ^/sr-ec /w/index.php [L]\n    RewriteRule ^/sr-el /w/index.php [L]\n    RewriteRule ^/zh /w/index.php [L]\n    RewriteRule ^/zh-hans /w/index.php [L]\n    RewriteRule ^/zh-hant /w/index.php [L]\n    RewriteRule ^/zh-cn /w/index.php [L]\n    RewriteRule ^/zh-hk /w/index.php [L]\n    RewriteRule ^/zh-my /w/index.php [L]\n    RewriteRule ^/zh-mo /w/index.php [L]\n    RewriteRule ^/zh-sg /w/index.php [L]\n    RewriteRule ^/zh-tw /w/index.php [L]\n    # Forbid accessing files under /w/extensions\n    RewriteRule ^/w/extensions/.*\\.php - [F,L]\n    <FilesMatch \"\\.php$\">\n        SetHandler \"proxy:fcgi://127.0.0.1:9000\"\n    </FilesMatch>\n\n    RewriteRule ^/\\.well-known/change-password$ /wiki/Special:ChangeCredentials/MediaWiki\\\\Auth\\\\PasswordAuthenticationRequest [R=302]\n</VirtualHost>\n",
+      "02-static.conf": "<Virtualhost *:8080>\n  Servername test\n  ServerAlias test.local\n  DocumentRoot /srv/mediawiki/docroot/standard-docroot\n</VirtualHost>\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "mediawiki-release-name-wikimedia-cluster-config"
+    },
+    "data": {
+      "wikimedia-cluster": "local"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "mediawiki-release-name",
+      "labels": {
+        "app": "mediawiki",
+        "chart": "mediawiki-0.2.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "NodePort",
+      "selector": {
+        "app": "mediawiki",
+        "routed_via": "release-name"
+      },
+      "ports": [
+        {
+          "name": "http",
+          "targetPort": 8080,
+          "port": 8080
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "mediawiki-release-name",
+      "labels": {
+        "app": "mediawiki",
+        "chart": "mediawiki-0.2.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "mediawiki",
+          "release": "release-name"
+        }
+      },
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "mediawiki",
+            "release": "release-name",
+            "deployment": "default",
+            "routed_via": "release-name"
+          },
+          "annotations": {
+            "checksum/sites": "247a3d27f78d862ab4d636a5953d4b33fd605919652333d0ede33079c09a2945"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "mediawiki-release-name-httpd",
+              "image": "docker-registry.wikimedia.org/latest",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "FCGI_MODE",
+                  "value": "FCGI_TCP"
+                },
+                {
+                  "name": "SERVERGROUP",
+                  "value": "main"
+                },
+                {
+                  "name": "APACHE_RUN_PORT",
+                  "value": "8080"
+                },
+                {
+                  "name": "SERVER_SIGNATURE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "name": "httpd",
+                  "containerPort": 8080
+                },
+                {
+                  "name": "php-metrics",
+                  "containerPort": 9181
+                }
+              ],
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": "httpd"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": "php-metrics"
+                }
+              },
+              "resources": {
+                "requests": {
+                  "cpu": "200m",
+                  "memory": "600Mi"
+                },
+                "limits": {
+                  "cpu": 1,
+                  "memory": "800Mi"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "mediawiki-release-name-httpd-sites",
+                  "mountPath": "/etc/apache2/sites-enabled/01-wikipedia.local.conf",
+                  "subPath": "01-wikipedia.local.conf"
+                },
+                {
+                  "name": "mediawiki-release-name-httpd-sites",
+                  "mountPath": "/etc/apache2/sites-enabled/02-static.conf",
+                  "subPath": "02-static.conf"
+                }
+              ]
+            },
+            {
+              "name": "mediawiki-release-name-app",
+              "image": "docker-registry.wikimedia.org/placeholder-for-mediawiki-image-name",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "SERVERGROUP",
+                  "value": "main"
+                },
+                {
+                  "name": "FCGI_MODE",
+                  "value": "FCGI_TCP"
+                },
+                {
+                  "name": "FCGI_URL",
+                  "value": "0.0.0.0:9000"
+                },
+                {
+                  "name": "PHP__opcache__memory_consumption",
+                  "value": "200"
+                },
+                {
+                  "name": "PHP__opcache__max_accelerated_files",
+                  "value": "1000"
+                },
+                {
+                  "name": "PHP__opcache__interned_strings_buffer",
+                  "value": "10"
+                },
+                {
+                  "name": "PHP__auto_prepend_file",
+                  "value": "/srv/mediawiki/wmf-config/PhpAutoPrepend.php"
+                },
+                {
+                  "name": "FPM__request_terminate_timeout",
+                  "value": "60"
+                },
+                {
+                  "name": "PHP__apc__shm_size",
+                  "value": "400M"
+                },
+                {
+                  "name": "FPM__pm__max_children",
+                  "value": "5"
+                },
+                {
+                  "name": "FPM__request_slowlog_timeout",
+                  "value": "0"
+                },
+                {
+                  "name": "PHP__display_errors",
+                  "value": "Off"
+                },
+                {
+                  "name": "PHP__error_reporting",
+                  "value": "30719"
+                },
+                {
+                  "name": "PHP__error_log",
+                  "value": "/dev/stderr"
+                },
+                {
+                  "name": "FCGI_ALLOW",
+                  "value": "127.0.0.1"
+                }
+              ],
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": 9000
+                },
+                "initialDelaySeconds": 1,
+                "periodSeconds": 5
+              },
+              "resources": {
+                "requests": {
+                  "cpu": "1000m",
+                  "memory": "3500Mi"
+                },
+                "limits": {
+                  "cpu": "2000m",
+                  "memory": "4000Mi"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "mediawiki-release-name-wikimedia-cluster",
+                  "mountPath": "/etc/wikimedia-cluster",
+                  "subPath": "wikimedia-cluster"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "mediawiki-release-name-httpd-sites",
+              "configMap": {
+                "name": "mediawiki-release-name-httpd-sites-config"
+              }
+            },
+            {
+              "name": "mediawiki-release-name-wikimedia-cluster",
+              "configMap": {
+                "name": "mediawiki-release-name-wikimedia-cluster-config"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+      "name": "test-mediawiki-release-name",
+      "labels": {
+        "app": "mediawiki",
+        "chart": "mediawiki-0.2.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test",
+        "helm.sh/hook-delete-policy": "hook-succeeded"
+      }
+    },
+    "spec": {
+      "template": {
+        "spec": {
+          "securityContext": {
+            "runAsUser": 1000
+          },
+          "containers": [
+            {
+              "name": "test-mediawiki-release-name",
+              "image": "docker-registry.wikimedia.org/wmfdebug:latest",
+              "command": [
+                "curl",
+                "-sSf",
+                "--connect-to",
+                "test.wikipedia.org:80:mediawiki-release-name:8080",
+                "-H",
+                "X-Forwarded-Proto: https",
+                "http://test.wikipedia.org/wiki/Main_Page"
+              ]
+            }
+          ],
+          "restartPolicy": "Never"
+        }
+      }
+    }
+  }
+]

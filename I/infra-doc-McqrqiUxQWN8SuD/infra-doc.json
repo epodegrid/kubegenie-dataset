@@ -1,0 +1,404 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-infra-doc",
+      "labels": {
+        "app.kubernetes.io/name": "infra-doc",
+        "helm.sh/chart": "infra-doc-0.1.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "serviceaccounts.openshift.io/oauth-redirecturi.first": "https://infra-doc.paas.bgdi.ch/,https://infra-doc.paas.bgdi.ch/oauth/callback"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-infra-doc",
+      "labels": {
+        "app.kubernetes.io/name": "infra-doc",
+        "helm.sh/chart": "infra-doc-0.1.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "stringData": {
+      "WebHookSecretKey": null,
+      "ssh-privatekey": ""
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-infra-doc",
+      "labels": {
+        "app.kubernetes.io/name": "infra-doc",
+        "helm.sh/chart": "infra-doc-0.1.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "service.alpha.openshift.io/serving-cert-secret-name": "infra-doc-proxy-tls"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "public",
+          "protocol": "TCP",
+          "name": "public"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "infra-doc",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-infra-doc",
+      "labels": {
+        "app.kubernetes.io/name": "infra-doc",
+        "helm.sh/chart": "infra-doc-0.1.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "image.openshift.io/triggers": "[{\n\"from\" :{\n  \"kind\": \"ImageStreamTag\",\n  \"name\": \"infra-doc-nginx:latest\"\n},\n\"fieldPath\": \"spec.template.spec.containers[?(@.name==\\\"infra-doc\\\")].image\"\n}]\n"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "infra-doc",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "infra-doc",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-infra-doc",
+          "containers": [
+            {
+              "name": "infra-doc-oauth-proxy",
+              "image": "openshift/oauth-proxy:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "public",
+                  "containerPort": 4180,
+                  "protocol": "TCP"
+                }
+              ],
+              "args": [
+                "--https-address=",
+                "--http-address=:4180",
+                "--provider=openshift",
+                "--openshift-service-account=release-name-infra-doc",
+                "--upstream=http://localhost:8081",
+                "--tls-cert=/etc/tls/private/tls.crt",
+                "--tls-key=/etc/tls/private/tls.key",
+                "--cookie-secret=SECRET"
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/etc/tls/private",
+                  "name": "proxy-tls"
+                }
+              ]
+            },
+            {
+              "name": "infra-doc",
+              "image": " ",
+              "imagePullPolicy": "Always",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8081,
+                  "procotol": "TCP"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "proxy-tls",
+              "secret": {
+                "secretName": "infra-doc-proxy-tls"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "build.openshift.io/v1",
+    "kind": "BuildConfig",
+    "metadata": {
+      "name": "release-name-infra-doc-python-builder",
+      "labels": {
+        "app.kubernetes.io/name": "infra-doc",
+        "helm.sh/chart": "infra-doc-0.1.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "output": {
+        "to": {
+          "kind": "ImageStreamTag",
+          "name": "infra-doc-python-builder:latest"
+        }
+      },
+      "source": {
+        "type": "Git",
+        "git": {
+          "uri": "https://github.com/camptocamp/docker-openshift-python-builder"
+        }
+      },
+      "strategy": {
+        "type": "Docker",
+        "dockerStrategy": {
+          "from": {
+            "kind": "ImageStreamTag",
+            "name": "infra-doc-debian:stretch"
+          }
+        }
+      },
+      "triggers": [
+        {
+          "type": "imageChange",
+          "imageChange": {}
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "build.openshift.io/v1",
+    "kind": "BuildConfig",
+    "metadata": {
+      "name": "release-name-infra-doc-artifact",
+      "labels": {
+        "app.kubernetes.io/name": "infra-doc",
+        "helm.sh/chart": "infra-doc-0.1.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "output": {
+        "to": {
+          "kind": "ImageStreamTag",
+          "name": "infra-doc-artifact:latest"
+        }
+      },
+      "source": {
+        "type": "Git",
+        "git": {
+          "uri": ""
+        },
+        "contextDir": ".",
+        "sourceSecret": {
+          "name": "release-name-infra-doc"
+        }
+      },
+      "strategy": {
+        "type": "Docker",
+        "dockerStrategy": {
+          "from": {
+            "kind": "ImageStreamTag",
+            "name": "infra-doc-python-builder:latest"
+          }
+        }
+      },
+      "triggers": [
+        {
+          "type": "imageChange",
+          "imageChange": {}
+        },
+        {
+          "type": "GitHub",
+          "github": {
+            "secretReference": {
+              "name": "release-name-infra-doc"
+            }
+          },
+          "gitlab": {
+            "secretReference": {
+              "name": "release-name-infra-doc"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "build.openshift.io/v1",
+    "kind": "BuildConfig",
+    "metadata": {
+      "name": "release-name-infra-doc-nginx",
+      "labels": {
+        "app.kubernetes.io/name": "infra-doc",
+        "helm.sh/chart": "infra-doc-0.1.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "output": {
+        "to": {
+          "kind": "ImageStreamTag",
+          "name": "infra-doc-nginx:latest"
+        }
+      },
+      "source": {
+        "dockerfile": "FROM infra-doc-openshift-nginx:latest\nCOPY build /usr/share/nginx/html",
+        "images": [
+          {
+            "from": {
+              "kind": "ImageStreamTag",
+              "name": "infra-doc-artifact:latest"
+            },
+            "paths": [
+              {
+                "sourcePath": "/build",
+                "destinationDir": "."
+              }
+            ]
+          }
+        ]
+      },
+      "strategy": {
+        "type": "Docker",
+        "dockerStrategy": {
+          "from": {
+            "kind": "ImageStreamTag",
+            "name": "infra-doc-openshift-nginx:latest"
+          }
+        }
+      },
+      "triggers": [
+        {
+          "type": "imageChange",
+          "imageChange": {
+            "from": {
+              "kind": "ImageStreamTag",
+              "name": "infra-doc-artifact:latest"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "image.openshift.io/v1",
+    "kind": "ImageStream",
+    "metadata": {
+      "name": "release-name-infra-doc-debian",
+      "labels": {
+        "app.kubernetes.io/name": "infra-doc",
+        "helm.sh/chart": "infra-doc-0.1.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "tags": [
+        {
+          "from": {
+            "kind": "DockerImage",
+            "name": "docker.io/debian:stretch"
+          },
+          "name": "stretch",
+          "referencePolicy": {
+            "type": "Source"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "image.openshift.io/v1",
+    "kind": "ImageStream",
+    "metadata": {
+      "name": "release-name-infra-doc-python-builder",
+      "labels": {
+        "app.kubernetes.io/name": "infra-doc",
+        "helm.sh/chart": "infra-doc-0.1.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "image.openshift.io/v1",
+    "kind": "ImageStream",
+    "metadata": {
+      "name": "release-name-infra-doc-openshift-nginx",
+      "labels": {
+        "app.kubernetes.io/name": "infra-doc",
+        "helm.sh/chart": "infra-doc-0.1.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "tags": [
+        {
+          "from": {
+            "kind": "DockerImage",
+            "name": "docker.io/twalter/openshift-nginx:stable"
+          },
+          "name": "latest",
+          "referencePolicy": {
+            "type": "Source"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "image.openshift.io/v1",
+    "kind": "ImageStream",
+    "metadata": {
+      "name": "release-name-infra-doc-artifact",
+      "labels": {
+        "app.kubernetes.io/name": "infra-doc",
+        "helm.sh/chart": "infra-doc-0.1.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "image.openshift.io/v1",
+    "kind": "ImageStream",
+    "metadata": {
+      "name": "release-name-infra-doc-nginx",
+      "labels": {
+        "app.kubernetes.io/name": "infra-doc",
+        "helm.sh/chart": "infra-doc-0.1.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  }
+]

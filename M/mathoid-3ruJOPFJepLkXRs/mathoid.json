@@ -1,0 +1,200 @@
+[
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "NetworkPolicy",
+    "metadata": {
+      "name": "mathoid-release-name",
+      "labels": {
+        "app": "mathoid",
+        "chart": "mathoid-0.1.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "podSelector": {
+        "matchLabels": {
+          "app": "mathoid",
+          "release": "release-name"
+        }
+      },
+      "policyTypes": [
+        "Ingress"
+      ],
+      "ingress": [
+        {
+          "ports": [
+            {
+              "port": 10044,
+              "protocol": "TCP"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "config-release-name"
+    },
+    "data": {
+      "config.yaml": "# Set to 0 to run everything in a single process without clustering.\n# Use 'ncpu' to run as many workers as there are CPU units\nnum_workers: 1\n\n# Log error messages and gracefully restart a worker if v8 reports that it\n# uses more heap (note: not RSS) than this many mb.\nworker_heap_limit_mb: 300\n\n# The maximum interval in ms that can pass between two beat messages\n# sent by each worker to the master before it is killed\nworker_heartbeat_timeout: 7500\n\n# Logger info\nlogging:\n  name: mathoid\n  streams:\n    - type: stdout\n      named_levels: true\n\nservices:\n  - name: mathoid\n    # a relative path or the name of an npm package, if different from name\n    module: ./app.js\n    # per-service config\n    conf:\n      port: 10044\n      # interface: localhost # uncomment to only listen on localhost\n      # more per-service config settings\n      # the location of the spec, defaults to spec.yaml if not specified\n      # spec: ./spec.template.yaml\n      # allow cross-domain requests to the API (default '*')\n      cors: '*'\n      # to disable use:\n      # cors: false\n      # to restrict to a particular domain, use:\n      # cors: restricted.domain.org\n      # content for the CSP headers\n      # csp: false  # uncomment this line to disable sending them\n      # URL of the outbound proxy to use (complete with protocol)\n      #      proxy: http://url-downloader.eqiad.wikimedia.org:8080\n      # the list of domains for which not to use the proxy defined above\n      # no_proxy_list:\n      #   - domain1.com\n      #   - domain2.org\n      # the list of incoming request headers that can be logged; if left empty,\n      # the following headers are allowed: cache-control, content-length,\n      # content-type, if-match, user-agent, x-request-id\n      # log_header_whitelist:\n      #   - cache-control\n      #   - content-length\n      #   - content-type\n      #   - if-match\n      #   - user-agent\n      #   - x-request-id\n      # list of enabled renders\n      svg: true\n      img: true\n      png: true\n      texvcinfo: true\n      no_check: true\n      speech: true\n      speech_on: false\n      speech_config:\n        semantics: true\n        domain: 'mathspeak'\n        style: 'default'\n        semantic: false\n        minSTree: false\n        speakText: true\n        enrich: false\n      mj_config:\n          extensions: \"TeX/color,TeX/mediawiki-texvc,TeX/mhchem\"\n          MathJax:\n            menuSettings:\n              semantics: true\n            SVG:\n              font: \"TeX\"\n            TeX:\n              noErrors:\n                disabled: true\n      dpi: 180\n      svgo: false"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "mathoid-release-name",
+      "labels": {
+        "app": "mathoid",
+        "chart": "mathoid-0.1.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "NodePort",
+      "selector": {
+        "app": "mathoid",
+        "release": "release-name",
+        "routed_via": "release-name"
+      },
+      "ports": [
+        {
+          "name": "http",
+          "protocol": "TCP",
+          "port": 10044
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "mathoid-release-name",
+      "labels": {
+        "app": "mathoid",
+        "chart": "mathoid-0.1.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "mathoid",
+          "release": "release-name"
+        }
+      },
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "mathoid",
+            "release": "release-name",
+            "routed_via": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "24eec11dbff7107c5d675da88bf3bebba63a42cde24bef45575f76cc032ba0fe",
+            "prometheus.io/scrape": "false"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "mathoid-release-name",
+              "image": "docker-registry.wikimedia.org/wikimedia/mediawiki-services-mathoid:latest",
+              "command": [
+                "nodejs"
+              ],
+              "args": [
+                "server.js",
+                "-c",
+                "/etc/mathoid/config.yaml"
+              ],
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "containerPort": 10044
+                }
+              ],
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": 10044
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/_info",
+                  "port": 10044
+                }
+              },
+              "env": [
+                {
+                  "name": "SERVICE_IDENTIFIER",
+                  "value": "mathoid-release-name"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config-volume",
+                  "mountPath": "/etc/mathoid"
+                }
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "200Mi"
+                },
+                "limits": {
+                  "cpu": 1,
+                  "memory": "1Gi"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "config-release-name"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "mathoid-release-name-service-checker",
+      "annotations": {
+        "helm.sh/hook": "test",
+        "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "mathoid-release-name-service-checker",
+          "image": "docker-registry.wikimedia.org/service-checker",
+          "imagePullPolicy": "IfNotPresent",
+          "args": [
+            "-t",
+            "5",
+            "$(MATHOID_RELEASE_NAME_SERVICE_HOST)",
+            "http://mathoid-release-name:10044"
+          ]
+        }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "restartPolicy": "Never"
+    }
+  }
+]

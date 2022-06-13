@@ -1,0 +1,155 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vpn-vpnconfig
+data:
+  psk: eW91cl9wcmVzaGFyZWRrZXk=
+  password_vpn: cGFzc3dvcmQ=
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vpn-vpnscript
+data:
+  create-env.sh: |-
+    #!/usr/local/bin/bash
+
+    prefix=VPN_CONFIGBUILDER_PASSWORD_
+    is_first_user=true
+    is_second_user=false
+    is_first_password=true
+    is_second_password=false
+    env_file=/vpn/vpn.env
+
+    echo -n "" > ${env_file}
+
+    echo "VPN_DNS_NAME=\"${VPN_CONFIGBUILDER_DNSNAME}\"" >> ${env_file}
+    echo "VPN_IPSEC_PSK=\"${VPN_CONFIGBUILDER_PSK}\"" >> ${env_file}
+
+    # users
+    env | while IFS= read -r line; do
+      name=${line%%=*}
+
+      if [[ "${name}" =~ ^$prefix ]]; then
+        username=${name#"$prefix"}
+        if [ "${is_first_user}" = true ]; then
+          is_first_user=false
+          is_second_user=true
+          echo "VPN_USER=\"${username}\"" >> ${env_file}
+          echo -n "VPN_ADDL_USERS=\"" >> ${env_file}
+        else
+          if [ "${is_second_user}" = true ]; then
+            is_second_user=false
+            echo -n "${username}" >> ${env_file}
+          else
+            echo -n " ${username}" >> ${env_file}
+          fi
+        fi
+      fi
+    done
+    echo "\"" >> ${env_file}
+
+    # passwords
+    env | while IFS= read -r line; do
+      name=${line%%=*}
+      password=${line#*=}
+
+      if [[ "${name}" =~ ^$prefix ]]; then
+        if [ "${is_first_password}" = true ]; then
+          is_first_password=false
+          is_second_password=true
+          echo "VPN_PASSWORD=\"${password}\"" >> ${env_file}
+          echo -n "VPN_ADDL_PASSWORDS=\"" >> ${env_file}
+        else
+          if [ "${is_second_password}" = true ]; then
+            is_second_password=false
+            echo -n "${password}" >> ${env_file}
+          else
+            echo -n " ${password}" >> ${env_file}
+          fi
+        fi
+      fi
+    done
+    echo "\"" >> ${env_file}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vpn-vpn-server
+spec:
+  selector:
+    app.kubernetes.io/name: vpn-vpn-server
+  ports:
+    - name: vpn-isakmp
+      port: 500
+    - name: vpn-ike
+      port: 4500
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vpn-vpn-server
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vpn-vpn-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vpn-vpn-server
+    spec:
+      initContainers:
+        - name: init-config
+          image: bash:alpine3.15
+          command:
+            - sh
+            - -c
+          args:
+            - /vpn/scripts/create-env.sh
+          env:
+            - name: VPN_CONFIGBUILDER_DNSNAME
+              value: vpn.example.com
+            - name: VPN_CONFIGBUILDER_PSK
+              valueFrom:
+                secretKeyRef:
+                  name: vpn-vpnconfig
+                  key: psk
+            - name: VPN_CONFIGBUILDER_PASSWORD_vpn
+              valueFrom:
+                secretKeyRef:
+                  name: vpn-vpnconfig
+                  key: password_vpn
+          volumeMounts:
+            - mountPath: /vpn
+              name: vpn-config
+            - mountPath: /vpn/scripts
+              name: vpn-script
+              readOnly: true
+      containers:
+        - name: vpn-server
+          image: hwdsl2/ipsec-vpn-server:latest
+          imagePullPolicy: Always
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          ports:
+            - name: vpn-isakmp
+              containerPort: 500
+              protocol: UDP
+            - name: vpn-ike
+              containerPort: 4500
+              protocol: UDP
+          volumeMounts:
+            - mountPath: /opt/src/env/
+              name: vpn-config
+      volumes:
+        - name: vpn-config
+          emptyDir: {}
+        - name: vpn-script
+          configMap:
+            name: vpn-vpnscript
+            defaultMode: 511

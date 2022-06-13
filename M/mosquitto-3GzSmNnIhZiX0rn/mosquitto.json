@@ -1,0 +1,144 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-mosquitto",
+      "labels": {
+        "app.kubernetes.io/name": "mosquitto",
+        "helm.sh/chart": "mosquitto-0.0.12",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "mosquitto.conf": "allow_anonymous true\n\nconnection_messages true\nlog_timestamp true\nlog_type all\nlog_dest stdout\n\nlistener 1883 127.0.0.1\nlistener 8883\n\n#use_identity_as_username true\n### Auth plug parameters - MYSQL back end ####\nauth_plugin /mosquitto/config/auth-plug.so\n\nauth_opt_backends mysql\n##auth_opt_redis_host\n##auth_opt_redis_port\nauth_opt_host centraldb.alpha.nalkins.cloud\nauth_opt_port 3306\nauth_opt_dbname django\nauth_opt_user django\nauth_opt_pass django\nauth_opt_userquery SELECT password FROM devices WHERE device_id = '%s'\nauth_opt_superquery SELECT COUNT(*) FROM devices WHERE device_id = '%s' AND super = 1\nauth_opt_aclquery SELECT topic FROM access_list WHERE (device_id = '%s') AND (rw >= '%d')\nauth_opt_anonusername AnonymouS\n\nauth_opt_mysql_opt_reconnect true\nauth_opt_mysql_auto_reconnect true\n### END Auth plug parameters ####\n\nmax_inflight_messages 1\n\n#Allow multiple connections for same client\nuse_username_as_clientid true"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-mosquitto",
+      "labels": {
+        "app.kubernetes.io/name": "mosquitto",
+        "helm.sh/chart": "mosquitto-0.0.12",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 1883,
+          "targetPort": "mqtt",
+          "protocol": "TCP",
+          "name": "mqtt"
+        },
+        {
+          "port": 8883,
+          "targetPort": "mqtt-tls",
+          "protocol": "TCP",
+          "name": "mqtt-tls"
+        },
+        {
+          "port": 9090,
+          "targetPort": "websocket",
+          "protocol": "TCP",
+          "name": "websocket"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "mosquitto",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-mosquitto",
+      "labels": {
+        "app.kubernetes.io/name": "mosquitto",
+        "helm.sh/chart": "mosquitto-0.0.12",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "mosquitto",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "mosquitto",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "mosquitto",
+              "image": "arielev/mosquitto:1.5.5",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "mqtt",
+                  "containerPort": 1883,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "mqtt-tls",
+                  "containerPort": 8883,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "websocket",
+                  "containerPort": 9090,
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "mosquitto-config",
+                  "mountPath": "/mosquitto/config/mosquitto.conf",
+                  "subPath": "mosquitto.conf",
+                  "readOnly": true
+                },
+                {
+                  "name": "mosquitto-data",
+                  "mountPath": "/mosquitto/data",
+                  "subPath": "mosquitto/data"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "mosquitto-config",
+              "configMap": {
+                "name": "release-name-mosquitto"
+              }
+            },
+            {
+              "name": "mosquitto-data",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  }
+]

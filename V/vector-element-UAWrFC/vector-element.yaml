@@ -1,0 +1,133 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-vector-element
+  labels:
+    helm.sh/chart: vector-element-0.1.3
+    app.kubernetes.io/name: vector-element
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.10.12
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-vector-element
+  labels:
+    helm.sh/chart: vector-element-0.1.3
+    app.kubernetes.io/name: vector-element
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.10.12
+    app.kubernetes.io/managed-by: Helm
+data:
+  config.json: |
+    {"default_server_config":{"m.homeserver":{"base_url":"https://matrix.example.com","server_name":"matrix.example.com"},"m.identity_server":{"base_url":"https://vector.im"}}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-vector-element
+  labels:
+    helm.sh/chart: vector-element-0.1.3
+    app.kubernetes.io/name: vector-element
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.10.12
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: vector-element
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-vector-element
+  labels:
+    helm.sh/chart: vector-element-0.1.3
+    app.kubernetes.io/name: vector-element
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.10.12
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vector-element
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config: 78db62c1c8ba98b80767aa27323722532cfc8ec695a79fbf278b956d6b6e8879
+      labels:
+        app.kubernetes.io/name: vector-element
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-vector-element
+      securityContext: {}
+      containers:
+        - name: vector-element
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          image: vectorim/element-web:v1.10.12
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - mountPath: /app/config.json
+              name: config
+              subPath: config.json
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-vector-element
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-vector-element-test-connection
+  labels:
+    helm.sh/chart: vector-element-0.1.3
+    app.kubernetes.io/name: vector-element
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.10.12
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-vector-element:80
+  restartPolicy: Never

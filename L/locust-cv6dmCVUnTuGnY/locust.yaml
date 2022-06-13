@@ -1,0 +1,323 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-locust-master
+  labels:
+    helm.sh/chart: locust-0.27.0
+    app.kubernetes.io/name: locust
+    app.kubernetes.io/instance: release-name
+    load_test: example
+    app.kubernetes.io/version: 2.8.6
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-locust-worker
+  labels:
+    helm.sh/chart: locust-0.27.0
+    app.kubernetes.io/name: locust
+    app.kubernetes.io/instance: release-name
+    load_test: example
+    app.kubernetes.io/version: 2.8.6
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-locust-config
+  labels:
+    helm.sh/chart: locust-0.27.0
+    app.kubernetes.io/name: locust
+    app.kubernetes.io/instance: release-name
+    load_test: example
+    app.kubernetes.io/version: 2.8.6
+    app.kubernetes.io/managed-by: Helm
+data:
+  docker-entrypoint.sh: |
+    #!/bin/sh
+
+    set -eu
+
+    exec /opt/venv/bin/locust $@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: example-lib
+  labels:
+    helm.sh/chart: locust-0.27.0
+    app.kubernetes.io/name: locust
+    app.kubernetes.io/instance: release-name
+    load_test: example
+    app.kubernetes.io/version: 2.8.6
+    app.kubernetes.io/managed-by: Helm
+data:
+  __init__.py: |
+    # -*- coding: utf-8 -*-
+  example_functions.py: |
+    # -*- coding: utf-8 -*-
+
+    import random
+
+
+    def choose_random_page():
+        pages = [
+            '/policies/privacy/',
+            '/contact/',
+            '/about/',
+            '/search/howsearchworks/crawling-indexing/',
+            '/search/howsearchworks/algorithms/'
+        ]
+
+        return random.choice(pages)
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: example-locustfile
+  labels:
+    helm.sh/chart: locust-0.27.0
+    app.kubernetes.io/name: locust
+    app.kubernetes.io/instance: release-name
+    load_test: example
+    app.kubernetes.io/version: 2.8.6
+    app.kubernetes.io/managed-by: Helm
+data:
+  main.py: |
+    # -*- coding: utf-8 -*-
+
+    from locust import HttpUser, task, between
+    from lib.example_functions import choose_random_page
+
+
+    default_headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.100 Safari/537.36'}
+
+
+    class WebsiteUser(HttpUser):
+        wait_time = between(1, 2)
+
+        @task(1)
+        def get_index(self):
+            self.client.get("/", headers=default_headers)
+
+        @task(3)
+        def get_random_page(self):
+            self.client.get(choose_random_page(), headers=default_headers)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-locust
+  labels:
+    helm.sh/chart: locust-0.27.0
+    app.kubernetes.io/name: locust
+    app.kubernetes.io/instance: release-name
+    load_test: example
+    app.kubernetes.io/version: 2.8.6
+    app.kubernetes.io/managed-by: Helm
+    component: master
+spec:
+  type: ClusterIP
+  ports:
+    - name: master-p1
+      port: 5557
+      protocol: TCP
+      targetPort: 5557
+    - name: master-p2
+      port: 5558
+      protocol: TCP
+      targetPort: 5558
+    - name: master-p3
+      port: 8089
+      protocol: TCP
+      targetPort: 8089
+  selector:
+    component: master
+    app.kubernetes.io/name: locust
+    app.kubernetes.io/instance: release-name
+    load_test: example
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-locust-master
+  labels:
+    component: master
+    helm.sh/chart: locust-0.27.0
+    app.kubernetes.io/name: locust
+    app.kubernetes.io/instance: release-name
+    load_test: example
+    app.kubernetes.io/version: 2.8.6
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      component: master
+      app.kubernetes.io/name: locust
+      app.kubernetes.io/instance: release-name
+      load_test: example
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        checksum/config-locust-lib: 8591838e0a07bc223eceb4f76037b5c07cc049a42c1e596c6b8a9292a4553a43
+        checksum/config-locust-locustfile: c317007b76fb959375ad1436f67c9e76b0073ef26c9d6ffbe698a09313b3e7b0
+        checksum/config-config: 6e4438cbcaf4d53ea6c4614c397b0123dee7297370783872fa8954a0a5102c17
+        checksum/config-secret: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
+      labels:
+        component: master
+        app.kubernetes.io/name: locust
+        app.kubernetes.io/instance: release-name
+        load_test: example
+    spec:
+      securityContext: {}
+      serviceAccountName: release-name-locust-master
+      containers:
+        - name: locust
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: locustio/locust:2.8.6
+          command:
+            - sh
+            - /config/docker-entrypoint.sh
+          args:
+            - --master
+          imagePullPolicy: IfNotPresent
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: locustfile
+              mountPath: /mnt/locust
+            - name: lib
+              mountPath: /mnt/locust/lib
+            - name: config
+              mountPath: /config
+          env:
+            - name: LOCUST_HOST
+              value: https://www.google.com
+            - name: LOCUST_LOGLEVEL
+              value: INFO
+            - name: LOCUST_LOCUSTFILE
+              value: /mnt/locust/main.py
+          ports:
+            - containerPort: 8089
+              name: loc-master-web
+              protocol: TCP
+            - containerPort: 5557
+              name: loc-master-p1
+              protocol: TCP
+            - containerPort: 5558
+              name: loc-master-p2
+              protocol: TCP
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 30
+            failureThreshold: 2
+            httpGet:
+              path: /
+              port: 8089
+      restartPolicy: Always
+      volumes:
+        - name: lib
+          configMap:
+            name: example-lib
+        - name: locustfile
+          configMap:
+            name: example-locustfile
+        - name: config
+          configMap:
+            name: release-name-locust-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-locust-worker
+  labels:
+    component: worker
+    helm.sh/chart: locust-0.27.0
+    app.kubernetes.io/name: locust
+    app.kubernetes.io/instance: release-name
+    load_test: example
+    app.kubernetes.io/version: 2.8.6
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      component: worker
+      app.kubernetes.io/name: locust
+      app.kubernetes.io/instance: release-name
+      load_test: example
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        checksum/config-locust-lib: 8591838e0a07bc223eceb4f76037b5c07cc049a42c1e596c6b8a9292a4553a43
+        checksum/config-locust-locustfile: c317007b76fb959375ad1436f67c9e76b0073ef26c9d6ffbe698a09313b3e7b0
+        checksum/config-config: 6e4438cbcaf4d53ea6c4614c397b0123dee7297370783872fa8954a0a5102c17
+        checksum/config-secret: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
+      labels:
+        component: worker
+        app.kubernetes.io/name: locust
+        app.kubernetes.io/instance: release-name
+        load_test: example
+    spec:
+      securityContext: {}
+      serviceAccountName: release-name-locust-worker
+      containers:
+        - name: locust
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: locustio/locust:2.8.6
+          command:
+            - sh
+            - /config/docker-entrypoint.sh
+          args:
+            - --worker
+          imagePullPolicy: IfNotPresent
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: locustfile
+              mountPath: /mnt/locust
+            - name: lib
+              mountPath: /mnt/locust/lib
+            - name: config
+              mountPath: /config
+          env:
+            - name: LOCUST_HOST
+              value: https://www.google.com
+            - name: LOCUST_MASTER_NODE_HOST
+              value: release-name-locust
+            - name: LOCUST_MASTER_NODE_PORT
+              value: "5557"
+            - name: LOCUST_LOGLEVEL
+              value: INFO
+            - name: LOCUST_LOCUSTFILE
+              value: /mnt/locust/main.py
+      restartPolicy: Always
+      volumes:
+        - name: lib
+          configMap:
+            name: example-lib
+        - name: locustfile
+          configMap:
+            name: example-locustfile
+        - name: config
+          configMap:
+            name: release-name-locust-config

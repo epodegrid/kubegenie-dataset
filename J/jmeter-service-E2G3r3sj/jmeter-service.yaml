@@ -1,0 +1,176 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-jmeter-service
+  labels:
+    helm.sh/chart: jmeter-service-0.16.0
+    app.kubernetes.io/name: jmeter-service
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.16.0
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-jmeter-service
+  labels:
+    helm.sh/chart: jmeter-service-0.16.0
+    app.kubernetes.io/name: jmeter-service
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.16.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: jmeter-service
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-jmeter-service
+  labels:
+    helm.sh/chart: jmeter-service-0.16.0
+    app.kubernetes.io/name: jmeter-service
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.16.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: jmeter-service
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: jmeter-service-0.16.0
+        app.kubernetes.io/name: jmeter-service
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/version: 0.16.0
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: release-name-jmeter-service
+      securityContext: {}
+      containers:
+        - name: jmeter-service
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: docker.io/keptn/jmeter-service:0.16.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          env:
+            - name: CONFIGURATION_SERVICE
+              value: http://localhost:8081/configuration-service
+            - name: env
+              value: production
+            - name: LOG_LEVEL
+              value: info
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 0
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            seccompProfile:
+              type: RuntimeDefault
+        - name: distributor
+          image: docker.io/keptn/distributor:0.16.0
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sleep
+                  - "5"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 0
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              memory: 16Mi
+              cpu: 25m
+            limits:
+              memory: 32Mi
+              cpu: 100m
+          env:
+            - name: PUBSUB_TOPIC
+              value: sh.keptn.event.test.triggered
+            - name: PUBSUB_RECIPIENT
+              value: 127.0.0.1
+            - name: STAGE_FILTER
+              value: ""
+            - name: PROJECT_FILTER
+              value: ""
+            - name: SERVICE_FILTER
+              value: ""
+            - name: DISTRIBUTOR_VERSION
+              value: 0.16.0
+            - name: VERSION
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['app.kubernetes.io/version']
+            - name: LOCATION
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['app.kubernetes.io/component']
+            - name: K8S_DEPLOYMENT_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['app.kubernetes.io/name']
+            - name: K8S_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: K8S_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: K8S_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: PUBSUB_GROUP
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['app.kubernetes.io/name']
+            - name: OAUTH_CLIENT_ID
+              value: ""
+            - name: OAUTH_CLIENT_SECRET
+              value: ""
+            - name: OAUTH_DISCOVERY
+              value: ""
+            - name: OAUTH_TOKEN_URL
+              value: ""
+            - name: OAUTH_SCOPES
+              value: ""
+      terminationGracePeriodSeconds: 60

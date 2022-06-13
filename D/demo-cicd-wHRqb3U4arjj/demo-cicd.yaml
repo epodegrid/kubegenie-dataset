@@ -1,0 +1,180 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-route-test
+  labels:
+    app: smoke-test
+    chart: demo-cicd-0.2.15
+    heritage: Helm
+    release: release-name
+data:
+  run.sh: |-
+    url=http://release-name-default.
+    echo "testing service url '${url}'"
+    curl -f -s -o /dev/null -w "%{http_code}" $url
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: smoke-test
+    chart: demo-cicd-0.2.15
+    heritage: Helm
+    release: release-name
+  name: release-name-service-test
+data:
+  run.sh: |-
+    url=http://release-name.default.svc:8080
+    echo "testing service url '${url}'"
+    curl -f -s -o /dev/null -w "%{http_code}" $url
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: release-name
+  annotations:
+    description: Exposes and load balances the application pods
+  labels:
+    app: demo-cicd
+    chart: demo-cicd-0.2.15
+    heritage: Helm
+    release: release-name
+spec:
+  ports:
+    - name: web
+      port: 8080
+      targetPort: 8080
+  selector:
+    name: release-name
+---
+kind: DeploymentConfig
+apiVersion: apps.openshift.io/v1
+metadata:
+  name: release-name
+  labels:
+    app: demo-cicd
+    chart: demo-cicd-0.2.15
+    heritage: Helm
+    release: release-name
+    imageTag: latest
+spec:
+  strategy:
+    type: Rolling
+  replicas: 1
+  selector:
+    name: release-name
+  template:
+    metadata:
+      name: release-name
+      labels:
+        imageTag: latest
+        name: release-name
+        app: demo-cicd
+        chart: demo-cicd-0.2.15
+        heritage: Helm
+        release: release-name
+    spec:
+      containers:
+        - name: release-name
+          image: ' '
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            timeoutSeconds: 3
+            initialDelaySeconds: 3
+            httpGet:
+              path: /
+              port: 8080
+          livenessProbe:
+            timeoutSeconds: 3
+            initialDelaySeconds: 30
+            httpGet:
+              path: /
+              port: 8080
+  triggers:
+    - type: ConfigChange
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+          - release-name
+        from:
+          kind: ImageStreamTag
+          name: demo-cicd:latest
+          namespace: tbd
+      type: ImageChange
+---
+kind: Route
+apiVersion: route.openshift.io/v1
+metadata:
+  name: release-name
+  labels:
+    app: demo-cicd
+    chart: demo-cicd-0.2.15
+    heritage: Helm
+    release: release-name
+spec:
+  host: ""
+  to:
+    kind: Service
+    name: release-name
+    weight: 1
+status:
+  ingress: []
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-route-test
+  annotations:
+    helm.sh/hook: test-success
+  labels:
+    integrationTest: "true"
+    app: smoke-test
+    chart: demo-cicd-0.2.15
+    heritage: Helm
+    release: release-name
+spec:
+  containers:
+    - name: release-name-route-test
+      image: openshift/base-centos7
+      command:
+        - /bin/bash
+        - /tests/run.sh
+      volumeMounts:
+        - mountPath: /tests
+          name: tests
+  volumes:
+    - name: tests
+      configMap:
+        name: release-name-route-test
+        defaultMode: 484
+  restartPolicy: Never
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-service-test
+  annotations:
+    helm.sh/hook: test-success
+  labels:
+    integrationTest: "true"
+    app: smoke-test
+    chart: demo-cicd-0.2.15
+    heritage: Helm
+    release: release-name
+spec:
+  containers:
+    - name: release-name-service-test
+      image: openshift/base-centos7
+      command:
+        - /bin/bash
+        - /tests/run.sh
+      volumeMounts:
+        - mountPath: /tests
+          name: tests
+  volumes:
+    - name: tests
+      configMap:
+        name: release-name-service-test
+        defaultMode: 484
+  restartPolicy: Never

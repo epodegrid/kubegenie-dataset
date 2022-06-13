@@ -1,0 +1,207 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name
+data: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-etc-ssh-origin
+data:
+  banner: |
+    Welcome to k8s-ssh-bastion
+    image: 0.3.0
+    chart: 0.3.5
+  sshd_config: |
+    Include /etc/ssh/sshd_config.d/*.conf
+
+    Port 1022
+
+    #LoginGraceTime 2m
+    #PermitRootLogin prohibit-password
+    #StrictModes yes
+    #MaxAuthTries 6
+    #MaxSessions 10
+
+    PubkeyAuthentication yes
+    AuthorizedKeysFile     .ssh/authorized_keys
+
+    PasswordAuthentication no
+    PermitEmptyPasswords no
+
+    # Change to yes to enable challenge-response passwords (beware issues with
+    # some PAM modules and threads)
+    KbdInteractiveAuthentication no
+
+    # Set this to 'yes' to enable PAM authentication, account processing,
+    # and session processing. If this is enabled, PAM authentication will
+    # be allowed through the KbdInteractiveAuthentication and
+    # PasswordAuthentication.  Depending on your PAM configuration,
+    # PAM authentication via KbdInteractiveAuthentication may bypass
+    # the setting of "PermitRootLogin without-password".
+    # If you just want the PAM account and session checks to run without
+    # PAM authentication, then enable this but set PasswordAuthentication
+    # and KbdInteractiveAuthentication to 'no'.
+    UsePAM yes
+
+    AllowAgentForwarding yes
+    AllowTcpForwarding yes
+    GatewayPorts no
+    X11Forwarding no
+    #PermitTTY yes
+    PrintMotd no
+    #PrintLastLog yes
+    TCPKeepAlive yes
+    #PermitUserEnvironment no
+    #Compression delayed
+    #ClientAliveInterval 0
+    #ClientAliveCountMax 3
+    #UseDNS no
+    PidFile /run/sshd.pid
+    #MaxStartups 10:30:100
+    #PermitTunnel no
+    #ChrootDirectory none
+    #VersionAddendum none
+
+    Banner /etc/ssh/banner
+
+    # Allow client to pass locale environment variables
+    AcceptEnv LANG LC_*
+
+    # override default of no subsystems
+    Subsystem       sftp    /usr/lib/openssh/sftp-server
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: release-name-etc-ssh
+spec:
+  storageClassName: efs
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name
+  annotations: {}
+  labels:
+    app: release-name
+    app.kubernetes.io/instance: release-name
+spec:
+  type: NodePort
+  externalTrafficPolicy: Local
+  ports:
+    - port: 22
+      targetPort: ssh
+      protocol: TCP
+      nodePort: 30022
+      name: ssh
+  selector:
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/users: 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+      labels:
+        app.kubernetes.io/instance: release-name
+    spec:
+      containers:
+        - name: bastion
+          image: ghcr.io/nefelim4ag/k8s-ssh-bastion:0.3.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              for file in /etc/ssh_origin/*; do
+                NAME=$(basename $file)
+                install -Dm0600 /etc/ssh_origin/$NAME /etc/ssh/$NAME
+              done
+
+              cd /etc/ssh
+              for key_type in dsa rsa ecdsa ed25519; do
+                lengh=4096
+                [ $key_type == "dsa" ] && lengh=1024
+                [ $key_type == "ecdsa" ] && lengh=256
+                test -f ssh_host_${key_type}_key || \
+                  ssh-keygen -q -N "" -t ${key_type} -b $lengh -f ./ssh_host_${key_type}_key
+              done
+
+              USER_UID=1000
+              for i in /etc/users/*; do
+                useradd -rm -d /home/${i##*/} -s /bin/bash -g root -u $((USER_UID++)) ${i##*/}
+                mkdir -p /home/${i##*/}/.ssh
+                install -Dm0600 $i /home/${i##*/}/.ssh/authorized_keys
+                chmod 700 /home/${i##*/}/.ssh
+                chown -R ${i##*/}:nogroup /home/${i##*/}
+              done
+
+              mkdir -p /run/sshd
+
+              /usr/sbin/sshd -D -e -E /proc/1/fd/1
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - sh
+                  - -c
+                  - sleep 15; kill 1
+          ports:
+            - name: ssh
+              containerPort: 1022
+              protocol: TCP
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/users
+            - name: sshd-configs-persistent
+              mountPath: /etc/ssh
+            - name: sshd-configs-origin
+              mountPath: /etc/ssh_origin
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            seccompProfile:
+              type: RuntimeDefault
+      hostNetwork: false
+      terminationGracePeriodSeconds: 30
+      affinity: {}
+      imagePullSecrets: []
+      topologySpreadConstraints:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/instance: release-name
+          maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/instance: release-name
+          maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+      volumes:
+        - name: config-volume
+          configMap:
+            name: release-name
+        - name: sshd-configs-persistent
+          persistentVolumeClaim:
+            claimName: release-name-etc-ssh
+        - name: sshd-configs-origin
+          configMap:
+            name: release-name-etc-ssh-origin

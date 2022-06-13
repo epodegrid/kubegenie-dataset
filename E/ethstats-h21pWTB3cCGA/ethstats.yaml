@@ -1,0 +1,128 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-ethstats
+  labels:
+    helm.sh/chart: ethstats-0.1.0
+    app.kubernetes.io/name: ethstats
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  namespace: h21pWTB3cCGA
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-ethstats-env
+  labels:
+    helm.sh/chart: ethstats-0.1.0
+    app.kubernetes.io/name: ethstats
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  WS_SECRET: UGxlYXNlQ2hhbmdlVGhpc0V0aHN0YXRzU2VjcmV0
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-ethstats
+  labels:
+    helm.sh/chart: ethstats-0.1.0
+    app.kubernetes.io/name: ethstats
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: ethstats
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-ethstats
+  labels:
+    helm.sh/chart: ethstats-0.1.0
+    app.kubernetes.io/name: ethstats
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: {}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ethstats
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ethstats
+        app.kubernetes.io/instance: release-name
+      annotations:
+        checksum/secrets: 89e13d02485d74307edc8d5b3e579dd37c96aa26d7d14ae1d4c328e08959d7f7
+    spec:
+      serviceAccountName: release-name-ethstats
+      securityContext:
+        fsGroup: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+        runAsUser: 10001
+      initContainers: null
+      containers:
+        - name: ethstats
+          image: puppeth/ethstats:latest
+          imagePullPolicy: IfNotPresent
+          volumeMounts: null
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          livenessProbe:
+            initialDelaySeconds: 60
+            periodSeconds: 120
+            tcpSocket:
+              port: http
+          readinessProbe:
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            tcpSocket:
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: WS_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-ethstats-env
+                  key: WS_SECRET
+      nodeSelector: {}
+      affinity: {}
+      tolerations: []
+      terminationGracePeriodSeconds: 30
+      volumes: null
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-ethstats-test-connection
+  labels:
+    helm.sh/chart: ethstats-0.1.0
+    app.kubernetes.io/name: ethstats
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: curl
+      image: curlimages/curl
+      command:
+        - curl
+      args:
+        - release-name-ethstats:3000/
+  restartPolicy: Never

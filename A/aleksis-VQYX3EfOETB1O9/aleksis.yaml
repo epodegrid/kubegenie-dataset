@@ -1,0 +1,1370 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: release-name-aleksis-app
+  labels:
+    app: release-name-aleksis
+    chart: aleksis-0.4.2
+    heritage: Helm
+    release: release-name
+spec:
+  selector:
+    matchLabels:
+      app: release-name-aleksis-app
+      release: release-name
+  minAvailable: 1
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: release-name-aleksis-worker
+  labels:
+    app: release-name-aleksis
+    chart: aleksis-0.4.2
+    heritage: Helm
+    release: release-name
+spec:
+  selector:
+    matchLabels:
+      app: release-name-aleksis-worker
+      release: release-name
+  minAvailable: 1
+---
+apiVersion: v1
+kind: ServiceAccount
+automountServiceAccountToken: true
+metadata:
+  name: release-name-redis
+  namespace: VQYX3EfOETB1O9
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-16.3.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-aleksis
+  labels:
+    helm.sh/chart: aleksis-0.4.2
+    app.kubernetes.io/name: aleksis
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "2021.06"
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-postgresql
+  namespace: VQYX3EfOETB1O9
+  labels:
+    app.kubernetes.io/name: postgresql
+    helm.sh/chart: postgresql-11.0.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+  postgres-password: amNwelBnVDFFWQ==
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-redis
+  namespace: VQYX3EfOETB1O9
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-16.3.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+  redis-password: T3pXRTZDVHJmUQ==
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-aleksis
+  namespace: VQYX3EfOETB1O9
+  labels:
+    helm.sh/chart: aleksis-0.4.2
+    app.kubernetes.io/name: aleksis
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "2021.06"
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+stringData:
+  secret_configured.yaml: |
+    dynaconf_merge: true
+    {}
+  secret_generated.yaml: |
+    dynaconf_merge: true
+    secret_key: "3boQlLSnLxwSCEJieq6U1cGETx4oeWmg4wB5QqlWAkFRS3hx9H0h1IQhUB5de3rg"
+    auth:
+      superuser:
+        password: "bDQn7Cdyvovb"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-redis-configuration
+  namespace: VQYX3EfOETB1O9
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-16.3.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  redis.conf: |-
+    # User-supplied common configuration:
+    # Enable AOF https://redis.io/topics/persistence#append-only-file
+    appendonly yes
+    # Disable RDB persistence, AOF persistence already enabled.
+    save ""
+    # End of common configuration
+  master.conf: |-
+    dir /data
+    # User-supplied master configuration:
+    # End of master configuration
+  replica.conf: |-
+    dir /data
+    slave-read-only yes
+    # User-supplied replica configuration:
+    # End of replica configuration
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-redis-health
+  namespace: VQYX3EfOETB1O9
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-16.3.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  ping_readiness_local.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    [[ -n "$REDIS_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_PASSWORD"
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ $? == 124 ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_local.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    [[ -n "$REDIS_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_PASSWORD"
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ $? == 124 ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    responseFirstWord=$(echo $response | head -n1 | awk '{print $1;}')
+    if [ "$response" != "PONG" ] && [ "$responseFirstWord" != "LOADING" ] && [ "$responseFirstWord" != "MASTERDOWN" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_master.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD="$(< "${REDIS_MASTER_PASSWORD_FILE}")"
+    [[ -n "$REDIS_MASTER_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_MASTER_PASSWORD"
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ $? == 124 ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_master.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD="$(< "${REDIS_MASTER_PASSWORD_FILE}")"
+    [[ -n "$REDIS_MASTER_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_MASTER_PASSWORD"
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ $? == 124 ]; then
+      echo "Timed out"
+      exit 1
+    fi
+    responseFirstWord=$(echo $response | head -n1 | awk '{print $1;}')
+    if [ "$response" != "PONG" ] && [ "$responseFirstWord" != "LOADING" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_readiness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_readiness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+  ping_liveness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_liveness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_liveness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-redis-scripts
+  namespace: VQYX3EfOETB1O9
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-16.3.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  start-master.sh: |
+    #!/bin/bash
+
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    if [[ ! -f /opt/bitnami/redis/etc/master.conf ]];then
+        cp /opt/bitnami/redis/mounted-etc/master.conf /opt/bitnami/redis/etc/master.conf
+    fi
+    if [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then
+        cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf
+    fi
+    ARGS=("--port" "${REDIS_PORT}")
+    ARGS+=("--requirepass" "${REDIS_PASSWORD}")
+    ARGS+=("--masterauth" "${REDIS_PASSWORD}")
+    ARGS+=("--include" "/opt/bitnami/redis/etc/redis.conf")
+    ARGS+=("--include" "/opt/bitnami/redis/etc/master.conf")
+    exec redis-server "${ARGS[@]}"
+  start-replica.sh: |
+    #!/bin/bash
+
+    get_port() {
+        hostname="$1"
+        type="$2"
+
+        port_var=$(echo "${hostname^^}_SERVICE_PORT_$type" | sed "s/-/_/g")
+        port=${!port_var}
+
+        if [ -z "$port" ]; then
+            case $type in
+                "SENTINEL")
+                    echo 26379
+                    ;;
+                "REDIS")
+                    echo 6379
+                    ;;
+            esac
+        else
+            echo $port
+        fi
+    }
+
+    get_full_hostname() {
+        hostname="$1"
+        echo "${hostname}.${HEADLESS_SERVICE}"
+    }
+
+    REDISPORT=$(get_port "$HOSTNAME" "REDIS")
+
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    [[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD="$(< "${REDIS_MASTER_PASSWORD_FILE}")"
+    if [[ ! -f /opt/bitnami/redis/etc/replica.conf ]];then
+        cp /opt/bitnami/redis/mounted-etc/replica.conf /opt/bitnami/redis/etc/replica.conf
+    fi
+    if [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then
+        cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf
+    fi
+
+    echo "" >> /opt/bitnami/redis/etc/replica.conf
+    echo "replica-announce-port $REDISPORT" >> /opt/bitnami/redis/etc/replica.conf
+    echo "replica-announce-ip $(get_full_hostname "$HOSTNAME")" >> /opt/bitnami/redis/etc/replica.conf
+    ARGS=("--port" "${REDIS_PORT}")
+    ARGS+=("--slaveof" "${REDIS_MASTER_HOST}" "${REDIS_MASTER_PORT_NUMBER}")
+    ARGS+=("--requirepass" "${REDIS_PASSWORD}")
+    ARGS+=("--masterauth" "${REDIS_MASTER_PASSWORD}")
+    ARGS+=("--include" "/opt/bitnami/redis/etc/redis.conf")
+    ARGS+=("--include" "/opt/bitnami/redis/etc/replica.conf")
+    exec redis-server "${ARGS[@]}"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-aleksis-config
+  labels:
+    helm.sh/chart: aleksis-0.4.2
+    app.kubernetes.io/name: aleksis
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "2021.06"
+    app.kubernetes.io/managed-by: Helm
+data:
+  configured.yaml: |
+    http:
+      allowed_hosts: '[*]'
+  generated.yaml: |
+    dynaconf_merge: true
+    database:
+      host: "release-name-postgresql"
+      user: "aleksis"
+      name: "aleksis"
+    redis:
+      host: "release-name-redis-master"
+    http:
+      allowed_hosts:
+        - "*"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-postgresql-hl
+  namespace: VQYX3EfOETB1O9
+  labels:
+    app.kubernetes.io/name: postgresql
+    helm.sh/chart: postgresql-11.0.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: primary
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-postgresql
+  namespace: VQYX3EfOETB1O9
+  labels:
+    app.kubernetes.io/name: postgresql
+    helm.sh/chart: postgresql-11.0.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+  annotations: null
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: postgresql
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: primary
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-redis-headless
+  namespace: VQYX3EfOETB1O9
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-16.3.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: tcp-redis
+      port: 6379
+      targetPort: redis
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-redis-master
+  namespace: VQYX3EfOETB1O9
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-16.3.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: master
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-redis
+      port: 6379
+      targetPort: redis
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: master
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-redis-replicas
+  namespace: VQYX3EfOETB1O9
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-16.3.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: replica
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-redis
+      port: 6379
+      targetPort: redis
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: replica
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-aleksis
+  labels:
+    helm.sh/chart: aleksis-0.4.2
+    app.kubernetes.io/name: aleksis
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "2021.06"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: release-name-aleksis-app
+    release: release-name
+    app.kubernetes.io/name: aleksis
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-aleksis-app
+  labels:
+    helm.sh/chart: aleksis-0.4.2
+    app.kubernetes.io/name: aleksis
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "2021.06"
+    app.kubernetes.io/managed-by: Helm
+    app: release-name-aleksis-app
+    release: release-name
+spec:
+  revisionHistoryLimit: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: aleksis
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: aleksis
+        app.kubernetes.io/instance: release-name
+        app: release-name-aleksis-app
+        release: release-name
+    spec:
+      serviceAccountName: release-name-aleksis
+      securityContext:
+        fsGroup: 33
+        runAsNonRoot: true
+      containers:
+        - name: aleksis-app
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: registry.edugit.org/aleksis/official/aleksis-core:master
+          imagePullPolicy: Always
+          env:
+            - name: PREPARE
+              value: "0"
+            - name: ALEKSIS_database__password
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql
+                  key: postgresql-password
+            - name: ALEKSIS_redis__password
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /etc/aleksis
+              name: release-name-aleksis-config
+              readOnly: true
+            - mountPath: /etc/aleksis/secret
+              name: release-name-aleksis-secret
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /health/
+              port: http
+              httpHeaders:
+                - name: Accept
+                  value: application/json
+                - name: Host
+                  value: release-name.linode.aleksis.org
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+              httpHeaders:
+                - name: Host
+                  value: release-name.linode.aleksis.org
+            failureThreshold: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health/
+              port: http
+              httpHeaders:
+                - name: Accept
+                  value: application/json
+                - name: Host
+                  value: release-name.linode.aleksis.org
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources: null
+      volumes:
+        - name: release-name-aleksis-config
+          configMap:
+            name: release-name-aleksis-config
+        - name: release-name-aleksis-secret
+          secret:
+            secretName: release-name-aleksis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-aleksis-celery-worker
+  labels:
+    helm.sh/chart: aleksis-0.4.2
+    app.kubernetes.io/name: aleksis
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "2021.06"
+    app.kubernetes.io/managed-by: Helm
+    app: release-name-aleksis-worker
+    release: release-name
+spec:
+  revisionHistoryLimit: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: aleksis
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: aleksis
+        app.kubernetes.io/instance: release-name
+        app: release-name-aleksis-worker
+        release: release-name
+    spec:
+      serviceAccountName: release-name-aleksis
+      securityContext:
+        fsGroup: 33
+        runAsNonRoot: true
+      containers:
+        - name: aleksis-celery-worker
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: registry.edugit.org/aleksis/official/aleksis-core:master
+          imagePullPolicy: Always
+          env:
+            - name: RUN_MODE
+              value: celery-worker
+            - name: PREPARE
+              value: "0"
+            - name: ALEKSIS_database__password
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql
+                  key: postgresql-password
+            - name: ALEKSIS_redis__password
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+          volumeMounts:
+            - mountPath: /etc/aleksis
+              name: release-name-aleksis-config
+              readOnly: true
+            - mountPath: /etc/aleksis/secret
+              name: release-name-aleksis-secret
+              readOnly: true
+          resources: null
+      volumes:
+        - name: release-name-aleksis-config
+          configMap:
+            name: release-name-aleksis-config
+        - name: release-name-aleksis-secret
+          secret:
+            secretName: release-name-aleksis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-aleksis-celery-beat
+  labels:
+    helm.sh/chart: aleksis-0.4.2
+    app.kubernetes.io/name: aleksis
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "2021.06"
+    app.kubernetes.io/managed-by: Helm
+    app: release-name-aleksis-beat
+    release: release-name
+spec:
+  revisionHistoryLimit: 0
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: aleksis
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: aleksis
+        app.kubernetes.io/instance: release-name
+        app: release-name-aleksis-beat
+        release: release-name
+    spec:
+      serviceAccountName: release-name-aleksis
+      securityContext:
+        fsGroup: 33
+        runAsNonRoot: true
+      containers:
+        - name: aleksis-celery-beat
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: registry.edugit.org/aleksis/official/aleksis-core:master
+          imagePullPolicy: Always
+          env:
+            - name: PREPARE
+              value: "0"
+            - name: RUN_MODE
+              value: celery-beat
+            - name: ALEKSIS_database__password
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql
+                  key: postgresql-password
+            - name: ALEKSIS_redis__password
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+          volumeMounts:
+            - mountPath: /etc/aleksis
+              name: release-name-aleksis-config
+              readOnly: true
+            - mountPath: /etc/aleksis/secret
+              name: release-name-aleksis-secret
+              readOnly: true
+      volumes:
+        - name: release-name-aleksis-config
+          configMap:
+            name: release-name-aleksis-config
+        - name: release-name-aleksis-secret
+          secret:
+            secretName: release-name-aleksis
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: release-name-aleksis-app
+  labels:
+    helm.sh/chart: aleksis-0.4.2
+    app.kubernetes.io/name: aleksis
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "2021.06"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: release-name-aleksis-app
+  minReplicas: 1
+  maxReplicas: 100
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: release-name-aleksis-celery-worker
+  labels:
+    helm.sh/chart: aleksis-0.4.2
+    app.kubernetes.io/name: aleksis
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "2021.06"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: release-name-aleksis-celery-worker
+  minReplicas: 1
+  maxReplicas: 100
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-postgresql
+  namespace: VQYX3EfOETB1O9
+  labels:
+    app.kubernetes.io/name: postgresql
+    helm.sh/chart: postgresql-11.0.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: primary
+  annotations: null
+spec:
+  replicas: 1
+  serviceName: release-name-postgresql-hl
+  updateStrategy:
+    rollingUpdate: {}
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: primary
+  template:
+    metadata:
+      name: release-name-postgresql
+      labels:
+        app.kubernetes.io/name: postgresql
+        helm.sh/chart: postgresql-11.0.1
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: primary
+      annotations: null
+    spec:
+      serviceAccountName: default
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: postgresql
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: primary
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: postgresql
+          image: docker.io/bitnami/postgresql:13-debian-10
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 10038
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: POSTGRESQL_PORT_NUMBER
+              value: "5432"
+            - name: POSTGRESQL_VOLUME_DIR
+              value: /bitnami/postgresql
+            - name: PGDATA
+              value: /bitnami/postgresql/data
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql
+                  key: postgres-password
+            - name: POSTGRESQL_ENABLE_LDAP
+              value: "no"
+            - name: POSTGRESQL_ENABLE_TLS
+              value: "no"
+            - name: POSTGRESQL_LOG_HOSTNAME
+              value: "false"
+            - name: POSTGRESQL_LOG_CONNECTIONS
+              value: "false"
+            - name: POSTGRESQL_LOG_DISCONNECTIONS
+              value: "false"
+            - name: POSTGRESQL_PGAUDIT_LOG_CATALOG
+              value: "off"
+            - name: POSTGRESQL_CLIENT_MIN_MESSAGES
+              value: error
+            - name: POSTGRESQL_SHARED_PRELOAD_LIBRARIES
+              value: pgaudit
+          ports:
+            - name: tcp-postgresql
+              containerPort: 5432
+          livenessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - exec pg_isready -U "postgres" -h 127.0.0.1 -p 5432
+          readinessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - -e
+                - |
+                  exec pg_isready -U "postgres" -h 127.0.0.1 -p 5432
+                  [ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]
+          resources:
+            limits: {}
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+            - name: data
+              mountPath: /bitnami/postgresql
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-redis-master
+  namespace: VQYX3EfOETB1O9
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-16.3.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: master
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: master
+  serviceName: release-name-redis-headless
+  updateStrategy:
+    rollingUpdate: {}
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+        helm.sh/chart: redis-16.3.0
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: master
+      annotations:
+        checksum/configmap: 1133f533bebf9ee4f27020ae07e1dc3df1849a1d9aacd69f7a743e24bb349cc5
+        checksum/health: e7dab267fcb5ddeb3434efb62ce28d51e0702292c0654e5fd443ec227ba5f12b
+        checksum/scripts: 1b33ee2f47996121a2b2c595f0b1c4fedceba16c3d63d5aa78036b75d3878edb
+        checksum/secret: bd9de83eca847823643f3b070d043aca658231b921e5016b3aea89921be65b78
+    spec:
+      securityContext:
+        fsGroup: 1001
+      serviceAccountName: release-name-redis
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: redis
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: master
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: redis
+          image: docker.io/bitnami/redis:6.2.6-debian-10-r103
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 11318
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          command:
+            - /bin/bash
+          args:
+            - -c
+            - /opt/bitnami/scripts/start-scripts/start-master.sh
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: REDIS_REPLICATION_MODE
+              value: master
+            - name: ALLOW_EMPTY_PASSWORD
+              value: "no"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+            - name: REDIS_TLS_ENABLED
+              value: "no"
+            - name: REDIS_PORT
+              value: "6379"
+          ports:
+            - name: redis
+              containerPort: 6379
+          livenessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 6
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_liveness_local.sh 5
+          readinessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 2
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_readiness_local.sh 1
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: start-scripts
+              mountPath: /opt/bitnami/scripts/start-scripts
+            - name: health
+              mountPath: /health
+            - name: redis-data
+              mountPath: /data
+              subPath: null
+            - name: config
+              mountPath: /opt/bitnami/redis/mounted-etc
+            - name: redis-tmp-conf
+              mountPath: /opt/bitnami/redis/etc/
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: start-scripts
+          configMap:
+            name: release-name-redis-scripts
+            defaultMode: 493
+        - name: health
+          configMap:
+            name: release-name-redis-health
+            defaultMode: 493
+        - name: config
+          configMap:
+            name: release-name-redis-configuration
+        - name: redis-tmp-conf
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+        labels:
+          app.kubernetes.io/name: redis
+          app.kubernetes.io/instance: release-name
+          app.kubernetes.io/component: master
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-redis-replicas
+  namespace: VQYX3EfOETB1O9
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-16.3.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: replica
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: replica
+  serviceName: release-name-redis-headless
+  updateStrategy:
+    rollingUpdate: {}
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+        helm.sh/chart: redis-16.3.0
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: replica
+      annotations:
+        checksum/configmap: 1133f533bebf9ee4f27020ae07e1dc3df1849a1d9aacd69f7a743e24bb349cc5
+        checksum/health: e7dab267fcb5ddeb3434efb62ce28d51e0702292c0654e5fd443ec227ba5f12b
+        checksum/scripts: 1b33ee2f47996121a2b2c595f0b1c4fedceba16c3d63d5aa78036b75d3878edb
+        checksum/secret: 70358797f710b44d035f09230fde9d6623d328ca989e4f6efc32ee2b2f36d1c7
+    spec:
+      securityContext:
+        fsGroup: 1001
+      serviceAccountName: release-name-redis
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: redis
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: replica
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: redis
+          image: docker.io/bitnami/redis:6.2.6-debian-10-r103
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 11564
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          command:
+            - /bin/bash
+          args:
+            - -c
+            - /opt/bitnami/scripts/start-scripts/start-replica.sh
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: REDIS_REPLICATION_MODE
+              value: slave
+            - name: REDIS_MASTER_HOST
+              value: release-name-redis-master-0.release-name-redis-headless.default.svc.cluster.local
+            - name: REDIS_MASTER_PORT_NUMBER
+              value: "6379"
+            - name: ALLOW_EMPTY_PASSWORD
+              value: "no"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+            - name: REDIS_MASTER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+            - name: REDIS_TLS_ENABLED
+              value: "no"
+            - name: REDIS_PORT
+              value: "6379"
+          ports:
+            - name: redis
+              containerPort: 6379
+          livenessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 6
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_liveness_local_and_master.sh 5
+          readinessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 2
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_readiness_local_and_master.sh 1
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: start-scripts
+              mountPath: /opt/bitnami/scripts/start-scripts
+            - name: health
+              mountPath: /health
+            - name: redis-data
+              mountPath: /data
+              subPath: null
+            - name: config
+              mountPath: /opt/bitnami/redis/mounted-etc
+            - name: redis-tmp-conf
+              mountPath: /opt/bitnami/redis/etc
+      volumes:
+        - name: start-scripts
+          configMap:
+            name: release-name-redis-scripts
+            defaultMode: 493
+        - name: health
+          configMap:
+            name: release-name-redis-health
+            defaultMode: 493
+        - name: config
+          configMap:
+            name: release-name-redis-configuration
+        - name: redis-tmp-conf
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+        labels:
+          app.kubernetes.io/name: redis
+          app.kubernetes.io/instance: release-name
+          app.kubernetes.io/component: replica
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: release-name-aleksis
+  labels:
+    helm.sh/chart: aleksis-0.4.2
+    app.kubernetes.io/name: aleksis
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "2021.06"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    kubernetes.io/tls-acme: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: 50m
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - release-name.linode.aleksis.org
+      secretName: release-name-aleksis-tls
+  rules:
+    - host: release-name.linode.aleksis.org
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: release-name-aleksis
+                port:
+                  number: 8000
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-aleksis-test-connection
+  labels:
+    helm.sh/chart: aleksis-0.4.2
+    app.kubernetes.io/name: aleksis
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "2021.06"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-aleksis:8000
+  restartPolicy: Never
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-aleksis-migrations
+  labels:
+    helm.sh/chart: aleksis-0.4.2
+    app.kubernetes.io/name: aleksis
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "2021.06"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+spec:
+  template:
+    spec:
+      containers:
+        - name: release-name-aleksis-prepare
+          image: registry.edugit.org/aleksis/official/aleksis-core:master
+          imagePullPolicy: Always
+          env:
+            - name: RUN_MODE
+              value: prepare
+            - name: ALEKSIS_database__password
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-postgresql
+                  key: postgresql-password
+            - name: ALEKSIS_redis__password
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+          volumeMounts:
+            - mountPath: /etc/aleksis
+              name: release-name-aleksis-config
+              readOnly: true
+            - mountPath: /etc/aleksis/secret
+              name: release-name-aleksis-secret
+              readOnly: true
+      volumes:
+        - name: release-name-aleksis-config
+          configMap:
+            name: release-name-aleksis-config
+        - name: release-name-aleksis-secret
+          secret:
+            secretName: release-name-aleksis
+      restartPolicy: Never
+  backoffLimit: 4

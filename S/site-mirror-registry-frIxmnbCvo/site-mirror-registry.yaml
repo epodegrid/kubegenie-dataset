@@ -1,0 +1,87 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: private-registry
+  namespace: frIxmnbCvo
+data:
+  config.yml: |-
+    version: 0.1
+    log:
+      level: debug
+      formatter: text
+      fields:
+        service: registry
+    storage:
+      filesystem:
+        rootdirectory: /var/lib/registry
+      delete:
+        enabled: true
+      cache:
+        blobdescriptor: inmenory
+    http:
+      addr: :5000
+      headers:
+        X-Content-Type-Options: [nosniff]
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: private-registry-data
+  namespace: default
+spec:
+  storageClassName: taco-sc
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: private-registry
+  namespace: frIxmnbCvo
+  labels:
+    app: private-registry
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 5000
+      targetPort: 5000
+  selector:
+    app: private-registry
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: private-registry
+  namespace: frIxmnbCvo
+  labels:
+    app: private-registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: private-registry
+  template:
+    metadata:
+      labels:
+        app: private-registry
+    spec:
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: private-registry-data
+        - name: config
+          configMap:
+            name: private-registry
+      containers:
+        - name: private-registry
+          image: registry:2
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/registry
+            - name: config
+              mountPath: /etc/docker/registry

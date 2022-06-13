@@ -1,0 +1,349 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "alerta-bin"
+    },
+    "type": "Opaque",
+    "data": {
+      "create_db.sh": "IyEvYmluL2Jhc2gKCgpzZXQgLXgKCkFMRVJUQV9EQl9OQU1FPWFsZXJ0YV9kYgoKZnVuY3Rpb24gY3JlYXRlX2RiKCkgewogIGV4cG9ydCBQR1BBU1NXT1JEPSR7QURNSU5fUEFTU1dPUkR9CiAgaWYgYHBzcWwgLWggJHtEQl9GUUROfSAtcCAke0RCX1BPUlR9IC1VICR7REJfQURNSU5fVVNFUn0gLWxxdCB8IGN1dCAtZCBcfCAtZiAxIHwgZ3JlcCAtcXcgJHtBTEVSVEFfREJfTkFNRX1gOyB0aGVuCiAgICBlY2hvICJEYXRhYmFzZSAke0FMRVJUQV9EQl9OQU1FfSBpcyBhbHJlYWR5IGV4aXN0LiIKICBlbHNlCiAgICBlY2hvICJEYXRhYmFzZSAke0FMRVJUQV9EQl9OQU1FfSBub3QgZXhpc3QsIGNyZWF0ZSBpdC4iCiAgICBwc3FsX2NtZCAicG9zdGdyZXMiICR7REJfQURNSU5fVVNFUn0gJHtBRE1JTl9QQVNTV09SRH0gIkNSRUFURSBEQVRBQkFTRSAke0FMRVJUQV9EQl9OQU1FfTsiCiAgICBlY2hvICJEYXRhYmFzZSAke0FMRVJUQV9EQl9OQU1FfSBpcyBjcmVhdGVkLiIKICBmaQp9CgoKZnVuY3Rpb24gcHNxbF9jbWQgewogIERBVEFCQVNFPSQxCiAgREJfVVNFUj0kMgogIGV4cG9ydCBQR1BBU1NXT1JEPSQzCiAgREJfQ09NTUFORD0kNAogIEVYSVRfT05fRkFJTD0kezU6LTF9CgogIHBzcWwgXAogIC1oICREQl9GUUROIFwKICAtcCAkREJfUE9SVCBcCiAgLVUgJERCX1VTRVIgXAogIC1kICREQVRBQkFTRSBcCiAgLXYgIk9OX0VSUk9SX1NUT1A9MSIgXAogIC0tY29tbWFuZD0iJHtEQl9DT01NQU5EfSIKCiAgUkM9JD8KCiAgaWYgW1sgJFJDIC1uZSAwIF1dCiAgdGhlbgogICAgZWNobyAnRkFJTCEnCiAgICBpZiBbWyAkRVhJVF9PTl9GQUlMIC1lcSAxIF1dCiAgICB0aGVuCiAgICAgIGV4aXQgJFJDCiAgICBmaQogIGZpCgogIHJldHVybiAwCn0KCgojIENyZWF0ZSBkYgpzbGVlcCAxMApjcmVhdGVfZGIKZXhpdCAw"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-admin-cert"
+    },
+    "type": "Opaque",
+    "data": {
+      "alerta-admin-user": "YWRtaW4=",
+      "alerta-admin-password": "Y2hhbmdlbWU=",
+      "alerta-admin-key": "Y2hhbmdlbWU=",
+      "alerta-api-key": "Y2hhbmdlbWU="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "alerta-etc"
+    },
+    "data": {
+      "alertad.conf": "DEBUG = True\nPLUGINS = ['enhance', 'forward', 'normalise', 'prometheus']\nALERTMANAGER_SILENCE_FROM_ACK = True\nALERTMANAGER_API_URL = 'http://alerts-engine.default.svc.cluster.local:9093'\nDATABASE_URL = \"postgresql://postgres:password@postgresql.default.svc.cluster.local:5432/alerta_db\"  \n",
+      "config.js": "# ref: http://docs.alerta.io/en/latest/webui.html\n'use strict';\nangular.module('config', [])\n  .constant('config', {\n    'endpoint'    : \"/api\",\n    'provider'    : \"basic\"\n})\n.constant('colors', {});\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "alerta"
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "server",
+          "nodePort": 30480,
+          "port": 8080,
+          "targetPort": "http",
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "release_group": "release-name",
+        "application": "alerta",
+        "component": "server"
+      },
+      "type": "NodePort"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "alerta-create-db"
+    },
+    "spec": {
+      "securityContext": {
+        "runAsUser": 65534
+      },
+      "restartPolicy": "Never",
+      "containers": [
+        {
+          "name": "alerta-create-db",
+          "image": "docker.io/openstackhelm/patroni:latest-ubuntu_xenial",
+          "imagePullPolicy": "IfNotPresent",
+          "securityContext": {
+            "allowPrivilegeEscalation": false,
+            "readOnlyRootFilesystem": true
+          },
+          "env": [
+            {
+              "name": "DB_FQDN",
+              "valueFrom": {
+                "secretKeyRef": {
+                  "name": "postgresql-admin",
+                  "key": "DATABASE_HOST"
+                }
+              }
+            },
+            {
+              "name": "DB_PORT",
+              "valueFrom": {
+                "secretKeyRef": {
+                  "name": "postgresql-admin",
+                  "key": "DATABASE_PORT"
+                }
+              }
+            },
+            {
+              "name": "DB_ADMIN_USER",
+              "valueFrom": {
+                "secretKeyRef": {
+                  "name": "postgresql-admin",
+                  "key": "POSTGRES_USER"
+                }
+              }
+            },
+            {
+              "name": "ADMIN_PASSWORD",
+              "valueFrom": {
+                "secretKeyRef": {
+                  "name": "postgresql-admin",
+                  "key": "POSTGRES_PASSWORD"
+                }
+              }
+            }
+          ],
+          "command": [
+            "/tmp/create_db.sh"
+          ],
+          "volumeMounts": [
+            {
+              "name": "pod-tmp",
+              "mountPath": "/tmp"
+            },
+            {
+              "name": "alerta-bin",
+              "mountPath": "/tmp/create_db.sh",
+              "subPath": "create_db.sh",
+              "readOnly": true
+            }
+          ]
+        }
+      ],
+      "volumes": [
+        {
+          "name": "pod-tmp",
+          "emptyDir": {}
+        },
+        {
+          "name": "alerta-bin",
+          "secret": {
+            "secretName": "alerta-bin",
+            "defaultMode": 365
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "alerta",
+      "annotations": {
+        "openstackhelm.openstack.org/release_uuid": ""
+      },
+      "labels": {
+        "release_group": "release-name",
+        "application": "alerta",
+        "component": "server"
+      }
+    },
+    "spec": {
+      "podManagementPolicy": "Parallel",
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "release_group": "release-name",
+          "application": "alerta",
+          "component": "server"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "release_group": "release-name",
+            "application": "alerta",
+            "component": "server"
+          },
+          "annotations": {
+            "configmap-bin-hash": "539e91787de136b33d7be4da1dc2f45da85620766ababb9a4c81e0ccbe7d9681",
+            "configmap-etc-hash": "74d9596d027b53dc9bcf3a3a9284a682da4589002b024239028d78a03877f2eb"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "runAsUser": 0
+          },
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "release_group",
+                          "operator": "In",
+                          "values": [
+                            "release-name"
+                          ]
+                        },
+                        {
+                          "key": "application",
+                          "operator": "In",
+                          "values": [
+                            "alerta"
+                          ]
+                        },
+                        {
+                          "key": "component",
+                          "operator": "In",
+                          "values": [
+                            "server"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 10
+                }
+              ]
+            }
+          },
+          "nodeSelector": {
+            "openstack-control-plane": "enabled"
+          },
+          "terminationGracePeriodSeconds": 30,
+          "containers": [
+            {
+              "name": "alerta",
+              "image": "docker.io/openstackhelm/alerta:8.0.2",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "readOnlyRootFilesystem": true,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "env": [
+                {
+                  "name": "ADMIN_USERS",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-admin-cert",
+                      "key": "alerta-admin-user"
+                    }
+                  }
+                },
+                {
+                  "name": "ADMIN_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-admin-cert",
+                      "key": "alerta-admin-password"
+                    }
+                  }
+                },
+                {
+                  "name": "ADMIN_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-admin-cert",
+                      "key": "alerta-admin-key"
+                    }
+                  }
+                },
+                {
+                  "name": "ALERTA_API_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-admin-cert",
+                      "key": "alerta-api-key"
+                    }
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8080,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 180
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 120
+              },
+              "volumeMounts": [
+                {
+                  "name": "alerta-etc",
+                  "mountPath": "/app/alertad.conf",
+                  "subPath": "alertad.conf"
+                },
+                {
+                  "name": "alerta-etc",
+                  "mountPath": "/app/config.js",
+                  "subPath": "config.js"
+                }
+              ],
+              "resources": {
+                "alerta": {
+                  "enabled": false,
+                  "limits": {
+                    "cpu": "100m",
+                    "memory": "1024Mi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "128Mi"
+                  }
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "alerta-etc",
+              "configMap": {
+                "name": "alerta-etc",
+                "defaultMode": 292
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

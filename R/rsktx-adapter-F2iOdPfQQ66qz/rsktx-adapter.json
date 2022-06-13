@@ -1,0 +1,193 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-rsktx-adapter",
+      "labels": {
+        "helm.sh/chart": "rsktx-adapter-0.1.0",
+        "app.kubernetes.io/name": "rsktx-adapter",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "develop",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-rsktx-adapter-configmap"
+    },
+    "data": {
+      "ADAPTER_HOST": "rsktx-adapter",
+      "ADAPTER_NAME": "rsktxadapter",
+      "ADAPTER_PORT": "30056",
+      "API_EMAIL": "admin@example.com",
+      "API_PASSWORD": "password",
+      "CHAINLINK_BASE_URL": "http://chainlink:6688/",
+      "DATABASE_URL": "postgresql://postgres@postgresql:5432/rsktx_adapter?sslmode=disable",
+      "RSK_HOST": "rsk.qubistry.co",
+      "RSK_WS_PORT": "443",
+      "RSK_WS_PROTOCOL": "wss",
+      "RSK_WS_URL": "/websocket"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-rsktx-adapter",
+      "labels": {
+        "helm.sh/chart": "rsktx-adapter-0.1.0",
+        "app.kubernetes.io/name": "rsktx-adapter",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "develop",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 30056,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "rsktx-adapter",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-rsktx-adapter",
+      "labels": {
+        "helm.sh/chart": "rsktx-adapter-0.1.0",
+        "app.kubernetes.io/name": "rsktx-adapter",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "develop",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "rsktx-adapter",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "rsktx-adapter",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-rsktx-adapter",
+          "securityContext": {},
+          "containers": [
+            {
+              "name": "rsktx-adapter",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "vulcanlink/rsktx-adapter:develop",
+              "imagePullPolicy": "Always",
+              "command": [
+                "/bin/sh"
+              ],
+              "args": [
+                "-c",
+                "echo $API_EMAIL > ./.api; echo $API_PASSWORD >> ./.api; echo $ADAPTER_PRIVATE_KEY > ./.adapterKey; npm start; while true; do sleep 10;done;"
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 30056,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "http"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "http"
+                }
+              },
+              "envFrom": [
+                {
+                  "configMapRef": {
+                    "name": "release-name-rsktx-adapter-configmap"
+                  }
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                },
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-rsktx-adapter-test-connection",
+      "labels": {
+        "helm.sh/chart": "rsktx-adapter-0.1.0",
+        "app.kubernetes.io/name": "rsktx-adapter",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "develop",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test-success"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "wget",
+          "image": "busybox",
+          "command": [
+            "wget"
+          ],
+          "args": [
+            "release-name-rsktx-adapter:30056"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

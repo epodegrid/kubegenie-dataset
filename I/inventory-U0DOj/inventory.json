@@ -1,0 +1,553 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-inventory",
+      "labels": {
+        "helm.sh/chart": "inventory-2.0.0",
+        "app.kubernetes.io/name": "inventory",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.2.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "namespace": "U0DOj",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-11.1.19",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "postgres-password": "M0NHMjhzSmV6cw==",
+      "password": "cG9zdGdyZXNQ"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-postgresql-hl",
+      "namespace": "U0DOj",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-11.1.19",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "primary",
+        "service.alpha.kubernetes.io/tolerate-unready-endpoints": "true"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "publishNotReadyAddresses": true,
+      "ports": [
+        {
+          "name": "tcp-postgresql",
+          "port": 5432,
+          "targetPort": "tcp-postgresql"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "postgresql",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "primary"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "namespace": "U0DOj",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-11.1.19",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "primary"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "tcp-postgresql",
+          "port": 5432,
+          "targetPort": "tcp-postgresql",
+          "nodePort": null
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "postgresql",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "primary"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-inventory",
+      "labels": {
+        "helm.sh/chart": "inventory-2.0.0",
+        "app.kubernetes.io/name": "inventory",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.2.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 8000,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "inventory",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-inventory",
+      "labels": {
+        "helm.sh/chart": "inventory-2.0.0",
+        "app.kubernetes.io/name": "inventory",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.2.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "inventory",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "inventory",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-inventory",
+          "securityContext": {},
+          "restartPolicy": "Always",
+          "initContainers": [
+            {
+              "name": "check-db-ready",
+              "image": "postgres:alpine",
+              "command": [
+                "sh",
+                "-c",
+                "until pg_isready -h release-name-postgresql -p 5432; do echo waiting for database; sleep 2; done;"
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "inventory",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "frinx/frinx-inventory-server:1.2.1",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8000,
+                  "protocol": "TCP"
+                }
+              ],
+              "env": [
+                {
+                  "name": "UNICONFIG_API_PROTOCOL",
+                  "value": "http"
+                },
+                {
+                  "name": "UNICONFIG_API_PORT",
+                  "value": "8181"
+                },
+                {
+                  "name": "UNICONFIG_LIST_URL",
+                  "value": "http://krakend:80/static/list/uniconfig"
+                },
+                {
+                  "name": "X_TENANT_ID",
+                  "value": "frinx"
+                },
+                {
+                  "name": "POSTGRES_USER",
+                  "value": "postgresU"
+                },
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "value": "postgresP"
+                },
+                {
+                  "name": "POSTGRES_DB",
+                  "value": "inventory"
+                },
+                {
+                  "name": "DATABASE_URL",
+                  "value": "postgres://postgresU:postgresP@release-name-postgresql:5432/inventory?sslmode=disable"
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "wget",
+                    "--spider",
+                    "-q",
+                    "0.0.0.0:8000/.well-known/apollo/server-health"
+                  ]
+                },
+                "initialDelaySeconds": 40,
+                "timeoutSeconds": 5,
+                "failureThreshold": 5
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "wget",
+                    "--spider",
+                    "-q",
+                    "0.0.0.0:8000/.well-known/apollo/server-health"
+                  ]
+                },
+                "initialDelaySeconds": 40,
+                "timeoutSeconds": 5,
+                "failureThreshold": 5
+              },
+              "command": [
+                "/bin/sh",
+                "-c"
+              ],
+              "args": [
+                "yarn prisma migrate deploy --schema=prisma/schema.prisma && node index.js"
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "namespace": "U0DOj",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-11.1.19",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "primary"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "replicas": 1,
+      "serviceName": "release-name-postgresql-hl",
+      "updateStrategy": {
+        "rollingUpdate": {},
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "postgresql",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "primary"
+        }
+      },
+      "template": {
+        "metadata": {
+          "name": "release-name-postgresql",
+          "labels": {
+            "app.kubernetes.io/name": "postgresql",
+            "helm.sh/chart": "postgresql-11.1.19",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "primary"
+          },
+          "annotations": null
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "affinity": {
+            "podAffinity": null,
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app.kubernetes.io/name": "postgresql",
+                        "app.kubernetes.io/instance": "release-name",
+                        "app.kubernetes.io/component": "primary"
+                      }
+                    },
+                    "namespaces": [
+                      "default"
+                    ],
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 1
+                }
+              ]
+            },
+            "nodeAffinity": null
+          },
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "hostNetwork": false,
+          "hostIPC": false,
+          "initContainers": null,
+          "containers": [
+            {
+              "name": "postgresql",
+              "image": "docker.io/bitnami/postgresql:14.2.0-debian-10-r58",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 11846,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "env": [
+                {
+                  "name": "BITNAMI_DEBUG",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_PORT_NUMBER",
+                  "value": "5432"
+                },
+                {
+                  "name": "POSTGRESQL_VOLUME_DIR",
+                  "value": "/bitnami/postgresql"
+                },
+                {
+                  "name": "PGDATA",
+                  "value": "/bitnami/postgresql/data"
+                },
+                {
+                  "name": "POSTGRES_USER",
+                  "value": "postgresU"
+                },
+                {
+                  "name": "POSTGRES_POSTGRES_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-postgresql",
+                      "key": "postgres-password"
+                    }
+                  }
+                },
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-postgresql",
+                      "key": "password"
+                    }
+                  }
+                },
+                {
+                  "name": "POSTGRES_DB",
+                  "value": "inventory"
+                },
+                {
+                  "name": "POSTGRESQL_ENABLE_LDAP",
+                  "value": "no"
+                },
+                {
+                  "name": "POSTGRESQL_ENABLE_TLS",
+                  "value": "no"
+                },
+                {
+                  "name": "POSTGRESQL_LOG_HOSTNAME",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_LOG_CONNECTIONS",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_LOG_DISCONNECTIONS",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_PGAUDIT_LOG_CATALOG",
+                  "value": "off"
+                },
+                {
+                  "name": "POSTGRESQL_CLIENT_MIN_MESSAGES",
+                  "value": "error"
+                },
+                {
+                  "name": "POSTGRESQL_SHARED_PRELOAD_LIBRARIES",
+                  "value": "pgaudit"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "tcp-postgresql",
+                  "containerPort": 5432
+                }
+              ],
+              "livenessProbe": {
+                "failureThreshold": 6,
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 5,
+                "exec": {
+                  "command": [
+                    "/bin/sh",
+                    "-c",
+                    "exec pg_isready -U \"postgresU\" -d \"dbname=inventory\" -h 127.0.0.1 -p 5432"
+                  ]
+                }
+              },
+              "readinessProbe": {
+                "failureThreshold": 6,
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 5,
+                "exec": {
+                  "command": [
+                    "/bin/sh",
+                    "-c",
+                    "-e",
+                    "exec pg_isready -U \"postgresU\" -d \"dbname=inventory\" -h 127.0.0.1 -p 5432\n[ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]\n"
+                  ]
+                }
+              },
+              "resources": {
+                "limits": {},
+                "requests": {
+                  "cpu": "250m",
+                  "memory": "256Mi"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "dshm",
+                  "mountPath": "/dev/shm"
+                },
+                {
+                  "name": "data",
+                  "mountPath": "/bitnami/postgresql"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "dshm",
+              "emptyDir": {
+                "medium": "Memory"
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "8Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-inventory-test-connection",
+      "labels": {
+        "helm.sh/chart": "inventory-2.0.0",
+        "app.kubernetes.io/name": "inventory",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.2.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "wget",
+          "image": "busybox",
+          "command": [
+            "wget"
+          ],
+          "args": [
+            "release-name-inventory:8000/.well-known/apollo/server-health"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

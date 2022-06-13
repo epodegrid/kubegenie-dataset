@@ -1,0 +1,405 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-pxc",
+      "labels": {
+        "app": "release-name-pxc",
+        "chart": "percona-xtradb-cluster-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "mysql-root-password": "NmEzU0tqcXhnTQ==",
+      "mysql-password": "OVFjY0hvaTgyeQ==",
+      "xtrabackup-password": "dTR2Z3d1aGgxOQ=="
+    }
+  },
+  {
+    "kind": "ConfigMap",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-pxc-config-files",
+      "labels": {
+        "app": "release-name-pxc",
+        "chart": "percona-xtradb-cluster-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "node.cnf": "[mysqld]\ndatadir=/var/lib/mysql\ndefault_storage_engine=InnoDB\nbinlog_format=ROW\ninnodb_flush_log_at_trx_commit  = 0\ninnodb_flush_method             = O_DIRECT\ninnodb_file_per_table           = 1\ninnodb_autoinc_lock_mode=2\nbind_address = 0.0.0.0\nwsrep_slave_threads=2\nwsrep_cluster_address=gcomm://\nwsrep_provider=/usr/lib/galera3/libgalera_smm.so\nwsrep_cluster_name=galera\nwsrep_sst_method=xtrabackup-v2\n"
+    }
+  },
+  {
+    "kind": "ConfigMap",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-pxc-startup-scripts",
+      "labels": {
+        "app": "release-name-pxc",
+        "chart": "percona-xtradb-cluster-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "entrypoint.sh": "#!/bin/bash\nset -e\n\nif [[ -n \"${DEBUG}\" ]]; then\n    set -x\nfi\n\n. /startup-scripts/functions.sh\n\nipaddr=$(hostname -i | awk ' { print $1 } ')\nhostname=$(hostname)\necho \"I AM $hostname - $ipaddr\"\n\n# if command starts with an option, prepend mysqld\nif [ \"${1:0:1}\" = '-' ]; then\n    CMDARG=\"$@\"\nfi\n\ncluster_join=$(resolveip -s \"${K8S_SERVICE_NAME}\" || echo \"\")\nif [[ -z \"${cluster_join}\" ]]; then\n    echo \"I am the Primary Node\"\n    init_mysql\n    write_password_file\n    exec mysqld --user=mysql --wsrep_cluster_name=$SHORT_CLUSTER_NAME --wsrep_node_name=$hostname \\\n    --wsrep_cluster_address=gcomm:// --wsrep_sst_method=xtrabackup-v2 \\\n    --wsrep_sst_auth=\"xtrabackup:$XTRABACKUP_PASSWORD\" \\\n    --wsrep_node_address=\"$ipaddr\" --pxc_strict_mode=\"$PXC_STRICT_MODE\" $CMDARG\nelse\n    echo \"I am not the Primary Node\"\n    chown -R mysql:mysql /var/lib/mysql || true # default is root:root 777\n    touch /var/log/mysqld.log\n    chown mysql:mysql /var/log/mysqld.log\n    write_password_file\n    exec mysqld --user=mysql --wsrep_cluster_name=$SHORT_CLUSTER_NAME --wsrep_node_name=$hostname \\\n    --wsrep_cluster_address=\"gcomm://$cluster_join\" --wsrep_sst_method=xtrabackup-v2 \\\n    --wsrep_sst_auth=\"xtrabackup:$XTRABACKUP_PASSWORD\" \\\n    --wsrep_node_address=\"$ipaddr\" --pxc_strict_mode=\"$PXC_STRICT_MODE\" $CMDARG\nfi\n",
+      "functions.sh": "#!/bin/bash\n\nwrite_password_file() {\nif [[ -n \"${MYSQL_ROOT_PASSWORD}\" ]]; then\n    cat <<EOF > /root/.my.cnf\n    [client]\n    user=root\n    password=${MYSQL_ROOT_PASSWORD}\nEOF\nfi\n}\n\ninit_mysql() {\nDATADIR=/var/lib/mysql\n# if we have CLUSTER_JOIN - then we do not need to perform datadir initialize\n# the data will be copied from another node\nif [ ! -e \"$DATADIR/mysql\" ]; then\n    if [ -z \"$MYSQL_ROOT_PASSWORD\" -a -z \"$MYSQL_ALLOW_EMPTY_PASSWORD\" -a -z \"$MYSQL_RANDOM_ROOT_PASSWORD\" -a -z \"$MYSQL_ROOT_PASSWORD_FILE\" ]; then\n                        echo >&2 'error: database is uninitialized and password option is not specified '\n                        echo >&2 '  You need to specify one of MYSQL_ROOT_PASSWORD, MYSQL_ROOT_PASSWORD_FILE,  MYSQL_ALLOW_EMPTY_PASSWORD or MYSQL_RANDOM_ROOT_PASSWORD'\n                        exit 1\n                fi\n\n    if [ ! -z \"$MYSQL_ROOT_PASSWORD_FILE\" -a -z \"$MYSQL_ROOT_PASSWORD\" ]; then\n    MYSQL_ROOT_PASSWORD=$(cat $MYSQL_ROOT_PASSWORD_FILE)\n    fi\n    mkdir -p \"$DATADIR\"\n\n    echo \"Running --initialize-insecure on $DATADIR\"\n    ls -lah $DATADIR\n    if [ \"$PERCONA_MAJOR\" = \"5.6\" ]; then\n        mysql_install_db --user=mysql --datadir=\"$DATADIR\"\n    else\n        mysqld --user=mysql --datadir=\"$DATADIR\" --initialize-insecure\n    fi\n    chown -R mysql:mysql \"$DATADIR\" || true # default is root:root 777\n    if [ -f /var/log/mysqld.log ]; then\n        chown mysql:mysql /var/log/mysqld.log\n    fi\n    echo 'Finished --initialize-insecure'\n\n    mysqld --user=mysql --datadir=\"$DATADIR\" --skip-networking &\n    pid=\"$!\"\n\n    mysql=( mysql --protocol=socket -uroot )\n\n    for i in {30..0}; do\n    if echo 'SELECT 1' | \"${mysql[@]}\" &> /dev/null; then\n        break\n    fi\n    echo 'MySQL init process in progress...'\n    sleep 1\n    done\n    if [ \"$i\" = 0 ]; then\n    echo >&2 'MySQL init process failed.'\n    exit 1\n    fi\n\n    # sed is for https://bugs.mysql.com/bug.php?id=20545\n    mysql_tzinfo_to_sql /usr/share/zoneinfo | sed 's/Local time zone must be set--see zic manual page/FCTY/' | \"${mysql[@]}\" mysql\n    \"${mysql[@]}\" <<-EOSQL\n    -- What's done in this file shouldn't be replicated\n    --  or products like mysql-fabric won't work\n    SET @@SESSION.SQL_LOG_BIN=0;\n    CREATE USER 'root'@'${ALLOW_ROOT_FROM}' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}' ;\n    GRANT ALL ON *.* TO 'root'@'${ALLOW_ROOT_FROM}' WITH GRANT OPTION ;\n    GRANT ALL ON *.* TO 'root'@'localhost' WITH GRANT OPTION ;\n    CREATE USER 'xtrabackup'@'localhost' IDENTIFIED BY '$XTRABACKUP_PASSWORD';\n    GRANT RELOAD,PROCESS,LOCK TABLES,REPLICATION CLIENT ON *.* TO 'xtrabackup'@'localhost';\n    GRANT REPLICATION CLIENT ON *.* TO monitor@'%' IDENTIFIED BY 'monitor';\n    GRANT PROCESS ON *.* TO monitor@localhost IDENTIFIED BY 'monitor';\n    CREATE USER 'mysql'@'localhost' IDENTIFIED BY '' ;\n    DROP DATABASE IF EXISTS test ;\n    FLUSH PRIVILEGES ;\nEOSQL\n\n    if [ \"$PERCONA_MAJOR\" = \"5.6\" ]; then\n        echo \"SET PASSWORD FOR 'root'@'localhost' = PASSWORD('${MYSQL_ROOT_PASSWORD}'); FLUSH PRIVILEGES;\" | \"${mysql[@]}\"\n    else\n        echo \"ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}'; FLUSH PRIVILEGES;\" | \"${mysql[@]}\"\n    fi\n\n    if [ ! -z \"$MYSQL_ROOT_PASSWORD\" ]; then\n    mysql+=( -p\"${MYSQL_ROOT_PASSWORD}\" )\n    fi\n\n    if [ \"$MYSQL_DATABASE\" ]; then\n    echo \"CREATE DATABASE IF NOT EXISTS \\`$MYSQL_DATABASE\\` ;\" | \"${mysql[@]}\"\n    mysql+=( \"$MYSQL_DATABASE\" )\n    fi\n\n    if [ \"$MYSQL_USER\" -a \"$MYSQL_PASSWORD\" ]; then\n    echo \"CREATE USER '\"$MYSQL_USER\"'@'%' IDENTIFIED BY '\"$MYSQL_PASSWORD\"' ;\" | \"${mysql[@]}\"\n\n    if [ \"$MYSQL_DATABASE\" ]; then\n        echo \"GRANT ALL ON \\`\"$MYSQL_DATABASE\"\\`.* TO '\"$MYSQL_USER\"'@'%' ;\" | \"${mysql[@]}\"\n    fi\n\n    echo 'FLUSH PRIVILEGES ;' | \"${mysql[@]}\"\n    fi\n\n    if [ ! -z \"$MYSQL_ONETIME_PASSWORD\" ]; then\n    \"${mysql[@]}\" <<-EOSQL\n        ALTER USER 'root'@'%' PASSWORD EXPIRE;\nEOSQL\n    fi\n    if ! kill -s TERM \"$pid\" || ! wait \"$pid\"; then\n    echo >&2 'MySQL init process failed.'\n    exit 1\n    fi\n\n    echo\n    echo 'MySQL init process done. Ready for start up.'\n    echo\nfi\n\n}\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-pxc-tests"
+    },
+    "data": {
+      "run.sh": "echo \"Testing Percona XtraDB Cluster\"\ncreds=\"-uroot -p${MYSQL_ROOT_PASSWORD} -h release-name-pxc\"\necho \"==> basic mysql ping\"\nmysqladmin $creds ping\n[[ $? != \"0\" ]] && exit $?\necho \"==> test basic query\"\nmysql $creds -e \"select now() \\G\"\n[[ $? != \"0\" ]] && exit $?\necho \"==> checking if cluster is ready\"\nmysql $creds -e \"SHOW GLOBAL STATUS LIKE 'wsrep_ready' \\G\" | grep Value | awk '{ print $2}' | grep ON\n[[ $? != \"0\" ]] && exit $?\necho \"==> checking if cluster size matches replica count\"\ncluster_size=$(mysql $creds -e \"SHOW GLOBAL STATUS LIKE 'wsrep_cluster_size' \\G\" | grep Value | awk '{ print $2}')\n[[ $? != \"0\" ]] && exit $?\n[[ \"${cluster_size}\" == \"3\" ]] || exit 1\necho \"SUCCESS\"\nexit 0"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-pxc",
+      "labels": {
+        "app": "release-name-pxc",
+        "chart": "percona-xtradb-cluster-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "mysql",
+          "port": 3306,
+          "targetPort": "mysql"
+        }
+      ],
+      "selector": {
+        "app": "release-name-pxc",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-pxc-repl",
+      "labels": {
+        "app": "release-name-pxc",
+        "chart": "percona-xtradb-cluster-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "galera",
+          "port": 4567
+        },
+        {
+          "name": "state-xfer",
+          "port": 4568
+        },
+        {
+          "name": "state-snap",
+          "port": 4444
+        }
+      ],
+      "selector": {
+        "app": "release-name-pxc",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta2",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-pxc",
+      "labels": {
+        "app": "release-name-pxc",
+        "chart": "percona-xtradb-cluster-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 3,
+      "selector": {
+        "matchLabels": {
+          "app": "release-name-pxc",
+          "release": "release-name"
+        }
+      },
+      "serviceName": "release-name-pxc",
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "release-name-pxc",
+            "chart": "percona-xtradb-cluster-1.0.0",
+            "release": "release-name",
+            "heritage": "Helm"
+          }
+        },
+        "spec": {
+          "initContainers": [
+            {
+              "name": "remove-lost-found",
+              "image": "busybox:1.25.0",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "rm",
+                "-fr",
+                "/var/lib/mysql/lost+found"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "mysql-data",
+                  "mountPath": "/var/lib/mysql"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "database",
+              "image": "percona/percona-xtradb-cluster:5.7.19",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/bin/bash",
+                "/startup-scripts/entrypoint.sh"
+              ],
+              "resources": null,
+              "env": [
+                {
+                  "name": "MYSQL_ROOT_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-pxc",
+                      "key": "mysql-root-password"
+                    }
+                  }
+                },
+                {
+                  "name": "MYSQL_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-pxc",
+                      "key": "mysql-password"
+                    }
+                  }
+                },
+                {
+                  "name": "XTRABACKUP_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-pxc",
+                      "key": "xtrabackup-password"
+                    }
+                  }
+                },
+                {
+                  "name": "MYSQL_USER",
+                  "value": ""
+                },
+                {
+                  "name": "MYSQL_DATABASE",
+                  "value": ""
+                },
+                {
+                  "name": "ALLOW_ROOT_FROM",
+                  "value": "%"
+                },
+                {
+                  "name": "CLUSTER_NAME",
+                  "value": "release-name-pxc"
+                },
+                {
+                  "name": "SHORT_CLUSTER_NAME",
+                  "value": "release-name-pxc"
+                },
+                {
+                  "name": "K8S_SERVICE_NAME",
+                  "value": "release-name-pxc-repl"
+                },
+                {
+                  "name": "PXC_STRICT_MODE",
+                  "value": "ENFORCING"
+                },
+                {
+                  "name": "DEBUG",
+                  "value": "true"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "mysql",
+                  "containerPort": 3306
+                },
+                {
+                  "name": "galera-repl",
+                  "containerPort": 4567
+                },
+                {
+                  "name": "state-transfer",
+                  "containerPort": 4568
+                },
+                {
+                  "name": "state-snapshot",
+                  "containerPort": 4444
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/bash",
+                    "-c",
+                    "mysqladmin ping || test -e /var/lib/mysql/sst_in_progress"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 2
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "mysql",
+                    "-h",
+                    "127.0.0.1",
+                    "-e",
+                    "SELECT 1"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 2
+              },
+              "volumeMounts": [
+                {
+                  "name": "mysql-data",
+                  "mountPath": "/var/lib/mysql"
+                },
+                {
+                  "name": "mysql-startup-scripts",
+                  "mountPath": "/startup-scripts"
+                },
+                {
+                  "name": "mysql-config-files",
+                  "mountPath": "/etc/mysql/conf.d"
+                },
+                {
+                  "name": "slash-root",
+                  "mountPath": "/root"
+                },
+                {
+                  "name": "var-log",
+                  "mountPath": "/var/log"
+                }
+              ]
+            },
+            {
+              "name": "logs",
+              "image": "busybox:1.25.0",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "tail",
+                "-f",
+                "/var/log/mysqld.log"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "var-log",
+                  "mountPath": "/var/log"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "slash-root",
+              "emptyDir": {}
+            },
+            {
+              "name": "var-log",
+              "emptyDir": {}
+            },
+            {
+              "name": "mysql-config-files",
+              "configMap": {
+                "name": "release-name-pxc-config-files"
+              }
+            },
+            {
+              "name": "mysql-startup-scripts",
+              "configMap": {
+                "name": "release-name-pxc-startup-scripts"
+              }
+            },
+            {
+              "name": "mysql-data",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-test",
+      "annotations": {
+        "helm.sh/hook": "test-success"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "pxc-test",
+          "image": "percona/percona-xtradb-cluster:5.7.19",
+          "imagePullPolicy": "IfNotPresent",
+          "command": [
+            "bash",
+            "/tests/run.sh"
+          ],
+          "env": [
+            {
+              "name": "MYSQL_ROOT_PASSWORD",
+              "valueFrom": {
+                "secretKeyRef": {
+                  "name": "release-name-pxc",
+                  "key": "mysql-root-password"
+                }
+              }
+            }
+          ],
+          "volumeMounts": [
+            {
+              "mountPath": "/tests",
+              "name": "tests"
+            }
+          ]
+        }
+      ],
+      "volumes": [
+        {
+          "name": "tests",
+          "configMap": {
+            "name": "release-name-pxc-tests"
+          }
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

@@ -1,0 +1,366 @@
+[
+  {
+    "kind": "Namespace",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "linkerd-multicluster",
+      "labels": {
+        "linkerd.io/extension": "linkerd-multicluster"
+      }
+    }
+  },
+  {
+    "kind": "ServiceAccount",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "linkerd-gateway",
+      "namespace": "linkerd-multicluster"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "linkerd-service-mirror-remote-access-default",
+      "namespace": "linkerd-multicluster",
+      "annotations": {
+        "linkerd.io/created-by": "linkerd/helm edge-21.1.3"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "linkerd-gateway-config",
+      "labels": {
+        "linkerd.io/control-plane-component": "gateway"
+      },
+      "annotations": {
+        "linkerd.io/created-by": "linkerd/helm edge-21.1.3"
+      },
+      "namespace": "linkerd-multicluster"
+    },
+    "data": {
+      "nginx.conf": "error_log stderr;\npid /tmp/nginx.pid;\nevents {\n}\nstream {\n   server {\n       listen     4180;\n       proxy_pass 127.0.0.1:4140;\n   }\n}\nhttp {\n  client_body_temp_path /tmp/client_temp;\n  proxy_temp_path       /tmp/proxy_temp_path;\n  fastcgi_temp_path     /tmp/fastcgi_temp;\n  uwsgi_temp_path       /tmp/uwsgi_temp;\n  scgi_temp_path        /tmp/scgi_temp;\n  server {\n      listen     4181;\n      location = /health {\n        access_log off;\n        return 200 \"healthy\\n\";\n      }\n\n      location ~* ^/(.*)$ {\n        deny all;\n      }\n  }\n  server {\n      listen     8888;\n      location /health-local {\n        access_log off;\n        return 200 \"healthy\\n\";\n      }\n  }\n}"
+    }
+  },
+  {
+    "apiVersion": "apiextensions.k8s.io/v1beta1",
+    "kind": "CustomResourceDefinition",
+    "metadata": {
+      "name": "links.multicluster.linkerd.io",
+      "annotations": {
+        "linkerd.io/created-by": "linkerd/helm edge-21.1.3"
+      }
+    },
+    "spec": {
+      "group": "multicluster.linkerd.io",
+      "versions": [
+        {
+          "name": "v1alpha1",
+          "served": true,
+          "storage": true
+        }
+      ],
+      "scope": "Namespaced",
+      "names": {
+        "plural": "links",
+        "singular": "link",
+        "kind": "Link"
+      },
+      "validation": {
+        "openAPIV3Schema": {
+          "type": "object",
+          "properties": {
+            "spec": {
+              "type": "object",
+              "properties": {
+                "clusterCredentialsSecret": {
+                  "description": "Kubernetes secret of target cluster",
+                  "type": "string"
+                },
+                "gatewayAddress": {
+                  "description": "Gateway address of target cluster",
+                  "type": "string"
+                },
+                "gatewayIdentity": {
+                  "description": "Gateway Identity FQDN",
+                  "type": "string"
+                },
+                "gatewayPort": {
+                  "description": "Gateway Port",
+                  "type": "string"
+                },
+                "probeSpec": {
+                  "description": "Spec for gateway health probe",
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "description": "Path of remote gateway health endpoint",
+                      "type": "string"
+                    },
+                    "period": {
+                      "description": "Interval in between probe requests",
+                      "type": "string"
+                    },
+                    "port": {
+                      "description": "Port of remote gateway health endpoint",
+                      "type": "string"
+                    }
+                  }
+                },
+                "selector": {
+                  "description": "Kubernetes Label Selector",
+                  "type": "object",
+                  "properties": {
+                    "matchExpressions": {
+                      "description": "List of selector requirements",
+                      "type": "array",
+                      "items": {
+                        "description": "A selector item requires a key and an operator",
+                        "type": "object",
+                        "required": [
+                          "key",
+                          "operator"
+                        ],
+                        "properties": {
+                          "key": {
+                            "description": "Label key that selector should apply to",
+                            "type": "string"
+                          },
+                          "operator": {
+                            "description": "Evaluation of a label in relation to set",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "targetClusterName": {
+                  "description": "Name of target cluster to link to",
+                  "type": "string"
+                },
+                "targetDomainName": {
+                  "description": "Domain name of target cluster to link to",
+                  "type": "string"
+                },
+                "targetClusterLinkerdNamespace": {
+                  "description": "Name of namespace Linkerd control plane is installed in on target cluster",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "name": "linkerd-service-mirror-remote-access-default",
+      "namespace": "linkerd-multicluster",
+      "annotations": {
+        "linkerd.io/created-by": "linkerd/helm edge-21.1.3"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "services"
+        ],
+        "verbs": [
+          "list",
+          "get",
+          "watch"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "configmaps"
+        ],
+        "verbs": [
+          "get"
+        ],
+        "resourceNames": [
+          "linkerd-config"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "linkerd-service-mirror-remote-access-default",
+      "namespace": "linkerd-multicluster",
+      "annotations": {
+        "linkerd.io/created-by": "linkerd/helm edge-21.1.3"
+      }
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "linkerd-service-mirror-remote-access-default"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "linkerd-service-mirror-remote-access-default",
+        "namespace": "linkerd-multicluster"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "linkerd-gateway",
+      "namespace": "linkerd-multicluster",
+      "annotations": {
+        "mirror.linkerd.io/gateway-identity": "linkerd-gateway.linkerd-multicluster.serviceaccount.identity.linkerd.cluster.local",
+        "mirror.linkerd.io/probe-period": "3",
+        "mirror.linkerd.io/probe-path": "/health",
+        "mirror.linkerd.io/multicluster-gateway": "true",
+        "linkerd.io/control-plane-component": "gateway",
+        "linkerd.io/created-by": "linkerd/helm edge-21.1.3"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "mc-gateway",
+          "port": 4143,
+          "protocol": "TCP"
+        },
+        {
+          "name": "mc-probe",
+          "port": 4181,
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app": "linkerd-gateway"
+      },
+      "type": "LoadBalancer"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "annotations": {
+        "linkerd.io/created-by": "linkerd/helm edge-21.1.3"
+      },
+      "labels": {
+        "app.kubernetes.io/name": "gateway",
+        "app.kubernetes.io/part-of": "Linkerd",
+        "app.kubernetes.io/version": "edge-21.1.3",
+        "linkerd.io/control-plane-component": "gateway",
+        "app": "linkerd-gateway"
+      },
+      "name": "linkerd-gateway",
+      "namespace": "linkerd-multicluster"
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "linkerd-gateway"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "linkerd.io/created-by": "linkerd/helm edge-21.1.3",
+            "linkerd.io/inject": "enabled",
+            "config.linkerd.io/proxy-require-identity-inbound-ports": "4181,4143,4180",
+            "config.linkerd.io/enable-gateway": "true"
+          },
+          "labels": {
+            "app": "linkerd-gateway"
+          }
+        },
+        "spec": {
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "linkerd-gateway-config"
+              }
+            },
+            {
+              "name": "tmp",
+              "emptyDir": {}
+            }
+          ],
+          "containers": [
+            {
+              "name": "nginx",
+              "readinessProbe": {
+                "failureThreshold": 7,
+                "httpGet": {
+                  "path": "/health-local",
+                  "port": 8888
+                }
+              },
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/health-local",
+                  "port": 8888
+                },
+                "initialDelaySeconds": 10
+              },
+              "image": "nginx:1.17",
+              "ports": [
+                {
+                  "name": "mc-relay",
+                  "containerPort": 4180
+                },
+                {
+                  "name": "mc-probe",
+                  "containerPort": 4181
+                },
+                {
+                  "name": "local-probe",
+                  "containerPort": 8888
+                }
+              ],
+              "securityContext": {
+                "runAsUser": 10519,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/etc/nginx"
+                },
+                {
+                  "name": "tmp",
+                  "mountPath": "/tmp"
+                }
+              ]
+            }
+          ],
+          "serviceAccountName": "linkerd-gateway"
+        }
+      }
+    }
+  },
+  null
+]

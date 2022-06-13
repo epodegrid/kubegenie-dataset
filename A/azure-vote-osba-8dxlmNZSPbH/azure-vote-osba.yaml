@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: azure-vote-front
+  labels:
+    name: azure-vote-front
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+  selector:
+    app: vote-front-release-name
+---
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: vote-front-release-name
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  minReadySeconds: 5
+  template:
+    metadata:
+      labels:
+        app: vote-front-release-name
+    spec:
+      containers:
+        - name: azure-vote-front
+          image: neilpeterson/azure-vote-front:v3
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 250m
+            limits:
+              cpu: 500m
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: REDIS
+              valueFrom:
+                secretKeyRef:
+                  key: host
+                  name: azure-rediscache-secret-release-name
+            - name: REDIS_PWD
+              valueFrom:
+                secretKeyRef:
+                  key: password
+                  name: azure-rediscache-secret-release-name
+---
+apiVersion: servicecatalog.k8s.io/v1beta1
+kind: ServiceBinding
+metadata:
+  name: azure-rediscache-binding-release-name
+  namespace: default
+spec:
+  instanceRef:
+    name: azure-rediscache-release-name
+  secretName: azure-rediscache-secret-release-name
+---
+apiVersion: servicecatalog.k8s.io/v1beta1
+kind: ServiceInstance
+metadata:
+  name: azure-rediscache-release-name
+  namespace: default
+spec:
+  clusterServiceClassExternalName: azure-rediscache
+  clusterServicePlanExternalName: basic
+  parameters:
+    location: eastus
+    resourceGroup: azure-rediscache-release-name

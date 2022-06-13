@@ -1,0 +1,234 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasource
+  namespace: fed
+  labels:
+    grafana_datasource: "1"
+    app: grafana
+data:
+  datasource.yaml: |-
+    apiVersion: 1
+    datasources:
+    - name: Prometheus
+      type: prometheus
+      url: http://lma-prometheus-fed-master-prometheus:9090
+      access: proxy
+      isDefault: true
+    - name: Loki
+      type: loki
+      url: http://loki.fed:3100
+      access: proxy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ceph-metrics
+  namespace: dUXzlcHcKB4L
+  labels:
+    app: ceph-metrics
+spec:
+  ports:
+    - name: metrics
+      port: 9283
+      protocol: TCP
+      targetPort: 9283
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: ceph-metrics
+  labels:
+    app: ceph-metrics
+  namespace: default
+subsets:
+  - addresses:
+      - ip: 192.168.97.118
+    ports:
+      - name: metrics
+        port: 9283
+        protocol: TCP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: istio-metric-aggregation
+  namespace: default
+  labels:
+    app.kubernetes.io/name: istio-prometheus
+    name: prometheus
+spec:
+  groups:
+    - name: istio.metricsAggregation-rules
+      interval: 5s
+      rules:
+        - record: workload:istio_requests_total
+          expr: sum without(instance, namespace, pod) (istio_requests_total)
+        - record: workload:istio_request_duration_milliseconds_count
+          expr: sum without(instance, namespace, pod) (istio_request_duration_milliseconds_count)
+        - record: workload:istio_request_duration_milliseconds_sum
+          expr: sum without(instance, namespace, pod) (istio_request_duration_milliseconds_sum)
+        - record: workload:istio_request_duration_milliseconds_bucket
+          expr: sum without(instance, namespace, pod) (istio_request_duration_milliseconds_bucket)
+        - record: workload:istio_request_bytes_count
+          expr: sum without(instance, namespace, pod) (istio_request_bytes_count)
+        - record: workload:istio_request_bytes_sum
+          expr: sum without(instance, namespace, pod) (istio_request_bytes_sum)
+        - record: workload:istio_request_bytes_bucket
+          expr: sum without(instance, namespace, pod) (istio_request_bytes_bucket)
+        - record: workload:istio_response_bytes_count
+          expr: sum without(instance, namespace, pod) (istio_response_bytes_count)
+        - record: workload:istio_response_bytes_sum
+          expr: sum without(instance, namespace, pod) (istio_response_bytes_sum)
+        - record: workload:istio_response_bytes_bucket
+          expr: sum without(instance, namespace, pod) (istio_response_bytes_bucket)
+        - record: workload:istio_tcp_connections_opened_total
+          expr: sum without(instance, namespace, pod) (istio_tcp_connections_opened_total)
+        - record: workload:istio_tcp_connections_closed_total
+          expr: sum without(instance, namespace, pod) (istio_tcp_connections_closed_total)
+        - record: workload:istio_tcp_sent_bytes_total_count
+          expr: sum without(instance, namespace, pod) (istio_tcp_sent_bytes_total_count)
+        - record: workload:istio_tcp_sent_bytes_total_sum
+          expr: sum without(instance, namespace, pod) (istio_tcp_sent_bytes_total_sum)
+        - record: workload:istio_tcp_sent_bytes_total_bucket
+          expr: sum without(instance, namespace, pod) (istio_tcp_sent_bytes_total_bucket)
+        - record: workload:istio_tcp_received_bytes_total_count
+          expr: sum without(instance, namespace, pod) (istio_tcp_received_bytes_total_count)
+        - record: workload:istio_tcp_received_bytes_total_sum
+          expr: sum without(instance, namespace, pod) (istio_tcp_received_bytes_total_sum)
+        - record: workload:istio_tcp_received_bytes_total_bucket
+          expr: sum without(instance, namespace, pod) (istio_tcp_received_bytes_total_bucket)
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: istio-metrics-optimization
+  namespace: default
+  labels:
+    app.kubernetes.io/name: istio-prometheus
+    name: prometheus
+spec:
+  groups:
+    - name: istio.recording-rules
+      interval: 5s
+      rules:
+        - record: istio:istio_requests:by_destination_service:rate1m
+          expr: |
+            sum(irate(istio_requests_total{reporter="destination"}[1m]))
+            by (
+              destination_canonical_service,
+              destination_workload_namespace
+            )
+        - record: istio:istio_request_duration_milliseconds_bucket:p95:rate1m
+          expr: |
+            histogram_quantile(0.95,
+              sum(irate(istio_request_duration_milliseconds_bucket{reporter="source"}[1m]))
+              by (
+                destination_canonical_service,
+                destination_workload_namespace,
+                source_canonical_service,
+                source_workload_namespace,
+                le
+              )
+            )
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ceph-metrics
+  namespace: default
+  labels:
+    app: ceph-metrics
+spec:
+  endpoints:
+    - interval: 30s
+      port: metrics
+      path: /metrics
+  jobLabel: ceph-exporter
+  namespaceSelector:
+    matchNames:
+      - default
+  selector:
+    matchLabels:
+      app: ceph-metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: grafana
+  labels:
+    app: grafana
+spec:
+  selector:
+    matchLabels:
+      app: grafana
+  endpoints:
+    - port: service
+      path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kube-state-metrics
+  namespace: default
+  labels:
+    app: kube-state-metrics
+spec:
+  jobLabel: app.kubernetes.io/name
+  endpoints:
+    - port: http
+      interval: 30s
+      honorLabels: true
+  namespaceSelector:
+    matchNames:
+      - default
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kube-state-metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: node-exporter
+  labels:
+    app: node-exporter
+spec:
+  namespaceSelector:
+    matchNames:
+      - default
+  selector:
+    matchLabels:
+      app: prometheus-node-exporter
+  endpoints:
+    - port: metrics
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: process-exporter
+  labels:
+    app: process-exporter
+spec:
+  jobLabel: process-exporter
+  selector:
+    matchLabels:
+      application: process_exporter
+      component: metrics
+  endpoints:
+    - port: metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: pushgateway
+  labels:
+    app: pushgateway
+spec:
+  jobLabel: pushgateway
+  selector:
+    matchLabels:
+      app: prometheus-pushgateway
+  endpoints:
+    - port: http
+      honorLabels: true

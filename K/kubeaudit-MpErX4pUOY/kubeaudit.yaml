@@ -1,0 +1,130 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubeaudit
+  namespace: MpErX4pUOY
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: kubeaudit
+  namespace: MpErX4pUOY
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - podtemplates
+      - replicationcontrollers
+      - namespaces
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+      - statefulsets
+      - deployments
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - batch
+    resources:
+      - cronjobs
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - networking
+    resources:
+      - networkpolicies
+    verbs:
+      - get
+      - list
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: kubeaudit-lurker
+  namespace: MpErX4pUOY
+subjects:
+  - kind: ServiceAccount
+    name: kubeaudit
+    namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: lurker
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: kubeaudit
+  namespace: MpErX4pUOY
+subjects:
+  - kind: ServiceAccount
+    name: kubeaudit
+    namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kubeaudit
+---
+null
+---
+apiVersion: execution.securecodebox.io/v1
+kind: ParseDefinition
+metadata:
+  name: kubeaudit-jsonl
+spec:
+  image: docker.io/securecodebox/parser-kubeaudit:3.12.1
+  imagePullPolicy: IfNotPresent
+  ttlSecondsAfterFinished: null
+  env: []
+  scopeLimiterAliases: {}
+  affinity: {}
+  tolerations: []
+---
+apiVersion: execution.securecodebox.io/v1
+kind: ScanType
+metadata:
+  name: kubeaudit
+spec:
+  extractResults:
+    type: kubeaudit-jsonl
+    location: /home/securecodebox/kubeaudit.jsonl
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        spec:
+          restartPolicy: OnFailure
+          affinity: {}
+          tolerations: []
+          containers:
+            - name: kubeaudit
+              image: docker.io/securecodebox/scanner-kubeaudit:0.17.0
+              imagePullPolicy: IfNotPresent
+              command:
+                - sh
+                - /wrapper.sh
+                - all
+                - --exitcode
+                - "0"
+                - --format
+                - json
+              resources: {}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - all
+                privileged: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+              env: []
+              volumeMounts: []
+          volumes: []
+          serviceAccountName: kubeaudit

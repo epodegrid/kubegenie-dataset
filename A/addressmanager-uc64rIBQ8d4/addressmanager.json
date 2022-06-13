@@ -1,0 +1,97 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "addressmanager"
+    },
+    "data": {
+      "serviceConfig": "name: addressmanager\naccessor:\n  username: \"admin@opencord.org\"\n  password: \"letmein\"\n  endpoint: xos-core:50051\nrequired_models:\n  - AddressManagerServiceInstance\ndependency_graph: \"/opt/xos/synchronizers/addressmanager/model-deps\"\nmodel_policies_dir: \"/opt/xos/synchronizers/addressmanager/model_policies\"\nmodels_dir: \"/opt/xos/synchronizers/addressmanager/models\"\nlogging:\n  version: 1\n  handlers:\n    console:\n      class: logging.StreamHandler\n    file:\n      class: logging.handlers.RotatingFileHandler\n      filename: /var/log/xos.log\n      maxBytes: 10485760\n      backupCount: 5\n    kafka:\n      class: kafkaloghandler.KafkaLogHandler\n      bootstrap_servers:\n        - \"cord-kafka:9092\"\n      topic: xos.log.addressmanager\n  loggers:\n    '':\n      handlers:\n        - console\n        - file\n        - kafka\n      level: DEBUG\n"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-addressmanager",
+      "labels": {
+        "app": "addressmanager",
+        "chart": "addressmanager-2.0.6",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "addressmanager",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "addressmanager",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "e353f1b848906c8261194edcdebd4722ce184bb3e028ea7c8c9fad5276f5aae0"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "addressmanager",
+              "image": "xosproject/addressmanager-synchronizer:2.0.4",
+              "imagePullPolicy": "Always",
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "addressmanager-config",
+                  "mountPath": "/opt/xos/synchronizers/addressmanager/addressmanager_config.yaml",
+                  "subPath": "addressmanager_config.yaml"
+                },
+                {
+                  "name": "certchain-volume",
+                  "mountPath": "/usr/local/share/ca-certificates/local_certs.crt",
+                  "subPath": "config/ca_cert_chain.pem"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "addressmanager-config",
+              "configMap": {
+                "name": "addressmanager",
+                "items": [
+                  {
+                    "key": "serviceConfig",
+                    "path": "addressmanager_config.yaml"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "certchain-volume",
+              "configMap": {
+                "name": "ca-certificates",
+                "items": [
+                  {
+                    "key": "chain",
+                    "path": "config/ca_cert_chain.pem"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

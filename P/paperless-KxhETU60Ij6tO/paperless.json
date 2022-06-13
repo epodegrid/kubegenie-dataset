@@ -1,0 +1,211 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-paperless-secret-key",
+      "labels": {
+        "helm.sh/chart": "paperless-0.1.4",
+        "app.kubernetes.io/name": "paperless",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.7.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "secretKey": "eUcwQXp1cFR5QkdjZUtiY3k5OHRxcmRLV1p5cTkxUlA2M2txbG1SRVls"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "name": "release-name-paperless-storage",
+      "labels": {
+        "helm.sh/chart": "paperless-0.1.4",
+        "app.kubernetes.io/name": "paperless",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.7.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "1Gi"
+        }
+      },
+      "volumeMode": "Filesystem",
+      "storageClassName": "local-path"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-paperless",
+      "labels": {
+        "helm.sh/chart": "paperless-0.1.4",
+        "app.kubernetes.io/name": "paperless",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.7.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "http",
+          "port": 8000,
+          "targetPort": "http",
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "paperless",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-paperless",
+      "labels": {
+        "helm.sh/chart": "paperless-0.1.4",
+        "app.kubernetes.io/name": "paperless",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.7.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "paperless",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "paperless",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "containers": [
+            {
+              "name": "paperless",
+              "image": "ghcr.io/paperless-ngx/paperless-ngx:1.6.0",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8000,
+                  "protocol": "TCP"
+                }
+              ],
+              "env": [
+                {
+                  "name": "TZ",
+                  "value": "UTC"
+                },
+                {
+                  "name": "PAPERLESS_TIME_ZONE",
+                  "value": "UTC"
+                },
+                {
+                  "name": "PAPERLESS_SECRET_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-paperless-secret-key",
+                      "key": "secretKey"
+                    }
+                  }
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "storage-volume",
+                  "mountPath": "/usr/src/paperless/data",
+                  "subPath": "data"
+                },
+                {
+                  "name": "storage-volume",
+                  "mountPath": "/usr/src/paperless/media",
+                  "subPath": "media"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "http"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "http"
+                }
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "storage-volume",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-paperless-storage"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-paperless-test-connection",
+      "labels": {
+        "helm.sh/chart": "paperless-0.1.4",
+        "app.kubernetes.io/name": "paperless",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.7.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "wget",
+          "image": "busybox",
+          "command": [
+            "wget"
+          ],
+          "args": [
+            "release-name-paperless:8000"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

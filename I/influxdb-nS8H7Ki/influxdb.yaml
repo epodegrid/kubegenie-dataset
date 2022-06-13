@@ -1,0 +1,155 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: influxdb-creds
+  labels:
+    heritage: drycc
+type: Opaque
+data:
+  user: YWRtaW4=
+  password: YWRtaW4xMjM=
+  bucket: a3ViZXJuZXRlcw==
+  org: ZHJ5Y2M=
+  token: a2ZPUmZOSnNTRkdSVnJ3YnFESXlPQkxKQmlORjJsMTk=
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: drycc-influxdb
+  annotations: null
+  labels:
+    heritage: drycc
+    app: drycc-influxdb
+spec:
+  ports:
+    - port: 80
+      name: transport
+      targetPort: transport
+  selector:
+    app: drycc-influxdb
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drycc-influxdb
+  labels:
+    heritage: drycc
+  annotations:
+    component.drycc.cc/version: canary
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: drycc-influxdb
+  template:
+    metadata:
+      labels:
+        app: drycc-influxdb
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 2
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - drycc-influxdb
+                topologyKey: topology.kubernetes.io/zone
+            - weight: 1
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - drycc-influxdb
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: drycc-influxdb
+          image: registry.drycc.cc/drycc/influxdb:canary
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8086
+              name: transport
+              protocol: TCP
+          env:
+            - name: INFLUXDB_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: bucket
+            - name: INFLUXDB_ORG
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: org
+            - name: INFLUXDB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: user
+            - name: INFLUXDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: password
+            - name: INFLUXDB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: influxdb-creds
+                  key: token
+            - name: INFLUXDB_RETENTION
+              value: 30d
+            - name: RESERVED_NAMES
+              value: drycc-influxdb
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: drycc-influxdb
+  labels:
+    app: drycc-influxdb
+    chart: influxdb-v1.0.0
+    release: release-name
+    heritage: Helm
+  annotations:
+    kubernetes.io/tls-acme: "true"
+spec:
+  rules:
+    - host: drycc-influxdb.
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: drycc-influxdb
+                port:
+                  number: 80
+  tls:
+    - secretName: drycc-influxdb-auto-tls
+      hosts:
+        - drycc-influxdb.
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: drycc-influxdb
+spec:
+  secretName: drycc-influxdb-auto-tls
+  issuerRef:
+    name: drycc-cluster-issuer
+    kind: ClusterIssuer
+  dnsNames:
+    - drycc-influxdb.
+  privateKey:
+    rotationPolicy: Always

@@ -1,0 +1,143 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name
+  labels:
+    helm.sh/chart: incy-generic-0.0.4
+    app.kubernetes.io/name: incy-generic
+    app.kubernetes.io/instance: release-name
+    incylabs.com/service-name: null
+    app.kubernetes.io/version: 1.17.5
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: incy-generic
+    app.kubernetes.io/instance: release-name
+    incylabs.com/service-name: null
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-deployment
+  labels:
+    helm.sh/chart: incy-generic-0.0.4
+    app.kubernetes.io/name: incy-generic
+    app.kubernetes.io/instance: release-name
+    incylabs.com/service-name: null
+    app.kubernetes.io/version: 1.17.5
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: incy-generic
+      app.kubernetes.io/instance: release-name
+      incylabs.com/service-name: null
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: incy-generic
+        app.kubernetes.io/instance: release-name
+        incylabs.com/service-name: null
+    spec:
+      imagePullSecrets:
+        - name: registry-incylabs
+      serviceAccountName: default
+      hostname: null
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "2"
+      securityContext: {}
+      initContainers:
+        - name: init-create-logs
+          image: busybox
+          command:
+            - sh
+            - -c
+            - mkdir -p /data/microservice-logs/pod/${POD_NAME}; ln -s ../microservice-logs/pod/${POD_NAME}/data/logs/;
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            - name: log-dir
+              mountPath: /data/logs/
+            - name: microservice-logs
+              mountPath: /data/microservice-logs/
+      containers:
+        - name: null
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: :1.17.5
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 10
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 10
+            httpGet:
+              path: /
+              port: http
+          resources:
+            limits:
+              cpu: 300m
+              memory: 300Mi
+            requests:
+              cpu: 50m
+              memory: 100Mi
+          env:
+            - name: INCY_FEATURE_NAME
+              value: ""
+          envFrom:
+            - configMapRef:
+                name: env-public-config
+                optional: true
+            - secretRef:
+                name: env-encrypt-config
+                optional: true
+            - configMapRef:
+                name: -configmap
+                optional: true
+            - secretRef:
+                name: -secrets
+                optional: true
+          volumeMounts:
+            - name: log-dir
+              mountPath: /data/logs/
+            - name: microservice-logs
+              mountPath: /data/microservice-logs/
+      volumes:
+        - name: log-dir
+          emptyDir: {}
+        - name: microservice-logs
+          hostPath:
+            path: /var/log/microservice-logs
+            type: DirectoryOrCreate

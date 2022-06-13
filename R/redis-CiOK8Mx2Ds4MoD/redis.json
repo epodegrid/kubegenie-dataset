@@ -1,0 +1,217 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-redis-scripts",
+      "labels": {
+        "helm.sh/chart": "redis-0.5.1",
+        "app.kubernetes.io/name": "redis",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "7.0.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "init.sh": "#!/bin/sh\nREDIS_CONFIG=/data/conf/redis.conf\nSENTINEL_CONFIG=/data/conf/sentinel.conf\n\nconfigure_redis() {\n    echo \"Configuring redis server...\"\n    rm -f $REDIS_CONFIG\n\n    echo \"Setting redis server defaults\"\n    echo \"port 6379\" >>$REDIS_CONFIG\n    echo \"protected-mode no\" >>$REDIS_CONFIG\n    echo \"bind 0.0.0.0\" >>$REDIS_CONFIG\n    echo \"dir /data\" >>$REDIS_CONFIG\n\n    if [ -f /usr/local/etc/redis/redis.conf ]; then\n        echo \"Adding optional redis configuration settings\"\n        cat /usr/local/etc/redis/redis.conf >>$REDIS_CONFIG\n    fi\n    if [ -d /extraredisconfigs ]; then\n      echo \"Adding extra redis configs to redis configuration\"\n      cat /extraredisconfigs/* >>$REDIS_CONFIG\n    fi\n    echo \"Configuring redis server finished.\"\n}\n\necho \"Initialize configuration...\"\nmkdir -p /data/conf\nconfigure_redis\necho \"Finished.\"\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-redis",
+      "labels": {
+        "helm.sh/chart": "redis-0.5.1",
+        "app.kubernetes.io/name": "redis",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "7.0.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "port": 6379,
+          "targetPort": "redis",
+          "protocol": "TCP",
+          "name": "redis"
+        }
+      ],
+      "type": "ClusterIP",
+      "selector": {
+        "app.kubernetes.io/name": "redis",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-redis",
+      "labels": {
+        "helm.sh/chart": "redis-0.5.1",
+        "app.kubernetes.io/name": "redis",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "7.0.1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "serviceName": "release-name-redis",
+      "podManagementPolicy": "OrderedReady",
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "redis",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/customconfig": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+            "checksum/scripts": "e0382782340b719a42f3c66b15526a4880dfc30b9cd32889b37fad562a432ac2"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "redis",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "securityContext": {
+            "fsGroup": 999
+          },
+          "initContainers": [
+            {
+              "name": "redis-init",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "privileged": false,
+                "readOnlyRootFilesystem": true,
+                "runAsGroup": 999,
+                "runAsNonRoot": true,
+                "runAsUser": 999
+              },
+              "image": "redis:7.0.1",
+              "imagePullPolicy": "IfNotPresent",
+              "volumeMounts": [
+                {
+                  "mountPath": "/data",
+                  "name": "redis-data"
+                },
+                {
+                  "name": "scripts",
+                  "mountPath": "/scripts"
+                }
+              ],
+              "command": [
+                "/scripts/init.sh"
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "redis-server",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "privileged": false,
+                "readOnlyRootFilesystem": true,
+                "runAsGroup": 999,
+                "runAsNonRoot": true,
+                "runAsUser": 10770,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "image": "redis:7.0.1",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "redis",
+                  "containerPort": 6379,
+                  "protocol": "TCP"
+                }
+              ],
+              "startupProbe": {
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "redis-cli ping"
+                  ]
+                },
+                "initialDelaySeconds": 10,
+                "timeoutSeconds": 5,
+                "failureThreshold": 30,
+                "successThreshold": 1,
+                "periodSeconds": 10
+              },
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "redis-cli ping"
+                  ]
+                },
+                "initialDelaySeconds": 15,
+                "timeoutSeconds": 5,
+                "failureThreshold": 3,
+                "successThreshold": 1,
+                "periodSeconds": 10
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "redis-cli ping"
+                  ]
+                },
+                "initialDelaySeconds": 15,
+                "timeoutSeconds": 5,
+                "failureThreshold": 3,
+                "successThreshold": 1,
+                "periodSeconds": 10
+              },
+              "command": [
+                "redis-server"
+              ],
+              "args": [
+                "/data/conf/redis.conf"
+              ],
+              "envFrom": null,
+              "volumeMounts": [
+                {
+                  "name": "redis-data",
+                  "mountPath": "/data"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "scripts",
+              "configMap": {
+                "name": "release-name-redis-scripts",
+                "defaultMode": 365
+              }
+            },
+            {
+              "name": "redis-data",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  }
+]

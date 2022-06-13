@@ -1,0 +1,232 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-graphprotocol-agent",
+      "labels": {
+        "helm.sh/chart": "graphprotocol-agent-0.3.1",
+        "app.kubernetes.io/name": "graphprotocol-agent",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "latest",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-graphprotocol-agent-configmap"
+    },
+    "data": {
+      "INDEXER_AGENT_ETHEREUM": "https://rinkeby.alchemyapi.io/jsonrpc/demo/",
+      "INDEXER_AGENT_GRAPH_NODE_ADMIN_ENDPOINT": "http://index-node/",
+      "INDEXER_AGENT_GRAPH_NODE_QUERY_ENDPOINT": "http://query-node-proxy/",
+      "INDEXER_AGENT_GRAPH_NODE_STATUS_ENDPOINT": "http://query-node-proxy/index-node/graphql",
+      "INDEXER_AGENT_INDEX_NODE_IDS": "index-node-0",
+      "INDEXER_AGENT_INDEXER_GEO_COORDINATES": "51.476852,-0.000500",
+      "INDEXER_AGENT_NETWORK_SUBGRAPH_ENDPOINT": "https://api.thegraph.com/subgraphs/name/graphprotocol/graph-network-rinkeby",
+      "INDEXER_AGENT_POSTGRES_DATABASE": "indexer-agent",
+      "INDEXER_AGENT_PUBLIC_INDEXER_URL": "http://indexer.domain/"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-graphprotocol-agent",
+      "labels": {
+        "helm.sh/chart": "graphprotocol-agent-0.3.1",
+        "app.kubernetes.io/name": "graphprotocol-agent",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "latest",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 7600,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        },
+        {
+          "port": 7300,
+          "targetPort": "metrics",
+          "protocol": "TCP",
+          "name": "metrics"
+        },
+        {
+          "port": 8000,
+          "targetPort": "management",
+          "protocol": "TCP",
+          "name": "management"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "graphprotocol-agent",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-graphprotocol-agent",
+      "labels": {
+        "helm.sh/chart": "graphprotocol-agent-0.3.1",
+        "app.kubernetes.io/name": "graphprotocol-agent",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "latest",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "graphprotocol-agent",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/configmap.yaml": "d4d4b8b1fb9b5079d1e9b3d0f652842233de50cd79da08b5f84e0cb24e27220d",
+            "prometheus.io/path": "/metrics",
+            "prometheus.io/port": "7300",
+            "prometheus.io/scrape": "true"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "graphprotocol-agent",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-graphprotocol-agent",
+          "securityContext": {},
+          "containers": [
+            {
+              "name": "graphprotocol-agent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "graphprotocol/indexer-agent:sha-b7019b9",
+              "imagePullPolicy": "IfNotPresent",
+              "command": null,
+              "args": null,
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 7600,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "metrics",
+                  "containerPort": 7300,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "management",
+                  "containerPort": 8000
+                }
+              ],
+              "envFrom": [
+                {
+                  "configMapRef": {
+                    "name": "release-name-graphprotocol-agent-configmap"
+                  }
+                }
+              ],
+              "env": [
+                {
+                  "name": "INDEXER_AGENT_POSTGRES_HOST",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "postgres-credentials",
+                      "key": "host"
+                    }
+                  }
+                },
+                {
+                  "name": "INDEXER_AGENT_POSTGRES_USERNAME",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "postgres-credentials",
+                      "key": "user"
+                    }
+                  }
+                },
+                {
+                  "name": "INDEXER_AGENT_POSTGRES_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "postgres-credentials",
+                      "key": "password"
+                    }
+                  }
+                },
+                {
+                  "name": "INDEXER_AGENT_MNEMONIC",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "ethereum-accounts",
+                      "key": "mnemonic"
+                    }
+                  }
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-graphprotocol-agent-test-connection",
+      "labels": {
+        "helm.sh/chart": "graphprotocol-agent-0.3.1",
+        "app.kubernetes.io/name": "graphprotocol-agent",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "latest",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test-success"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "wget",
+          "image": "busybox",
+          "command": [
+            "wget"
+          ],
+          "args": [
+            "release-name-graphprotocol-agent:"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

@@ -1,0 +1,234 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-metrics-server
+  namespace: XsfKvg
+  labels:
+    app.kubernetes.io/name: metrics-server
+    helm.sh/chart: metrics-server-6.0.7
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-metrics-server
+  namespace: default
+  labels:
+    app.kubernetes.io/name: metrics-server
+    helm.sh/chart: metrics-server-6.0.7
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - nodes
+      - namespaces
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - nodes/metrics
+    verbs:
+      - get
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-metrics-server-view
+  namespace: default
+  labels:
+    app.kubernetes.io/name: metrics-server
+    helm.sh/chart: metrics-server-6.0.7
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+rules:
+  - apiGroups:
+      - metrics.k8s.io
+    resources:
+      - pods
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-metrics-server-auth-delegator
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: metrics-server
+    helm.sh/chart: metrics-server-6.0.7
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: release-name-metrics-server
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-metrics-server
+  namespace: default
+  labels:
+    app.kubernetes.io/name: metrics-server
+    helm.sh/chart: metrics-server-6.0.7
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-metrics-server
+subjects:
+  - kind: ServiceAccount
+    name: release-name-metrics-server
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-metrics-server-auth-reader
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: metrics-server
+    helm.sh/chart: metrics-server-6.0.7
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+  - kind: ServiceAccount
+    name: release-name-metrics-server
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-metrics-server
+  namespace: XsfKvg
+  labels:
+    app.kubernetes.io/name: metrics-server
+    helm.sh/chart: metrics-server-6.0.7
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  type: ClusterIP
+  sessionAffinity: None
+  ports:
+    - name: https
+      port: 443
+      protocol: TCP
+      targetPort: https
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: metrics-server
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-metrics-server
+  namespace: XsfKvg
+  labels:
+    app.kubernetes.io/name: metrics-server
+    helm.sh/chart: metrics-server-6.0.7
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: metrics-server
+      app.kubernetes.io/instance: release-name
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: metrics-server
+        helm.sh/chart: metrics-server-6.0.7
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: release-name-metrics-server
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: metrics-server
+                    app.kubernetes.io/instance: release-name
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      dnsPolicy: ClusterFirst
+      containers:
+        - name: metrics-server
+          image: docker.io/bitnami/metrics-server:0.6.1-debian-11-r3
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10785
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+          command:
+            - metrics-server
+          args:
+            - --secure-port=8443
+          env: null
+          envFrom: null
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            - name: https
+              containerPort: 8443
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+            httpGet:
+              path: /livez
+              port: https
+              scheme: HTTPS
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+            httpGet:
+              path: /readyz
+              port: https
+              scheme: HTTPS

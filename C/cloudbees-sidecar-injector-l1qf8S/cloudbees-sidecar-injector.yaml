@@ -1,0 +1,361 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloudbees-sidecar-injector-init
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: cloudbees-sidecar-injector
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: cloudbees-sidecar-injector
+    app.kubernetes.io/component: cloudbees-sidecar-injector-init
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cloudbees-sidecar-injector
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: cloudbees-sidecar-injector
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: cloudbees-sidecar-injector
+    app.kubernetes.io/component: cloudbees-sidecar-injector
+    cloudbees: sidecar-injector
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudbees-sidecar-injector
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: cloudbees-sidecar-injector
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: cloudbees-sidecar-injector
+    app.kubernetes.io/component: cloudbees-sidecar-injector
+data:
+  sidecarconfig.yaml: |-
+    annotationPrefix: com.cloudbees.sidecar-injector
+    requiresExplicitInjection: false
+    container:
+      volumeMounts:
+        - name: bundles
+          mountPath: /etc/ssl/certs/ca-certificates.crt
+          subPath: ca-certificates.crt
+        - name: bundles
+          mountPath: /etc/pki/tls/certs/ca-bundle.crt
+          subPath: ca-certificates.crt
+        - name: bundles
+          mountPath: /etc/ssl/ca-bundle.pem
+          subPath: ca-certificates.crt
+        - name: bundles
+          mountPath: /etc/pki/tls/cacert.pem
+          subPath: ca-certificates.crt
+        - name: bundles
+          mountPath: /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
+          subPath: ca-certificates.crt
+        - name: bundles
+          mountPath: /etc/ssl/certs/java/cacerts
+          subPath: cacerts
+        - name: bundles
+          mountPath: /var/lib/ca-certificates/java-cacerts
+          subPath: cacerts
+        - name: bundles
+          mountPath: /etc/pki/java/cacerts
+          subPath: cacerts
+        - name: bundles
+          mountPath: /opt/cbflow/jre/lib/security/cacerts
+          subPath: cacerts
+    volumes:
+      - name: bundles
+        configMap:
+          name: ca-bundles
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-default
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: cloudbees-sidecar-injector
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: cloudbees-sidecar-injector
+    app.kubernetes.io/component: cloudbees-sidecar-injector
+rules:
+  - apiGroups:
+      - admissionregistration.k8s.io
+    resources:
+      - mutatingwebhookconfigurations
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-default
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: cloudbees-sidecar-injector
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: cloudbees-sidecar-injector
+    app.kubernetes.io/component: cloudbees-sidecar-injector
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-default
+subjects:
+  - kind: ServiceAccount
+    name: cloudbees-sidecar-injector
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cloudbees-sidecar-injector-init
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: cloudbees-sidecar-injector
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: cloudbees-sidecar-injector
+    app.kubernetes.io/component: cloudbees-sidecar-injector-init
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - create
+      - update
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cloudbees-sidecar-injector-init
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: cloudbees-sidecar-injector
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: cloudbees-sidecar-injector
+    app.kubernetes.io/component: cloudbees-sidecar-injector-init
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cloudbees-sidecar-injector-init
+subjects:
+  - kind: ServiceAccount
+    name: cloudbees-sidecar-injector-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudbees-sidecar-injector
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: cloudbees-sidecar-injector
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: cloudbees-sidecar-injector
+    app.kubernetes.io/component: cloudbees-sidecar-injector
+    cloudbees: sidecar-injector
+spec:
+  ports:
+    - port: 443
+      targetPort: 8443
+  selector:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: cloudbees-sidecar-injector
+    app.kubernetes.io/component: cloudbees-sidecar-injector
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudbees-sidecar-injector
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: cloudbees-sidecar-injector
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: cloudbees-sidecar-injector
+    app.kubernetes.io/component: cloudbees-sidecar-injector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/name: cloudbees-sidecar-injector
+      app.kubernetes.io/managed-by: Helm
+      helm.sh/chart: cloudbees-sidecar-injector
+      app.kubernetes.io/component: cloudbees-sidecar-injector
+  strategy:
+    rollingUpdate:
+      maxSurge: 100%
+      maxUnavailable: 25%
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/name: cloudbees-sidecar-injector
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: cloudbees-sidecar-injector
+        app.kubernetes.io/component: cloudbees-sidecar-injector
+      annotations:
+        com.cloudbees.sidecar-injector/inject: "false"
+    spec:
+      serviceAccountName: cloudbees-sidecar-injector
+      containers:
+        - name: sidecar-injector-webhook
+          image: cloudbees/sidecar-injector:2.3.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - --webhookConfigName=release-name
+            - --configFile=/etc/cloudbees/config/sidecarconfig.yaml
+            - --caCertFile=/etc/cloudbees/certs/tls.crt
+            - --tlsCertFile=/etc/cloudbees/certs/tls.crt
+            - --tlsKeyFile=/etc/cloudbees/certs/tls.key
+            - --port=8443
+          volumeMounts:
+            - name: certs
+              mountPath: /etc/cloudbees/certs
+              readOnly: true
+            - name: config
+              mountPath: /etc/cloudbees/config
+              readOnly: true
+          resources: null
+      volumes:
+        - name: certs
+          secret:
+            secretName: cloudbees-sidecar-injector
+        - name: config
+          configMap:
+            name: cloudbees-sidecar-injector
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/os
+                    operator: In
+                    values:
+                      - linux
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values:
+                      - amd64
+                      - ppc64le
+                      - s390x
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 2
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values:
+                      - amd64
+            - weight: 2
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values:
+                      - ppc64le
+            - weight: 2
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values:
+                      - s390x
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cloudbees-sidecar-injector
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: cloudbees-sidecar-injector
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: cloudbees-sidecar-injector
+    app.kubernetes.io/component: cloudbees-sidecar-injector-init
+spec:
+  schedule: 0 0 1,15 * *
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          annotations:
+            com.cloudbees.sidecar-injector/inject: "false"
+        spec:
+          nodeSelector:
+            kubernetes.io/os: linux
+          serviceAccountName: cloudbees-sidecar-injector-init
+          restartPolicy: OnFailure
+          containers:
+            - name: init-certs
+              image: cloudbees/cert-requester:2.3.1
+              imagePullPolicy: ""
+              args:
+                - --serviceName=cloudbees-sidecar-injector
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: release-name
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: cloudbees-sidecar-injector
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: cloudbees-sidecar-injector
+    app.kubernetes.io/component: cloudbees-sidecar-injector
+webhooks:
+  - name: com.cloudbees.sidecar-injector
+    admissionReviewVersions:
+      - v1
+    sideEffects: None
+    clientConfig:
+      service:
+        name: cloudbees-sidecar-injector
+        namespace: default
+        path: /mutate
+      caBundle: ""
+    rules:
+      - operations:
+          - CREATE
+        apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        resources:
+          - pods
+    namespaceSelector:
+      matchLabels:
+        sidecar-injector: enabled
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cloudbees-sidecar-injector-init
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: cloudbees-sidecar-injector
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: cloudbees-sidecar-injector
+    app.kubernetes.io/component: cloudbees-sidecar-injector-init
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: hook-succeeded
+spec:
+  template:
+    metadata:
+      annotations:
+        com.cloudbees.sidecar-injector/inject: "false"
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      serviceAccountName: cloudbees-sidecar-injector-init
+      restartPolicy: OnFailure
+      containers:
+        - name: init-certs
+          image: cloudbees/cert-requester:2.3.1
+          imagePullPolicy: ""
+          args:
+            - --serviceName=cloudbees-sidecar-injector

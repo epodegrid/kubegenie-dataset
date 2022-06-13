@@ -1,0 +1,262 @@
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: release-name-prometheus-kafka-exporter
+  labels:
+    app: prometheus-kafka-exporter
+    chart: prometheus-kafka-exporter-0.2.0
+    heritage: Helm
+    release: release-name
+  annotations:
+    seccomp.security.alpha.kubernetes.io/allowedProfileNames: docker/default
+    apparmor.security.beta.kubernetes.io/allowedProfileNames: runtime/default
+    seccomp.security.alpha.kubernetes.io/defaultProfileName: docker/default
+    apparmor.security.beta.kubernetes.io/defaultProfileName: runtime/default
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  volumes:
+    - configMap
+    - emptyDir
+    - projected
+    - secret
+    - downwardAPI
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  runAsUser:
+    rule: RunAsAny
+  seLinux:
+    rule: RunAsAny
+  supplementalGroups:
+    rule: RunAsAny
+  fsGroup:
+    rule: RunAsAny
+  readOnlyRootFilesystem: false
+  rule: MustRunAsNonRoot
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-prometheus-kafka-exporter
+  labels:
+    app: prometheus-kafka-exporter
+    chart: prometheus-kafka-exporter-0.2.0
+    release: release-name
+    heritage: Helm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-prometheus-kafka-exporter
+  labels:
+    app: prometheus-kafka-exporter
+    chart: prometheus-kafka-exporter-0.2.0
+    heritage: Helm
+    release: release-name
+rules:
+  - apiGroups:
+      - extensions
+    resources:
+      - podsecuritypolicies
+    verbs:
+      - use
+    resourceNames:
+      - release-name-prometheus-kafka-exporter
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-prometheus-kafka-exporter
+  labels:
+    app: prometheus-kafka-exporter
+    chart: prometheus-kafka-exporter-0.2.0
+    heritage: Helm
+    release: release-name
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-prometheus-kafka-exporter
+subjects:
+  - kind: ServiceAccount
+    name: release-name-prometheus-kafka-exporter
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-prometheus-kafka-exporter
+  annotations: {}
+  labels:
+    app: prometheus-kafka-exporter
+    chart: prometheus-kafka-exporter-0.2.0
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9308
+      targetPort: exporter-port
+      protocol: TCP
+      name: exporter-port
+  selector:
+    app: prometheus-kafka-exporter
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    release: kafka
+  name: kafka
+spec:
+  ports:
+    - port: 9092
+      protocol: TCP
+      targetPort: 9092
+  selector:
+    app: kafka
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    release: kafka
+  name: zookeeper
+spec:
+  ports:
+    - name: client
+      port: 2181
+      protocol: TCP
+      targetPort: 2181
+  selector:
+    app: zookeeper
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: kafka
+  name: kafka
+spec:
+  containers:
+    - env:
+        - name: KAFKA_ADVERTISED_HOST_NAME
+          value: broker.default
+        - name: KAFKA_ADVERTISED_PORT
+          value: "9092"
+        - name: KAFKA_PORT
+          value: "9092"
+        - name: KAFKA_DELETE_TOPIC_ENABLE
+          value: "true"
+        - name: KAFKA_ZOOKEEPER_CONNECT
+          value: zookeeper.default:2181
+        - name: ALLOW_PLAINTEXT_LISTENER
+          value: "yes"
+        - name: KAFKA_LOG_MESSAGE_FORMAT_VERSION
+          value: 0.10.2
+        - name: NAMI_DEBUG
+          value: --log-level=trace8
+        - name: KAFKA_MAX_MESSAGE_BYTES
+          value: "10240000"
+        - name: KAFKA_SOCKET_SEND_BUFFER_BYTES
+          value: "10240000"
+        - name: KAFKA_SOCKET_RECEIVE_BUFFER_BYTES
+          value: "10240000"
+        - name: KAFKA_LOG_RETENTION_HOURS
+          value: "2"
+      image: bitnami/kafka:1.1.0-debian-9-r13
+      imagePullPolicy: IfNotPresent
+      livenessProbe:
+        failureThreshold: 3
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        successThreshold: 1
+        tcpSocket:
+          port: 9092
+        timeoutSeconds: 1
+      name: broker
+      ports:
+        - containerPort: 9092
+          protocol: TCP
+      volumeMounts:
+        - mountPath: /bitnami/kafka
+          name: datadir
+  volumes:
+    - emptyDir: {}
+      name: datadir
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: zookeeper
+  name: zookeeper
+spec:
+  containers:
+    - env:
+        - name: ZOO_SERVERS
+          value: server.1=zoo.zoo:2888:3888:participant
+        - name: ALLOW_ANONYMOUS_LOGIN
+          value: "yes"
+      image: bitnami/zookeeper:3.4.10-r12
+      imagePullPolicy: IfNotPresent
+      name: zookeeper
+      ports:
+        - containerPort: 2181
+          name: client
+          protocol: TCP
+        - containerPort: 2888
+          name: peer
+          protocol: TCP
+        - containerPort: 3888
+          name: leader-election
+          protocol: TCP
+      volumeMounts:
+        - mountPath: /bitnami/zookeeper
+          name: zookeeper
+  volumes:
+    - emptyDir: {}
+      name: zookeeper
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-prometheus-kafka-exporter
+  labels:
+    app: prometheus-kafka-exporter
+    chart: prometheus-kafka-exporter-0.2.0
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus-kafka-exporter
+      release: release-name
+  template:
+    metadata:
+      annotations: null
+      labels:
+        app: prometheus-kafka-exporter
+        release: release-name
+    spec:
+      serviceAccountName: release-name-prometheus-kafka-exporter
+      containers:
+        - args:
+            - --kafka.server=kafka-server:9092
+          name: prometheus-kafka-exporter
+          image: danielqsj/kafka-exporter:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: exporter-port
+              containerPort: 9308
+              protocol: TCP
+          resources:
+            seccompProfile:
+              type: RuntimeDefault

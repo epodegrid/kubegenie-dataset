@@ -1,0 +1,1988 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hub
+  labels:
+    component: hub
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+spec:
+  podSelector:
+    matchLabels:
+      component: hub
+      app: jupyterhub
+      release: release-name
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - port: http
+      from:
+        - podSelector:
+            matchLabels:
+              hub.jupyter.org/network-access-hub: "true"
+  egress:
+    - ports:
+        - port: 8001
+      to:
+        - podSelector:
+            matchLabels:
+              component: proxy
+              app: jupyterhub
+              release: release-name
+    - ports:
+        - port: 8888
+      to:
+        - podSelector:
+            matchLabels:
+              component: singleuser-server
+              app: jupyterhub
+              release: release-name
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: proxy
+  labels:
+    component: proxy
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+spec:
+  podSelector:
+    matchLabels:
+      component: proxy
+      app: jupyterhub
+      release: release-name
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - port: http
+        - port: https
+    - ports:
+        - port: http
+      from:
+        - podSelector:
+            matchLabels:
+              hub.jupyter.org/network-access-proxy-http: "true"
+    - ports:
+        - port: api
+      from:
+        - podSelector:
+            matchLabels:
+              hub.jupyter.org/network-access-proxy-api: "true"
+  egress:
+    - ports:
+        - port: 8081
+      to:
+        - podSelector:
+            matchLabels:
+              component: hub
+              app: jupyterhub
+              release: release-name
+    - ports:
+        - port: 8888
+      to:
+        - podSelector:
+            matchLabels:
+              component: singleuser-server
+              app: jupyterhub
+              release: release-name
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: singleuser
+  labels:
+    component: singleuser
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+spec:
+  podSelector:
+    matchLabels:
+      component: singleuser-server
+      app: jupyterhub
+      release: release-name
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - port: notebook-port
+      from:
+        - podSelector:
+            matchLabels:
+              hub.jupyter.org/network-access-singleuser: "true"
+  egress:
+    - ports:
+        - port: 8081
+      to:
+        - podSelector:
+            matchLabels:
+              component: hub
+              app: jupyterhub
+              release: release-name
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: user-placeholder
+  labels:
+    component: user-placeholder
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+spec:
+  minAvailable: 0
+  selector:
+    matchLabels:
+      component: user-placeholder
+      app: jupyterhub
+      release: release-name
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: user-scheduler
+  labels:
+    component: user-scheduler
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      component: user-scheduler
+      app: jupyterhub
+      release: release-name
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hub
+  labels:
+    component: hub
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: user-scheduler
+  labels:
+    component: user-scheduler
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+---
+kind: Secret
+apiVersion: v1
+metadata:
+  name: hub
+  labels:
+    component: hub
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+type: Opaque
+data:
+  values.yaml: Q2hhcnQ6CiAgTmFtZToganVweXRlcmh1YgogIFZlcnNpb246IDEuMS4xClJlbGVhc2U6CiAgTmFtZTogcmVsZWFzZS1uYW1lCiAgTmFtZXNwYWNlOiBkZWZhdWx0CiAgU2VydmljZTogSGVsbQpjdWxsOgogIGNvbmN1cnJlbmN5OiAxMAogIGVuYWJsZWQ6IHRydWUKICBldmVyeTogNjAwCiAgbWF4QWdlOiAwCiAgcmVtb3ZlTmFtZWRTZXJ2ZXJzOiBmYWxzZQogIHRpbWVvdXQ6IDM2MDAKICB1c2VyczogZmFsc2UKY3VzdG9tOiB7fQpkZWJ1ZzoKICBlbmFibGVkOiBmYWxzZQpmdWxsbmFtZU92ZXJyaWRlOiAiIgpnbG9iYWw6CiAgc2FmZVRvU2hvd1ZhbHVlczogZmFsc2UKaHViOgogIGFjdGl2ZVNlcnZlckxpbWl0OiAwCiAgYWxsb3dOYW1lZFNlcnZlcnM6IGZhbHNlCiAgYW5ub3RhdGlvbnM6IHt9CiAgYXJnczogW10KICBhdXRoZW50aWNhdGVQcm9tZXRoZXVzOiBudWxsCiAgYmFzZVVybDogLwogIGNvbW1hbmQ6IFtdCiAgY29uY3VycmVudFNwYXduTGltaXQ6IDY0CiAgY29uZmlnOgogICAgSnVweXRlckh1YjoKICAgICAgYWRtaW5fYWNjZXNzOiB0cnVlCiAgICAgIGF1dGhlbnRpY2F0b3JfY2xhc3M6IGR1bW15CiAgY29uc2VjdXRpdmVGYWlsdXJlTGltaXQ6IDUKICBjb250YWluZXJTZWN1cml0eUNvbnRleHQ6CiAgICBhbGxvd1ByaXZpbGVnZUVzY2FsYXRpb246IGZhbHNlCiAgICBydW5Bc0dyb3VwOiAxMDAwCiAgICBydW5Bc1VzZXI6IDEwMDAKICBjb29raWVTZWNyZXQ6IG51bGwKICBkYjoKICAgIHBhc3N3b3JkOiBudWxsCiAgICBwdmM6CiAgICAgIGFjY2Vzc01vZGVzOgogICAgICAtIFJlYWRXcml0ZU9uY2UKICAgICAgYW5ub3RhdGlvbnM6IHt9CiAgICAgIHNlbGVjdG9yOiB7fQogICAgICBzdG9yYWdlOiAxR2kKICAgIHR5cGU6IHBvc3RncmVzCiAgICB1cGdyYWRlOiBudWxsCiAgICB1cmw6IG51bGwKICBkZXBsb3ltZW50U3RyYXRlZ3k6CiAgICB0eXBlOiBSZWNyZWF0ZQogIGV4aXN0aW5nU2VjcmV0OiBudWxsCiAgZXh0cmFDb25maWc6CiAgICBpbGx1bWlkZXNrQXV0aENvbmZpZzogfDIKCiAgICAgIGltcG9ydCBvcwogICAgICBmcm9tIGlsbHVtaWRlc2suYXV0aGVudGljYXRvcnMuYXV0aGVudGljYXRvciBpbXBvcnQgc2V0dXBfY291cnNlX2hvb2sKICAgICAgZnJvbSBpbGx1bWlkZXNrZHVtbXlhdXRoZW50aWNhdG9yLmF1dGhlbnRpY2F0b3IgaW1wb3J0IElsbHVtaURlc2tEdW1teUF1dGhlbnRpY2F0b3IKICAgICAgZnJvbSBvYXV0aGVudGljYXRvci5nZW5lcmljIGltcG9ydCBHZW5lcmljT0F1dGhlbnRpY2F0b3IKCiAgICAgIGN1c3RvbV9hdXRoX3R5cGUgPSBvcy5lbnZpcm9uLmdldCgnQ1VTVE9NX0FVVEhfVFlQRScpCiAgICAgIGMuSnVweXRlckh1Yi5odWJfY29ubmVjdF9pcCA9ICdodWInCiAgICAgIGlmIGN1c3RvbV9hdXRoX3R5cGUgPT0gJ0xUSTEzJzoKICAgICAgICBjLkp1cHl0ZXJIdWIuYXV0aGVudGljYXRvcl9jbGFzcyA9ICdpbGx1bWlkZXNrLmF1dGhlbnRpY2F0b3JzLmF1dGhlbnRpY2F0b3IuTFRJMTNBdXRoZW50aWNhdG9yJwogICAgICAgIGMuTFRJMTNBdXRoZW50aWNhdG9yLmVuZHBvaW50ID0gb3MuZW52aXJvbi5nZXQoJ0xUSTEzX0VORFBPSU5UJykgb3IgJ2h0dHBzOi8vaWxsdW1pZGVzay5pbnN0cnVjdHVyZS5jb20vYXBpL2x0aS9zZWN1cml0eS9qd2tzJwogICAgICAgIGMuTFRJMTNBdXRoZW50aWNhdG9yLmNsaWVudF9pZCA9IG9zLmVudmlyb24uZ2V0KCdMVEkxM19DTElFTlRfSUQnKQogICAgICAgIGMuTFRJMTNBdXRoZW50aWNhdG9yLmF1dGhvcml6ZV91cmwgPSBvcy5lbnZpcm9uLmdldCgnTFRJMTNfQVVUSE9SSVpFX1VSTCcpIG9yICdodHRwczovL2lsbHVtaWRlc2suaW5zdHJ1Y3R1cmUuY29tL2FwaS9sdGkvYXV0aG9yaXplX3JlZGlyZWN0JwogICAgICAgIGMuTFRJMTNBdXRoZW50aWNhdG9yLnRva2VuX3VybCA9IG9zLmVudmlyb24uZ2V0KCdMVEkxM19UT0tFTl9VUkwnKSBvciAnaHR0cHM6Ly9pbGx1bWlkZXNrLmluc3RydWN0dXJlLmNvbS9sb2dpbi9vYXV0aDIvdG9rZW4nCiAgICAgICAgYy5KdXB5dGVySHViLmV4dHJhX2hhbmRsZXJzID0gWwogICAgICAgICAgICAocicvbHRpMTMvY29uZmlnJCcsICdpbGx1bWlkZXNrLmx0aTEzLmhhbmRsZXJzLkxUSTEzQ29uZmlnSGFuZGxlcicpLAogICAgICAgICAgICAocicvbHRpMTMvandrcyQnLCAnaWxsdW1pZGVzay5sdGkxMy5oYW5kbGVycy5MVEkxM0pXS1NIYW5kbGVyJyksCiAgICAgICAgICBdCiAgICAgIGVsaWYgY3VzdG9tX2F1dGhfdHlwZSA9PSAnTFRJMTEnOgogICAgICAgIGMuSnVweXRlckh1Yi5hdXRoZW50aWNhdG9yX2NsYXNzID0gJ2x0aWF1dGhlbnRpY2F0b3IuTFRJQXV0aGVudGljYXRvcicKICAgICAgICBjLkxUSUF1dGhlbnRpY2F0b3IuY29uc3VtZXJzID0gewogICAgICAgICAgICBvcy5lbnZpcm9uLmdldCgnTFRJX0NPTlNVTUVSX0tFWScpCiAgICAgICAgICAgIG9yICdpbGRfdGVzdF9jb25zdW1lcl9rZXknOiBvcy5lbnZpcm9uLmdldCgnTFRJX1NIQVJFRF9TRUNSRVQnKQogICAgICAgICAgICBvciAnaWxkX3Rlc3Rfc2hhcmVkX3NlY3JldCcKICAgICAgICB9CiAgICAgIGVsaWYgY3VzdG9tX2F1dGhfdHlwZSA9PSAnRFVNTVknOgogICAgICAgIGMuSnVweXRlckh1Yi5hdXRoZW50aWNhdG9yX2NsYXNzID0gJ2lsbHVtaWRlc2tkdW1teWF1dGhlbnRpY2F0b3IuYXV0aGVudGljYXRvci5JbGx1bWlEZXNrRHVtbXlBdXRoZW50aWNhdG9yJwogICAgICAgIGMuQXV0aGVudGljYXRvci5lbmFibGVfYXV0aF9zdGF0ZSA9IFRydWUKICAgICAgZWxpZiBjdXN0b21fYXV0aF90eXBlID09ICdBVVRIMCc6CiAgICAgICAgIyBTZXQgdGhlIGF1dGhlbnRpY2F0b3IKICAgICAgICBjLkp1cHl0ZXJIdWIuYXV0aGVudGljYXRvcl9jbGFzcyA9IEdlbmVyaWNPQXV0aGVudGljYXRvcgogICAgICAgIGMuQXV0aGVudGljYXRvci5hdXRvX2xvZ2luID0gVHJ1ZQogICAgICAgICMgVmVyaWZ5IFRMUyBjZXJ0aWZpY2F0ZXMuCiAgICAgICAgb3MuZW52aXJvblsnT0FVVEgyX1RMU19WRVJJRlknXSA9ICdUcnVlJwogICAgICAgIGlmIG9zLmVudmlyb24uZ2V0KCdPQVVUSDJfVExTX1ZFUklGWScpID09ICdUcnVlJzoKICAgICAgICAgICAgYy5PQXV0aGVudGljYXRvci50bHNfdmVyaWZ5ID0gVHJ1ZQogICAgICAgIGVsc2U6CiAgICAgICAgICAgIGMuT0F1dGhlbnRpY2F0b3IudGxzX3ZlcmlmeSA9IEZhbHNlCgogICAgICAgICMgT0F1dGhlbnRpY2F0b3Igc2V0dGluZ3MgZm9yIEFVVEgwCiAgICAgICAgYy5PQXV0aGVudGljYXRvci5jbGllbnRfaWQgPSBvcy5lbnZpcm9uLmdldCgnT0lEQ19DTElFTlRfSUQnKSBvciAnaWxsdW1pZGVzay1odWInCiAgICAgICAgYy5PQXV0aGVudGljYXRvci5jbGllbnRfc2VjcmV0ID0gb3MuZW52aXJvbi5nZXQoJ09JRENfQ0xJRU5UX1NFQ1JFVCcpCiAgICAgICAgYy5PQXV0aGVudGljYXRvci5vYXV0aF9jYWxsYmFja191cmwgPSBvcy5lbnZpcm9uLmdldCgnT0lEQ19DQUxMQkFDS19VUkwnKQogICAgICAgIGMuT0F1dGhlbnRpY2F0b3IuYXV0aG9yaXplX3VybCA9IG9zLmVudmlyb24uZ2V0KCdPSURDX0FVVEhPUklaRV9VUkwnKSBvciAnaHR0cHM6Ly9hdXRoLmlsbHVtaWRlc2suY29tL2F1dGhvcml6ZScKICAgICAgICBjLk9BdXRoZW50aWNhdG9yLnRva2VuX3VybCA9IG9zLmVudmlyb24uZ2V0KCdPSURDX1RPS0VOX1VSTCcpIG9yICdodHRwczovL2F1dGguaWxsdW1pZGVzay5jb20vb2F1dGgvdG9rZW4nCiAgICAgICAgYy5HZW5lcmljT0F1dGhlbnRpY2F0b3IudXNlcmRhdGFfdXJsID0gb3MuZW52aXJvbi5nZXQoJ09JRENfVVNFUkRBVEFfVVJMJykgb3IgJ2h0dHBzOi8vYXV0aC5pbGx1bWlkZXNrLmNvbS91c2VyaW5mbycKICAgICAgICBjLkdlbmVyaWNPQXV0aGVudGljYXRvci51c2VyZGF0YV9tZXRob2QgPSAnR0VUJwogICAgICAgICMgY2xhcmlmeSBzY29wZXMKICAgICAgICBjLkdlbmVyaWNPQXV0aGVudGljYXRvci5zY29wZSA9IFsnb3BlbmlkJywnZW1haWwnLCdwcm9maWxlJ10KICAgICAgICAjIFVzZXIgbmFtZSBrZXkgcmV0dXJuZWQgYnkgdXNlcgogICAgICAgIGMuR2VuZXJpY09BdXRoZW50aWNhdG9yLnVzZXJuYW1lX2tleSA9ICduaWNrbmFtZScKCiAgICAgIGlmIGN1c3RvbV9hdXRoX3R5cGUgIT0gJ0FVVEgwJzoKCiAgICAgICAgYy5BdXRoZW50aWNhdG9yLnBvc3RfYXV0aF9ob29rID0gc2V0dXBfY291cnNlX2hvb2sKCiAgICAgICAgZGVmIHVzZXJkYXRhX2hvb2soc3Bhd25lciwgYXV0aF9zdGF0ZSk6CiAgICAgICAgICAgIGlmIG5vdCBhdXRoX3N0YXRlOgogICAgICAgICAgICAgICAgcmFpc2UgVmFsdWVFcnJvcignYXV0aF9zdGF0ZSBub3QgZW5hYmxlZC4nKQogICAgICAgICAgICBzcGF3bmVyLmxvZy5kZWJ1ZygnYXV0aF9zdGF0ZV9ob29rIHNldCB3aXRoICVzIHJvbGUnICUgYXV0aF9zdGF0ZVsndXNlcl9yb2xlJ10pCiAgICAgICAgICAgIHVzZXJfcm9sZSA9IGF1dGhfc3RhdGVbJ3VzZXJfcm9sZSddCiAgICAgICAgICAgICMgc2V0IHNwYXduZXIgZW52aXJvbm1lbnQKICAgICAgICAgICAgc3Bhd25lci5lbnZpcm9ubWVudFsnVVNFUl9ST0xFJ10gPSB1c2VyX3JvbGUKICAgICAgICAgICAgc3Bhd25lci5sb2cuZGVidWcoJ0Fzc2lnbmVkIFVTRVJfUk9MRSBlbnYgdmFyIHRvICVzJyAlIHNwYXduZXIuZW52aXJvbm1lbnRbJ1VTRVJfUk9MRSddKQoKICAgICAgICBjLlNwYXduZXIuYXV0aF9zdGF0ZV9ob29rID0gdXNlcmRhdGFfaG9vawoKICAgICAgYy5BdXRoZW50aWNhdG9yLmVuYWJsZV9hdXRoX3N0YXRlID0gVHJ1ZQoKICAgICAgYy5KdXB5dGVySHViLmRiX3VybCA9ICdwb3N0Z3Jlc3FsOi8ve3VzZXJ9OntwYXNzd29yZH1Ae2hvc3R9Ontwb3J0fS97ZGJ9Jy5mb3JtYXQoCiAgICAgICAgdXNlcj1vcy5lbnZpcm9uLmdldCgnUE9TVEdSRVNfSlVQWVRFUkhVQl9VU0VSJyksCiAgICAgICAgcGFzc3dvcmQ9b3MuZW52aXJvbi5nZXQoJ1BPU1RHUkVTX0pVUFlURVJIVUJfUEFTU1dPUkQnKSwKICAgICAgICBob3N0PW9zLmVudmlyb24uZ2V0KCdQT1NUR1JFU19KVVBZVEVSSFVCX0hPU1QnKSwKICAgICAgICBwb3J0PW9zLmVudmlyb24uZ2V0KCdQT1NUR1JFU19KVVBZVEVSSFVCX1BPUlQnKSwKICAgICAgICBkYj1vcy5lbnZpcm9uLmdldCgnUE9TVEdSRVNfSlVQWVRFUkhVQl9EQicpLAogICAgICApCiAgICAgICMgVXBncmFkZSB0aGUgZGF0YWJhc2UgYXV0b21hdGljYWxseSBvbiBzdGFydAogICAgICBjLkp1cHl0ZXJIdWIudXBncmFkZV9kYiA9IFRydWUKICAgIGlsbHVtaWRlc2tTZWN1cml0eTogfAogICAgICBjLkp1cHl0ZXJIdWIudG9ybmFkb19zZXR0aW5ncyA9IHsKICAgICAgICAiaGVhZGVycyI6IHsiQ29udGVudC1TZWN1cml0eS1Qb2xpY3kiOiAiZnJhbWUtYW5jZXN0b3JzICdzZWxmJyAqIn0sCiAgICAgICAgImNvb2tpZV9vcHRpb25zIjogeyJTYW1lU2l0ZSI6ICJOb25lIiwgIlNlY3VyZSI6IFRydWV9LAogICAgICB9CiAgICBpbGx1bWlkZXNrU2VydmljZXM6IHwKICAgICAgaW1wb3J0IHJlcXVlc3RzCiAgICAgIGltcG9ydCBvcwogICAgICBpbXBvcnQgejJqaAogICAgICBjdXN0b21fYXV0aF90eXBlID0gb3MuZW52aXJvbi5nZXQoJ0NVU1RPTV9BVVRIX1RZUEUnKQogICAgICBvcmdfbmFtZSA9IG9zLmVudmlyb24uZ2V0KCdPUkdBTklaQVRJT05fTkFNRScpCiAgICAgIGp1cHl0ZXJodWJfYXBpX3Rva2VuID0gb3MuZW52aXJvbi5nZXQoJ0pVUFlURVJIVUJfQVBJX1RPS0VOJykKICAgICAgYy5KdXB5dGVySHViLnNlcnZpY2VzLmFwcGVuZCh7CiAgICAgICAgJ25hbWUnOiAnYW5ub3VuY2VtZW50JywKICAgICAgICAnYWRtaW4nOiBUcnVlLAogICAgICAgICd1cmwnOiAnaHR0cDovLzAuMC4wLjA6ODg4OScsCiAgICAgICAgJ2NvbW1hbmQnOiBbInB5dGhvbjMiLCAiL2V0Yy9qdXB5dGVyaHViLXNlcnZpY2VzL2Fubm91bmNlbWVudC5weSIsICItLXBvcnQiLCAiODg4OSIsICItLWFwaS1wcmVmaXgiLCAiL3NlcnZpY2VzL2Fubm91bmNlbWVudCJdLAogICAgICAgICdhcGlfdG9rZW4nOiBqdXB5dGVyaHViX2FwaV90b2tlbiB9KQogICAgICAjIGxvYWQgZXh0cmEgZ3JhZGVyIHNlcnZpY2VzIGxhdW5jaGVkIGZyb20gZ3JhZGVyLXNldHVwIHNlcnZpY2UKICAgICAgc2VydmljZXNfcmVzcCA9IHJlcXVlc3RzLmdldCgnaHR0cDovL2dyYWRlci1zZXR1cC1zZXJ2aWNlLnt9LnN2Yy5jbHVzdGVyLmxvY2FsOjgwMDAvc2VydmljZXMnLmZvcm1hdChvcmdfbmFtZSkpCiAgICAgIHNlcnZpY2VzX3Jlc3AgPSBzZXJ2aWNlc19yZXNwLmpzb24oKQogICAgICBjLkp1cHl0ZXJIdWIubG9hZF9ncm91cHMudXBkYXRlKHNlcnZpY2VzX3Jlc3BbJ2dyb3VwcyddKQogICAgICBjLkp1cHl0ZXJIdWIuc2VydmljZXMuZXh0ZW5kKHNlcnZpY2VzX3Jlc3BbJ3NlcnZpY2VzJ10pCiAgICBsb2dvQ29uZmlnOiB8CiAgICAgIGMuSnVweXRlckh1Yi5sb2dvX2ZpbGUgPSAiL3Nydi9qdXB5dGVyaHViL2lsbHVtaWRlc2stODAucG5nIgogICAgcHJpdmF0ZUtleTogfAogICAgICBpbXBvcnQgb3MKICAgICAgaW1wb3J0IHoyamgKICAgICAgZnJvbSBvcyBpbXBvcnQgY2htb2QKICAgICAgZnJvbSBDcnlwdG8uUHVibGljS2V5IGltcG9ydCBSU0EKICAgICAga2V5X3BhdGggPSBvcy5lbnZpcm9uLmdldCgnTFRJMTNfUFJJVkFURV9LRVknKSBvciAnL3Nydi9qdXB5dGVyaHViL3JzYV9wcml2YXRlLmtleScKICAgICAga2V5ID0gUlNBLmdlbmVyYXRlKDIwNDgpCiAgICAgIHdpdGggb3BlbihrZXlfcGF0aCwgJ3diJykgYXMgY29udGVudF9maWxlOgogICAgICAgIGNvbnRlbnRfZmlsZS53cml0ZShrZXkuZXhwb3J0S2V5KCdQRU0nKSkKICAgICAgY2htb2Qoa2V5X3BhdGgsIDBvNjAwKQogIGV4dHJhQ29udGFpbmVyczogW10KICBleHRyYUVudjoKICAgIENVU1RPTV9BVVRIX1RZUEU6CiAgICAgIHZhbHVlRnJvbToKICAgICAgICBjb25maWdNYXBLZXlSZWY6CiAgICAgICAgICBrZXk6IENVU1RPTV9BVVRIX1RZUEUKICAgICAgICAgIG5hbWU6IGh1Yi1pbGx1bWlkZXNrLWNtCiAgICBJTExVTUlERVNLX01OVF9ST09UOiAvaWxsdW1pZGVzay1jb3Vyc2VzCiAgICBKVVBZVEVSSFVCX0FQSV9VUkw6CiAgICAgIHZhbHVlRnJvbToKICAgICAgICBjb25maWdNYXBLZXlSZWY6CiAgICAgICAgICBrZXk6IEpVUFlURVJIVUJfQVBJX1VSTAogICAgICAgICAgbmFtZTogaHViLWlsbHVtaWRlc2stY20KICAgIExUSV9DT05TVU1FUl9LRVk6CiAgICAgIHZhbHVlRnJvbToKICAgICAgICBjb25maWdNYXBLZXlSZWY6CiAgICAgICAgICBrZXk6IExUSV9DT05TVU1FUl9LRVkKICAgICAgICAgIG5hbWU6IGh1Yi1pbGx1bWlkZXNrLWNtCiAgICBMVEkxM19BVVRIT1JJWkVfVVJMOgogICAgICB2YWx1ZUZyb206CiAgICAgICAgY29uZmlnTWFwS2V5UmVmOgogICAgICAgICAga2V5OiBMVEkxM19BVVRIT1JJWkVfVVJMCiAgICAgICAgICBuYW1lOiBodWItaWxsdW1pZGVzay1jbQogICAgTFRJMTNfQ0xJRU5UX0lEOgogICAgICB2YWx1ZUZyb206CiAgICAgICAgY29uZmlnTWFwS2V5UmVmOgogICAgICAgICAga2V5OiBMVEkxM19DTElFTlRfSUQKICAgICAgICAgIG5hbWU6IGh1Yi1pbGx1bWlkZXNrLWNtCiAgICBMVEkxM19FTkRQT0lOVDoKICAgICAgdmFsdWVGcm9tOgogICAgICAgIGNvbmZpZ01hcEtleVJlZjoKICAgICAgICAgIGtleTogTFRJMTNfRU5EUE9JTlQKICAgICAgICAgIG5hbWU6IGh1Yi1pbGx1bWlkZXNrLWNtCiAgICBMVEkxM19QUklWQVRFX0tFWTogL3Nydi9qdXB5dGVyaHViL3JzYV9wcml2YXRlLmtleQogICAgTFRJMTNfVE9LRU5fVVJMOgogICAgICB2YWx1ZUZyb206CiAgICAgICAgY29uZmlnTWFwS2V5UmVmOgogICAgICAgICAga2V5OiBMVEkxM19UT0tFTl9VUkwKICAgICAgICAgIG5hbWU6IGh1Yi1pbGx1bWlkZXNrLWNtCiAgICBPSURDX0FVVEhPUklaRV9VUkw6CiAgICAgIHZhbHVlRnJvbToKICAgICAgICBjb25maWdNYXBLZXlSZWY6CiAgICAgICAgICBrZXk6IE9JRENfQVVUSE9SSVpFX1VSTAogICAgICAgICAgbmFtZTogaHViLWlsbHVtaWRlc2stY20KICAgIE9JRENfQ0FMTEJBQ0tfVVJMOgogICAgICB2YWx1ZUZyb206CiAgICAgICAgY29uZmlnTWFwS2V5UmVmOgogICAgICAgICAga2V5OiBPSURDX0NBTExCQUNLX1VSTAogICAgICAgICAgbmFtZTogaHViLWlsbHVtaWRlc2stY20KICAgIE9JRENfQ0xJRU5UX0lEOgogICAgICB2YWx1ZUZyb206CiAgICAgICAgY29uZmlnTWFwS2V5UmVmOgogICAgICAgICAga2V5OiBPSURDX0NMSUVOVF9JRAogICAgICAgICAgbmFtZTogaHViLWlsbHVtaWRlc2stY20KICAgIE9JRENfQ0xJRU5UX1NFQ1JFVDoKICAgICAgdmFsdWVGcm9tOgogICAgICAgIGNvbmZpZ01hcEtleVJlZjoKICAgICAgICAgIGtleTogT0lEQ19DTElFTlRfU0VDUkVUCiAgICAgICAgICBuYW1lOiBodWItaWxsdW1pZGVzay1jbQogICAgT0lEQ19UT0tFTl9VUkw6CiAgICAgIHZhbHVlRnJvbToKICAgICAgICBjb25maWdNYXBLZXlSZWY6CiAgICAgICAgICBrZXk6IE9JRENfVE9LRU5fVVJMCiAgICAgICAgICBuYW1lOiBodWItaWxsdW1pZGVzay1jbQogICAgT0lEQ19VU0VSREFUQV9VUkw6CiAgICAgIHZhbHVlRnJvbToKICAgICAgICBjb25maWdNYXBLZXlSZWY6CiAgICAgICAgICBrZXk6IE9JRENfVVNFUkRBVEFfVVJMCiAgICAgICAgICBuYW1lOiBodWItaWxsdW1pZGVzay1jbQogICAgT1JHQU5JWkFUSU9OX05BTUU6CiAgICAgIHZhbHVlRnJvbToKICAgICAgICBjb25maWdNYXBLZXlSZWY6CiAgICAgICAgICBrZXk6IE9SR0FOSVpBVElPTl9OQU1FCiAgICAgICAgICBuYW1lOiBodWItaWxsdW1pZGVzay1jbQogICAgUE9TVEdSRVNfSlVQWVRFUkhVQl9EQjoKICAgICAgdmFsdWVGcm9tOgogICAgICAgIGNvbmZpZ01hcEtleVJlZjoKICAgICAgICAgIGtleTogUE9TVEdSRVNfSlVQWVRFUkhVQl9EQgogICAgICAgICAgbmFtZTogaHViLWlsbHVtaWRlc2stY20KICAgIFBPU1RHUkVTX0pVUFlURVJIVUJfSE9TVDoKICAgICAgdmFsdWVGcm9tOgogICAgICAgIGNvbmZpZ01hcEtleVJlZjoKICAgICAgICAgIGtleTogUE9TVEdSRVNfSlVQWVRFUkhVQl9IT1NUCiAgICAgICAgICBuYW1lOiBodWItaWxsdW1pZGVzay1jbQogICAgUE9TVEdSRVNfSlVQWVRFUkhVQl9QT1JUOgogICAgICB2YWx1ZUZyb206CiAgICAgICAgY29uZmlnTWFwS2V5UmVmOgogICAgICAgICAga2V5OiBQT1NUR1JFU19KVVBZVEVSSFVCX1BPUlQKICAgICAgICAgIG5hbWU6IGh1Yi1pbGx1bWlkZXNrLWNtCiAgICBQT1NUR1JFU19KVVBZVEVSSFVCX1VTRVI6CiAgICAgIHZhbHVlRnJvbToKICAgICAgICBjb25maWdNYXBLZXlSZWY6CiAgICAgICAgICBrZXk6IFBPU1RHUkVTX0pVUFlURVJIVUJfVVNFUgogICAgICAgICAgbmFtZTogaHViLWlsbHVtaWRlc2stY20KICAgIFBPU1RHUkVTX05CR1JBREVSX0hPU1Q6CiAgICAgIHZhbHVlRnJvbToKICAgICAgICBjb25maWdNYXBLZXlSZWY6CiAgICAgICAgICBrZXk6IFBPU1RHUkVTX05CR1JBREVSX0hPU1QKICAgICAgICAgIG5hbWU6IGh1Yi1pbGx1bWlkZXNrLWNtCiAgICBQT1NUR1JFU19OQkdSQURFUl9VU0VSOgogICAgICB2YWx1ZUZyb206CiAgICAgICAgY29uZmlnTWFwS2V5UmVmOgogICAgICAgICAga2V5OiBQT1NUR1JFU19OQkdSQURFUl9VU0VSCiAgICAgICAgICBuYW1lOiBodWItaWxsdW1pZGVzay1jbQogIGV4dHJhRmlsZXM6IHt9CiAgZXh0cmFQb2RTcGVjOiB7fQogIGV4dHJhVm9sdW1lTW91bnRzOgogIC0gbW91bnRQYXRoOiAvZXRjL2p1cHl0ZXJodWIvY3VzdG9tCiAgICBuYW1lOiBjdXN0b20tdGVtcGxhdGVzCiAgZXh0cmFWb2x1bWVzOgogIC0gZW1wdHlEaXI6IHt9CiAgICBuYW1lOiBjdXN0b20tdGVtcGxhdGVzCiAgZnNHaWQ6IDEwMDAKICBpbWFnZToKICAgIG5hbWU6IGlsbHVtaWRlc2svazhzLWh1YgogICAgcHVsbFBvbGljeTogSWZOb3RQcmVzZW50CiAgICBwdWxsU2VjcmV0czogW10KICAgIHRhZzogbGF0ZXN0CiAgaW5pdENvbnRhaW5lcnM6CiAgLSBhcmdzOgogICAgLSBjbG9uZQogICAgLSAtLXNpbmdsZS1icmFuY2gKICAgIC0gLS1icmFuY2g9bWFpbgogICAgLSAtLWRlcHRoPTEKICAgIC0gLS0KICAgIC0gaHR0cHM6Ly9naXRodWIuY29tL2lsbHVtaWRlc2svamh1YnVpLmdpdAogICAgLSAvZXRjL2p1cHl0ZXJodWIvY3VzdG9tCiAgICBpbWFnZTogaWxsdW1pZGVzay9hbHBpbmUtZ2l0OjEuMC4zMAogICAgbmFtZTogZ2l0LWNsb25lLXRlbXBsYXRlcwogICAgc2VjdXJpdHlDb250ZXh0OgogICAgICBydW5Bc1VzZXI6IDAKICAgIHZvbHVtZU1vdW50czoKICAgIC0gbW91bnRQYXRoOiAvZXRjL2p1cHl0ZXJodWIvY3VzdG9tCiAgICAgIG5hbWU6IGN1c3RvbS10ZW1wbGF0ZXMKICBsYWJlbHM6IHt9CiAgbGlmZWN5Y2xlOiB7fQogIGxpdmVuZXNzUHJvYmU6CiAgICBlbmFibGVkOiB0cnVlCiAgICBmYWlsdXJlVGhyZXNob2xkOiAzMAogICAgaW5pdGlhbERlbGF5U2Vjb25kczogMzAwCiAgICBwZXJpb2RTZWNvbmRzOiAxMAogICAgdGltZW91dFNlY29uZHM6IDMKICBuYW1lZFNlcnZlckxpbWl0UGVyVXNlcjogbnVsbAogIG5ldHdvcmtQb2xpY3k6CiAgICBhbGxvd2VkSW5ncmVzc1BvcnRzOiBbXQogICAgZWdyZXNzOgogICAgLSB0bzoKICAgICAgLSBpcEJsb2NrOgogICAgICAgICAgY2lkcjogMC4wLjAuMC8wCiAgICBlbmFibGVkOiB0cnVlCiAgICBpbmdyZXNzOiBbXQogICAgaW50ZXJOYW1lc3BhY2VBY2Nlc3NMYWJlbHM6IGlnbm9yZQogIG5vZGVTZWxlY3Rvcjoge30KICBwZGI6CiAgICBlbmFibGVkOiBmYWxzZQogICAgbWluQXZhaWxhYmxlOiAxCiAgcmVhZGluZXNzUHJvYmU6CiAgICBlbmFibGVkOiB0cnVlCiAgICBmYWlsdXJlVGhyZXNob2xkOiAxMDAwCiAgICBpbml0aWFsRGVsYXlTZWNvbmRzOiAwCiAgICBwZXJpb2RTZWNvbmRzOiAyCiAgICB0aW1lb3V0U2Vjb25kczogMQogIHJlZGlyZWN0VG9TZXJ2ZXI6IG51bGwKICByZXNvdXJjZXM6CiAgICBsaW1pdHM6CiAgICAgIGNwdTogNDAwbQogICAgICBtZW1vcnk6IDgwME1pCiAgICByZXF1ZXN0czoKICAgICAgY3B1OiAyMDBtCiAgICAgIG1lbW9yeTogNDAwTWkKICBzZXJ2aWNlOgogICAgYW5ub3RhdGlvbnM6IHt9CiAgICBleHRyYVBvcnRzOiBbXQogICAgcG9ydHM6IHt9CiAgICB0eXBlOiBDbHVzdGVySVAKICBzZXJ2aWNlQWNjb3VudDoKICAgIGFubm90YXRpb25zOiB7fQogIHNlcnZpY2VzOiB7fQogIHNodXRkb3duT25Mb2dvdXQ6IHRydWUKICB0ZW1wbGF0ZVBhdGhzOiBbXQogIHRlbXBsYXRlVmFyczoge30KICB0b2xlcmF0aW9uczogW10KaW1hZ2VQdWxsU2VjcmV0OgogIGF1dG9tYXRpY1JlZmVyZW5jZUluamVjdGlvbjogdHJ1ZQogIGNyZWF0ZTogZmFsc2UKaW1hZ2VQdWxsU2VjcmV0czogW10KaW5ncmVzczoKICBhbm5vdGF0aW9uczoge30KICBlbmFibGVkOiBmYWxzZQogIGhvc3RzOiBbXQogIHBhdGhUeXBlOiBQcmVmaXgKICB0bHM6IFtdCnByZVB1bGxlcjoKICBhbm5vdGF0aW9uczoge30KICBjb250YWluZXJTZWN1cml0eUNvbnRleHQ6CiAgICBhbGxvd1ByaXZpbGVnZUVzY2FsYXRpb246IGZhbHNlCiAgICBydW5Bc0dyb3VwOiA2NTUzNAogICAgcnVuQXNVc2VyOiA2NTUzNAogIGNvbnRpbnVvdXM6CiAgICBlbmFibGVkOiB0cnVlCiAgZXh0cmFJbWFnZXM6IHt9CiAgZXh0cmFUb2xlcmF0aW9uczogW10KICBob29rOgogICAgY29udGFpbmVyU2VjdXJpdHlDb250ZXh0OgogICAgICBhbGxvd1ByaXZpbGVnZUVzY2FsYXRpb246IGZhbHNlCiAgICAgIHJ1bkFzR3JvdXA6IDY1NTM0CiAgICAgIHJ1bkFzVXNlcjogNjU1MzQKICAgIGVuYWJsZWQ6IHRydWUKICAgIGltYWdlOgogICAgICBuYW1lOiBqdXB5dGVyaHViL2s4cy1pbWFnZS1hd2FpdGVyCiAgICAgIHB1bGxTZWNyZXRzOiBbXQogICAgICB0YWc6IDEuMS4xCiAgICBub2RlU2VsZWN0b3I6IHt9CiAgICBwb2RTY2hlZHVsaW5nV2FpdER1cmF0aW9uOiAxMAogICAgcHVsbE9ubHlPbkNoYW5nZXM6IHRydWUKICAgIHJlc291cmNlczoge30KICAgIHNlcnZpY2VBY2NvdW50OgogICAgICBhbm5vdGF0aW9uczoge30KICAgIHRvbGVyYXRpb25zOiBbXQogIHBhdXNlOgogICAgY29udGFpbmVyU2VjdXJpdHlDb250ZXh0OgogICAgICBhbGxvd1ByaXZpbGVnZUVzY2FsYXRpb246IGZhbHNlCiAgICAgIHJ1bkFzR3JvdXA6IDY1NTM0CiAgICAgIHJ1bkFzVXNlcjogNjU1MzQKICAgIGltYWdlOgogICAgICBuYW1lOiBrOHMuZ2NyLmlvL3BhdXNlCiAgICAgIHB1bGxTZWNyZXRzOiBbXQogICAgICB0YWc6ICIzLjUiCiAgcHVsbFByb2ZpbGVMaXN0SW1hZ2VzOiB0cnVlCiAgcmVzb3VyY2VzOiB7fQpwcm94eToKICBhbm5vdGF0aW9uczoge30KICBjaHA6CiAgICBjb250YWluZXJTZWN1cml0eUNvbnRleHQ6CiAgICAgIGFsbG93UHJpdmlsZWdlRXNjYWxhdGlvbjogZmFsc2UKICAgICAgcnVuQXNHcm91cDogNjU1MzQKICAgICAgcnVuQXNVc2VyOiA2NTUzNAogICAgZXh0cmFDb21tYW5kTGluZUZsYWdzOiBbXQogICAgZXh0cmFFbnY6IHt9CiAgICBleHRyYVBvZFNwZWM6IHt9CiAgICBpbWFnZToKICAgICAgbmFtZToganVweXRlcmh1Yi9jb25maWd1cmFibGUtaHR0cC1wcm94eQogICAgICBwdWxsU2VjcmV0czogW10KICAgICAgdGFnOiA0LjUuMAogICAgbGl2ZW5lc3NQcm9iZToKICAgICAgZW5hYmxlZDogdHJ1ZQogICAgICBpbml0aWFsRGVsYXlTZWNvbmRzOiA2MAogICAgICBwZXJpb2RTZWNvbmRzOiAxMAogICAgbmV0d29ya1BvbGljeToKICAgICAgYWxsb3dlZEluZ3Jlc3NQb3J0czoKICAgICAgLSBodHRwCiAgICAgIC0gaHR0cHMKICAgICAgZWdyZXNzOgogICAgICAtIHRvOgogICAgICAgIC0gaXBCbG9jazoKICAgICAgICAgICAgY2lkcjogMC4wLjAuMC8wCiAgICAgIGVuYWJsZWQ6IHRydWUKICAgICAgaW5ncmVzczogW10KICAgICAgaW50ZXJOYW1lc3BhY2VBY2Nlc3NMYWJlbHM6IGlnbm9yZQogICAgbm9kZVNlbGVjdG9yOiB7fQogICAgcGRiOgogICAgICBlbmFibGVkOiBmYWxzZQogICAgICBtaW5BdmFpbGFibGU6IDEKICAgIHJlYWRpbmVzc1Byb2JlOgogICAgICBlbmFibGVkOiB0cnVlCiAgICAgIGZhaWx1cmVUaHJlc2hvbGQ6IDEwMDAKICAgICAgaW5pdGlhbERlbGF5U2Vjb25kczogMAogICAgICBwZXJpb2RTZWNvbmRzOiAyCiAgICByZXNvdXJjZXM6IHt9CiAgICB0b2xlcmF0aW9uczogW10KICBkZXBsb3ltZW50U3RyYXRlZ3k6CiAgICB0eXBlOiBSZWNyZWF0ZQogIGh0dHBzOgogICAgZW5hYmxlZDogdHJ1ZQogICAgaG9zdHM6IFtdCiAgICBsZXRzZW5jcnlwdDoKICAgICAgYWNtZVNlcnZlcjogaHR0cHM6Ly9hY21lLXYwMi5hcGkubGV0c2VuY3J5cHQub3JnL2RpcmVjdG9yeQogICAgbWFudWFsOiB7fQogICAgc2VjcmV0OgogICAgICBjcnQ6IHRscy5jcnQKICAgICAga2V5OiB0bHMua2V5CiAgICB0eXBlOiBsZXRzZW5jcnlwdAogIGxhYmVsczoge30KICBzZWNyZXRTeW5jOgogICAgY29udGFpbmVyU2VjdXJpdHlDb250ZXh0OgogICAgICBhbGxvd1ByaXZpbGVnZUVzY2FsYXRpb246IGZhbHNlCiAgICAgIHJ1bkFzR3JvdXA6IDY1NTM0CiAgICAgIHJ1bkFzVXNlcjogNjU1MzQKICAgIGltYWdlOgogICAgICBuYW1lOiBqdXB5dGVyaHViL2s4cy1zZWNyZXQtc3luYwogICAgICBwdWxsU2VjcmV0czogW10KICAgICAgdGFnOiAxLjEuMQogICAgcmVzb3VyY2VzOiB7fQogIHNlY3JldFRva2VuOiBleGFtcGxlCiAgc2VydmljZToKICAgIGFubm90YXRpb25zOiB7fQogICAgZGlzYWJsZUh0dHBQb3J0OiBmYWxzZQogICAgZXh0cmFQb3J0czogW10KICAgIGxhYmVsczoge30KICAgIGxvYWRCYWxhbmNlcklQOiBudWxsCiAgICBsb2FkQmFsYW5jZXJTb3VyY2VSYW5nZXM6IFtdCiAgICBub2RlUG9ydHM6IHt9CiAgICB0eXBlOiBDbHVzdGVySVAKICB0cmFlZmlrOgogICAgY29udGFpbmVyU2VjdXJpdHlDb250ZXh0OgogICAgICBhbGxvd1ByaXZpbGVnZUVzY2FsYXRpb246IGZhbHNlCiAgICAgIHJ1bkFzR3JvdXA6IDY1NTM0CiAgICAgIHJ1bkFzVXNlcjogNjU1MzQKICAgIGV4dHJhRHluYW1pY0NvbmZpZzoge30KICAgIGV4dHJhRW52OiB7fQogICAgZXh0cmFQb2RTcGVjOiB7fQogICAgZXh0cmFQb3J0czogW10KICAgIGV4dHJhU3RhdGljQ29uZmlnOiB7fQogICAgZXh0cmFWb2x1bWVNb3VudHM6IFtdCiAgICBleHRyYVZvbHVtZXM6IFtdCiAgICBoc3RzOgogICAgICBpbmNsdWRlU3ViZG9tYWluczogZmFsc2UKICAgICAgbWF4QWdlOiAxNTcyNDgwMAogICAgICBwcmVsb2FkOiBmYWxzZQogICAgaW1hZ2U6CiAgICAgIG5hbWU6IHRyYWVmaWsKICAgICAgcHVsbFNlY3JldHM6IFtdCiAgICAgIHRhZzogdjIuNC4xMQogICAgbGFiZWxzOiB7fQogICAgbmV0d29ya1BvbGljeToKICAgICAgYWxsb3dlZEluZ3Jlc3NQb3J0czoKICAgICAgLSBodHRwCiAgICAgIC0gaHR0cHMKICAgICAgZWdyZXNzOgogICAgICAtIHRvOgogICAgICAgIC0gaXBCbG9jazoKICAgICAgICAgICAgY2lkcjogMC4wLjAuMC8wCiAgICAgIGVuYWJsZWQ6IHRydWUKICAgICAgaW5ncmVzczogW10KICAgICAgaW50ZXJOYW1lc3BhY2VBY2Nlc3NMYWJlbHM6IGlnbm9yZQogICAgbm9kZVNlbGVjdG9yOiB7fQogICAgcGRiOgogICAgICBlbmFibGVkOiBmYWxzZQogICAgICBtaW5BdmFpbGFibGU6IDEKICAgIHJlc291cmNlczoge30KICAgIHNlcnZpY2VBY2NvdW50OgogICAgICBhbm5vdGF0aW9uczoge30KICAgIHRvbGVyYXRpb25zOiBbXQpyYmFjOgogIGVuYWJsZWQ6IHRydWUKc2NoZWR1bGluZzoKICBjb3JlUG9kczoKICAgIG5vZGVBZmZpbml0eToKICAgICAgbWF0Y2hOb2RlUHVycG9zZTogcHJlZmVyCiAgICB0b2xlcmF0aW9uczoKICAgIC0gZWZmZWN0OiBOb1NjaGVkdWxlCiAgICAgIGtleTogaHViLmp1cHl0ZXIub3JnL2RlZGljYXRlZAogICAgICBvcGVyYXRvcjogRXF1YWwKICAgICAgdmFsdWU6IGNvcmUKICAgIC0gZWZmZWN0OiBOb1NjaGVkdWxlCiAgICAgIGtleTogaHViLmp1cHl0ZXIub3JnX2RlZGljYXRlZAogICAgICBvcGVyYXRvcjogRXF1YWwKICAgICAgdmFsdWU6IGNvcmUKICBwb2RQcmlvcml0eToKICAgIGRlZmF1bHRQcmlvcml0eTogMAogICAgZW5hYmxlZDogZmFsc2UKICAgIGdsb2JhbERlZmF1bHQ6IGZhbHNlCiAgICB1c2VyUGxhY2Vob2xkZXJQcmlvcml0eTogLTEwCiAgdXNlclBsYWNlaG9sZGVyOgogICAgY29udGFpbmVyU2VjdXJpdHlDb250ZXh0OgogICAgICBhbGxvd1ByaXZpbGVnZUVzY2FsYXRpb246IGZhbHNlCiAgICAgIHJ1bkFzR3JvdXA6IDY1NTM0CiAgICAgIHJ1bkFzVXNlcjogNjU1MzQKICAgIGVuYWJsZWQ6IHRydWUKICAgIGltYWdlOgogICAgICBuYW1lOiBrOHMuZ2NyLmlvL3BhdXNlCiAgICAgIHB1bGxTZWNyZXRzOiBbXQogICAgICB0YWc6ICIzLjUiCiAgICByZXBsaWNhczogMAogICAgcmVzb3VyY2VzOiB7fQogIHVzZXJQb2RzOgogICAgbm9kZUFmZmluaXR5OgogICAgICBtYXRjaE5vZGVQdXJwb3NlOiBwcmVmZXIKICAgIHRvbGVyYXRpb25zOgogICAgLSBlZmZlY3Q6IE5vU2NoZWR1bGUKICAgICAga2V5OiBodWIuanVweXRlci5vcmcvZGVkaWNhdGVkCiAgICAgIG9wZXJhdG9yOiBFcXVhbAogICAgICB2YWx1ZTogdXNlcgogICAgLSBlZmZlY3Q6IE5vU2NoZWR1bGUKICAgICAga2V5OiBodWIuanVweXRlci5vcmdfZGVkaWNhdGVkCiAgICAgIG9wZXJhdG9yOiBFcXVhbAogICAgICB2YWx1ZTogdXNlcgogIHVzZXJTY2hlZHVsZXI6CiAgICBjb250YWluZXJTZWN1cml0eUNvbnRleHQ6CiAgICAgIGFsbG93UHJpdmlsZWdlRXNjYWxhdGlvbjogZmFsc2UKICAgICAgcnVuQXNHcm91cDogNjU1MzQKICAgICAgcnVuQXNVc2VyOiA2NTUzNAogICAgZW5hYmxlZDogdHJ1ZQogICAgZXh0cmFQb2RTcGVjOiB7fQogICAgaW1hZ2U6CiAgICAgIG5hbWU6IGs4cy5nY3IuaW8va3ViZS1zY2hlZHVsZXIKICAgICAgcHVsbFNlY3JldHM6IFtdCiAgICAgIHRhZzogdjEuMTkuMTMKICAgIGxvZ0xldmVsOiA0CiAgICBub2RlU2VsZWN0b3I6IHt9CiAgICBwZGI6CiAgICAgIGVuYWJsZWQ6IHRydWUKICAgICAgbWF4VW5hdmFpbGFibGU6IDEKICAgIHBsdWdpbnM6CiAgICAgIHNjb3JlOgogICAgICAgIGRpc2FibGVkOgogICAgICAgIC0gbmFtZTogU2VsZWN0b3JTcHJlYWQKICAgICAgICAtIG5hbWU6IFRhaW50VG9sZXJhdGlvbgogICAgICAgIC0gbmFtZTogUG9kVG9wb2xvZ3lTcHJlYWQKICAgICAgICAtIG5hbWU6IE5vZGVSZXNvdXJjZXNCYWxhbmNlZEFsbG9jYXRpb24KICAgICAgICAtIG5hbWU6IE5vZGVSZXNvdXJjZXNMZWFzdEFsbG9jYXRlZAogICAgICAgIC0gbmFtZTogTm9kZVByZWZlckF2b2lkUG9kcwogICAgICAgIC0gbmFtZTogTm9kZUFmZmluaXR5CiAgICAgICAgLSBuYW1lOiBJbnRlclBvZEFmZmluaXR5CiAgICAgICAgLSBuYW1lOiBJbWFnZUxvY2FsaXR5CiAgICAgICAgZW5hYmxlZDoKICAgICAgICAtIG5hbWU6IE5vZGVQcmVmZXJBdm9pZFBvZHMKICAgICAgICAgIHdlaWdodDogMTYxMDUxCiAgICAgICAgLSBuYW1lOiBOb2RlQWZmaW5pdHkKICAgICAgICAgIHdlaWdodDogMTQ2MzEKICAgICAgICAtIG5hbWU6IEludGVyUG9kQWZmaW5pdHkKICAgICAgICAgIHdlaWdodDogMTMzMQogICAgICAgIC0gbmFtZTogTm9kZVJlc291cmNlc01vc3RBbGxvY2F0ZWQKICAgICAgICAgIHdlaWdodDogMTIxCiAgICAgICAgLSBuYW1lOiBJbWFnZUxvY2FsaXR5CiAgICAgICAgICB3ZWlnaHQ6IDExCiAgICByZXBsaWNhczogMgogICAgcmVzb3VyY2VzOiB7fQogICAgc2VydmljZUFjY291bnQ6CiAgICAgIGFubm90YXRpb25zOiB7fQogICAgdG9sZXJhdGlvbnM6IFtdCnNpbmdsZXVzZXI6CiAgY2xvdWRNZXRhZGF0YToKICAgIGJsb2NrV2l0aElwdGFibGVzOiB0cnVlCiAgICBpcDogMTY5LjI1NC4xNjkuMjU0CiAgY21kOiBzdGFydC1zaW5nbGV1c2VyLnNoCiAgY3B1OgogICAgZ3VhcmFudGVlOiBudWxsCiAgICBsaW1pdDogMC41CiAgZGVmYXVsdFVybDogbnVsbAogIGV2ZW50czogdHJ1ZQogIGV4dHJhQW5ub3RhdGlvbnM6IHt9CiAgZXh0cmFDb250YWluZXJzOiBbXQogIGV4dHJhRW52OgogICAgQ0hPV05fSE9NRTogInllcyIKICAgIEVkaXRvcjogdmltCiAgZXh0cmFGaWxlczoge30KICBleHRyYUxhYmVsczoKICAgIGh1Yi5qdXB5dGVyLm9yZy9uZXR3b3JrLWFjY2Vzcy1odWI6ICJ0cnVlIgogIGV4dHJhTm9kZUFmZmluaXR5OgogICAgcHJlZmVycmVkOiBbXQogICAgcmVxdWlyZWQ6IFtdCiAgZXh0cmFQb2RBZmZpbml0eToKICAgIHByZWZlcnJlZDogW10KICAgIHJlcXVpcmVkOiBbXQogIGV4dHJhUG9kQW50aUFmZmluaXR5OgogICAgcHJlZmVycmVkOiBbXQogICAgcmVxdWlyZWQ6IFtdCiAgZXh0cmFQb2RDb25maWc6IHt9CiAgZXh0cmFSZXNvdXJjZToKICAgIGd1YXJhbnRlZXM6IHt9CiAgICBsaW1pdHM6IHt9CiAgZXh0cmFUb2xlcmF0aW9uczogW10KICBmc0dpZDogMAogIGltYWdlOgogICAgbmFtZTogaWxsdW1pZGVzay9pbGx1bWlkZXNrLW5vdGVib29rCiAgICBwdWxsUG9saWN5OiBJZk5vdFByZXNlbnQKICAgIHB1bGxTZWNyZXRzOiBbXQogICAgdGFnOiBsYXRlc3QKICBpbml0Q29udGFpbmVyczogW10KICBsaWZlY3ljbGVIb29rczoge30KICBtZW1vcnk6CiAgICBndWFyYW50ZWU6IDFHCiAgICBsaW1pdDogMUcKICBuZXR3b3JrUG9saWN5OgogICAgYWxsb3dlZEluZ3Jlc3NQb3J0czogW10KICAgIGVncmVzczoKICAgIC0gdG86CiAgICAgIC0gaXBCbG9jazoKICAgICAgICAgIGNpZHI6IDAuMC4wLjAvMAogICAgICAgICAgZXhjZXB0OgogICAgICAgICAgLSAxNjkuMjU0LjE2OS4yNTQvMzIKICAgIGVuYWJsZWQ6IHRydWUKICAgIGluZ3Jlc3M6IFtdCiAgICBpbnRlck5hbWVzcGFjZUFjY2Vzc0xhYmVsczogaWdub3JlCiAgbmV0d29ya1Rvb2xzOgogICAgaW1hZ2U6CiAgICAgIG5hbWU6IGp1cHl0ZXJodWIvazhzLW5ldHdvcmstdG9vbHMKICAgICAgcHVsbFNlY3JldHM6IFtdCiAgICAgIHRhZzogMS4xLjEKICBub2RlU2VsZWN0b3I6IHt9CiAgcG9kTmFtZVRlbXBsYXRlOiBudWxsCiAgcHJvZmlsZUxpc3Q6IFtdCiAgc2VydmljZUFjY291bnROYW1lOiBudWxsCiAgc3RhcnRUaW1lb3V0OiAzMDAKICBzdG9yYWdlOgogICAgY2FwYWNpdHk6IDEwR2kKICAgIGR5bmFtaWM6CiAgICAgIHB2Y05hbWVUZW1wbGF0ZTogY2xhaW0te3VzZXJuYW1lfXtzZXJ2ZXJuYW1lfQogICAgICBzdG9yYWdlQWNjZXNzTW9kZXM6CiAgICAgIC0gUmVhZFdyaXRlT25jZQogICAgICB2b2x1bWVOYW1lVGVtcGxhdGU6IHZvbHVtZS17dXNlcm5hbWV9e3NlcnZlcm5hbWV9CiAgICBleHRyYUxhYmVsczoge30KICAgIGV4dHJhVm9sdW1lTW91bnRzOiBbXQogICAgZXh0cmFWb2x1bWVzOiBbXQogICAgaG9tZU1vdW50UGF0aDogL2hvbWUvam92eWFuCiAgICBzdGF0aWM6CiAgICAgIHN1YlBhdGg6ICd7dXNlcm5hbWV9JwogICAgdHlwZTogZHluYW1pYwogIHVpZDogMA==
+  hub.config.ConfigurableHTTPProxy.auth_token: ZXhhbXBsZQ==
+  hub.config.JupyterHub.cookie_secret: ZDY1MmI2YWZkYjc5MmU2ODc4NWI3NDJjZjBmNGIwM2FlYzM3NzNjNjVhYjFmOTBhY2MwZTJiZTdlN2M4MGQyZQ==
+  hub.config.CryptKeeper.keys: NTMwOTczYzBhOGY5ODA4NTQxZmZhYzIyZTY3MTUwYWJmMWQ0YzZkNTA2ZGQ5ZWI2YjlkZDE1MGZhM2I4YmM2NA==
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: illumidesk-secret
+  namespace: Lr5Bt
+type: Opaque
+stringData: null
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: hub
+  labels:
+    component: hub
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+data:
+  fullname: ""
+  fullname-dash: ""
+  hub: hub
+  hub-existing-secret: ""
+  hub-existing-secret-or-default: hub
+  hub-pvc: hub-db-dir
+  proxy: proxy
+  proxy-api: proxy-api
+  proxy-http: proxy-http
+  proxy-public: proxy-public
+  proxy-public-tls: proxy-public-tls-acme
+  proxy-public-manual-tls: proxy-public-manual-tls
+  autohttps: autohttps
+  user-scheduler-deploy: user-scheduler
+  user-scheduler-lock: user-scheduler-lock
+  user-placeholder: user-placeholder
+  hook-image-awaiter: hook-image-awaiter
+  hook-image-puller: hook-image-puller
+  continuous-image-puller: continuous-image-puller
+  singleuser: singleuser
+  image-pull-secret: image-pull-secret
+  ingress: jupyterhub
+  priority: release-name-default-priority
+  user-placeholder-priority: release-name-user-placeholder-priority
+  user-scheduler: release-name-user-scheduler
+  jupyterhub_config.py: |
+    import glob
+    import os
+    import re
+    import sys
+
+    from binascii import a2b_hex
+
+    from tornado.httpclient import AsyncHTTPClient
+    from kubernetes import client
+    from jupyterhub.utils import url_path_join
+
+    # Make sure that modules placed in the same directory as the jupyterhub config are added to the pythonpath
+    configuration_directory = os.path.dirname(os.path.realpath(__file__))
+    sys.path.insert(0, configuration_directory)
+
+    from z2jh import (
+        get_config,
+        set_config_if_not_none,
+        get_name,
+        get_name_env,
+        get_secret_value,
+    )
+
+
+    def camelCaseify(s):
+        """convert snake_case to camelCase
+
+        For the common case where some_value is set from someValue
+        so we don't have to specify the name twice.
+        """
+        return re.sub(r"_([a-z])", lambda m: m.group(1).upper(), s)
+
+
+    # Configure JupyterHub to use the curl backend for making HTTP requests,
+    # rather than the pure-python implementations. The default one starts
+    # being too slow to make a large number of requests to the proxy API
+    # at the rate required.
+    AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient")
+
+    c.JupyterHub.spawner_class = "kubespawner.KubeSpawner"
+
+    # Connect to a proxy running in a different pod. Note that *_SERVICE_*
+    # environment variables are set by Kubernetes for Services
+    c.ConfigurableHTTPProxy.api_url = (
+        f'http://{get_name("proxy-api")}:{get_name_env("proxy-api", "_SERVICE_PORT")}'
+    )
+    c.ConfigurableHTTPProxy.should_start = False
+
+    # Do not shut down user pods when hub is restarted
+    c.JupyterHub.cleanup_servers = False
+
+    # Check that the proxy has routes appropriately setup
+    c.JupyterHub.last_activity_interval = 60
+
+    # Don't wait at all before redirecting a spawning user to the progress page
+    c.JupyterHub.tornado_settings = {
+        "slow_spawn_timeout": 0,
+    }
+
+
+    # configure the hub db connection
+    db_type = get_config("hub.db.type")
+    if db_type == "sqlite-pvc":
+        c.JupyterHub.db_url = "sqlite:///jupyterhub.sqlite"
+    elif db_type == "sqlite-memory":
+        c.JupyterHub.db_url = "sqlite://"
+    else:
+        set_config_if_not_none(c.JupyterHub, "db_url", "hub.db.url")
+    db_password = get_secret_value("hub.db.password", None)
+    if db_password is not None:
+        if db_type == "mysql":
+            os.environ["MYSQL_PWD"] = db_password
+        elif db_type == "postgres":
+            os.environ["PGPASSWORD"] = db_password
+        else:
+            print(f"Warning: hub.db.password is ignored for hub.db.type={db_type}")
+
+
+    # c.JupyterHub configuration from Helm chart's configmap
+    for trait, cfg_key in (
+        ("concurrent_spawn_limit", None),
+        ("active_server_limit", None),
+        ("base_url", None),
+        ("allow_named_servers", None),
+        ("named_server_limit_per_user", None),
+        ("authenticate_prometheus", None),
+        ("redirect_to_server", None),
+        ("shutdown_on_logout", None),
+        ("template_paths", None),
+        ("template_vars", None),
+    ):
+        if cfg_key is None:
+            cfg_key = camelCaseify(trait)
+        set_config_if_not_none(c.JupyterHub, trait, "hub." + cfg_key)
+
+    # hub_bind_url configures what the JupyterHub process within the hub pod's
+    # container should listen to.
+    hub_container_port = 8081
+    c.JupyterHub.hub_bind_url = f"http://:{hub_container_port}"
+
+    # hub_connect_url is the URL for connecting to the hub for use by external
+    # JupyterHub services such as the proxy. Note that *_SERVICE_* environment
+    # variables are set by Kubernetes for Services.
+    c.JupyterHub.hub_connect_url = (
+        f'http://{get_name("hub")}:{get_name_env("hub", "_SERVICE_PORT")}'
+    )
+
+    # implement common labels
+    # this duplicates the jupyterhub.commonLabels helper
+    common_labels = c.KubeSpawner.common_labels = {}
+    common_labels["app"] = get_config(
+        "nameOverride",
+        default=get_config("Chart.Name", "jupyterhub"),
+    )
+    common_labels["heritage"] = "jupyterhub"
+    chart_name = get_config("Chart.Name")
+    chart_version = get_config("Chart.Version")
+    if chart_name and chart_version:
+        common_labels["chart"] = "{}-{}".format(
+            chart_name,
+            chart_version.replace("+", "_"),
+        )
+    release = get_config("Release.Name")
+    if release:
+        common_labels["release"] = release
+
+    c.KubeSpawner.namespace = os.environ.get("POD_NAMESPACE", "default")
+
+    # Max number of consecutive failures before the Hub restarts itself
+    # requires jupyterhub 0.9.2
+    set_config_if_not_none(
+        c.Spawner,
+        "consecutive_failure_limit",
+        "hub.consecutiveFailureLimit",
+    )
+
+    for trait, cfg_key in (
+        ("pod_name_template", None),
+        ("start_timeout", None),
+        ("image_pull_policy", "image.pullPolicy"),
+        # ('image_pull_secrets', 'image.pullSecrets'), # Managed manually below
+        ("events_enabled", "events"),
+        ("extra_labels", None),
+        ("extra_annotations", None),
+        ("uid", None),
+        ("fs_gid", None),
+        ("service_account", "serviceAccountName"),
+        ("storage_extra_labels", "storage.extraLabels"),
+        # ("tolerations", "extraTolerations"), # Managed manually below
+        ("node_selector", None),
+        ("node_affinity_required", "extraNodeAffinity.required"),
+        ("node_affinity_preferred", "extraNodeAffinity.preferred"),
+        ("pod_affinity_required", "extraPodAffinity.required"),
+        ("pod_affinity_preferred", "extraPodAffinity.preferred"),
+        ("pod_anti_affinity_required", "extraPodAntiAffinity.required"),
+        ("pod_anti_affinity_preferred", "extraPodAntiAffinity.preferred"),
+        ("lifecycle_hooks", None),
+        ("init_containers", None),
+        ("extra_containers", None),
+        ("mem_limit", "memory.limit"),
+        ("mem_guarantee", "memory.guarantee"),
+        ("cpu_limit", "cpu.limit"),
+        ("cpu_guarantee", "cpu.guarantee"),
+        ("extra_resource_limits", "extraResource.limits"),
+        ("extra_resource_guarantees", "extraResource.guarantees"),
+        ("environment", "extraEnv"),
+        ("profile_list", None),
+        ("extra_pod_config", None),
+    ):
+        if cfg_key is None:
+            cfg_key = camelCaseify(trait)
+        set_config_if_not_none(c.KubeSpawner, trait, "singleuser." + cfg_key)
+
+    image = get_config("singleuser.image.name")
+    if image:
+        tag = get_config("singleuser.image.tag")
+        if tag:
+            image = "{}:{}".format(image, tag)
+
+        c.KubeSpawner.image = image
+
+    # Combine imagePullSecret.create (single), imagePullSecrets (list), and
+    # singleuser.image.pullSecrets (list).
+    image_pull_secrets = []
+    if get_config("imagePullSecret.automaticReferenceInjection") and get_config(
+        "imagePullSecret.create"
+    ):
+        image_pull_secrets.append(get_name("image-pull-secret"))
+    if get_config("imagePullSecrets"):
+        image_pull_secrets.extend(get_config("imagePullSecrets"))
+    if get_config("singleuser.image.pullSecrets"):
+        image_pull_secrets.extend(get_config("singleuser.image.pullSecrets"))
+    if image_pull_secrets:
+        c.KubeSpawner.image_pull_secrets = image_pull_secrets
+
+    # scheduling:
+    if get_config("scheduling.userScheduler.enabled"):
+        c.KubeSpawner.scheduler_name = get_name("user-scheduler")
+    if get_config("scheduling.podPriority.enabled"):
+        c.KubeSpawner.priority_class_name = get_name("priority")
+
+    # add node-purpose affinity
+    match_node_purpose = get_config("scheduling.userPods.nodeAffinity.matchNodePurpose")
+    if match_node_purpose:
+        node_selector = dict(
+            matchExpressions=[
+                dict(
+                    key="hub.jupyter.org/node-purpose",
+                    operator="In",
+                    values=["user"],
+                )
+            ],
+        )
+        if match_node_purpose == "prefer":
+            c.KubeSpawner.node_affinity_preferred.append(
+                dict(
+                    weight=100,
+                    preference=node_selector,
+                ),
+            )
+        elif match_node_purpose == "require":
+            c.KubeSpawner.node_affinity_required.append(node_selector)
+        elif match_node_purpose == "ignore":
+            pass
+        else:
+            raise ValueError(
+                "Unrecognized value for matchNodePurpose: %r" % match_node_purpose
+            )
+
+    # Combine the common tolerations for user pods with singleuser tolerations
+    scheduling_user_pods_tolerations = get_config("scheduling.userPods.tolerations", [])
+    singleuser_extra_tolerations = get_config("singleuser.extraTolerations", [])
+    tolerations = scheduling_user_pods_tolerations + singleuser_extra_tolerations
+    if tolerations:
+        c.KubeSpawner.tolerations = tolerations
+
+    # Configure dynamically provisioning pvc
+    storage_type = get_config("singleuser.storage.type")
+    if storage_type == "dynamic":
+        pvc_name_template = get_config("singleuser.storage.dynamic.pvcNameTemplate")
+        c.KubeSpawner.pvc_name_template = pvc_name_template
+        volume_name_template = get_config("singleuser.storage.dynamic.volumeNameTemplate")
+        c.KubeSpawner.storage_pvc_ensure = True
+        set_config_if_not_none(
+            c.KubeSpawner, "storage_class", "singleuser.storage.dynamic.storageClass"
+        )
+        set_config_if_not_none(
+            c.KubeSpawner,
+            "storage_access_modes",
+            "singleuser.storage.dynamic.storageAccessModes",
+        )
+        set_config_if_not_none(
+            c.KubeSpawner, "storage_capacity", "singleuser.storage.capacity"
+        )
+
+        # Add volumes to singleuser pods
+        c.KubeSpawner.volumes = [
+            {
+                "name": volume_name_template,
+                "persistentVolumeClaim": {"claimName": pvc_name_template},
+            }
+        ]
+        c.KubeSpawner.volume_mounts = [
+            {
+                "mountPath": get_config("singleuser.storage.homeMountPath"),
+                "name": volume_name_template,
+            }
+        ]
+    elif storage_type == "static":
+        pvc_claim_name = get_config("singleuser.storage.static.pvcName")
+        c.KubeSpawner.volumes = [
+            {"name": "home", "persistentVolumeClaim": {"claimName": pvc_claim_name}}
+        ]
+
+        c.KubeSpawner.volume_mounts = [
+            {
+                "mountPath": get_config("singleuser.storage.homeMountPath"),
+                "name": "home",
+                "subPath": get_config("singleuser.storage.static.subPath"),
+            }
+        ]
+
+    # Inject singleuser.extraFiles as volumes and volumeMounts with data loaded from
+    # the dedicated k8s Secret prepared to hold the extraFiles actual content.
+    extra_files = get_config("singleuser.extraFiles", {})
+    if extra_files:
+        volume = {
+            "name": "files",
+        }
+        items = []
+        for file_key, file_details in extra_files.items():
+            # Each item is a mapping of a key in the k8s Secret to a path in this
+            # abstract volume, the goal is to enable us to set the mode /
+            # permissions only though so we don't change the mapping.
+            item = {
+                "key": file_key,
+                "path": file_key,
+            }
+            if "mode" in file_details:
+                item["mode"] = file_details["mode"]
+            items.append(item)
+        volume["secret"] = {
+            "secretName": get_name("singleuser"),
+            "items": items,
+        }
+        c.KubeSpawner.volumes.append(volume)
+
+        volume_mounts = []
+        for file_key, file_details in extra_files.items():
+            volume_mounts.append(
+                {
+                    "mountPath": file_details["mountPath"],
+                    "subPath": file_key,
+                    "name": "files",
+                }
+            )
+        c.KubeSpawner.volume_mounts.extend(volume_mounts)
+
+    # Inject extraVolumes / extraVolumeMounts
+    c.KubeSpawner.volumes.extend(get_config("singleuser.storage.extraVolumes", []))
+    c.KubeSpawner.volume_mounts.extend(
+        get_config("singleuser.storage.extraVolumeMounts", [])
+    )
+
+    c.JupyterHub.services = []
+
+    if get_config("cull.enabled", False):
+        cull_cmd = ["python3", "-m", "jupyterhub_idle_culler"]
+        base_url = c.JupyterHub.get("base_url", "/")
+        cull_cmd.append("--url=http://localhost:8081" + url_path_join(base_url, "hub/api"))
+
+        cull_timeout = get_config("cull.timeout")
+        if cull_timeout:
+            cull_cmd.append("--timeout=%s" % cull_timeout)
+
+        cull_every = get_config("cull.every")
+        if cull_every:
+            cull_cmd.append("--cull-every=%s" % cull_every)
+
+        cull_concurrency = get_config("cull.concurrency")
+        if cull_concurrency:
+            cull_cmd.append("--concurrency=%s" % cull_concurrency)
+
+        if get_config("cull.users"):
+            cull_cmd.append("--cull-users")
+
+        if get_config("cull.removeNamedServers"):
+            cull_cmd.append("--remove-named-servers")
+
+        cull_max_age = get_config("cull.maxAge")
+        if cull_max_age:
+            cull_cmd.append("--max-age=%s" % cull_max_age)
+
+        c.JupyterHub.services.append(
+            {
+                "name": "cull-idle",
+                "admin": True,
+                "command": cull_cmd,
+            }
+        )
+
+    for key, service in get_config("hub.services", {}).items():
+        # c.JupyterHub.services is a list of dicts, but
+        # hub.services is a dict of dicts to make the config mergable
+        service.setdefault("name", key)
+
+        # As the api_token could be exposed in hub.existingSecret, we need to read
+        # it it from there or fall back to the chart managed k8s Secret's value.
+        service.pop("apiToken", None)
+        service["api_token"] = get_secret_value(f"hub.services.{key}.apiToken")
+
+        c.JupyterHub.services.append(service)
+
+
+    set_config_if_not_none(c.Spawner, "cmd", "singleuser.cmd")
+    set_config_if_not_none(c.Spawner, "default_url", "singleuser.defaultUrl")
+
+    cloud_metadata = get_config("singleuser.cloudMetadata", {})
+
+    if cloud_metadata.get("blockWithIptables") == True:
+        # Use iptables to block access to cloud metadata by default
+        network_tools_image_name = get_config("singleuser.networkTools.image.name")
+        network_tools_image_tag = get_config("singleuser.networkTools.image.tag")
+        ip_block_container = client.V1Container(
+            name="block-cloud-metadata",
+            image=f"{network_tools_image_name}:{network_tools_image_tag}",
+            command=[
+                "iptables",
+                "-A",
+                "OUTPUT",
+                "-d",
+                cloud_metadata.get("ip", "169.254.169.254"),
+                "-j",
+                "DROP",
+            ],
+            security_context=client.V1SecurityContext(
+                privileged=True,
+                run_as_user=0,
+                capabilities=client.V1Capabilities(add=["NET_ADMIN"]),
+            ),
+        )
+
+        c.KubeSpawner.init_containers.append(ip_block_container)
+
+
+    if get_config("debug.enabled", False):
+        c.JupyterHub.log_level = "DEBUG"
+        c.Spawner.debug = True
+
+    # load /usr/local/etc/jupyterhub/jupyterhub_config.d config files
+    config_dir = "/usr/local/etc/jupyterhub/jupyterhub_config.d"
+    if os.path.isdir(config_dir):
+        for file_path in sorted(glob.glob(f"{config_dir}/*.py")):
+            file_name = os.path.basename(file_path)
+            print(f"Loading {config_dir} config: {file_name}")
+            with open(file_path) as f:
+                file_content = f.read()
+            # compiling makes debugging easier: https://stackoverflow.com/a/437857
+            exec(compile(source=file_content, filename=file_name, mode="exec"))
+
+    # load potentially seeded secrets
+    #
+    # NOTE: ConfigurableHTTPProxy.auth_token is set through an environment variable
+    #       that is set using the chart managed secret.
+    c.JupyterHub.cookie_secret = get_secret_value("hub.config.JupyterHub.cookie_secret")
+    # NOTE: CryptKeeper.keys should be a list of strings, but we have encoded as a
+    #       single string joined with ; in the k8s Secret.
+    #
+    c.CryptKeeper.keys = get_secret_value("hub.config.CryptKeeper.keys").split(";")
+
+    # load hub.config values, except potentially seeded secrets already loaded
+    for app, cfg in get_config("hub.config", {}).items():
+        if app == "JupyterHub":
+            cfg.pop("proxy_auth_token", None)
+            cfg.pop("cookie_secret", None)
+            cfg.pop("services", None)
+        elif app == "ConfigurableHTTPProxy":
+            cfg.pop("auth_token", None)
+        elif app == "CryptKeeper":
+            cfg.pop("keys", None)
+        c[app].update(cfg)
+
+    # execute hub.extraConfig entries
+    for key, config_py in sorted(get_config("hub.extraConfig", {}).items()):
+        print("Loading extra config: %s" % key)
+        exec(config_py)
+  z2jh.py: |
+    """
+    Utility methods for use in jupyterhub_config.py and dynamic subconfigs.
+
+    Methods here can be imported by extraConfig in values.yaml
+    """
+    from collections import Mapping
+    from functools import lru_cache
+    import os
+
+    import yaml
+
+    # memoize so we only load config once
+    @lru_cache()
+    def _load_config():
+        """Load the Helm chart configuration used to render the Helm templates of
+        the chart from a mounted k8s Secret, and merge in values from an optionally
+        mounted secret (hub.existingSecret)."""
+
+        cfg = {}
+        for source in ("secret/values.yaml", "existing-secret/values.yaml"):
+            path = f"/usr/local/etc/jupyterhub/{source}"
+            if os.path.exists(path):
+                print(f"Loading {path}")
+                with open(path) as f:
+                    values = yaml.safe_load(f)
+                cfg = _merge_dictionaries(cfg, values)
+            else:
+                print(f"No config at {path}")
+        return cfg
+
+
+    @lru_cache()
+    def _get_config_value(key):
+        """Load value from the k8s ConfigMap given a key."""
+
+        path = f"/usr/local/etc/jupyterhub/config/{key}"
+        if os.path.exists(path):
+            with open(path) as f:
+                return f.read()
+        else:
+            raise Exception(f"{path} not found!")
+
+
+    @lru_cache()
+    def get_secret_value(key, default="never-explicitly-set"):
+        """Load value from the user managed k8s Secret or the default k8s Secret
+        given a key."""
+
+        for source in ("existing-secret", "secret"):
+            path = f"/usr/local/etc/jupyterhub/{source}/{key}"
+            if os.path.exists(path):
+                with open(path) as f:
+                    return f.read()
+        if default != "never-explicitly-set":
+            return default
+        raise Exception(f"{key} not found in either k8s Secret!")
+
+
+    def get_name(name):
+        """Returns the fullname of a resource given its short name"""
+        return _get_config_value(name)
+
+
+    def get_name_env(name, suffix=""):
+        """Returns the fullname of a resource given its short name along with a
+        suffix, converted to uppercase with dashes replaced with underscores. This
+        is useful to reference named services associated environment variables, such
+        as PROXY_PUBLIC_SERVICE_PORT."""
+        env_key = _get_config_value(name) + suffix
+        env_key = env_key.upper().replace("-", "_")
+        return os.environ[env_key]
+
+
+    def _merge_dictionaries(a, b):
+        """Merge two dictionaries recursively.
+
+        Simplified From https://stackoverflow.com/a/7205107
+        """
+        merged = a.copy()
+        for key in b:
+            if key in a:
+                if isinstance(a[key], Mapping) and isinstance(b[key], Mapping):
+                    merged[key] = _merge_dictionaries(a[key], b[key])
+                else:
+                    merged[key] = b[key]
+            else:
+                merged[key] = b[key]
+        return merged
+
+
+    def get_config(key, default=None):
+        """
+        Find a config item of a given name & return it
+
+        Parses everything as YAML, so lists and dicts are available too
+
+        get_config("a.b.c") returns config['a']['b']['c']
+        """
+        value = _load_config()
+        # resolve path in yaml
+        for level in key.split("."):
+            if not isinstance(value, dict):
+                # a parent is a scalar or null,
+                # can't resolve full path
+                return default
+            if level not in value:
+                return default
+            else:
+                value = value[level]
+        return value
+
+
+    def set_config_if_not_none(cparent, name, key):
+        """
+        Find a config item of a given name, set the corresponding Jupyter
+        configuration item if not None
+        """
+        data = get_config(key)
+        if data is not None:
+            setattr(cparent, name, data)
+  checksum_hook-image-puller: 9f90fbb0ed965fee393a012e90ca2720044b8734562baeecb32b1b0f4659584c
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: user-scheduler
+  labels:
+    component: user-scheduler
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+data:
+  config.yaml: |
+    apiVersion: kubescheduler.config.k8s.io/v1beta1
+    kind: KubeSchedulerConfiguration
+    leaderElection:
+      resourceLock: endpoints
+      resourceName: user-scheduler-lock
+      resourceNamespace: "default"
+    profiles:
+      - schedulerName: release-name-user-scheduler
+        plugins:
+          score:
+            disabled:
+            - name: SelectorSpread
+            - name: TaintToleration
+            - name: PodTopologySpread
+            - name: NodeResourcesBalancedAllocation
+            - name: NodeResourcesLeastAllocated
+            - name: NodePreferAvoidPods
+            - name: NodeAffinity
+            - name: InterPodAffinity
+            - name: ImageLocality
+            enabled:
+            - name: NodePreferAvoidPods
+              weight: 161051
+            - name: NodeAffinity
+              weight: 14631
+            - name: InterPodAffinity
+              weight: 1331
+            - name: NodeResourcesMostAllocated
+              weight: 121
+            - name: ImageLocality
+              weight: 11
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: hub-illumidesk-cm
+  namespace: Lr5Bt
+data:
+  CUSTOM_AUTH_TYPE: DUMMY
+  JUPYTERHUB_API_URL: http://hub.default.svc.cluster.local:8081/hub/api
+  ORGANIZATION_NAME: default
+  OIDC_AUTHORIZE_URL: https://auth.illumidesk.com/authorize
+  OIDC_TOKEN_URL: https://auth.illumidesk.com/authorize
+  OIDC_USERDATA_URL: https://auth.illumidesk.com/userinfo
+  OIDC_CLIENT_ID: "127000000008"
+  OIDC_CLIENT_SECRET: "127000008"
+  OIDC_CALLBACK_URL: http://localhost:8000/hub/oauth_callback
+  LTI_CONSUMER_KEY: lti_11_consumer_key
+  LTI13_CLIENT_ID: "127000008"
+  LTI13_ENDPOINT: https://illumidesk.instructure.com/api/lti/security/jwks
+  LTI13_AUTHORIZE_URL: https://illumidesk.instructure.com/api/lti/authorize_redirect
+  LTI13_TOKEN_URL: https://illumidesk.instructure.com/login/oauth2/token
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-user-scheduler
+  labels:
+    component: user-scheduler
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+rules:
+  - apiGroups:
+      - ""
+      - events.k8s.io
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+      - update
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - create
+  - apiGroups:
+      - coordination.k8s.io
+    resourceNames:
+      - user-scheduler-lock
+    resources:
+      - leases
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+    verbs:
+      - create
+  - apiGroups:
+      - ""
+    resourceNames:
+      - user-scheduler-lock
+    resources:
+      - endpoints
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - delete
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - bindings
+      - pods/binding
+    verbs:
+      - create
+  - apiGroups:
+      - ""
+    resources:
+      - pods/status
+    verbs:
+      - patch
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - replicationcontrollers
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+      - extensions
+    resources:
+      - replicasets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - policy
+    resources:
+      - poddisruptionbudgets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - persistentvolumeclaims
+      - persistentvolumes
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - authentication.k8s.io
+    resources:
+      - tokenreviews
+    verbs:
+      - create
+  - apiGroups:
+      - authorization.k8s.io
+    resources:
+      - subjectaccessreviews
+    verbs:
+      - create
+  - apiGroups:
+      - storage.k8s.io
+    resources:
+      - csinodes
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - persistentvolumes
+    verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - storage.k8s.io
+    resources:
+      - storageclasses
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-user-scheduler
+  labels:
+    component: user-scheduler
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+subjects:
+  - kind: ServiceAccount
+    name: user-scheduler
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: release-name-user-scheduler
+  apiGroup: rbac.authorization.k8s.io
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: hub
+  labels:
+    component: hub
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - persistentvolumeclaims
+      - secrets
+      - services
+    verbs:
+      - get
+      - watch
+      - list
+      - create
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - get
+      - watch
+      - list
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: hub
+  labels:
+    component: hub
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+subjects:
+  - kind: ServiceAccount
+    name: hub
+    namespace: default
+roleRef:
+  kind: Role
+  name: hub
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hub
+  labels:
+    component: hub
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/path: /hub/metrics
+    prometheus.io/port: "8081"
+spec:
+  type: ClusterIP
+  selector:
+    component: hub
+    app: jupyterhub
+    release: release-name
+  ports:
+    - name: hub
+      port: 8081
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proxy-api
+  labels:
+    component: proxy-api
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+spec:
+  selector:
+    component: proxy
+    app: jupyterhub
+    release: release-name
+  ports:
+    - port: 8001
+      targetPort: api
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proxy-public
+  labels:
+    component: proxy-public
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+spec:
+  selector:
+    component: proxy
+    release: release-name
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: continuous-image-puller
+  labels:
+    component: continuous-image-puller
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+spec:
+  selector:
+    matchLabels:
+      component: continuous-image-puller
+      app: jupyterhub
+      release: release-name
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 100%
+  template:
+    metadata:
+      labels:
+        component: continuous-image-puller
+        app: jupyterhub
+        release: release-name
+    spec:
+      nodeSelector: {}
+      tolerations:
+        - effect: NoSchedule
+          key: hub.jupyter.org/dedicated
+          operator: Equal
+          value: user
+        - effect: NoSchedule
+          key: hub.jupyter.org_dedicated
+          operator: Equal
+          value: user
+      terminationGracePeriodSeconds: 0
+      automountServiceAccountToken: false
+      initContainers:
+        - name: image-pull-metadata-block
+          image: jupyterhub/k8s-network-tools:1.1.1
+          command:
+            - /bin/sh
+            - -c
+            - echo "Pulling complete"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsGroup: 65534
+            runAsUser: 65534
+        - name: image-pull-singleuser
+          image: illumidesk/illumidesk-notebook:latest
+          command:
+            - /bin/sh
+            - -c
+            - echo "Pulling complete"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsGroup: 65534
+            runAsUser: 65534
+      containers:
+        - name: pause
+          image: k8s.gcr.io/pause:3.5
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsGroup: 65534
+            runAsUser: 11189
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hub
+  labels:
+    component: hub
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: hub
+      app: jupyterhub
+      release: release-name
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        component: hub
+        app: jupyterhub
+        release: release-name
+        hub.jupyter.org/network-access-proxy-api: "true"
+        hub.jupyter.org/network-access-proxy-http: "true"
+        hub.jupyter.org/network-access-singleuser: "true"
+      annotations:
+        checksum/config-map: dcf2471c9de9e4255d30a73d2a39ff8d60b822af7fa4298552ce1a5b16b2b830
+        checksum/secret: dfe4942195d04e6d1b5b901b1d044f8f280a159b34c2ea4ee3440bd7e1c45a07
+    spec:
+      nodeSelector: {}
+      tolerations:
+        - effect: NoSchedule
+          key: hub.jupyter.org/dedicated
+          operator: Equal
+          value: core
+        - effect: NoSchedule
+          key: hub.jupyter.org_dedicated
+          operator: Equal
+          value: core
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: hub.jupyter.org/node-purpose
+                    operator: In
+                    values:
+                      - core
+      volumes:
+        - name: config
+          configMap:
+            name: hub
+        - name: secret
+          secret:
+            secretName: hub
+        - emptyDir: {}
+          name: custom-templates
+      serviceAccountName: hub
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+        - args:
+            - clone
+            - --single-branch
+            - --branch=main
+            - --depth=1
+            - --
+            - https://github.com/illumidesk/jhubui.git
+            - /etc/jupyterhub/custom
+          image: illumidesk/alpine-git:1.0.30
+          name: git-clone-templates
+          securityContext:
+            runAsUser: 11696
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - mountPath: /etc/jupyterhub/custom
+              name: custom-templates
+      containers:
+        - name: hub
+          image: illumidesk/k8s-hub:latest
+          args:
+            - jupyterhub
+            - --config
+            - /usr/local/etc/jupyterhub/jupyterhub_config.py
+          volumeMounts:
+            - mountPath: /usr/local/etc/jupyterhub/jupyterhub_config.py
+              subPath: jupyterhub_config.py
+              name: config
+            - mountPath: /usr/local/etc/jupyterhub/z2jh.py
+              subPath: z2jh.py
+              name: config
+            - mountPath: /usr/local/etc/jupyterhub/config/
+              name: config
+            - mountPath: /usr/local/etc/jupyterhub/secret/
+              name: secret
+            - mountPath: /etc/jupyterhub/custom
+              name: custom-templates
+          resources:
+            limits:
+              cpu: 400m
+              memory: 800Mi
+            requests:
+              cpu: 200m
+              memory: 400Mi
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsGroup: 1000
+            runAsUser: 11550
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: HELM_RELEASE_NAME
+              value: release-name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: CONFIGPROXY_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hub
+                  key: hub.config.ConfigurableHTTPProxy.auth_token
+            - name: CUSTOM_AUTH_TYPE
+              valueFrom:
+                configMapKeyRef:
+                  key: CUSTOM_AUTH_TYPE
+                  name: hub-illumidesk-cm
+            - name: ILLUMIDESK_MNT_ROOT
+              value: /illumidesk-courses
+            - name: JUPYTERHUB_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  key: JUPYTERHUB_API_URL
+                  name: hub-illumidesk-cm
+            - name: LTI13_AUTHORIZE_URL
+              valueFrom:
+                configMapKeyRef:
+                  key: LTI13_AUTHORIZE_URL
+                  name: hub-illumidesk-cm
+            - name: LTI13_CLIENT_ID
+              valueFrom:
+                configMapKeyRef:
+                  key: LTI13_CLIENT_ID
+                  name: hub-illumidesk-cm
+            - name: LTI13_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  key: LTI13_ENDPOINT
+                  name: hub-illumidesk-cm
+            - name: LTI13_PRIVATE_KEY
+              value: /srv/jupyterhub/rsa_private.key
+            - name: LTI13_TOKEN_URL
+              valueFrom:
+                configMapKeyRef:
+                  key: LTI13_TOKEN_URL
+                  name: hub-illumidesk-cm
+            - name: LTI_CONSUMER_KEY
+              valueFrom:
+                configMapKeyRef:
+                  key: LTI_CONSUMER_KEY
+                  name: hub-illumidesk-cm
+            - name: OIDC_AUTHORIZE_URL
+              valueFrom:
+                configMapKeyRef:
+                  key: OIDC_AUTHORIZE_URL
+                  name: hub-illumidesk-cm
+            - name: OIDC_CALLBACK_URL
+              valueFrom:
+                configMapKeyRef:
+                  key: OIDC_CALLBACK_URL
+                  name: hub-illumidesk-cm
+            - name: OIDC_CLIENT_ID
+              valueFrom:
+                configMapKeyRef:
+                  key: OIDC_CLIENT_ID
+                  name: hub-illumidesk-cm
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                configMapKeyRef:
+                  key: OIDC_CLIENT_SECRET
+                  name: hub-illumidesk-cm
+            - name: OIDC_TOKEN_URL
+              valueFrom:
+                configMapKeyRef:
+                  key: OIDC_TOKEN_URL
+                  name: hub-illumidesk-cm
+            - name: OIDC_USERDATA_URL
+              valueFrom:
+                configMapKeyRef:
+                  key: OIDC_USERDATA_URL
+                  name: hub-illumidesk-cm
+            - name: ORGANIZATION_NAME
+              valueFrom:
+                configMapKeyRef:
+                  key: ORGANIZATION_NAME
+                  name: hub-illumidesk-cm
+            - name: POSTGRES_JUPYTERHUB_DB
+              valueFrom:
+                configMapKeyRef:
+                  key: POSTGRES_JUPYTERHUB_DB
+                  name: hub-illumidesk-cm
+            - name: POSTGRES_JUPYTERHUB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  key: POSTGRES_JUPYTERHUB_HOST
+                  name: hub-illumidesk-cm
+            - name: POSTGRES_JUPYTERHUB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  key: POSTGRES_JUPYTERHUB_PORT
+                  name: hub-illumidesk-cm
+            - name: POSTGRES_JUPYTERHUB_USER
+              valueFrom:
+                configMapKeyRef:
+                  key: POSTGRES_JUPYTERHUB_USER
+                  name: hub-illumidesk-cm
+            - name: POSTGRES_NBGRADER_HOST
+              valueFrom:
+                configMapKeyRef:
+                  key: POSTGRES_NBGRADER_HOST
+                  name: hub-illumidesk-cm
+            - name: POSTGRES_NBGRADER_USER
+              valueFrom:
+                configMapKeyRef:
+                  key: POSTGRES_NBGRADER_USER
+                  name: hub-illumidesk-cm
+          ports:
+            - name: http
+              containerPort: 8081
+          livenessProbe:
+            initialDelaySeconds: 300
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 30
+            httpGet:
+              path: /hub/health
+              port: http
+          readinessProbe:
+            initialDelaySeconds: 0
+            periodSeconds: 2
+            timeoutSeconds: 1
+            failureThreshold: 1000
+            httpGet:
+              path: /hub/health
+              port: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxy
+  labels:
+    component: proxy
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: proxy
+      app: jupyterhub
+      release: release-name
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        component: proxy
+        app: jupyterhub
+        release: release-name
+        hub.jupyter.org/network-access-hub: "true"
+        hub.jupyter.org/network-access-singleuser: "true"
+      annotations:
+        checksum/auth-token: 50d8
+        checksum/proxy-secret: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
+    spec:
+      terminationGracePeriodSeconds: 60
+      nodeSelector: {}
+      tolerations:
+        - effect: NoSchedule
+          key: hub.jupyter.org/dedicated
+          operator: Equal
+          value: core
+        - effect: NoSchedule
+          key: hub.jupyter.org_dedicated
+          operator: Equal
+          value: core
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: hub.jupyter.org/node-purpose
+                    operator: In
+                    values:
+                      - core
+      containers:
+        - name: chp
+          image: jupyterhub/configurable-http-proxy:4.5.0
+          command:
+            - configurable-http-proxy
+            - --ip=
+            - --api-ip=
+            - --api-port=8001
+            - --default-target=http://hub:$(HUB_SERVICE_PORT)
+            - --error-target=http://hub:$(HUB_SERVICE_PORT)/hub/error
+            - --port=8000
+          env:
+            - name: CONFIGPROXY_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hub
+                  key: hub.config.ConfigurableHTTPProxy.auth_token
+          ports:
+            - name: http
+              containerPort: 8000
+            - name: api
+              containerPort: 8001
+          livenessProbe:
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            httpGet:
+              path: /_chp_healthz
+              port: http
+              scheme: HTTP
+          readinessProbe:
+            initialDelaySeconds: 0
+            periodSeconds: 2
+            httpGet:
+              path: /_chp_healthz
+              port: http
+              scheme: HTTP
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsGroup: 65534
+            runAsUser: 11675
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-scheduler
+  labels:
+    component: user-scheduler
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      component: user-scheduler
+      app: jupyterhub
+      release: release-name
+  template:
+    metadata:
+      labels:
+        component: user-scheduler
+        app: jupyterhub
+        release: release-name
+      annotations:
+        checksum/config-map: 70375681c5cb6f1bd46f5ec0b5775f2ae6a1afead3111432bb3916a40b7c4dbf
+    spec:
+      serviceAccountName: user-scheduler
+      nodeSelector: {}
+      tolerations:
+        - effect: NoSchedule
+          key: hub.jupyter.org/dedicated
+          operator: Equal
+          value: core
+        - effect: NoSchedule
+          key: hub.jupyter.org_dedicated
+          operator: Equal
+          value: core
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: hub.jupyter.org/node-purpose
+                    operator: In
+                    values:
+                      - core
+      volumes:
+        - name: config
+          configMap:
+            name: user-scheduler
+      containers:
+        - name: kube-scheduler
+          image: k8s.gcr.io/kube-scheduler:v1.19.13
+          command:
+            - /usr/local/bin/kube-scheduler
+            - --config=/etc/user-scheduler/config.yaml
+            - --authentication-skip-lookup=true
+            - --v=4
+          volumeMounts:
+            - mountPath: /etc/user-scheduler
+              name: config
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 10251
+            initialDelaySeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 10251
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsGroup: 65534
+            runAsUser: 10551
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: user-placeholder
+  labels:
+    component: user-placeholder
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+spec:
+  podManagementPolicy: Parallel
+  replicas: 0
+  selector:
+    matchLabels:
+      component: user-placeholder
+      app: jupyterhub
+      release: release-name
+  serviceName: user-placeholder
+  template:
+    metadata:
+      labels:
+        component: user-placeholder
+        app: jupyterhub
+        release: release-name
+    spec:
+      schedulerName: release-name-user-scheduler
+      nodeSelector: {}
+      tolerations:
+        - effect: NoSchedule
+          key: hub.jupyter.org/dedicated
+          operator: Equal
+          value: user
+        - effect: NoSchedule
+          key: hub.jupyter.org_dedicated
+          operator: Equal
+          value: user
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: hub.jupyter.org/node-purpose
+                    operator: In
+                    values:
+                      - user
+      terminationGracePeriodSeconds: 0
+      automountServiceAccountToken: false
+      containers:
+        - name: pause
+          image: k8s.gcr.io/pause:3.5
+          resources:
+            requests:
+              memory: 1G
+            limits:
+              cpu: 0.5
+              memory: 1G
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsGroup: 65534
+            runAsUser: 11468
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hook-image-awaiter
+  labels:
+    component: image-puller
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+    hub.jupyter.org/deletable: "true"
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    helm.sh/hook-weight: "0"
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: hook-image-awaiter
+  labels:
+    component: image-puller
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+    hub.jupyter.org/deletable: "true"
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    helm.sh/hook-weight: "0"
+rules:
+  - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+    verbs:
+      - get
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: hook-image-awaiter
+  labels:
+    component: image-puller
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+    hub.jupyter.org/deletable: "true"
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    helm.sh/hook-weight: "0"
+subjects:
+  - kind: ServiceAccount
+    name: hook-image-awaiter
+    namespace: default
+roleRef:
+  kind: Role
+  name: hook-image-awaiter
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: hook-image-puller
+  labels:
+    component: hook-image-puller
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+    hub.jupyter.org/deletable: "true"
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    helm.sh/hook-weight: "-10"
+spec:
+  selector:
+    matchLabels:
+      component: hook-image-puller
+      app: jupyterhub
+      release: release-name
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 100%
+  template:
+    metadata:
+      labels:
+        component: hook-image-puller
+        app: jupyterhub
+        release: release-name
+    spec:
+      nodeSelector: {}
+      tolerations:
+        - effect: NoSchedule
+          key: hub.jupyter.org/dedicated
+          operator: Equal
+          value: user
+        - effect: NoSchedule
+          key: hub.jupyter.org_dedicated
+          operator: Equal
+          value: user
+      terminationGracePeriodSeconds: 0
+      automountServiceAccountToken: false
+      initContainers:
+        - name: image-pull-metadata-block
+          image: jupyterhub/k8s-network-tools:1.1.1
+          command:
+            - /bin/sh
+            - -c
+            - echo "Pulling complete"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsGroup: 65534
+            runAsUser: 65534
+        - name: image-pull-singleuser
+          image: illumidesk/illumidesk-notebook:latest
+          command:
+            - /bin/sh
+            - -c
+            - echo "Pulling complete"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsGroup: 65534
+            runAsUser: 65534
+      containers:
+        - name: pause
+          image: k8s.gcr.io/pause:3.5
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsGroup: 65534
+            runAsUser: 11638
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hook-image-awaiter
+  labels:
+    component: image-puller
+    app: jupyterhub
+    release: release-name
+    chart: jupyterhub-1.1.1
+    heritage: Helm
+    hub.jupyter.org/deletable: "true"
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    helm.sh/hook-weight: "10"
+spec:
+  template:
+    metadata:
+      labels:
+        component: image-puller
+        app: jupyterhub
+        release: release-name
+    spec:
+      restartPolicy: Never
+      serviceAccountName: hook-image-awaiter
+      nodeSelector: {}
+      tolerations:
+        - effect: NoSchedule
+          key: hub.jupyter.org/dedicated
+          operator: Equal
+          value: core
+        - effect: NoSchedule
+          key: hub.jupyter.org_dedicated
+          operator: Equal
+          value: core
+      containers:
+        - image: jupyterhub/k8s-image-awaiter:1.1.1
+          name: hook-image-awaiter
+          command:
+            - /image-awaiter
+            - -ca-path=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+            - -auth-token-path=/var/run/secrets/kubernetes.io/serviceaccount/token
+            - -api-server-address=https://kubernetes.default.svc:$(KUBERNETES_SERVICE_PORT)
+            - -namespace=default
+            - -daemonset=hook-image-puller
+            - -pod-scheduling-wait-duration=10
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsGroup: 65534
+            runAsUser: 10254
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true

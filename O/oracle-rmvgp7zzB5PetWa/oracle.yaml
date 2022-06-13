@@ -1,0 +1,151 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-oracle
+  labels:
+    app.kubernetes.io/name: oracle
+    helm.sh/chart: oracle-2.5.6
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-oracle
+  namespace: rmvgp7zzB5PetWa
+  labels:
+    app.kubernetes.io/name: oracle
+    helm.sh/chart: oracle-2.5.6
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+  IPFS_PINATA_API_KEY: ""
+  IPFS_PINATA_SECRET_KEY: ""
+  SENTRY_DSN: ""
+  MAINNET_ORACLE_PRIVATE_KEY: ""
+  MAINNET_AWS_ACCESS_KEY_ID: ""
+  MAINNET_AWS_SECRET_ACCESS_KEY: ""
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-oracle
+  labels:
+    app.kubernetes.io/name: oracle
+    helm.sh/chart: oracle-2.5.6
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  LOG_LEVEL: INFO
+  ENABLED_NETWORKS: mainnet
+  ENABLE_HEALTH_SERVER: "False"
+  HEALTH_SERVER_HOST: 0.0.0.0
+  HEALTH_SERVER_PORT: "8080"
+  IPFS_PIN_ENDPOINTS: /dns/ipfs.infura.io/tcp/5001/https
+  IPFS_FETCH_ENDPOINTS: https://gateway.pinata.cloud,http://cloudflare-ipfs.com,https://ipfs.io
+  IPFS_PINATA_PIN_ENDPOINT: https://api.pinata.cloud/pinning/pinJSONToIPFS
+  MAINNET_ETH2_ENDPOINT: ""
+  MAINNET_STAKEWISE_SUBGRAPH_URLS: https://api.thegraph.com/subgraphs/name/stakewise/stakewise-mainnet
+  MAINNET_ETHEREUM_SUBGRAPH_URLS: https://api.thegraph.com/subgraphs/name/stakewise/ethereum-mainnet
+  MAINNET_UNISWAP_V3_SUBGRAPH_URLS: https://api.thegraph.com/subgraphs/name/stakewise/uniswap-v3-mainnet
+  MAINNET_AWS_S3_REGION: ""
+  MAINNET_VALIDATORS_BATCH_SIZE: "10"
+  MAINNET_VALIDATORS_FETCH_CHUNK_SIZE: "100"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-oracle
+  labels:
+    app.kubernetes.io/name: oracle
+    helm.sh/chart: oracle-2.5.6
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    resourceNames:
+      - release-name-oracle
+    verbs:
+      - get
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    resourceNames:
+      - release-name-oracle
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-oracle
+  labels:
+    app.kubernetes.io/name: oracle
+    helm.sh/chart: oracle-2.5.6
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  kind: Role
+  apiGroup: rbac.authorization.k8s.io
+  name: release-name-oracle
+subjects:
+  - kind: ServiceAccount
+    name: release-name-oracle
+    namespace: default
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: release-name-oracle
+  labels:
+    app.kubernetes.io/name: oracle
+    helm.sh/chart: oracle-2.5.6
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oracle
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oracle
+        app.kubernetes.io/instance: release-name
+      annotations:
+        checksum/oracle-secret: 144e6224fa5bce18d399c5607bad582926c8c7748837d66ab1d3face1e6a5277
+        checksum/oracle-configmap: 6748cfc7455445b67434325b3163b94da1b41ad526d4b92c9dec040d1b3c15b6
+    spec:
+      securityContext:
+        fsGroup: 1001
+        runAsUser: 1001
+      serviceAccountName: release-name-oracle
+      priorityClassName: ""
+      terminationGracePeriodSeconds: 1800
+      containers:
+        - name: oracle
+          image: europe-west4-docker.pkg.dev/stakewiselabs/public/oracle:v2.5.6
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+          args:
+            - oracle/oracle/main.py
+          envFrom:
+            - configMapRef:
+                name: release-name-oracle
+            - secretRef:
+                name: release-name-oracle
+          resources:
+            requests:
+              cpu: 10m
+              memory: 200Mi
+            seccompProfile:
+              type: RuntimeDefault

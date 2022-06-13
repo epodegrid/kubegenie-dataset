@@ -1,0 +1,526 @@
+[
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "NetworkPolicy",
+    "metadata": {
+      "name": "rdf-streaming-updater-release-name-taskmanager",
+      "labels": {
+        "app": "rdf-streaming-updater",
+        "chart": "rdf-streaming-updater-0.0.7",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "podSelector": {
+        "matchLabels": {
+          "app": "rdf-streaming-updater-taskmanager",
+          "release": "release-name"
+        }
+      },
+      "policyTypes": [
+        "Ingress"
+      ],
+      "ingress": [
+        {
+          "from": [
+            {
+              "podSelector": {
+                "matchLabels": {
+                  "app": "rdf-streaming-updater-jobmanager",
+                  "release": "release-name"
+                }
+              }
+            }
+          ],
+          "ports": [
+            {
+              "port": 6122,
+              "protocol": "TCP"
+            },
+            {
+              "port": 6125,
+              "protocol": "TCP"
+            }
+          ]
+        },
+        {
+          "ports": [
+            {
+              "port": 9102,
+              "protocol": "TCP"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "NetworkPolicy",
+    "metadata": {
+      "name": "rdf-streaming-updater-release-name-jobmanager",
+      "labels": {
+        "app": "rdf-streaming-updater",
+        "chart": "rdf-streaming-updater-0.0.7",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "podSelector": {
+        "matchLabels": {
+          "app": "rdf-streaming-updater-jobmanager",
+          "release": "release-name"
+        }
+      },
+      "policyTypes": [
+        "Ingress"
+      ],
+      "ingress": [
+        {
+          "from": [
+            {
+              "podSelector": {
+                "matchLabels": {
+                  "app": "rdf-streaming-updater-taskmanager",
+                  "release": "release-name"
+                }
+              }
+            }
+          ],
+          "ports": [
+            {
+              "port": 6123,
+              "protocol": "TCP"
+            },
+            {
+              "port": 6124,
+              "protocol": "TCP"
+            }
+          ]
+        },
+        {
+          "ports": [
+            {
+              "port": 9102,
+              "protocol": "TCP"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "rdf-streaming-updater-release-name",
+      "labels": {
+        "app": "rdf-streaming-updater-jobmanager",
+        "chart": "rdf-streaming-updater-0.0.7",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "jobmanager"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "rdf-streaming-updater-release-name-secret-config",
+      "labels": {
+        "app": "rdf-streaming-updater",
+        "chart": "rdf-streaming-updater-0.0.7",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "swift_api_key": "c29tZV9zZWNyZXRfa2V5"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "rdf-streaming-updater-release-name-flink-config",
+      "labels": {
+        "app": "rdf-streaming-updater",
+        "chart": "rdf-streaming-updater-0.0.7",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "flink-conf.yaml": "\n\n# We do not set this value, we use --host from the command line to pass the POD IP\n# we want the job manager to expose itself as its unique ip so that HA leader election\n# works properly as opposed to the ClusterIP service name\n#jobmanager.rpc.address: POD_IP\n\ntaskmanager.numberOfTaskSlots: 2\nblob.server.port: 6124\njobmanager.rpc.port: 6123\ntaskmanager.rpc.port: 6122\nqueryable-state.proxy.ports: 6125\njobmanager.memory.process.size: 600m\ntaskmanager.memory.process.size: 1000m\nrest.port: 8081\nparallelism.default: 1\nmetrics.reporters: prom\nmetrics.reporter.prom.class: org.apache.flink.metrics.prometheus.PrometheusReporter\nmetrics.reporter.prom.port: 9102\nswift.service.thanos-swift.auth.url: https://thanos-swift.discovery.wmnet/auth/v1.0\nswift.service.thanos-swift.username: wdqs:flink\nswift.service.thanos-swift.apikey: some_secret_key\nkubernetes.cluster-id:  flink-cluster\nkubernetes.namespace: default\nhigh-availability: org.apache.flink.kubernetes.highavailability.KubernetesHaServicesFactory\nhigh-availability.storageDir: file:///streaming_updater/ha_storage_dir\nrestart-strategy: fixed-delay\nrestart-strategy.fixed-delay.attempts: 10",
+      "log4j-console.properties": "# This affects logging for both user code and Flink\nrootLogger.level = INFO\nrootLogger.appenderRef.console.ref = ConsoleAppender\n\n# Uncomment this if you want to _only_ change Flink's logging\n#logger.flink.name = org.apache.flink\n#logger.flink.level = INFO\n\n# The following lines keep the log level of common libraries/connectors on\n# log level INFO. The root logger does not override this. You have to manually\n# change the log levels here.\nlogger.akka.name = akka\nlogger.akka.level = INFO\nlogger.kafka.name= org.apache.kafka\nlogger.kafka.level = INFO\nlogger.hadoop.name = org.apache.hadoop\nlogger.hadoop.level = INFO\nlogger.zookeeper.name = org.apache.zookeeper\nlogger.zookeeper.level = INFO\n\n# Log all infos to the console\nappender.console.name = ConsoleAppender\nappender.console.type = CONSOLE\nappender.console.layout.type = PatternLayout\nappender.console.layout.pattern = {\"@timestamp\":\"%d{ISO8601}\",\"log.level\":\"%p\",\"message\":\"%m\",\"error.stack_trace\":\"%ex\",\"process.thread.name\":\"%t\",\"log.logger\":\"%c\",\"ecs.version\":\"1.7.0\"}%n\n\n# Suppress the irrelevant (wrong) warnings from the Netty channel handler\nlogger.netty.name = org.apache.flink.shaded.akka.org.jboss.netty.channel.DefaultChannelPipeline\nlogger.netty.level = OFF"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "rdf-streaming-updater-release-name",
+      "labels": {
+        "app": "rdf-streaming-updater-jobmanager",
+        "chart": "rdf-streaming-updater-0.0.7",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "jobmanager"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "configmaps"
+        ],
+        "verbs": [
+          "create",
+          "list",
+          "get",
+          "watch",
+          "delete",
+          "update"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "rdf-streaming-updater-release-name",
+      "labels": {
+        "app": "rdf-streaming-updater-jobmanager",
+        "chart": "rdf-streaming-updater-0.0.7",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "jobmanager"
+      }
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "rdf-streaming-updater-release-name"
+      }
+    ],
+    "roleRef": {
+      "kind": "Role",
+      "name": "rdf-streaming-updater-release-name",
+      "apiGroup": "rbac.authorization.k8s.io"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "rdf-streaming-updater-release-name-ui",
+      "labels": {
+        "app": "rdf-streaming-updater",
+        "chart": "rdf-streaming-updater-0.0.7",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "jobmanager-ui"
+      }
+    },
+    "spec": {
+      "type": "NodePort",
+      "ports": [
+        {
+          "name": "webui",
+          "port": 8081
+        }
+      ],
+      "selector": {
+        "app": "rdf-streaming-updater-jobmanager",
+        "release": "release-name",
+        "component": "jobmanager"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "rdf-streaming-updater-release-name-jobmanager",
+      "labels": {
+        "app": "rdf-streaming-updater-jobmanager",
+        "chart": "rdf-streaming-updater-0.0.7",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "jobmanager"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "rdf-streaming-updater-jobmanager",
+          "release": "release-name",
+          "component": "jobmanager"
+        }
+      },
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "rdf-streaming-updater-jobmanager",
+            "component": "jobmanager",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/secrets": "9faef7806cf6b7cbc2666f4661060c8b32127aa34f81837c679f8b1e2483e7de",
+            "checksum/log4j-conf": "8ca715a710b9f7d425c13f5f8e714cb3e5468e72b28fd98f118e20bd15118be3",
+            "checksum/flink-conf": "ad4671a6625742ac938b2353d47146c138d55e8dfe887395de3fad6e5d8b2024",
+            "prometheus.io/port": "9102",
+            "prometheus.io/scrape": "true"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "rdf-streaming-updater-release-name",
+          "containers": [
+            {
+              "name": "rdf-streaming-updater-release-name-jobmanager",
+              "image": "docker-registry.wikimedia.org/wikimedia/wikidata-query-flink-rdf-streaming-updater:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/opt/flink/bin/jobmanager.sh",
+                "start-foreground",
+                "$(POD_IP)"
+              ],
+              "ports": [
+                {
+                  "containerPort": 6123,
+                  "name": "rpc"
+                },
+                {
+                  "containerPort": 6124,
+                  "name": "blob-server"
+                },
+                {
+                  "containerPort": 8081,
+                  "name": "webui"
+                }
+              ],
+              "livenessProbe": {
+                "initialDelaySeconds": 30,
+                "periodSeconds": 60,
+                "tcpSocket": {
+                  "port": 6123
+                }
+              },
+              "env": [
+                {
+                  "name": "POD_IP",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "status.podIP"
+                    }
+                  }
+                },
+                {
+                  "name": "SERVICE_IDENTIFIER",
+                  "value": "rdf-streaming-updater-release-name"
+                },
+                {
+                  "name": "SWIFT_API_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "rdf-streaming-updater-release-name-secret-config",
+                      "key": "swift_api_key"
+                    }
+                  }
+                }
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "700Mi"
+                },
+                "limits": {
+                  "cpu": "200m",
+                  "memory": "800Mi"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "flink-config-volume",
+                  "mountPath": "/opt/flink/conf"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "flink-config-volume",
+              "configMap": {
+                "name": "rdf-streaming-updater-release-name-flink-config",
+                "items": [
+                  {
+                    "key": "flink-conf.yaml",
+                    "path": "flink-conf.yaml"
+                  },
+                  {
+                    "key": "log4j-console.properties",
+                    "path": "log4j-console.properties"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "rdf-streaming-updater-release-name-taskmanager",
+      "labels": {
+        "app": "rdf-streaming-updater-taskmanager",
+        "chart": "rdf-streaming-updater-0.0.7",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "taskmanager"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "rdf-streaming-updater-taskmanager",
+          "release": "release-name",
+          "component": "taskmanager"
+        }
+      },
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "rdf-streaming-updater-taskmanager",
+            "component": "taskmanager",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/secrets": "9faef7806cf6b7cbc2666f4661060c8b32127aa34f81837c679f8b1e2483e7de",
+            "checksum/log4j-conf": "8ca715a710b9f7d425c13f5f8e714cb3e5468e72b28fd98f118e20bd15118be3",
+            "checksum/flink-conf": "ad4671a6625742ac938b2353d47146c138d55e8dfe887395de3fad6e5d8b2024",
+            "prometheus.io/port": "9102",
+            "prometheus.io/scrape": "true"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "rdf-streaming-updater-release-name",
+          "containers": [
+            {
+              "name": "rdf-streaming-updater-release-name-taskmanager",
+              "image": "docker-registry.wikimedia.org/wikimedia/wikidata-query-flink-rdf-streaming-updater:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/opt/flink/bin/taskmanager.sh",
+                "start-foreground"
+              ],
+              "ports": [
+                {
+                  "containerPort": 6122,
+                  "name": "rpc"
+                },
+                {
+                  "containerPort": 6125,
+                  "name": "query-state"
+                }
+              ],
+              "livenessProbe": {
+                "initialDelaySeconds": 30,
+                "periodSeconds": 60,
+                "tcpSocket": {
+                  "port": 6122
+                }
+              },
+              "env": [
+                {
+                  "name": "SERVICE_IDENTIFIER",
+                  "value": "rdf-streaming-updater-release-name"
+                },
+                {
+                  "name": "SWIFT_API_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "rdf-streaming-updater-release-name-secret-config",
+                      "key": "swift_api_key"
+                    }
+                  }
+                }
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "1000Mi"
+                },
+                "limits": {
+                  "cpu": "200m",
+                  "memory": "1100Mi"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "flink-config-volume",
+                  "mountPath": "/opt/flink/conf"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "flink-config-volume",
+              "configMap": {
+                "name": "rdf-streaming-updater-release-name-flink-config",
+                "items": [
+                  {
+                    "key": "flink-conf.yaml",
+                    "path": "flink-conf.yaml"
+                  },
+                  {
+                    "key": "log4j-console.properties",
+                    "path": "log4j-console.properties"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "rdf-streaming-updater-release-name-curl-ui",
+      "annotations": {
+        "helm.sh/hook": "test-success"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "rdf-streaming-updater-release-name-curl-ui",
+          "image": "docker-registry.wikimedia.org/wmfdebug",
+          "imagePullPolicy": "IfNotPresent",
+          "args": [
+            "curl",
+            "http://rdf-streaming-updater-release-name-ui:8081"
+          ]
+        }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "restartPolicy": "Never"
+    }
+  }
+]

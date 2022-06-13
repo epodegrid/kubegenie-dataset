@@ -1,0 +1,199 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-hlf-ca--ca
+  labels:
+    app: hlf-ca
+    heritage: Helm
+    release: release-name
+    chart: hlf-ca-2.1.0
+type: Opaque
+data:
+  CA_ADMIN: YWRtaW4=
+  CA_PASSWORD: dlFlNEZSdmhaTUJDMWd0TVV5YjQ0ZkVQ
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-hlf-ca--ca
+  labels:
+    app: hlf-ca
+    heritage: Helm
+    release: release-name
+    chart: hlf-ca-2.1.0
+data:
+  GODEBUG: netdns=go
+  FABRIC_CA_HOME: /var/hyperledger/fabric-ca
+  FABRIC_CA_SERVER_CA_NAME: org1-ca
+  SERVICE_DNS: 0.0.0.0
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-hlf-ca--config
+  labels:
+    app: hlf-ca
+    heritage: Helm
+    release: release-name
+    chart: hlf-ca-2.1.0
+data:
+  ca.yaml: "#############################################################################\n#   This is a configuration file for the fabric-ca-server command.\n#############################################################################\n# Version of config file\nversion: 1.5.1\n# Server's listening port\nport: 7054\n# Enables debug logging\ndebug: true\n# Size limit of an acceptable CRL in bytes (default: 512000)\ncrlsizelimit: 512000\n#############################################################################\n#  TLS section\n#############################################################################\ntls:\n  # Enable TLS (handled by the Ingress)\n  enabled: false\n  # TLS for the server's listening port\n  certfile: /var/hyperledger/tls/secret/tls.crt\n  keyfile: /var/hyperledger/tls/secret/tls.key\n  clientauth:\n    # Supported types: NoClientCert, RequestClientCert, RequireAnyClientCert, VerifyClientCertIfGiven and RequireAndVerifyClientCert.\n    type: noclientcert\n    # List of root certificate authorities used when verifying client certificates\n    certfiles:\n#############################################################################\n#  The CA section contains information related to the Certificate Authority\n#  including the name of the CA, which should be unique for all members\n#  of a blockchain network.  It also includes the key and certificate files\n#  used when issuing enrollment certificates (ECerts) and transaction\n#  certificates (TCerts).\n#  The chainfile (if it exists) contains the certificate chain which\n#  should be trusted for this CA, where the 1st in the chain is always the\n#  root CA certificate.\n#############################################################################\nca:\n  # Name of this CA\n  name:\n  # Key file (is only used to import a private key into BCCSP)\n  keyfile:\n  # Certificate file (default: ca-cert.pem)\n  certfile: /var/hyperledger/fabric-ca/msp/certs/release-name-hlf-ca-cert.pem\n  # Chain file\n  chainfile:\n  # Ignore Certificate Expiration in the case of re-enroll\n  reenrollIgnoreCertExpiry: true\n#############################################################################\n#  The gencrl REST endpoint is used to generate a CRL that contains revoked\n#  certificates. This section contains configuration options that are used\n#  during gencrl request processing.\n#############################################################################\ncrl:\n  # Specifies expiration for the generated CRL. The number of hours\n  # specified by this property is added to the UTC time, the resulting time\n  # is used to set the 'Next Update' date of the CRL.\n  expiry: 24h\n#############################################################################\n#  The registry section controls how the fabric-ca-server does two things:\n#  1) authenticates enrollment requests which contain a username and password\n#     (also known as an enrollment ID and secret).\n#  2) once authenticated, retrieves the identity's attribute names and\n#     values which the fabric-ca-server optionally puts into TCerts\n#     which it issues for transacting on the Hyperledger Fabric blockchain.\n#     These attributes are useful for making access control decisions in\n#     chaincode.\n#  There are two main configuration options:\n#  1) The fabric-ca-server is the registry.\n#     This is true if \"ldap.enabled\" in the ldap section below is false.\n#  2) An LDAP server is the registry, in which case the fabric-ca-server\n#     calls the LDAP server to perform these tasks.\n#     This is true if \"ldap.enabled\" in the ldap section below is true,\n#     which means this \"registry\" section is ignored.\n#############################################################################\nregistry:\n  # Maximum number of times a password/secret can be reused for enrollment\n  # (default: -1, which means there is no limit)\n  maxenrollments: -1\n  # Contains identity information which is used when LDAP is disabled\n  identities:\n     - name: <<<ADMIN>>>\n       pass: <<<ADMINPW>>>\n       type: client\n       affiliation: \"\"\n       attrs:\n          hf.Registrar.Roles: \"peer,orderer,client,user\"\n          hf.Registrar.DelegateRoles: \"peer,orderer,client,user\"\n          hf.Revoker: true\n          hf.IntermediateCA: true\n          hf.GenCRL: true\n          hf.Registrar.Attributes: \"*\"\n          hf.AffiliationMgr: true\n#############################################################################\n#  Database section\n#  Supported types are: \"sqlite3\", \"postgres\", and \"mysql\".\n#  The datasource value depends on the type.\n#  If the type is \"sqlite3\", the datasource value is a file name to use\n#  as the database store.  Since \"sqlite3\" is an embedded database, it\n#  may not be used if you want to run the fabric-ca-server in a cluster.\n#  To run the fabric-ca-server in a cluster, you must choose \"postgres\"\n#  or \"mysql\".\n#############################################################################\ndb:\n  type: <<<DB_TYPE>>>\n  datasource: <<<DB_DATASOURCE>>>\n  tls:\n      enabled: false\n      certfiles:\n      client:\n        certfile:\n        keyfile:\n#############################################################################\n#  LDAP section\n#  If LDAP is enabled, the fabric-ca-server calls LDAP to:\n#  1) authenticate enrollment ID and secret (i.e. username and password)\n#     for enrollment requests;\n#  2) To retrieve identity attributes\n#############################################################################\nldap:\n   # Enables or disables the LDAP client (default: false)\n   # If this is set to true, the \"registry\" section is ignored.\n   enabled: false\n   # The URL of the LDAP server\n   url: ldap://<adminDN>:<adminPassword>@<host>:<port>/<base>\n   # TLS configuration for the client connection to the LDAP server\n   tls:\n      certfiles:\n      client:\n         certfile:\n         keyfile:\n   # Attribute related configuration for mapping from LDAP entries to Fabric CA attributes\n   attribute:\n      # 'names' is an array of strings containing the LDAP attribute names which are\n      # requested from the LDAP server for an LDAP identity's entry\n      names: ['uid','member']\n      # The 'converters' section is used to convert an LDAP entry to the value of\n      # a fabric CA attribute.\n      # For example, the following converts an LDAP 'uid' attribute\n      # whose value begins with 'revoker' to a fabric CA attribute\n      # named \"hf.Revoker\" with a value of \"true\" (because the boolean expression\n      # evaluates to true).\n      #    converters:\n      #       - name: hf.Revoker\n      #         value: attr(\"uid\") =~ \"revoker*\"\n      converters:\n         - name:\n           value:\n      # The 'maps' section contains named maps which may be referenced by the 'map'\n      # function in the 'converters' section to map LDAP responses to arbitrary values.\n      # For example, assume a user has an LDAP attribute named 'member' which has multiple\n      # values which are each a distinguished name (i.e. a DN). For simplicity, assume the\n      # values of the 'member' attribute are 'dn1', 'dn2', and 'dn3'.\n      # Further assume the following configuration.\n      #    converters:\n      #       - name: hf.Registrar.Roles\n      #         value: map(attr(\"member\"),\"groups\")\n      #    maps:\n      #       groups:\n      #          - name: dn1\n      #            value: peer\n      #          - name: dn2\n      #            value: client\n      # The value of the user's 'hf.Registrar.Roles' attribute is then computed to be\n      # \"peer,client,dn3\".  This is because the value of 'attr(\"member\")' is\n      # \"dn1,dn2,dn3\", and the call to 'map' with a 2nd argument of\n      # \"group\" replaces \"dn1\" with \"peer\" and \"dn2\" with \"client\".\n      maps:\n         groups:\n            - name:\n              value:\n#############################################################################\n# Affiliations section, specified as hierarchical maps.\n# Note: Affiliations are case sensitive except for the non-leaf affiliations.\n#############################################################################\naffiliations:\n  {}\n#############################################################################\n#  Signing section\n#\n#  The \"default\" subsection is used to sign enrollment certificates;\n#  the default expiration (\"expiry\" field) is \"8760h\", which is 1 year in hours.\n#\n#  The \"ca\" profile subsection is used to sign intermediate CA certificates;\n#  the default expiration (\"expiry\" field) is \"43800h\" which is 5 years in hours.\n#  Note that \"isca\" is true, meaning that it issues a CA certificate.\n#  A maxpathlen of 0 means that the intermediate CA cannot issue other\n#  intermediate CA certificates, though it can still issue end entity certificates.\n#  (See RFC 5280, section 4.2.1.9)\n#\n#  The \"tls\" profile subsection is used to sign TLS certificate requests;\n#  the default expiration (\"expiry\" field) is \"8760h\", which is 1 year in hours.\n#############################################################################\nsigning:\n    default:\n      usage:\n        - digital signature\n      expiry: 8760h\n    profiles:\n      ca:\n         usage:\n           - cert sign\n           - crl sign\n         expiry: 43800h\n         caconstraint:\n           isca: true\n           maxpathlen: 0\n      tls:\n         usage:\n            - signing\n            - key encipherment\n            - server auth\n            - client auth\n            - key agreement\n         expiry: 8760h\n###########################################################################\n#  Certificate Signing Request (CSR) section.\n#  This controls the creation of the root CA certificate.\n#  The expiration for the root CA certificate is configured with the\n#  \"ca.expiry\" field below, whose default value is \"131400h\" which is\n#  15 years in hours.\n#  The pathlength field is used to limit CA certificate hierarchy as described\n#  in section 4.2.1.9 of RFC 5280.\n#  Examples:\n#  1) No pathlength value means no limit is requested.\n#  2) pathlength == 1 means a limit of 1 is requested which is the default for\n#     a root CA.  This means the root CA can issue intermediate CA certificates,\n#     but these intermediate CAs may not in turn issue other CA certificates\n#     though they can still issue end entity certificates.\n#  3) pathlength == 0 means a limit of 0 is requested;\n#     this is the default for an intermediate CA, which means it can not issue\n#     CA certificates though it can still issue end entity certificates.\n###########################################################################\ncsr:\n   cn: \"org1-ca\"\n   names:\n      - C: \"US\"\n        ST: \"North Carolina\"\n        L: \n        O: \"Hyperledger\"\n        OU: \"Fabric\"\n   hosts:\n     - localhost\n     # K8S Service\n     - release-name-hlf-ca.default.svc.cluster.local\n   ca:\n      expiry: 131400h\n      pathlength: 1\n#############################################################################\n# BCCSP (BlockChain Crypto Service Provider) section is used to select which\n# crypto library implementation to use\n#############################################################################\nbccsp:\n    default: SW\n    sw:\n        hash: SHA2\n        security: 256\n        filekeystore:\n            # The directory used for the software file-based keystore\n            keystore: msp/keystore\n#############################################################################\n# Multi CA section (unused in a K8S deployment)\n#############################################################################\ncacount:\ncafiles:\n#############################################################################\n# Intermediate CA section\n#\n# The relationship between servers and CAs is as follows:\n#   1) A single server process may contain or function as one or more CAs.\n#      This is configured by the \"Multi CA section\" above.\n#   2) Each CA is either a root CA or an intermediate CA.\n#   3) Each intermediate CA has a parent CA which is either a root CA or another intermediate CA.\n#\n# This section pertains to configuration of #2 and #3.\n# If the \"intermediate.parentserver.url\" property is set,\n# then this is an intermediate CA with the specified parent\n# CA.\n#\n# parentserver section\n#    url - The URL of the parent server\n#    caname - Name of the CA to enroll within the server\n#\n# enrollment section used to enroll intermediate CA with parent CA\n#    profile - Name of the signing profile to use in issuing the certificate\n#    label - Label to use in HSM operations\n#\n# tls section for secure socket connection\n#   certfiles - PEM-encoded list of trusted root certificate files\n#   client:\n#     certfile - PEM-encoded certificate file for when client authentication\n#     is enabled on server\n#     keyfile - PEM-encoded key file for when client authentication\n#     is enabled on server\n#############################################################################\nintermediate:\n  parentserver:\n    url:\n    caname:\n  enrollment:\n    hosts:\n    profile:\n    label:\n  tls:\n    certfiles:\n    client:\n      certfile:\n      keyfile:\n#############################################################################\n# Extra configuration options\n# .e.g to enable adding and removing affiliations or identities\n#############################################################################\ncfg:\n  affiliations:\n    allowremove: true\n  identities:\n    allowremove: true\n"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-hlf-ca--db
+  labels:
+    app: hlf-ca
+    heritage: Helm
+    release: release-name
+    chart: hlf-ca-2.1.0
+data:
+  DB_SSL: disable
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-hlf-ca
+  labels:
+    app: hlf-ca
+    heritage: Helm
+    release: release-name
+    chart: hlf-ca-2.1.0
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-hlf-ca
+  labels:
+    app: hlf-ca
+    heritage: Helm
+    release: release-name
+    chart: hlf-ca-2.1.0
+spec:
+  type: ClusterIP
+  ports:
+    - port: 7054
+      targetPort: 7054
+      protocol: TCP
+      name: http
+  selector:
+    app: hlf-ca
+    release: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-hlf-ca
+  labels:
+    app: hlf-ca
+    heritage: Helm
+    release: release-name
+    chart: hlf-ca-2.1.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hlf-ca
+      release: release-name
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: hlf-ca
+        heritage: Helm
+        release: release-name
+        chart: hlf-ca-2.1.0
+    spec:
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: release-name-hlf-ca
+        - name: ca-config
+          configMap:
+            name: release-name-hlf-ca--config
+      initContainers:
+        - name: wait-for-db
+          image: jwilder/dockerize:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: release-name-hlf-ca--db
+          command:
+            - sh
+            - -c
+            - |
+              if [ -n "$DB_TYPE" ]; then
+                dockerize -wait tcp://$DB_HOST:$DB_PORT -timeout 30s && echo "Database $DB_TYPE on $DB_HOST:$DB_PORT is ready"
+              fi
+      containers:
+        - name: ca
+          image: hyperledger/fabric-ca:1.5.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              if [ -n "$DB_TYPE" ]; then
+                while [ -z ${DB_PASSWORD+x} ];
+                do
+                  echo "\033[0;31mDB_PASSWORD environmental variable must contain a value \033[0m"
+                  sleep 60
+                done
+
+                case "$DB_TYPE" in
+                  postgres)
+                    export DB_DATASOURCE="host=${DB_HOST} port=${DB_PORT} user=${DB_USERNAME} password=${DB_PASSWORD} dbname=${DB_DATABASE} sslmode=${DB_SSL}";;
+                  mysql)
+                    export DB_DATASOURCE="${DB_USERNAME}:${DB_PASSWORD}@tcp(${DB_HOST}:${DB_PORT})/${DB_DATABASE}?parseTime=true" ;;
+                  *)
+                    echo "\033[0;31m Database type '$DB_TYPE' not supported\033[0m"; exit 1;;
+                esac
+              fi
+
+              mkdir -p $FABRIC_CA_HOME
+              cp /var/hyperledger/ca_config/ca.yaml $FABRIC_CA_HOME/fabric-ca-server-config.yaml
+              sed -i "s|<<<ADMIN>>>|${CA_ADMIN}|g" ${FABRIC_CA_HOME}/fabric-ca-server-config.yaml
+              sed -i "s|<<<ADMINPW>>>|${CA_PASSWORD}|g" $FABRIC_CA_HOME/fabric-ca-server-config.yaml
+              sed -i "s|<<<DB_TYPE>>>|${DB_TYPE:-"sqlite3"}|g" $FABRIC_CA_HOME/fabric-ca-server-config.yaml
+              sed -i "s|<<<DB_DATASOURCE>>>|${DB_DATASOURCE:-"fabric-ca-server.db"}|g" $FABRIC_CA_HOME/fabric-ca-server-config.yaml
+
+              echo ">\033[0;35m fabric-ca-server start \033[0m"
+              fabric-ca-server start
+          envFrom:
+            - secretRef:
+                name: release-name-hlf-ca--ca
+            - configMapRef:
+                name: release-name-hlf-ca--db
+            - configMapRef:
+                name: release-name-hlf-ca--ca
+          env: null
+          ports:
+            - name: ca-port
+              containerPort: 7054
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /cainfo
+              port: 7054
+          readinessProbe:
+            httpGet:
+              path: /cainfo
+              port: 7054
+          volumeMounts:
+            - name: data
+              mountPath: /var/hyperledger
+            - name: ca-config
+              readOnly: true
+              mountPath: /var/hyperledger/ca_config
+          resources:
+            seccompProfile:
+              type: RuntimeDefault

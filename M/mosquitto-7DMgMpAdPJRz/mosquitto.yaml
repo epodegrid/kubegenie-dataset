@@ -1,0 +1,87 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mosquitto-configmap
+data:
+  mosquitto.conf: "#pid_file /var/run/mosquitto.pid\npersistence true # port 1883\npersistence_location /var/lib/mosquitto\n#log_dest  file /var/log/mosquitto/mosquitto.log\nlog_type all #include_dir /etc/mosquitto/conf.d\nlistener  8883 \nallow_anonymous true    \nrequire_certificate false \nuse_identity_as_username false\n"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-mosquitto
+  labels:
+    helm.sh/chart: mosquitto-0.1.0
+    app.kubernetes.io/name: mosquitto
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.16.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 1883
+      targetPort: mqtt
+      protocol: TCP
+      name: mqtt
+  selector:
+    app.kubernetes.io/name: mosquitto
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-mosquitto
+  labels:
+    helm.sh/chart: mosquitto-0.1.0
+    app.kubernetes.io/name: mosquitto
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.16.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mosquitto
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mosquitto
+        app.kubernetes.io/instance: release-name
+    spec:
+      securityContext: {}
+      containers:
+        - name: mosquitto
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: eclipse-mosquitto:2.0.14
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 1883
+              protocol: TCP
+          resources: null
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-mosquitto-test-connection
+  labels:
+    helm.sh/chart: mosquitto-0.1.0
+    app.kubernetes.io/name: mosquitto
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.16.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-mosquitto:1883
+  restartPolicy: Never

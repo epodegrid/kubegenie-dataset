@@ -1,0 +1,371 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-oathkeeper-maester-account
+  namespace: yZbL5X
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-oathkeeper
+  labels:
+    app.kubernetes.io/name: oathkeeper
+    helm.sh/chart: oathkeeper-0.23.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.38.19-beta.1
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-oathkeeper-config
+  namespace: yZbL5X
+  labels:
+    app.kubernetes.io/name: oathkeeper
+    helm.sh/chart: oathkeeper-0.23.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.38.19-beta.1
+    app.kubernetes.io/managed-by: Helm
+data:
+  config.yaml: |
+    access_rules:
+      repositories:
+      - file:///etc/rules/access-rules.json
+    serve:
+      api:
+        port: 4456
+      prometheus:
+        port: 9000
+      proxy:
+        port: 4455
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-oathkeeper-rules
+  namespace: yZbL5X
+  labels:
+    app.kubernetes.io/name: oathkeeper
+    helm.sh/chart: oathkeeper-0.23.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.38.19-beta.1
+    app.kubernetes.io/managed-by: Helm
+data:
+  access-rules.json: '[]'
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-oathkeeper-maester-role
+rules:
+  - apiGroups:
+      - oathkeeper.ory.sh
+    resources:
+      - rules
+    verbs:
+      - '*'
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - patch
+      - update
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-oathkeeper-maester-role-binding
+subjects:
+  - kind: ServiceAccount
+    name: release-name-oathkeeper-maester-account
+    namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-oathkeeper-maester-role
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-oathkeeper-api
+  namespace: yZbL5X
+  labels:
+    app.kubernetes.io/component: api
+    app.kubernetes.io/name: oathkeeper
+    helm.sh/chart: oathkeeper-0.23.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.38.19-beta.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 4456
+      targetPort: http-api
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: oathkeeper
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-oathkeeper-metrics
+  namespace: yZbL5X
+  labels:
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/name: oathkeeper
+    helm.sh/chart: oathkeeper-0.23.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.38.19-beta.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http-metrics
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: oathkeeper
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-oathkeeper-proxy
+  namespace: yZbL5X
+  labels:
+    app.kubernetes.io/component: proxy
+    app.kubernetes.io/name: oathkeeper
+    helm.sh/chart: oathkeeper-0.23.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.38.19-beta.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 4455
+      targetPort: http-proxy
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: oathkeeper
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-oathkeeper-maester
+  namespace: yZbL5X
+  labels:
+    app.kubernetes.io/name: oathkeeper-maester
+    helm.sh/chart: oathkeeper-maester-0.23.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.1.4
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+      app.kubernetes.io/name: release-name-oathkeeper-maester
+      app.kubernetes.io/instance: release-name
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        control-plane: controller-manager
+        app.kubernetes.io/name: release-name-oathkeeper-maester
+        app.kubernetes.io/instance: release-name
+    spec:
+      containers:
+        - name: oathkeeper-maester
+          image: oryd/oathkeeper-maester:v0.1.6
+          imagePullPolicy: IfNotPresent
+          command:
+            - /manager
+          args:
+            - --metrics-addr=0.0.0.0:8080
+            - controller
+            - --rulesConfigmapName=release-name-rules
+            - --rulesConfigmapNamespace=default
+          env: null
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+      serviceAccountName: release-name-oathkeeper-maester-account
+      automountServiceAccountToken: true
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      securityContext: {}
+      terminationGracePeriodSeconds: 10
+      nodeSelector: null
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-oathkeeper
+  namespace: yZbL5X
+  labels:
+    app.kubernetes.io/name: oathkeeper
+    helm.sh/chart: oathkeeper-0.23.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.38.19-beta.1
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oathkeeper
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oathkeeper
+        helm.sh/chart: oathkeeper-0.23.2
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/version: v0.38.19-beta.1
+        app.kubernetes.io/managed-by: Helm
+      annotations:
+        checksum/oathkeeper-config: 9511b946961b5055510af1f4af9ff4f9132a59db6ead14402521f3e5e7072040
+        checksum/oathkeeper-rules: 0a6d408fe03685a1d63c7a60f120e0a1041d11c957f1bb702c2b834cf75d8f47
+        checksum/oauthkeeper-secrets: b9e1cd1955dece63d78cc00162a1fe4a8e40393d2d919ec758311d2d7a055ff1
+    spec:
+      volumes:
+        - name: oathkeeper-config-volume
+          configMap:
+            name: release-name-oathkeeper-config
+        - name: oathkeeper-rules-volume
+          configMap:
+            name: release-name-oathkeeper-rules
+        - name: oathkeeper-secrets-volume
+          secret:
+            secretName: release-name-oathkeeper
+      serviceAccountName: release-name-oathkeeper
+      automountServiceAccountToken: false
+      containers:
+        - name: oathkeeper
+          image: oryd/oathkeeper:v0.38.19-beta.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - oathkeeper
+            - serve
+            - --config
+            - /etc/config/config.yaml
+          env: null
+          volumeMounts:
+            - name: oathkeeper-config-volume
+              mountPath: /etc/config
+              readOnly: true
+            - name: oathkeeper-rules-volume
+              mountPath: /etc/rules
+              readOnly: true
+            - name: oathkeeper-secrets-volume
+              mountPath: /etc/secrets
+              readOnly: true
+          ports:
+            - name: http-api
+              containerPort: 4456
+              protocol: TCP
+            - name: http-proxy
+              containerPort: 4455
+              protocol: TCP
+            - name: http-metrics
+              protocol: TCP
+              containerPort: 9000
+          livenessProbe:
+            httpGet:
+              path: /health/alive
+              port: http-api
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http-api
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-oathkeeper
+  namespace: yZbL5X
+  labels:
+    app.kubernetes.io/name: oathkeeper
+    helm.sh/chart: oathkeeper-0.23.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.38.19-beta.1
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: pre-install, pre-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+    helm.sh/hook-weight: "0"
+    helm.sh/resource-policy: keep
+type: Opaque
+data: null
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-oathkeeper-test-connection
+  namespace: yZbL5X
+  labels:
+    app.kubernetes.io/name: oathkeeper
+    helm.sh/chart: oathkeeper-0.23.2
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.38.19-beta.1
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: liveness-probe
+      image: busybox
+      command:
+        - wget
+      args:
+        - http://release-name-oathkeeper-api:4456/health/alive
+    - name: readiness-probe
+      image: busybox
+      command:
+        - wget
+      args:
+        - http://release-name-oathkeeper-api:4456/health/ready
+  restartPolicy: Never

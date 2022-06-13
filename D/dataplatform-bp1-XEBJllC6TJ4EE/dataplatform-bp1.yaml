@@ -1,0 +1,1555 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-kafka
+  namespace: XEBJllC6TJ4EE
+  labels:
+    app.kubernetes.io/name: kafka
+    helm.sh/chart: kafka-16.2.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: kafka
+  annotations: null
+automountServiceAccountToken: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-spark
+  namespace: XEBJllC6TJ4EE
+  labels:
+    app.kubernetes.io/name: spark
+    helm.sh/chart: spark-6.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+automountServiceAccountToken: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-dataplatform-bp1
+  labels:
+    app.kubernetes.io/name: dataplatform-bp1
+    helm.sh/chart: dataplatform-bp1-12.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: dataplatform
+automountServiceAccountToken: true
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-solr
+  labels:
+    app.kubernetes.io/name: solr
+    helm.sh/chart: solr-4.0.9
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: solr
+  namespace: XEBJllC6TJ4EE
+type: Opaque
+data:
+  solr-password: b3E1a2FBSXp2SA==
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-spark-secret
+  namespace: XEBJllC6TJ4EE
+  labels:
+    app.kubernetes.io/name: spark
+    helm.sh/chart: spark-6.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data: null
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-kafka-scripts
+  namespace: XEBJllC6TJ4EE
+  labels:
+    app.kubernetes.io/name: kafka
+    helm.sh/chart: kafka-16.2.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  setup.sh: |-
+    #!/bin/bash
+
+    ID="${MY_POD_NAME#"release-name-kafka-"}"
+    if [[ -f "/bitnami/kafka/data/meta.properties" ]]; then
+        export KAFKA_CFG_BROKER_ID="$(grep "broker.id" /bitnami/kafka/data/meta.properties | awk -F '=' '{print $2}')"
+    else
+        export KAFKA_CFG_BROKER_ID="$((ID + 0))"
+    fi
+
+    exec /entrypoint.sh /run.sh
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-solr-scripts
+  namespace: XEBJllC6TJ4EE
+  labels:
+    app.kubernetes.io/name: solr
+    helm.sh/chart: solr-4.0.9
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: solr
+data:
+  init-certs.sh: |-
+    #!/bin/bash
+
+    . /opt/bitnami/scripts/liblog.sh
+
+    if [[ -f "/certs/keystore.p12" ]] && [[ -f "/certs/truststore.p12" ]]; then
+        # the user provided keystore.p12 and truststore.p12 files (prefered)
+        cp "/certs/keystore.p12" "/opt/bitnami/solr/certs/keystore.p12"
+        cp "/certs/truststore.p12" "/opt/bitnami/solr/certs/truststore.p12"
+    elif [[ -f "/certs/ca.crt" ]] && [[ -f "/certs/tls.key" ]] && [[ -f "/certs/tls.crt" ]]; then
+        # the user provided ca.crt & tls.key & tls.crt so we "calculate" keystore.p12 and truststore.p12
+        openssl pkcs12 -export -in "/certs/tls.crt" \
+            -inkey "/certs/tls.key" -out "/tmp/keystore.p12" \
+            -passin pass:"/certs/tls.key" -passout pass:"${SOLR_SSL_KEY_STORE_PASSWORD}"
+        keytool -importkeystore -srckeystore "/tmp/keystore.p12" \
+            -srcstoretype PKCS12 \
+            -srcstorepass "${SOLR_SSL_KEY_STORE_PASSWORD}" \
+            -deststorepass "${SOLR_SSL_KEY_STORE_PASSWORD}" \
+            -destkeystore "/opt/bitnami/solr/certs/keystore.p12"
+        rm "/tmp/keystore.p12"
+        keytool -import -file "/certs/ca.crt" -keystore "/opt/bitnami/solr/certs/truststore.p12" -storepass "${SOLR_SSL_TRUST_STORE_PASSWORD}" -noprompt
+    else
+        info "No certificate files provided ... nothing to do ..."
+    fi
+  setup.sh: |-
+    #!/bin/bash
+    NODE_ID="${MY_POD_NAME#"release-name-solr-"}"
+    if [[ "$NODE_ID" -eq "0" ]]; then
+        export SOLR_CLOUD_BOOTSTRAP=yes
+    fi
+    # Use hostname instead of IP to register in ZooKeeper
+    export SOLR_HOST="${MY_POD_NAME}.release-name-solr-headless.default.svc.cluster.local"
+    /opt/bitnami/scripts/solr/entrypoint.sh /opt/bitnami/scripts/solr/run.sh
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-zookeeper-scripts
+  namespace: XEBJllC6TJ4EE
+  labels:
+    app.kubernetes.io/name: zookeeper
+    helm.sh/chart: zookeeper-9.1.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: zookeeper
+data:
+  init-certs.sh: '#!/bin/bash'
+  setup.sh: |-
+    #!/bin/bash
+
+    # Execute entrypoint as usual after obtaining ZOO_SERVER_ID
+    # check ZOO_SERVER_ID in persistent volume via myid
+    # if not present, set based on POD hostname
+    if [[ -f "/bitnami/zookeeper/data/myid" ]]; then
+        export ZOO_SERVER_ID="$(cat /bitnami/zookeeper/data/myid)"
+    else
+        HOSTNAME="$(hostname -s)"
+        if [[ $HOSTNAME =~ (.*)-([0-9]+)$ ]]; then
+            ORD=${BASH_REMATCH[2]}
+            export ZOO_SERVER_ID="$((ORD + 1 ))"
+        else
+            echo "Failed to get index from hostname $HOST"
+            exit 1
+        fi
+    fi
+    exec /entrypoint.sh /run.sh
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-dataplatform-bp1-exporter-configuration
+  labels:
+    app.kubernetes.io/name: dataplatform-bp1
+    helm.sh/chart: dataplatform-bp1-12.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  bp.json: |-
+    {
+      "blueprintName": "bp1",
+      "metrics": [
+        {
+          "name": "zookeeper_desired_nodes",
+          "type": "gauge",
+          "helpMessage": "Desired number of zookeeper nodes in the data platform",
+          "key": "zookeeper",
+          "dataComponent": "DesiredNodes"
+        },
+        {
+          "name": "zookeeper_available_nodes",
+          "type": "gauge",
+          "helpMessage": "Available number of zookeeper nodes in the data platform",
+          "key": "zookeeper",
+          "dataComponent": "AvailableNodes"
+        },
+        {
+          "name": "kafka_desired_nodes",
+          "type": "gauge",
+          "helpMessage": "Desired number of kafka nodes in the data platform",
+          "key": "kafka",
+          "dataComponent": "DesiredNodes"
+        },
+        {
+          "name": "kafka_available_nodes",
+          "type": "gauge",
+          "helpMessage": "Available number of kafka nodes in the data platform",
+          "key": "kafka",
+          "dataComponent": "AvailableNodes"
+        },
+        {
+          "name": "solr_desired_nodes",
+          "type": "gauge",
+          "helpMessage": "Desired number of solr nodes in the data platform",
+          "key": "solr",
+          "dataComponent": "DesiredNodes"
+        },
+        {
+          "name": "solr_available_nodes",
+          "type": "gauge",
+          "helpMessage": "Available number of solr nodes in the data platform",
+          "key": "solr",
+          "dataComponent": "AvailableNodes"
+        },
+        {
+          "name": "spark_master_desired_nodes",
+          "type": "gauge",
+          "helpMessage": "Desired number of spark master nodes in the data platform",
+          "key": "spark-master",
+          "dataComponent": "DesiredNodes"
+        },
+        {
+          "name": "spark_master_available_nodes",
+          "type": "gauge",
+          "helpMessage": "Available number of spark master nodes in the data platform",
+          "key": "spark-master",
+          "dataComponent": "AvailableNodes"
+        },
+        {
+          "name": "spark_worker_desired_nodes",
+          "type": "gauge",
+          "helpMessage": "Desired number of spark worker nodes in the data platform",
+          "key": "spark-worker",
+          "dataComponent": "DesiredNodes"
+        },
+        {
+          "name": "spark_worker_available_nodes",
+          "type": "gauge",
+          "helpMessage": "Available number of spark worker nodes in the data platform",
+          "key": "spark-worker",
+          "dataComponent": "AvailableNodes"
+        }
+      ]
+    }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-dataplatform-bp1
+  labels:
+    app.kubernetes.io/name: dataplatform-bp1
+    helm.sh/chart: dataplatform-bp1-12.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: dataplatform
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - statefulsets
+      - pods
+      - services
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+      - namespaces/status
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - controllerrevisions
+      - daemonsets
+      - daemonsets/status
+      - deployments
+      - deployments/scale
+      - deployments/status
+      - replicasets
+      - replicasets/scale
+      - replicasets/status
+      - statefulsets
+      - statefulsets/scale
+      - statefulsets/status
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-dataplatform-bp1
+  labels:
+    app.kubernetes.io/name: dataplatform-bp1
+    helm.sh/chart: dataplatform-bp1-12.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: dataplatform
+roleRef:
+  kind: Role
+  name: release-name-dataplatform-bp1
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+  - kind: ServiceAccount
+    name: release-name-dataplatform-bp1
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-kafka-headless
+  namespace: XEBJllC6TJ4EE
+  labels:
+    app.kubernetes.io/name: kafka
+    helm.sh/chart: kafka-16.2.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: kafka
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: tcp-client
+      port: 9092
+      protocol: TCP
+      targetPort: kafka-client
+    - name: tcp-internal
+      port: 9093
+      protocol: TCP
+      targetPort: kafka-internal
+  selector:
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: kafka
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-kafka
+  namespace: XEBJllC6TJ4EE
+  labels:
+    app.kubernetes.io/name: kafka
+    helm.sh/chart: kafka-16.2.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: kafka
+spec:
+  type: ClusterIP
+  sessionAffinity: None
+  ports:
+    - name: tcp-client
+      port: 9092
+      protocol: TCP
+      targetPort: kafka-client
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: kafka
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-solr-headless
+  namespace: XEBJllC6TJ4EE
+  labels:
+    app.kubernetes.io/name: solr
+    helm.sh/chart: solr-4.0.9
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: solr
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: tcp-client
+      port: 8983
+      protocol: TCP
+      targetPort: http
+  selector:
+    app.kubernetes.io/name: solr
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: solr
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-solr
+  namespace: XEBJllC6TJ4EE
+  labels:
+    app.kubernetes.io/name: solr
+    helm.sh/chart: solr-4.0.9
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: solr
+spec:
+  type: ClusterIP
+  sessionAffinity: None
+  ports:
+    - name: tcp-client
+      port: 8983
+      protocol: TCP
+      targetPort: http
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: solr
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: solr
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-spark-headless
+  namespace: XEBJllC6TJ4EE
+  labels:
+    app.kubernetes.io/name: spark
+    helm.sh/chart: spark-6.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: spark
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-spark-master-svc
+  namespace: XEBJllC6TJ4EE
+  labels:
+    app.kubernetes.io/name: spark
+    helm.sh/chart: spark-6.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: master
+  annotations: null
+spec:
+  type: ClusterIP
+  sessionAffinity: None
+  ports:
+    - port: 7077
+      targetPort: cluster
+      name: cluster
+      nodePort: null
+    - port: 80
+      targetPort: http
+      name: http
+      protocol: TCP
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: spark
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: master
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-zookeeper-headless
+  namespace: XEBJllC6TJ4EE
+  labels:
+    app.kubernetes.io/name: zookeeper
+    helm.sh/chart: zookeeper-9.1.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: zookeeper
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: tcp-client
+      port: 2181
+      targetPort: client
+    - name: tcp-follower
+      port: 2888
+      targetPort: follower
+    - name: tcp-election
+      port: 3888
+      targetPort: election
+  selector:
+    app.kubernetes.io/name: zookeeper
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: zookeeper
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-zookeeper
+  namespace: XEBJllC6TJ4EE
+  labels:
+    app.kubernetes.io/name: zookeeper
+    helm.sh/chart: zookeeper-9.1.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: zookeeper
+spec:
+  type: ClusterIP
+  sessionAffinity: None
+  ports:
+    - name: tcp-client
+      port: 2181
+      targetPort: client
+      nodePort: null
+    - name: tcp-follower
+      port: 2888
+      targetPort: follower
+    - name: tcp-election
+      port: 3888
+      targetPort: election
+  selector:
+    app.kubernetes.io/name: zookeeper
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: zookeeper
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: dataplatform-bp1
+    helm.sh/chart: dataplatform-bp1-12.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: dataplatform-emitter
+  name: release-name-dataplatform-bp1-emitter
+  namespace: XEBJllC6TJ4EE
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-client
+      port: 8091
+      protocol: TCP
+      targetPort: emitter-port
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: dataplatform-bp1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: dataplatform-emitter
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: dataplatform-bp1
+    helm.sh/chart: dataplatform-bp1-12.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: dataplatform-exporter
+  name: release-name-dataplatform-bp1-exporter
+  annotations:
+    prometheus.io/path: /metrics
+    prometheus.io/port: "9090"
+    prometheus.io/scrape: "true"
+  namespace: XEBJllC6TJ4EE
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-client
+      port: 9090
+      protocol: TCP
+      targetPort: exporter-port
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: dataplatform-bp1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: dataplatform-exporter
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/name: dataplatform-bp1
+    helm.sh/chart: dataplatform-bp1-12.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: dataplatform-emitter
+  name: release-name-dataplatform-bp1-emitter
+  namespace: XEBJllC6TJ4EE
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: {}
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dataplatform-bp1
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: dataplatform-emitter
+  template:
+    metadata:
+      annotations: null
+      labels:
+        app.kubernetes.io/name: dataplatform-bp1
+        helm.sh/chart: dataplatform-bp1-12.0.0
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: dataplatform-emitter
+    spec:
+      serviceAccountName: release-name-dataplatform-bp1
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: dataplatform-bp1
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: dataplatform-emitter
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+      initContainers: null
+      containers:
+        - name: dataplatform-emitter
+          image: marketplace.azurecr.io/bitnami/dataplatform-emitter:1.0.1-scratch-r32
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10316
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: BP_NAME
+              value: release-name-dataplatform-bp1
+            - name: BP_RELEASE_NAME
+              value: release-name
+            - name: BP_NAMESPACE
+              value: default
+          ports:
+            - name: emitter-port
+              containerPort: 8091
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: 8091
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 15
+            failureThreshold: 15
+            successThreshold: 1
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: 8091
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 15
+            failureThreshold: 15
+            successThreshold: 15
+          volumeMounts: null
+      volumes: null
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/name: dataplatform-bp1
+    helm.sh/chart: dataplatform-bp1-12.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: dataplatform-exporter
+  name: release-name-dataplatform-bp1-exporter
+  namespace: XEBJllC6TJ4EE
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate: {}
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dataplatform-bp1
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: dataplatform-exporter
+  template:
+    metadata:
+      annotations: null
+      labels:
+        app.kubernetes.io/name: dataplatform-bp1
+        helm.sh/chart: dataplatform-bp1-12.0.0
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: dataplatform-exporter
+    spec:
+      serviceAccountName: release-name-dataplatform-bp1
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: dataplatform-bp1
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: dataplatform-exporter
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+      initContainers: null
+      containers:
+        - name: dataplatform-exporter
+          image: marketplace.azurecr.io/bitnami/dataplatform-exporter:1.0.1-scratch-r28
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10994
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: METRIC_CONFIG_PATH
+              value: /data/bp.json
+            - name: DP_URI
+              value: http://release-name-dataplatform-bp1-emitter:8091
+          ports:
+            - name: exporter-port
+              containerPort: 9090
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 15
+            failureThreshold: 15
+            successThreshold: 1
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 15
+            failureThreshold: 15
+            successThreshold: 15
+          volumeMounts:
+            - name: exporter-config
+              mountPath: /data/bp.json
+              subPath: bp.json
+      volumes:
+        - name: exporter-config
+          configMap:
+            name: release-name-dataplatform-bp1-exporter-configuration
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-kafka
+  namespace: XEBJllC6TJ4EE
+  labels:
+    app.kubernetes.io/name: kafka
+    helm.sh/chart: kafka-16.2.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: kafka
+spec:
+  podManagementPolicy: Parallel
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: kafka
+  serviceName: release-name-kafka-headless
+  updateStrategy:
+    rollingUpdate: {}
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafka
+        helm.sh/chart: kafka-16.2.0
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: kafka
+      annotations: null
+    spec:
+      hostNetwork: false
+      hostIPC: false
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values:
+                        - zookeeper
+                    - key: app.kubernetes.io/instance
+                      operator: In
+                      values:
+                        - release-name
+                topologyKey: kubernetes.io/hostname
+              weight: 50
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/component
+                    operator: In
+                    values:
+                      - kafka
+                  - key: app.kubernetes.io/instance
+                    operator: In
+                    values:
+                      - release-name
+              topologyKey: kubernetes.io/hostname
+      securityContext:
+        fsGroup: 1001
+      serviceAccountName: release-name-kafka
+      containers:
+        - name: kafka
+          image: marketplace.azurecr.io/bitnami/kafka:3.1.0-debian-10-r60
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 11416
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          command:
+            - /scripts/setup.sh
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: MY_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: MY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: KAFKA_CFG_ZOOKEEPER_CONNECT
+              value: release-name-zookeeper
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: INTERNAL
+            - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
+              value: INTERNAL:PLAINTEXT,CLIENT:PLAINTEXT
+            - name: KAFKA_CFG_LISTENERS
+              value: INTERNAL://:9093,CLIENT://:9092
+            - name: KAFKA_CFG_ADVERTISED_LISTENERS
+              value: INTERNAL://$(MY_POD_NAME).release-name-kafka-headless.default.svc.cluster.local:9093,CLIENT://$(MY_POD_NAME).release-name-kafka-headless.default.svc.cluster.local:9092
+            - name: ALLOW_PLAINTEXT_LISTENER
+              value: "yes"
+            - name: KAFKA_VOLUME_DIR
+              value: /bitnami/kafka
+            - name: KAFKA_LOG_DIR
+              value: /opt/bitnami/kafka/logs
+            - name: KAFKA_CFG_DELETE_TOPIC_ENABLE
+              value: "false"
+            - name: KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE
+              value: "true"
+            - name: KAFKA_HEAP_OPTS
+              value: -Xmx4096m -Xms4096m
+            - name: KAFKA_CFG_LOG_FLUSH_INTERVAL_MESSAGES
+              value: "10000"
+            - name: KAFKA_CFG_LOG_FLUSH_INTERVAL_MS
+              value: "1000"
+            - name: KAFKA_CFG_LOG_RETENTION_BYTES
+              value: "1073741824"
+            - name: KAFKA_CFG_LOG_RETENTION_CHECK_INTERVALS_MS
+              value: "300000"
+            - name: KAFKA_CFG_LOG_RETENTION_HOURS
+              value: "168"
+            - name: KAFKA_CFG_MESSAGE_MAX_BYTES
+              value: "1000012"
+            - name: KAFKA_CFG_LOG_SEGMENT_BYTES
+              value: "1073741824"
+            - name: KAFKA_CFG_LOG_DIRS
+              value: /bitnami/kafka/data
+            - name: KAFKA_CFG_DEFAULT_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "1"
+            - name: KAFKA_CFG_NUM_IO_THREADS
+              value: "8"
+            - name: KAFKA_CFG_NUM_NETWORK_THREADS
+              value: "3"
+            - name: KAFKA_CFG_NUM_PARTITIONS
+              value: "1"
+            - name: KAFKA_CFG_NUM_RECOVERY_THREADS_PER_DATA_DIR
+              value: "1"
+            - name: KAFKA_CFG_SOCKET_RECEIVE_BUFFER_BYTES
+              value: "102400"
+            - name: KAFKA_CFG_SOCKET_REQUEST_MAX_BYTES
+              value: "104857600"
+            - name: KAFKA_CFG_SOCKET_SEND_BUFFER_BYTES
+              value: "102400"
+            - name: KAFKA_CFG_ZOOKEEPER_CONNECTION_TIMEOUT_MS
+              value: "6000"
+            - name: KAFKA_CFG_AUTHORIZER_CLASS_NAME
+              value: ""
+            - name: KAFKA_CFG_ALLOW_EVERYONE_IF_NO_ACL_FOUND
+              value: "true"
+            - name: KAFKA_CFG_SUPER_USERS
+              value: User:admin
+          ports:
+            - name: kafka-client
+              containerPort: 9092
+            - name: kafka-internal
+              containerPort: 9093
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+            tcpSocket:
+              port: kafka-client
+          readinessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+            tcpSocket:
+              port: kafka-client
+          resources:
+            limits: {}
+            requests:
+              cpu: 250m
+              memory: 5120Mi
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/kafka
+            - name: logs
+              mountPath: /opt/bitnami/kafka/logs
+            - name: scripts
+              mountPath: /scripts/setup.sh
+              subPath: setup.sh
+      volumes:
+        - name: scripts
+          configMap:
+            name: release-name-kafka-scripts
+            defaultMode: 493
+        - name: logs
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-solr
+  labels:
+    app.kubernetes.io/name: solr
+    helm.sh/chart: solr-4.0.9
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: solr
+  namespace: XEBJllC6TJ4EE
+spec:
+  podManagementPolicy: Parallel
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: solr
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: solr
+  serviceName: release-name-solr-headless
+  updateStrategy:
+    rollingUpdate: {}
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        checksum/secrets: 458d9030f597629415aa41364e8c1c648d0778a42c1b9e58877b2193fc8ab779
+      labels:
+        app.kubernetes.io/name: solr
+        helm.sh/chart: solr-4.0.9
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: solr
+    spec:
+      serviceAccountName: default
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/component
+                    operator: In
+                    values:
+                      - solr
+                  - key: app.kubernetes.io/instance
+                    operator: In
+                    values:
+                      - release-name
+              topologyKey: kubernetes.io/hostname
+      securityContext:
+        fsGroup: 1001
+      initContainers: null
+      containers:
+        - name: solr
+          image: marketplace.azurecr.io/bitnami/solr:8.11.1-debian-10-r125
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 11672
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          command:
+            - /scripts/setup.sh
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: MY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: SOLR_ENABLE_CLOUD_MODE
+              value: "yes"
+            - name: SOLR_NUMBER_OF_NODES
+              value: "2"
+            - name: SOLR_PORT_NUMBER
+              value: "8983"
+            - name: SOLR_SERVER_DIRECTORY
+              value: server
+            - name: SOLR_COLLECTION
+              value: my-collection
+            - name: SOLR_COLLECTION_SHARDS
+              value: "1"
+            - name: SOLR_COLLECTION_REPLICAS
+              value: "2"
+            - name: SOLR_JAVA_MEM
+              value: -Xmx4096m -Xms4096m
+            - name: SOLR_ENABLE_AUTHENTICATION
+              value: "yes"
+            - name: SOLR_ADMIN_USERNAME
+              value: admin
+            - name: SOLR_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-solr
+                  key: solr-password
+            - name: SOLR_ZK_HOSTS
+              value: release-name-zookeeper
+          ports:
+            - name: http
+              containerPort: 8983
+          resources:
+            limits: {}
+            requests:
+              cpu: 250m
+              memory: 5120Mi
+            seccompProfile:
+              type: RuntimeDefault
+          livenessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 40
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 15
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - |
+                  SOLR_AUTH_TYPE=basic SOLR_AUTHENTICATION_OPTS="-Dbasicauth=${SOLR_ADMIN_USERNAME}:${SOLR_ADMIN_PASSWORD}" \
+                  solr assert --timeout "15000" --cloud "http://localhost:${SOLR_PORT_NUMBER}/solr/"
+          readinessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 15
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - |
+                  SOLR_AUTH_TYPE=basic SOLR_AUTHENTICATION_OPTS="-Dbasicauth=${SOLR_ADMIN_USERNAME}:${SOLR_ADMIN_PASSWORD}" \
+                  solr assert --timeout "15000" --cloud "http://localhost:${SOLR_PORT_NUMBER}/solr/"
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts/setup.sh
+              subPath: setup.sh
+            - name: data
+              mountPath: /bitnami/solr
+      volumes:
+        - name: scripts
+          configMap:
+            name: release-name-solr-scripts
+            defaultMode: 493
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        annotations: null
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-spark-master
+  namespace: XEBJllC6TJ4EE
+  labels:
+    app.kubernetes.io/name: spark
+    helm.sh/chart: spark-6.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: master
+spec:
+  serviceName: release-name-spark-headless
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: spark
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: master
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: spark
+        helm.sh/chart: spark-6.0.0
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: master
+    spec:
+      serviceAccountName: release-name-spark
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/component
+                    operator: In
+                    values:
+                      - worker
+                  - key: app.kubernetes.io/instance
+                    operator: In
+                    values:
+                      - release-name
+              topologyKey: kubernetes.io/hostname
+      securityContext:
+        fsGroup: 1001
+        runAsGroup: 0
+        runAsUser: 1001
+        seLinuxOptions: {}
+      containers:
+        - name: spark-master
+          image: marketplace.azurecr.io/bitnami/spark:3.2.1-debian-10-r85
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 11482
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: cluster
+              containerPort: 7077
+          volumeMounts: null
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: SPARK_MODE
+              value: master
+            - name: SPARK_DAEMON_MEMORY
+              value: ""
+            - name: SPARK_MASTER_PORT
+              value: "7077"
+            - name: SPARK_MASTER_WEBUI_PORT
+              value: "8080"
+          envFrom: null
+          livenessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 180
+            periodSeconds: 20
+            successThreshold: 1
+            timeoutSeconds: 5
+            httpGet:
+              path: /
+              port: 8080
+          readinessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+            httpGet:
+              path: /
+              port: 8080
+          resources:
+            limits: {}
+            requests:
+              cpu: 250m
+              memory: 5120Mi
+            seccompProfile:
+              type: RuntimeDefault
+      volumes: null
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-spark-worker
+  namespace: XEBJllC6TJ4EE
+  labels:
+    app.kubernetes.io/name: spark
+    helm.sh/chart: spark-6.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: worker
+spec:
+  serviceName: release-name-spark-headless
+  replicas: 2
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: spark
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: spark
+        helm.sh/chart: spark-6.0.0
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: release-name-spark
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/component
+                    operator: In
+                    values:
+                      - worker
+                      - master
+                  - key: app.kubernetes.io/instance
+                    operator: In
+                    values:
+                      - release-name
+              topologyKey: kubernetes.io/hostname
+      securityContext:
+        fsGroup: 1001
+        runAsGroup: 0
+        runAsUser: 1001
+        seLinuxOptions: {}
+      containers:
+        - name: spark-worker
+          image: marketplace.azurecr.io/bitnami/spark:3.2.1-debian-10-r85
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 11010
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+          ports:
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+          volumeMounts: null
+          env:
+            - name: SPARK_MODE
+              value: worker
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: SPARK_DAEMON_MEMORY
+              value: ""
+            - name: SPARK_WORKER_WEBUI_PORT
+              value: "8081"
+            - name: SPARK_DAEMON_JAVA_OPTS
+              value: ""
+            - name: SPARK_MASTER_URL
+              value: spark://release-name-spark-master-svc:7077
+            - name: SPARK_WORKER_OPTS
+              value: null
+          envFrom: null
+          livenessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 180
+            periodSeconds: 20
+            successThreshold: 1
+            timeoutSeconds: 5
+            httpGet:
+              path: /
+              port: 8081
+          readinessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+            httpGet:
+              path: /
+              port: 8081
+          startupProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+            httpGet:
+              path: /
+              port: 8081
+          resources:
+            limits: {}
+            requests:
+              cpu: 250m
+              memory: 5120Mi
+            seccompProfile:
+              type: RuntimeDefault
+      volumes: null
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-zookeeper
+  namespace: XEBJllC6TJ4EE
+  labels:
+    app.kubernetes.io/name: zookeeper
+    helm.sh/chart: zookeeper-9.1.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: zookeeper
+    role: zookeeper
+spec:
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: zookeeper
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: zookeeper
+  serviceName: release-name-zookeeper-headless
+  updateStrategy:
+    rollingUpdate: {}
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations: null
+      labels:
+        app.kubernetes.io/name: zookeeper
+        helm.sh/chart: zookeeper-9.1.1
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: zookeeper
+    spec:
+      serviceAccountName: default
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values:
+                      - zookeeper
+                  - key: app.kubernetes.io/instance
+                    operator: In
+                    values:
+                      - release-name
+              topologyKey: kubernetes.io/hostname
+      securityContext:
+        fsGroup: 1001
+      initContainers: null
+      containers:
+        - name: zookeeper
+          image: marketplace.azurecr.io/bitnami/zookeeper:3.8.0-debian-10-r37
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10262
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          command:
+            - /scripts/setup.sh
+          resources:
+            limits: {}
+            requests:
+              cpu: 250m
+              memory: 5120Mi
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: ZOO_DATA_LOG_DIR
+              value: ""
+            - name: ZOO_PORT_NUMBER
+              value: "2181"
+            - name: ZOO_TICK_TIME
+              value: "2000"
+            - name: ZOO_INIT_LIMIT
+              value: "10"
+            - name: ZOO_SYNC_LIMIT
+              value: "5"
+            - name: ZOO_PRE_ALLOC_SIZE
+              value: "65536"
+            - name: ZOO_SNAPCOUNT
+              value: "100000"
+            - name: ZOO_MAX_CLIENT_CNXNS
+              value: "60"
+            - name: ZOO_4LW_COMMANDS_WHITELIST
+              value: srvr, mntr, ruok
+            - name: ZOO_LISTEN_ALLIPS_ENABLED
+              value: "no"
+            - name: ZOO_AUTOPURGE_INTERVAL
+              value: "0"
+            - name: ZOO_AUTOPURGE_RETAIN_COUNT
+              value: "3"
+            - name: ZOO_MAX_SESSION_TIMEOUT
+              value: "40000"
+            - name: ZOO_SERVERS
+              value: release-name-zookeeper-0.release-name-zookeeper-headless.default.svc.cluster.local:2888:3888::1 release-name-zookeeper-1.release-name-zookeeper-headless.default.svc.cluster.local:2888:3888::2 release-name-zookeeper-2.release-name-zookeeper-headless.default.svc.cluster.local:2888:3888::3
+            - name: ZOO_ENABLE_AUTH
+              value: "no"
+            - name: ZOO_HEAP_SIZE
+              value: "4096"
+            - name: ZOO_LOG_LEVEL
+              value: ERROR
+            - name: ALLOW_ANONYMOUS_LOGIN
+              value: "yes"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+          ports:
+            - name: client
+              containerPort: 2181
+            - name: follower
+              containerPort: 2888
+            - name: election
+              containerPort: 3888
+          livenessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - echo "ruok" | timeout 2 nc -w 2 localhost 2181 | grep imok
+          readinessProbe:
+            failureThreshold: 6
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - echo "ruok" | timeout 2 nc -w 2 localhost 2181 | grep imok
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts/setup.sh
+              subPath: setup.sh
+            - name: data
+              mountPath: /bitnami/zookeeper
+      volumes:
+        - name: scripts
+          configMap:
+            name: release-name-zookeeper-scripts
+            defaultMode: 493
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        annotations: null
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi

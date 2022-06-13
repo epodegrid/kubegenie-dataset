@@ -1,0 +1,188 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-webhook-receiver
+  labels:
+    helm.sh/chart: webhook-receiver-1.0.9
+    app.kubernetes.io/name: webhook-receiver
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.8.0
+    app.kubernetes.io/managed-by: Helm
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: release-name-webhook-receiver
+  labels:
+    helm.sh/chart: webhook-receiver-1.0.9
+    app.kubernetes.io/name: webhook-receiver
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.8.0
+    app.kubernetes.io/managed-by: Helm
+data:
+  hooks.yaml: |
+    - execute-command: /data/status.sh
+      id: status
+      include-command-output-in-response: true
+      response-message: Online
+    - command-working-directory: /data
+      execute-command: /data/helloworld.sh
+      id: webhook
+      pass-arguments-to-command:
+      - name: head_commit.id
+        source: payload
+      - name: pusher.name
+        source: payload
+      - name: pusher.email
+        source: payload
+      response-headers:
+      - name: Access-Control-Allow-Origin
+        value: '*'
+      response-message: I got your payload! Hello!
+  file__data_status.sh: |
+    #!/bin/sh
+    echo Online we are!
+  file__data_helloworld.sh: |
+    #!/bin/sh
+    "echo Command: $@"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-webhook-receiver
+  labels:
+    helm.sh/chart: webhook-receiver-1.0.9
+    app.kubernetes.io/name: webhook-receiver
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.8.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: webhook-receiver
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-webhook-receiver
+  labels:
+    helm.sh/chart: webhook-receiver-1.0.9
+    app.kubernetes.io/name: webhook-receiver
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.8.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: webhook-receiver
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: webhook-receiver
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-webhook-receiver
+      securityContext: {}
+      imagePullSecrets:
+        - name: webhook-receiver-pullsecret
+      containers:
+        - name: webhook-receiver
+          args:
+            - -verbose
+            - -hooks=/etc/webhook/hooks.yaml
+            - -hotreload
+            - -template
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: almir/webhook:2.8.0
+          imagePullPolicy: IfNotPresent
+          env: null
+          ports:
+            - name: http
+              containerPort: 9000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /hooks/status
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /hooks/status
+              port: http
+          volumeMounts:
+            - name: configs
+              mountPath: /etc/webhook/hooks.yaml
+              subPath: hooks.yaml
+            - name: configs
+              mountPath: /data/status.sh
+              subPath: file__data_status.sh
+            - name: configs
+              mountPath: /data/helloworld.sh
+              subPath: file__data_helloworld.sh
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: configs
+          configMap:
+            name: release-name-webhook-receiver
+            defaultMode: 493
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: release-name-webhook-receiver
+  labels:
+    helm.sh/chart: webhook-receiver-1.0.9
+    app.kubernetes.io/name: webhook-receiver
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.8.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  rules:
+    - host: webhook-receiver.chart.local
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: release-name-webhook-receiver
+              servicePort: 9000
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-webhook-receiver-test-connection
+  labels:
+    helm.sh/chart: webhook-receiver-1.0.9
+    app.kubernetes.io/name: webhook-receiver
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.8.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-webhook-receiver:9000/hooks/status
+  restartPolicy: Never

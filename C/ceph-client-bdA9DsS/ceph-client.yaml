@@ -1,0 +1,2489 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ceph-pool-checkpgs
+  namespace: bdA9DsS
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ceph-defragosds
+  namespace: bdA9DsS
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ceph-checkdns
+  namespace: bdA9DsS
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ceph-mds
+  namespace: bdA9DsS
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ceph-mgr
+  namespace: bdA9DsS
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ceph-rbd-pool
+  namespace: bdA9DsS
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-test
+  namespace: bdA9DsS
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ceph-client-bin
+data:
+  init-dirs.sh: |
+    #!/bin/bash
+
+
+
+    set -ex
+    export LC_ALL=C
+    : "${HOSTNAME:=$(uname -n)}"
+    : "${MGR_NAME:=${HOSTNAME}}"
+    : "${MDS_NAME:=mds-${HOSTNAME}}"
+    : "${MDS_BOOTSTRAP_KEYRING:=/var/lib/ceph/bootstrap-mds/${CLUSTER}.keyring}"
+    : "${OSD_BOOTSTRAP_KEYRING:=/var/lib/ceph/bootstrap-osd/${CLUSTER}.keyring}"
+
+    for keyring in ${OSD_BOOTSTRAP_KEYRING} ${MDS_BOOTSTRAP_KEYRING}; do
+      mkdir -p "$(dirname "$keyring")"
+    done
+
+    # Let's create the ceph directories
+    for DIRECTORY in mds tmp mgr; do
+      mkdir -p "/var/lib/ceph/${DIRECTORY}"
+    done
+
+    # Create socket directory
+    mkdir -p /run/ceph
+
+    # Create the MDS directory
+    mkdir -p "/var/lib/ceph/mds/${CLUSTER}-${MDS_NAME}"
+
+    # Create the MGR directory
+    mkdir -p "/var/lib/ceph/mgr/${CLUSTER}-${MGR_NAME}"
+
+    # Adjust the owner of all those directories
+    chown -R ceph. /run/ceph/ /var/lib/ceph/*
+  pool-init.sh: "#!/bin/bash\n\n\n\nset -ex\nexport LC_ALL=C\n\n: \"${ADMIN_KEYRING:=/etc/ceph/${CLUSTER}.client.admin.keyring}\"\n\nif [[ ! -e /etc/ceph/${CLUSTER}.conf ]]; then\n  echo \"ERROR- /etc/ceph/${CLUSTER}.conf must exist; get it from your existing mon\"\n  exit 1\nfi\n\nif [[ ! -e ${ADMIN_KEYRING} ]]; then\n   echo \"ERROR- ${ADMIN_KEYRING} must exist; get it from your existing mon\"\n   exit 1\nfi\n\nfunction wait_for_pgs () {\n  echo \"#### Start: Checking pgs ####\"\n\n  pgs_ready=0\n  query='map({state: .state}) | group_by(.state) | map({state: .[0].state, count: length}) | .[] | select(.state | contains(\"active\") or contains(\"premerge\") | not)'\n\n  if [[ $(ceph mon versions | awk '/version/{print $3}' | cut -d. -f1) -ge 14 ]]; then\n    query=\".pg_stats | ${query}\"\n  fi\n\n  # Loop until all pgs are active\n  while [[ $pgs_ready -lt 3 ]]; do\n    pgs_state=$(ceph --cluster ${CLUSTER} pg ls -f json | jq -c \"${query}\")\n    if [[ $(jq -c '. | select(.state | contains(\"peer\") or contains(\"activating\") | not)' <<< \"${pgs_state}\") ]]; then\n      # If inactive PGs aren't peering, fail\n      echo \"Failure, found inactive PGs that aren't peering\"\n      exit 1\n    fi\n    if [[ \"${pgs_state}\" ]]; then\n      pgs_ready=0\n    else\n      (( pgs_ready+=1 ))\n    fi\n    sleep 3\n  done\n}\n\nfunction check_recovery_flags () {\n  echo \"### Start: Checking for flags that will prevent recovery\"\n\n  # Ensure there are no flags set that will prevent recovery of degraded PGs\n  if [[ $(ceph osd stat | grep \"norecover\\|nobackfill\\|norebalance\") ]]; then\n    ceph osd stat\n    echo \"Flags are set that prevent recovery of degraded PGs\"\n    exit 1\n  fi\n}\n\nfunction check_osd_count() {\n  echo \"#### Start: Checking OSD count ####\"\n  noup_flag=$(ceph osd stat | awk '/noup/ {print $2}')\n  osd_stat=$(ceph osd stat -f json-pretty)\n  num_osd=$(awk '/\"num_osds\"/{print $2}' <<< \"$osd_stat\" | cut -d, -f1)\n  num_in_osds=$(awk '/\"num_in_osds\"/{print $2}' <<< \"$osd_stat\" | cut -d, -f1)\n  num_up_osds=$(awk '/\"num_up_osds\"/{print $2}' <<< \"$osd_stat\" | cut -d, -f1)\n\n  EXPECTED_OSDS=5\n  REQUIRED_PERCENT_OF_OSDS=75\n\n  if [ ${num_up_osds} -gt ${EXPECTED_OSDS} ]; then\n    echo \"The expected amount of OSDs (${EXPECTED_OSDS}) is less than available OSDs (${num_up_osds}). Please, correct the value (.Values.conf.pool.target.osd).\"\n    exit 1\n  fi\n\n  MIN_OSDS=$(($EXPECTED_OSDS*$REQUIRED_PERCENT_OF_OSDS/100))\n  if [ ${MIN_OSDS} -lt 1 ]; then\n    MIN_OSDS=1\n  fi\n\n  if [ \"${noup_flag}\" ]; then\n    osd_status=$(ceph osd dump -f json | jq -c '.osds[] | .state')\n    count=0\n    for osd in $osd_status; do\n      if [[ \"$osd\" == *\"up\"* || \"$osd\" == *\"new\"* ]]; then\n        ((count=count+1))\n      fi\n    done\n    echo \"Caution: noup flag is set. ${count} OSDs in up/new state. Required number of OSDs: ${MIN_OSDS}.\"\n    if [ $MIN_OSDS -gt $count ]; then\n      exit 1\n    fi\n  else\n    if [ \"${num_osd}\" -eq 0 ]; then\n      echo \"There are no osds in the cluster\"\n      exit 1\n    elif [ \"${num_in_osds}\" -ge \"${MIN_OSDS}\" ] && [ \"${num_up_osds}\" -ge \"${MIN_OSDS}\"  ]; then\n      echo \"Required number of OSDs (${MIN_OSDS}) are UP and IN status\"\n    else\n      echo \"Required number of OSDs (${MIN_OSDS}) are NOT UP and IN status. Cluster shows OSD count=${num_osd}, UP=${num_up_osds}, IN=${num_in_osds}\"\n      exit 1\n    fi\n  fi\n}\n\nfunction create_crushrule () {\n  CRUSH_NAME=$1\n  CRUSH_RULE=$2\n  CRUSH_FAILURE_DOMAIN=$3\n  CRUSH_DEVICE_CLASS=$4\n  if ! ceph --cluster \"${CLUSTER}\" osd crush rule ls | grep -q \"^\\$CRUSH_NAME$\"; then\n    ceph --cluster \"${CLUSTER}\" osd crush rule $CRUSH_RULE $CRUSH_NAME default $CRUSH_FAILURE_DOMAIN $CRUSH_DEVICE_CLASS || true\n  fi\n}\n\n# Set mons to use the msgr2 protocol on nautilus\nif [[ $(ceph mon versions | awk '/version/{print $3}' | cut -d. -f1) -ge 14 ]]; then\n  ceph --cluster \"${CLUSTER}\" mon enable-msgr2\nfi\n\ncheck_osd_count\ncreate_crushrule same_host create-simple osd \ncreate_crushrule replicated_rule create-simple host \ncreate_crushrule rack_replicated_rule create-simple rack \n\nfunction reweight_osds () {\n  OSD_DF_OUTPUT=$(ceph --cluster \"${CLUSTER}\" osd df --format json-pretty)\n  for OSD_ID in $(ceph --cluster \"${CLUSTER}\" osd ls); do\n    OSD_EXPECTED_WEIGHT=$(echo \"${OSD_DF_OUTPUT}\" | grep -A7 \"\\bosd.${OSD_ID}\\b\" | awk '/\"kb\"/{ gsub(\",\",\"\"); d= $2/1073741824 ; r = sprintf(\"%.2f\", d); print r }');\n    OSD_WEIGHT=$(echo \"${OSD_DF_OUTPUT}\" | grep -A3 \"\\bosd.${OSD_ID}\\b\" | awk '/crush_weight/{print $2}' | cut -d',' -f1)\n    if [[ \"${OSD_EXPECTED_WEIGHT}\" != \"0.00\" ]] && [[ \"${OSD_WEIGHT}\" != \"${OSD_EXPECTED_WEIGHT}\" ]]; then\n      ceph --cluster \"${CLUSTER}\" osd crush reweight osd.${OSD_ID} ${OSD_EXPECTED_WEIGHT};\n    fi\n  done\n}\n\nfunction enable_autoscaling () {\n  if [[ $(ceph mgr versions | awk '/version/{print $3}' | cut -d. -f1) -eq 14 ]]; then\n    ceph mgr module enable pg_autoscaler # only required for nautilus\n  fi\n  ceph config set global osd_pool_default_pg_autoscale_mode on\n}\n\nfunction disable_autoscaling () {\n  if [[ $(ceph mgr versions | awk '/version/{print $3}' | cut -d. -f1) -eq 14 ]]; then\n    ceph mgr module disable pg_autoscaler # only required for nautilus\n  fi\n  ceph config set global osd_pool_default_pg_autoscale_mode off\n}\n\nfunction set_cluster_flags () {\n  if [[ ! -z \"${CLUSTER_SET_FLAGS}\" ]]; then\n    for flag in ${CLUSTER_SET_FLAGS}; do\n      ceph osd set ${flag}\n    done\n  fi\n}\n\nfunction unset_cluster_flags () {\n  if [[ ! -z \"${CLUSTER_UNSET_FLAGS}\" ]]; then\n    for flag in ${CLUSTER_UNSET_FLAGS}; do\n      ceph osd unset ${flag}\n    done\n  fi\n}\n\nfunction create_pool () {\n  POOL_APPLICATION=$1\n  POOL_NAME=$2\n  POOL_REPLICATION=$3\n  POOL_PLACEMENT_GROUPS=$4\n  POOL_CRUSH_RULE=$5\n  POOL_PROTECTION=$6\n  PG_NUM_MIN=8\n  if ! ceph --cluster \"${CLUSTER}\" osd pool stats \"${POOL_NAME}\" > /dev/null 2>&1; then\n    if [[ ${POOL_PLACEMENT_GROUPS} -gt 0 ]]; then\n      ceph --cluster \"${CLUSTER}\" osd pool create \"${POOL_NAME}\" ${POOL_PLACEMENT_GROUPS}\n    else\n      ceph --cluster \"${CLUSTER}\" osd pool create \"${POOL_NAME}\" ${PG_NUM_MIN} --pg-num-min ${PG_NUM_MIN}\n    fi\n    while [ $(ceph --cluster \"${CLUSTER}\" -s | grep creating -c) -gt 0 ]; do echo -n .;sleep 1; done\n    ceph --cluster \"${CLUSTER}\" osd pool application enable \"${POOL_NAME}\" \"${POOL_APPLICATION}\"\n  fi\n\n  if [[ $(ceph mgr versions | awk '/version/{print $3}' | cut -d. -f1) -ge 14 ]]; then\n    if [[ \"${ENABLE_AUTOSCALER}\" == \"true\" ]]; then\n      pool_values=$(ceph --cluster \"${CLUSTER}\" osd pool get \"${POOL_NAME}\" all -f json)\n      pg_num=$(jq '.pg_num' <<< \"${pool_values}\")\n      pg_num_min=$(jq '.pg_num_min' <<< \"${pool_values}\")\n      # set pg_num_min to PG_NUM_MIN before enabling autoscaler\n      if [[ ${pg_num_min} -gt ${PG_NUM_MIN} ]] || [[ ${pg_num} -gt ${PG_NUM_MIN} ]]; then\n        ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" pg_num_min ${PG_NUM_MIN}\n      fi\n      ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" pg_autoscale_mode on\n    else\n      ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" pg_autoscale_mode off\n    fi\n  fi\n#\n# Make sure pool is not protected after creation AND expansion so we can manipulate its settings.\n# Final protection settings are applied once parameters (size, pg) have been adjusted.\n#\n  ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" nosizechange false\n  ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" nopgchange false\n  ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" nodelete false\n#\n  ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" size ${POOL_REPLICATION}\n  ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" crush_rule \"${POOL_CRUSH_RULE}\"\n# set pg_num to pool\n  if [[ ${POOL_PLACEMENT_GROUPS} -gt 0 ]]; then\n    for PG_PARAM in pg_num pgp_num; do\n      CURRENT_PG_VALUE=$(ceph --cluster \"${CLUSTER}\" osd pool get \"${POOL_NAME}\" \"${PG_PARAM}\" | awk \"/^${PG_PARAM}:/ { print \\$NF }\")\n      if [ \"${POOL_PLACEMENT_GROUPS}\" -gt \"${CURRENT_PG_VALUE}\" ]; then\n        ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" \"${PG_PARAM}\" \"${POOL_PLACEMENT_GROUPS}\"\n      fi\n    done\n  fi\n\n#This is to handle cluster expansion case where replication may change from intilization\n  if [ ${POOL_REPLICATION} -gt 1 ]; then\n    EXPECTED_POOLMINSIZE=$[${POOL_REPLICATION}-1]\n    ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" min_size ${EXPECTED_POOLMINSIZE}\n  fi\n#\n# Handling of .Values.conf.pool.target.protected:\n# Possible settings\n# - true  | 1 = Protect the pools after they get created\n# - false | 0 = Do not protect the pools once they get created and let Ceph defaults apply\n# - Absent    = Do not protect the pools once they get created and let Ceph defaults apply\n#\n# If protection is not requested through values.yaml, just use the Ceph defaults. With Luminous we do not\n# apply any protection to the pools when they get created.\n#\n# Note: If the /etc/ceph/ceph.conf file modifies the defaults the deployment will fail on pool creation\n# - nosizechange = Do not allow size and min_size changes on the pool\n# - nodelete     = Do not allow deletion of the pool\n#\n  if [ \"x${POOL_PROTECTION}\" == \"xtrue\" ] ||  [ \"x${POOL_PROTECTION}\" == \"x1\" ]; then\n    ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" nosizechange true\n    ceph --cluster \"${CLUSTER}\" osd pool set \"${POOL_NAME}\" nodelete true\n  fi\n}\n\nfunction manage_pool () {\n  POOL_APPLICATION=$1\n  POOL_NAME=$2\n  POOL_REPLICATION=$3\n  TOTAL_DATA_PERCENT=$4\n  TARGET_PG_PER_OSD=$5\n  POOL_CRUSH_RULE=$6\n  POOL_QUOTA=$7\n  POOL_PROTECTION=$8\n  CLUSTER_CAPACITY=$9\n  TOTAL_OSDS=5\n  POOL_PLACEMENT_GROUPS=0\n  if [[ -n \"${TOTAL_DATA_PERCENT}\" ]]; then\n    if [[ \"${ENABLE_AUTOSCALER}\" == \"false\" ]] || [[ $(ceph mgr versions | awk '/version/{print $3}' | cut -d. -f1) -lt 14 ]]; then\n      POOL_PLACEMENT_GROUPS=$(python3 /tmp/pool-calc.py ${POOL_REPLICATION} ${TOTAL_OSDS} ${TOTAL_DATA_PERCENT} ${TARGET_PG_PER_OSD})\n    fi\n  fi\n  create_pool \"${POOL_APPLICATION}\" \"${POOL_NAME}\" \"${POOL_REPLICATION}\" \"${POOL_PLACEMENT_GROUPS}\" \"${POOL_CRUSH_RULE}\" \"${POOL_PROTECTION}\"\n  POOL_REPLICAS=$(ceph --cluster \"${CLUSTER}\" osd pool get \"${POOL_NAME}\" size | awk '{print $2}')\n  ceph --cluster \"${CLUSTER}\" osd pool set-quota \"${POOL_NAME}\" max_bytes $POOL_QUOTA\n}\n\n# Helper to convert TiB, TB, GiB, GB, MiB, MB, KiB, KB, or bytes to bytes\nfunction convert_to_bytes() {\n  value=${1}\n  value=\"$(echo \"${value}\" | sed 's/TiB/ \\* 1024GiB/g')\"\n  value=\"$(echo \"${value}\" | sed 's/TB/ \\* 1000GB/g')\"\n  value=\"$(echo \"${value}\" | sed 's/GiB/ \\* 1024MiB/g')\"\n  value=\"$(echo \"${value}\" | sed 's/GB/ \\* 1000MB/g')\"\n  value=\"$(echo \"${value}\" | sed 's/MiB/ \\* 1024KiB/g')\"\n  value=\"$(echo \"${value}\" | sed 's/MB/ \\* 1000KB/g')\"\n  value=\"$(echo \"${value}\" | sed 's/KiB/ \\* 1024/g')\"\n  value=\"$(echo \"${value}\" | sed 's/KB/ \\* 1000/g')\"\n  python3 -c \"print(int(${value}))\"\n}\n\nset_cluster_flags\nunset_cluster_flags\nreweight_osds\n\n\n\n\n\n\n\ncluster_capacity=$(ceph --cluster \"${CLUSTER}\" df -f json-pretty | grep '\"total_bytes\":' | head -n1 | awk '{print $2}' | tr -d ',')\n\n# Check to make sure pool quotas don't exceed the expected cluster capacity in its final state\ntarget_quota=$(python3 -c \"print(int(${cluster_capacity} * 5 / 5 * 100 / 100))\")\nquota_sum=0\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 1)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nquota_sum=$(python3 -c \"print(int(${quota_sum} + (${pool_quota} * 3)))\")\n\nif [[ ${quota_sum} -gt ${target_quota} ]]; then\n  echo \"The sum of all pool quotas exceeds the target quota for the cluster\"\n  exit 1\nfi\n\nif [[ $(ceph mgr versions | awk '/version/{print $3}' | cut -d. -f1) -ge 14 ]] && [[ \"${ENABLE_AUTOSCALER}\" != \"true\" ]]; then\n  disable_autoscaling\nfi\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool mgr_devicehealth device_health_metrics 1 5 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rbd rbd 3 40 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool cephfs cephfs_metadata 3 5 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool cephfs cephfs_data 3 10 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw .rgw.root 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.control 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.data.root 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.gc 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.log 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.intent-log 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.meta 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.usage 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.users.keys 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.users.email 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.users.swift 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.users.uid 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.buckets.extra 3 0.1 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.buckets.index 3 3 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n# Read the pool quota from the pool spec (no quota if absent)\n# Set pool_quota to 0 if target_quota is 0\n[[ ${target_quota} -eq 0 ]] && pool_quota=0 || pool_quota=\"$(convert_to_bytes 0)\"\nmanage_pool rgw default.rgw.buckets.data 3 29 100 replicated_rule $pool_quota \"true\" ${cluster_capacity}\n\nif [[ $(ceph mgr versions | awk '/version/{print $3}' | cut -d. -f1) -ge 14 ]] && [[ \"${ENABLE_AUTOSCALER}\" == \"true\" ]]; then\n  enable_autoscaling\nfi\n\nwait_for_pgs\ncheck_recovery_flags\n"
+  pool-calc.py: |
+    #!/usr/bin/python
+    # -*- coding: utf-8 -*-
+
+
+
+    #NOTE(portdirect): this is a simple approximation of https://ceph.com/pgcalc/
+
+    import math
+    import sys
+
+    replication = int(sys.argv[1])
+    number_of_osds = int(sys.argv[2])
+    percentage_data = float(sys.argv[3])
+    target_pgs_per_osd = int(sys.argv[4])
+
+    raw_pg_num_opt = target_pgs_per_osd * number_of_osds \
+        * (math.ceil(percentage_data) / 100.0) / replication
+
+    raw_pg_num_min = number_of_osds / replication
+
+    if raw_pg_num_min >= raw_pg_num_opt:
+        raw_pg_num = raw_pg_num_min
+    else:
+        raw_pg_num = raw_pg_num_opt
+
+    max_pg_num = int(math.pow(2, math.ceil(math.log(raw_pg_num, 2))))
+    min_pg_num = int(math.pow(2, math.floor(math.log(raw_pg_num, 2))))
+
+    if min_pg_num >= (raw_pg_num * 0.75):
+        print(min_pg_num)
+    else:
+        print(max_pg_num)
+  mds-start.sh: |
+    #!/bin/bash
+    set -ex
+    export LC_ALL=C
+    : "${HOSTNAME:=$(uname -n)}"
+    : "${CEPHFS_CREATE:=0}"
+    : "${CEPHFS_NAME:=cephfs}"
+    : "${CEPHFS_DATA_POOL:=${CEPHFS_NAME}_data}"
+    : "${CEPHFS_DATA_POOL_PG:=8}"
+    : "${CEPHFS_METADATA_POOL:=${CEPHFS_NAME}_metadata}"
+    : "${CEPHFS_METADATA_POOL_PG:=8}"
+    : "${MDS_NAME:=mds-${HOSTNAME}}"
+    : "${ADMIN_KEYRING:=/etc/ceph/${CLUSTER}.client.admin.keyring}"
+    : "${MDS_KEYRING:=/var/lib/ceph/mds/${CLUSTER}-${MDS_NAME}/keyring}"
+    : "${MDS_BOOTSTRAP_KEYRING:=/var/lib/ceph/bootstrap-mds/${CLUSTER}.keyring}"
+    : "${CEPH_CONF:="/etc/ceph/${CLUSTER}.conf"}"
+
+    if [[ ! -e ${CEPH_CONF}.template ]]; then
+      echo "ERROR- ${CEPH_CONF}.template must exist; get it from your existing mon"
+      exit 1
+    else
+      ENDPOINT=$(kubectl get endpoints ceph-mon-discovery -n ${NAMESPACE} -o json | awk -F'"' -v port=${MON_PORT} \
+                 -v version=v1 -v msgr_version=v2 \
+                 -v msgr2_port=${MON_PORT_V2} \
+                 '/"ip"/{print "["version":"$4":"port"/"0","msgr_version":"$4":"msgr2_port"/"0"]"}' | paste -sd',')
+      if [[ "${ENDPOINT}" == "" ]]; then
+        /bin/sh -c -e "cat ${CEPH_CONF}.template | tee ${CEPH_CONF}" || true
+      else
+        /bin/sh -c -e "cat ${CEPH_CONF}.template | sed 's#mon_host.*#mon_host = ${ENDPOINT}#g' | tee ${CEPH_CONF}" || true
+      fi
+    fi
+
+    # Check to see if we are a new MDS
+    if [ ! -e "${MDS_KEYRING}" ]; then
+
+      if [ -e "${ADMIN_KEYRING}" ]; then
+         KEYRING_OPT=(--name client.admin --keyring "${ADMIN_KEYRING}")
+      elif [ -e "${MDS_BOOTSTRAP_KEYRING}" ]; then
+         KEYRING_OPT=(--name client.bootstrap-mds --keyring "${MDS_BOOTSTRAP_KEYRING}")
+      else
+        echo "ERROR- Failed to bootstrap MDS: could not find admin or bootstrap-mds keyring.  You can extract it from your current monitor by running 'ceph auth get client.bootstrap-mds -o ${MDS_BOOTSTRAP_KEYRING}"
+        exit 1
+      fi
+
+      timeout 10 ceph --cluster "${CLUSTER}" "${KEYRING_OPT[@]}" health || exit 1
+
+      # Generate the MDS key
+      ceph --cluster "${CLUSTER}" "${KEYRING_OPT[@]}" auth get-or-create "mds.${MDS_NAME}" osd 'allow rwx' mds 'allow' mon 'allow profile mds' -o "${MDS_KEYRING}"
+      chown ceph. "${MDS_KEYRING}"
+      chmod 600 "${MDS_KEYRING}"
+
+    fi
+
+    # NOTE (leseb): having the admin keyring is really a security issue
+    # If we need to bootstrap a MDS we should probably create the following on the monitors
+    # I understand that this handy to do this here
+    # but having the admin key inside every container is a concern
+
+    # Create the Ceph filesystem, if necessary
+    if [ $CEPHFS_CREATE -eq 1 ]; then
+
+      if [[ ! -e ${ADMIN_KEYRING} ]]; then
+          echo "ERROR- ${ADMIN_KEYRING} must exist; get it from your existing mon"
+          exit 1
+      fi
+
+      if [[ "$(ceph --cluster "${CLUSTER}" fs ls | grep -c name:.${CEPHFS_NAME},)" -eq 0 ]]; then
+         # Make sure the specified data pool exists
+         if ! ceph --cluster "${CLUSTER}" osd pool stats ${CEPHFS_DATA_POOL} > /dev/null 2>&1; then
+            ceph --cluster "${CLUSTER}" osd pool create ${CEPHFS_DATA_POOL} ${CEPHFS_DATA_POOL_PG}
+         fi
+
+         # Make sure the specified metadata pool exists
+         if ! ceph --cluster "${CLUSTER}" osd pool stats ${CEPHFS_METADATA_POOL} > /dev/null 2>&1; then
+            ceph --cluster "${CLUSTER}" osd pool create ${CEPHFS_METADATA_POOL} ${CEPHFS_METADATA_POOL_PG}
+         fi
+
+         ceph --cluster "${CLUSTER}" fs new ${CEPHFS_NAME} ${CEPHFS_METADATA_POOL} ${CEPHFS_DATA_POOL}
+      fi
+    fi
+
+    # NOTE: prefixing this with exec causes it to die (commit suicide)
+    /usr/bin/ceph-mds \
+      --cluster "${CLUSTER}" \
+      --setuser "ceph" \
+      --setgroup "ceph" \
+      -d \
+      -i "${MDS_NAME}"
+  mgr-start.sh: |
+    #!/bin/bash
+    set -ex
+    : "${CEPH_GET_ADMIN_KEY:=0}"
+    : "${MGR_NAME:=$(uname -n)}"
+    : "${MGR_KEYRING:=/var/lib/ceph/mgr/${CLUSTER}-${MGR_NAME}/keyring}"
+    : "${ADMIN_KEYRING:=/etc/ceph/${CLUSTER}.client.admin.keyring}"
+    : "${CEPH_CONF:="/etc/ceph/${CLUSTER}.conf"}"
+
+    if [[ ! -e ${CEPH_CONF}.template ]]; then
+      echo "ERROR- ${CEPH_CONF}.template must exist; get it from your existing mon"
+      exit 1
+    else
+      ENDPOINT=$(kubectl get endpoints ceph-mon-discovery -n ${NAMESPACE} -o json | awk -F'"' -v port=${MON_PORT} \
+                 -v version=v1 -v msgr_version=v2 \
+                 -v msgr2_port=${MON_PORT_V2} \
+                 '/"ip"/{print "["version":"$4":"port"/"0","msgr_version":"$4":"msgr2_port"/"0"]"}' | paste -sd',')
+      if [[ "${ENDPOINT}" == "" ]]; then
+        /bin/sh -c -e "cat ${CEPH_CONF}.template | tee ${CEPH_CONF}" || true
+      else
+        /bin/sh -c -e "cat ${CEPH_CONF}.template | sed 's#mon_host.*#mon_host = ${ENDPOINT}#g' | tee ${CEPH_CONF}" || true
+      fi
+    fi
+
+    if [ ${CEPH_GET_ADMIN_KEY} -eq 1 ]; then
+        if [[ ! -e ${ADMIN_KEYRING} ]]; then
+            echo "ERROR- ${ADMIN_KEYRING} must exist; get it from your existing mon"
+            exit 1
+        fi
+    fi
+
+    # Create a MGR keyring
+    rm -rf $MGR_KEYRING
+    if [ ! -e "$MGR_KEYRING" ]; then
+        # Create ceph-mgr key
+        timeout 10 ceph --cluster "${CLUSTER}" auth get-or-create mgr."${MGR_NAME}" mon 'allow profile mgr' osd 'allow *' mds 'allow *' -o "$MGR_KEYRING"
+        chown --verbose ceph. "$MGR_KEYRING"
+        chmod 600 "$MGR_KEYRING"
+    fi
+
+    echo "SUCCESS"
+
+    ceph --cluster "${CLUSTER}" -v
+
+    # Env. variables matching the pattern "<module>_" will be
+    # found and parsed for config-key settings by
+    #  ceph config set mgr mgr/<module>/<key> <value>
+    MODULES_TO_DISABLE=`ceph mgr dump | python3 -c "import json, sys; print(' '.join(json.load(sys.stdin)['modules']))"`
+
+    for module in ${ENABLED_MODULES}; do
+        # This module may have been enabled in the past
+        # remove it from the disable list if present
+        MODULES_TO_DISABLE=${MODULES_TO_DISABLE/$module/}
+
+        options=`env | grep ^${module}_ || true`
+        for option in ${options}; do
+            #strip module name
+            option=${option/${module}_/}
+            key=`echo $option | cut -d= -f1`
+            value=`echo $option | cut -d= -f2`
+            if [[ $(ceph mon versions | awk '/version/{print $3}' | cut -d. -f1) -ge 14 ]]; then
+              ceph --cluster "${CLUSTER}" config set mgr mgr/$module/$key $value --force
+            else
+              ceph --cluster "${CLUSTER}" config set mgr mgr/$module/$key $value
+            fi
+        done
+        ceph --cluster "${CLUSTER}" mgr module enable ${module} --force
+    done
+
+    for module in $MODULES_TO_DISABLE; do
+      ceph --cluster "${CLUSTER}" mgr module disable ${module}
+    done
+
+    echo "SUCCESS"
+    # start ceph-mgr
+    exec /usr/bin/ceph-mgr \
+      --cluster "${CLUSTER}" \
+      --setuser "ceph" \
+      --setgroup "ceph" \
+      -d \
+      -i "${MGR_NAME}"
+  mgr-check.sh: |
+    #!/bin/bash
+
+
+
+    set -ex
+    export LC_ALL=C
+
+    COMMAND="${@:-liveness}"
+
+    function heath_check () {
+       ASOK=$(ls /var/run/ceph/${CLUSTER}-mgr*)
+       MGR_NAME=$(basename ${ASOK} | sed -e 's/.asok//' | cut -f 1 -d '.' --complement)
+       MGR_STATE=$(ceph --cluster ${CLUSTER} --connect-timeout 1 daemon mgr.${MGR_NAME} status|grep "osd_epoch")
+       if [ $? = 0 ]; then
+         exit 0
+       else
+         echo $MGR_STATE
+         exit 1
+       fi
+    }
+
+    function liveness () {
+      heath_check
+    }
+
+    function readiness () {
+      heath_check
+    }
+
+    $COMMAND
+  helm-tests.sh: |
+    #!/bin/bash
+
+
+
+    set -ex
+
+    function check_cluster_status() {
+      echo "#### Start: Checking Ceph cluster status ####"
+      ceph_status_output=$(ceph -s -f json | jq -r '.health')
+      ceph_health_status=$(echo $ceph_status_output | jq -r '.status')
+
+      if [ "x${ceph_health_status}" == "xHEALTH_OK" ]; then
+        echo "Ceph status is HEALTH_OK"
+      else
+        echo "Ceph cluster status is not HEALTH_OK, checking PG states"
+        pg_validation
+      fi
+    }
+
+    function check_recovery_flags() {
+      echo "### Start: Checking for flags that will prevent recovery"
+
+      # Ensure there are no flags set that will prevent recovery of degraded PGs
+      if [[ $(ceph osd stat | grep "norecover\|nobackfill\|norebalance") ]]; then
+        ceph osd stat
+        echo "Flags are set that prevent recovery of degraded PGs"
+        exit 1
+      fi
+    }
+
+    function check_osd_count() {
+      echo "#### Start: Checking OSD count ####"
+      noup_flag=$(ceph osd stat | awk '/noup/ {print $2}')
+      osd_stat=$(ceph osd stat -f json-pretty)
+      num_osd=$(awk '/"num_osds"/{print $2}' <<< "$osd_stat" | cut -d, -f1)
+      num_in_osds=$(awk '/"num_in_osds"/{print $2}' <<< "$osd_stat" | cut -d, -f1)
+      num_up_osds=$(awk '/"num_up_osds"/{print $2}' <<< "$osd_stat" | cut -d, -f1)
+
+      MIN_OSDS=$((${num_osd}*$REQUIRED_PERCENT_OF_OSDS/100))
+      if [ ${MIN_OSDS} -lt 1 ]; then
+        MIN_OSDS=1
+      fi
+
+      if [ "${noup_flag}" ]; then
+        osd_status=$(ceph osd dump -f json | jq -c '.osds[] | .state')
+        count=0
+        for osd in $osd_status; do
+          if [[ "$osd" == *"up"* || "$osd" == *"new"* ]]; then
+            ((count=count+1))
+          fi
+        done
+        echo "Caution: noup flag is set. ${count} OSDs in up/new state. Required number of OSDs: ${MIN_OSDS}."
+        if [ $MIN_OSDS -gt $count ]; then
+          exit 1
+        fi
+      else
+        if [ "${num_osd}" -eq 0 ]; then
+          echo "There are no osds in the cluster"
+          exit 1
+        elif [ "${num_in_osds}" -ge "${MIN_OSDS}" ] && [ "${num_up_osds}" -ge "${MIN_OSDS}"  ]; then
+          echo "Required number of OSDs (${MIN_OSDS}) are UP and IN status"
+        else
+          echo "Required number of OSDs (${MIN_OSDS}) are NOT UP and IN status. Cluster shows OSD count=${num_osd}, UP=${num_up_osds}, IN=${num_in_osds}"
+          exit 1
+        fi
+      fi
+    }
+
+    function check_failure_domain_count_per_pool() {
+      echo "#### Start: Checking failure domain count per pool ####"
+      pools=$(ceph osd pool ls)
+      for pool in ${pools}
+      do
+        crush_rule=$(ceph osd pool get ${pool} crush_rule | awk '{print $2}')
+        bucket_type=$(ceph osd crush rule dump ${crush_rule} | grep '"type":' | awk -F'"' 'NR==2 {print $4}')
+        num_failure_domains=$(ceph osd tree | grep ${bucket_type} | wc -l)
+        pool_replica_size=$(ceph osd pool get ${pool} size | awk '{print $2}')
+        if [[ ${num_failure_domains} -ge ${pool_replica_size} ]]; then
+          echo "--> Info: Pool ${pool} is configured with enough failure domains ${num_failure_domains} to satisfy pool replica size ${pool_replica_size}"
+        else
+          echo "--> Error : Pool ${pool} is NOT configured with enough failure domains ${num_failure_domains} to satisfy pool replica size ${pool_replica_size}"
+          exit 1
+        fi
+      done
+    }
+
+    function mgr_validation() {
+      echo "#### Start: MGR validation ####"
+      mgr_dump=$(ceph mgr dump -f json-pretty)
+      echo "Checking for ${MGR_COUNT} MGRs"
+
+      mgr_avl=$(echo ${mgr_dump} | jq -r '.["available"]')
+
+      if [ "x${mgr_avl}" == "xtrue" ]; then
+        mgr_active=$(echo ${mgr_dump} | jq -r '.["active_name"]')
+        echo "Out of ${MGR_COUNT}, 1 MGR is active"
+
+        # Now lets check for standby managers
+        mgr_stdby_count=$(echo ${mgr_dump} | jq -r '.["standbys"]' | jq length)
+
+        #Total MGR Count - 1 Active = Expected MGRs
+        expected_standbys=$(( MGR_COUNT -1 ))
+
+        if [ $mgr_stdby_count -eq $expected_standbys ]
+        then
+          echo "Cluster has 1 Active MGR, $mgr_stdby_count Standbys MGR"
+        else
+          echo "Cluster Standbys MGR: Expected count= $expected_standbys Available=$mgr_stdby_count"
+          retcode=1
+        fi
+
+      else
+        echo "No Active Manager found, Expected 1 MGR to be active out of ${MGR_COUNT}"
+        retcode=1
+      fi
+
+      if [ "x${retcode}" == "x1" ]
+      then
+        exit 1
+      fi
+    }
+
+    function pool_validation() {
+
+      echo "#### Start: Checking Ceph pools ####"
+
+      echo "From env variables, RBD pool replication count is: ${RBD}"
+
+      # Assuming all pools have same replication count as RBD
+      # If RBD replication count is greater then 1, POOLMINSIZE should be 1 less then replication count
+      # If RBD replication count is not greate then 1, then POOLMINSIZE should be 1
+
+      if [ ${RBD} -gt 1 ]; then
+        EXPECTED_POOLMINSIZE=$[${RBD}-1]
+      else
+        EXPECTED_POOLMINSIZE=1
+      fi
+
+      echo "EXPECTED_POOLMINSIZE: ${EXPECTED_POOLMINSIZE}"
+
+      expectedCrushRuleId=""
+      nrules=$(echo ${OSD_CRUSH_RULE_DUMP} | jq length)
+      c=$[nrules-1]
+      for n in $(seq 0 ${c})
+      do
+        osd_crush_rule_obj=$(echo ${OSD_CRUSH_RULE_DUMP} | jq -r .[${n}])
+
+        name=$(echo ${osd_crush_rule_obj} | jq -r .rule_name)
+        echo "Expected Crushrule: ${EXPECTED_CRUSHRULE}, Pool Crushmap: ${name}"
+
+        if [ "x${EXPECTED_CRUSHRULE}" == "x${name}" ]; then
+          expectedCrushRuleId=$(echo ${osd_crush_rule_obj} | jq .rule_id)
+          echo "Checking against rule: id: ${expectedCrushRuleId}, name:${name}"
+        else
+          echo "Didn't match"
+        fi
+      done
+      echo "Checking cluster for size:${RBD}, min_size:${EXPECTED_POOLMINSIZE}, crush_rule:${EXPECTED_CRUSHRULE}, crush_rule_id:${expectedCrushRuleId}"
+
+      npools=$(echo ${OSD_POOLS_DETAILS} | jq length)
+      i=$[npools - 1]
+      for n in $(seq 0 ${i})
+      do
+        pool_obj=$(echo ${OSD_POOLS_DETAILS} | jq -r ".[${n}]")
+
+        size=$(echo ${pool_obj} | jq -r .size)
+        min_size=$(echo ${pool_obj} | jq -r .min_size)
+        pg_num=$(echo ${pool_obj} | jq -r .pg_num)
+        pg_placement_num=$(echo ${pool_obj} | jq -r .pg_placement_num)
+        crush_rule=$(echo ${pool_obj} | jq -r .crush_rule)
+        name=$(echo ${pool_obj} | jq -r .pool_name)
+        pg_autoscale_mode=$(echo ${pool_obj} | jq -r .pg_autoscale_mode)
+        if [[ "${ENABLE_AUTOSCALER}" == "true" ]]; then
+          if [[ "${pg_autoscale_mode}" != "on" ]]; then
+            echo "pg autoscaler not enabled on ${name} pool"
+            exit 1
+          fi
+        fi
+        if [[ $(ceph mon versions | awk '/version/{print $3}' | cut -d. -f1) -ge 14 ]]; then
+          if [ "x${size}" != "x${RBD}" ] || [ "x${min_size}" != "x${EXPECTED_POOLMINSIZE}" ] \
+            || [ "x${crush_rule}" != "x${expectedCrushRuleId}" ]; then
+            echo "Pool ${name} has incorrect parameters!!! Size=${size}, Min_Size=${min_size}, Rule=${crush_rule}, PG_Autoscale_Mode=${pg_autoscale_mode}"
+            exit 1
+          else
+            echo "Pool ${name} seems configured properly. Size=${size}, Min_Size=${min_size}, Rule=${crush_rule}, PG_Autoscale_Mode=${pg_autoscale_mode}"
+          fi
+        else
+          if [ "x${size}" != "x${RBD}" ] || [ "x${min_size}" != "x${EXPECTED_POOLMINSIZE}" ] \
+          || [ "x${pg_num}" != "x${pg_placement_num}" ] || [ "x${crush_rule}" != "x${expectedCrushRuleId}" ]; then
+            echo "Pool ${name} has incorrect parameters!!! Size=${size}, Min_Size=${min_size}, PG=${pg_num}, PGP=${pg_placement_num}, Rule=${crush_rule}"
+            exit 1
+          else
+            echo "Pool ${name} seems configured properly. Size=${size}, Min_Size=${min_size}, PG=${pg_num}, PGP=${pg_placement_num}, Rule=${crush_rule}"
+          fi
+        fi
+      done
+    }
+
+    function pool_failuredomain_validation() {
+      echo "#### Start: Checking Pools are configured with specific failure domain ####"
+
+      expectedCrushRuleId=""
+      nrules=$(echo ${OSD_CRUSH_RULE_DUMP} | jq length)
+      c=$[nrules-1]
+      for n in $(seq 0 ${c})
+      do
+        osd_crush_rule_obj=$(echo ${OSD_CRUSH_RULE_DUMP} | jq -r .[${n}])
+
+        name=$(echo ${osd_crush_rule_obj} | jq -r .rule_name)
+
+        if [ "x${EXPECTED_CRUSHRULE}" == "x${name}" ]; then
+          expectedCrushRuleId=$(echo ${osd_crush_rule_obj} | jq .rule_id)
+          echo "Checking against rule: id: ${expectedCrushRuleId}, name:${name}"
+        fi
+      done
+
+      echo "Checking OSD pools are configured with Crush rule name:${EXPECTED_CRUSHRULE}, id:${expectedCrushRuleId}"
+
+      npools=$(echo ${OSD_POOLS_DETAILS} | jq length)
+      i=$[npools-1]
+      for p in $(seq 0 ${i})
+      do
+        pool_obj=$(echo ${OSD_POOLS_DETAILS} | jq -r ".[${p}]")
+
+        pool_crush_rule_id=$(echo $pool_obj | jq -r .crush_rule)
+        pool_name=$(echo $pool_obj | jq -r .pool_name)
+
+        if [ "x${pool_crush_rule_id}" == "x${expectedCrushRuleId}" ]; then
+          echo "--> Info: Pool ${pool_name} is configured with the correct rule ${pool_crush_rule_id}"
+        else
+          echo "--> Error : Pool ${pool_name} is NOT configured with the correct rule ${pool_crush_rule_id}"
+          exit 1
+        fi
+      done
+    }
+
+    function check_pgs() {
+      pgs_transitioning=false
+
+      ceph --cluster ${CLUSTER} pg dump_stuck inactive -f json-pretty > ${stuck_pgs_file}
+
+      # Check if there are any stuck PGs, which could indicate a serious problem
+      # if it does not resolve itself soon.
+      stuck_pgs=(`cat ${stuck_pgs_file} | awk -F "\"" '/pgid/{print $4}'`)
+      if [[ ${#stuck_pgs[*]} -gt 0 ]]; then
+        # We have at least one stuck pg
+        echo "Some PGs are stuck: "
+        echo ${stuck_pgs[*]}
+        # Not a critical error - yet
+        pgs_transitioning=true
+      else
+        # Examine the PGs that have non-active states. Consider those PGs that
+        # are in a "premerge" state to be similar to active. "premerge" PGs may
+        # stay in that state for several minutes, and this is considered ok.
+        ceph --cluster ${CLUSTER} pg ls -f json-pretty | grep '"pgid":\|"state":' | grep -v -E "active|premerge" | grep -B1 '"state":' > ${inactive_pgs_file} || true
+
+        # If the inactive pgs file is non-empty, there are some inactive pgs in the cluster.
+        inactive_pgs=(`cat ${inactive_pgs_file} | awk -F "\"" '/pgid/{print $4}'`)
+        echo "There is at least one inactive pg in the cluster: "
+        echo ${inactive_pgs[*]}
+
+        echo "Very likely the cluster is rebalancing or recovering some PG's. Checking..."
+
+        # Check for PGs that are down. These are critical errors.
+        down_pgs=(`cat ${inactive_pgs_file} | grep -B1 'down' | awk -F "\"" '/pgid/{print $4}'`)
+        if [[ ${#down_pgs[*]} -gt 0 ]]; then
+          # Some PGs could be down. This is really bad situation and test must fail.
+          echo "Some PGs are down: "
+          echo ${down_pgs[*]}
+          echo "This is critical error, exiting. "
+          exit 1
+        fi
+
+        # Check for PGs that are in some transient state due to rebalancing,
+        # peering or backfilling. If we see other states which are not in the
+        # following list of states, then we likely have a problem and need to
+        # exit.
+        transient_states='peer|recover|activating|creating|unknown'
+        non_transient_pgs=(`cat ${inactive_pgs_file} | grep '"state":' | grep -v -E "${transient_states}" || true`)
+        if [[ ${#non_transient_pgs[*]} -gt 0 ]]; then
+          # Some PGs could be inactive and not peering. Better we fail.
+          echo "We don't have down/stuck PGs, but we have some inactive pgs that"
+          echo "are not in the list of allowed transient states: "
+          pg_list=(`sed -n '/peer\|recover\|activating\|creating\|unknown/{s/.*//;x;d;};x;p;${x;p;}' ${inactive_pgs_file} | sed '/^$/d' | awk -F "\"" '/pgid/{print $4}'`)
+          echo ${pg_list[*]}
+          echo ${non_transient_pgs[*]}
+          # Critical error. Fail/exit the script
+          exit 1
+        fi
+
+        # Check and note which PGs are in a transient state. This script
+        # will allow these transient states for a period of time
+        # (time_between_retries * max_retries seconds).
+        transient_pgs=(`cat ${inactive_pgs_file} | grep -B1 -E "${transient_states}" | awk -F "\"" '/pgid/{print $4}'`)
+        if [[ ${#transient_pgs[*]} -gt 0 ]]; then
+          # Some PGs are not in an active state but peering and/or cluster is recovering
+          echo "Some PGs are peering and/or cluster is recovering: "
+          echo ${transient_pgs[*]}
+          echo "This is normal but will wait a while to verify the PGs are not stuck in a transient state."
+          # not critical, just wait
+          pgs_transitioning=true
+        fi
+      fi
+    }
+
+    function pg_validation() {
+      retries=0
+      time_between_retries=3
+      max_retries=60
+      pgs_transitioning=false
+      stuck_pgs_file=$(mktemp -p /tmp)
+      inactive_pgs_file=$(mktemp -p /tmp)
+
+      # Check this over a period of retries. Fail/stop if any critical errors found.
+      while check_pgs && [[ "${pgs_transitioning}" == "true" ]] && [[ retries -lt ${max_retries} ]]; do
+        echo "Sleep for a bit waiting on the pg(s) to become active/unstuck..."
+        sleep ${time_between_retries}
+        ((retries=retries+1))
+      done
+
+      # If peering PGs haven't gone active after retries have expired, fail
+      if [[ retries -ge ${max_retries} ]]; then
+        ((timeout_sec=${time_between_retries}*${max_retries}))
+        echo "Some PGs have not become active or have been stuck after ${timeout_sec} seconds. Exiting..."
+        exit 1
+      fi
+    }
+
+    function check_ceph_osd_crush_weight(){
+      OSDS_WITH_ZERO_WEIGHT=(`ceph --cluster ${CLUSTER} osd df -f json-pretty | awk -F"[, ]*" '/"crush_weight":/{if ($3 == 0) print $3}'`)
+      if [[ ${#OSDS_WITH_ZERO_WEIGHT[*]} -eq 0 ]]; then
+        echo "All OSDs from namespace have crush weight!"
+      else
+        echo "OSDs from namespace have zero crush weight"
+        exit 1
+      fi
+    }
+
+    check_osd_count
+    mgr_validation
+
+    OSD_POOLS_DETAILS=$(ceph osd pool ls detail -f json-pretty)
+    OSD_CRUSH_RULE_DUMP=$(ceph osd crush rule dump -f json-pretty)
+    PG_STAT=$(ceph pg stat -f json-pretty)
+
+    ceph -s
+    pg_validation
+    pool_validation
+    pool_failuredomain_validation
+    check_failure_domain_count_per_pool
+    check_cluster_status
+    check_recovery_flags
+    check_ceph_osd_crush_weight
+  utils-checkDNS.sh: |
+    #!/bin/bash
+
+
+
+    : "${CEPH_CONF:="/etc/ceph/${CLUSTER}.conf"}"
+    ENDPOINT="{$1}"
+
+    function check_mon_dns () {
+      GREP_CMD=$(grep -rl 'ceph-mon' ${CEPH_CONF})
+
+      if [[ "${ENDPOINT}" == "up" ]]; then
+        echo "If DNS is working, we are good here"
+      elif [[ "${ENDPOINT}" != "" ]]; then
+        if [[ ${GREP_CMD} != "" ]]; then
+          # No DNS, write CEPH MONs IPs into ${CEPH_CONF}
+          sh -c -e "cat ${CEPH_CONF}.template | sed 's/mon_host.*/mon_host = ${ENDPOINT}/g' | tee ${CEPH_CONF}" > /dev/null 2>&1
+        else
+          echo "endpoints are already cached in ${CEPH_CONF}"
+          exit
+        fi
+      fi
+    }
+
+    check_mon_dns
+
+    exit
+  utils-checkDNS_start.sh: |
+    #!/bin/bash
+
+
+
+    set -xe
+
+    function check_mon_dns {
+      DNS_CHECK=$(getent hosts ceph-mon | head -n1)
+      PODS=$(kubectl get pods --namespace=${NAMESPACE} --selector=application=ceph --field-selector=status.phase=Running \
+             --output=jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | grep -E 'ceph-mon|ceph-osd|ceph-mgr|ceph-mds')
+      ENDPOINT=$(kubectl get endpoints ceph-mon-discovery -n ${NAMESPACE} -o json | awk -F'"' -v port=${MON_PORT} \
+                 -v version=v1 -v msgr_version=v2 \
+                 -v msgr2_port=${MON_PORT_V2} \
+                 '/"ip"/{print "["version":"$4":"port"/"0","msgr_version":"$4":"msgr2_port"/"0"]"}' | paste -sd',')
+
+      if [[ ${PODS} == "" || "${ENDPOINT}" == "" ]]; then
+        echo "Something went wrong, no PODS or ENDPOINTS are available!"
+      elif [[ ${DNS_CHECK} == "" ]]; then
+        for POD in ${PODS}; do
+          kubectl exec -t ${POD} --namespace=${NAMESPACE} -- \
+          sh -c -e "/tmp/utils-checkDNS.sh "${ENDPOINT}""
+        done
+      else
+        for POD in ${PODS}; do
+          kubectl exec -t ${POD} --namespace=${NAMESPACE} -- \
+          sh -c -e "/tmp/utils-checkDNS.sh up"
+        done
+      fi
+    }
+
+    function watch_mon_dns {
+      while [ true ]; do
+        echo "checking DNS health"
+        check_mon_dns || true
+        echo "sleep 300 sec"
+        sleep 300
+      done
+    }
+
+    watch_mon_dns
+
+    exit
+  utils-checkPGs.py: |
+    #!/usr/bin/python
+
+    import subprocess  # nosec
+    import json
+    import sys
+    from argparse import *
+
+    class cephCRUSH():
+        """
+        Currently, this script is coded to work with the ceph clusters that have
+        these type-ids -- osd, host, rack, root.  To add other type_ids to the
+        CRUSH map, this script needs enhancements to include the new type_ids.
+
+        type_id name
+        ------- ----
+              0 osd
+              1 host
+              2 chassis
+              3 rack
+              4 row
+              5 pdu
+              6 pod
+              7 room
+              8 datacenter
+              9 region
+             10 root
+
+        Ceph organizes the CRUSH map in hierarchical topology.  At the top, it is
+        the root.  The next levels are racks, hosts, and OSDs, respectively.  The
+        OSDs are at the leaf level.  This script looks at OSDs in each placement
+        group of a ceph pool.  For each OSD, starting from the OSD leaf level, this
+        script traverses up to the root.  Along the way, the host and rack are
+        recorded and then verified to make sure the paths to the root are in
+        separate failure domains.  This script reports the offending PGs to stdout.
+        """
+
+        """
+        This list stores the ceph crush hierarchy retrieved from the
+        ceph osd crush tree -f json-pretty
+        """
+        crushHierarchy = []
+
+        """
+        Failure Domains - currently our crush map uses these type IDs - osd,
+        host, rack, root
+        If we need to add chassis type (or other types) later on, add the
+        type to the if statement in the crushFD construction section.
+
+        crushFD[0] = {'id': -2, 'name': 'host1', 'type': 'host'}
+        crushFD[23] = {'id': -5, 'name': 'host2', 'type': 'host'}
+        crushFD[68] = {'id': -7, 'name': 'host3', 'type': 'host'}
+        rack_FD[-2] = {'id': -9, 'name': 'rack1', 'type': 'rack' }
+        rack_FD[-15] = {'id': -17, 'name': 'rack2', 'type': 'rack' }
+        root_FD[-17] = {'id': -1, 'name': 'default', 'type': 'root' }}
+        root_FD[-9] = {'id': -1, 'name': 'default', 'type': 'root' }}
+        """
+        crushFD = {}
+
+        def __init__(self, poolName):
+            if 'all' in poolName or 'All' in poolName:
+                try:
+                    poolLs = 'ceph osd pool ls -f json-pretty'
+                    poolstr = subprocess.check_output(poolLs, shell=True)  # nosec
+                    self.listPoolName = json.loads(poolstr)
+                except subprocess.CalledProcessError as e:
+                    print('{}'.format(e))
+                    """Unable to get all pools - cannot proceed"""
+                    sys.exit(2)
+            else:
+                self.listPoolName = poolName
+
+            try:
+                """Retrieve the crush hierarchies"""
+                crushTree = "ceph osd crush tree -f json-pretty | jq .nodes"
+                chstr = subprocess.check_output(crushTree, shell=True)  # nosec
+                self.crushHierarchy = json.loads(chstr)
+            except subprocess.CalledProcessError as e:
+                print('{}'.format(e))
+                """Unable to get crush hierarchy - cannot proceed"""
+                sys.exit(2)
+
+            """
+            Number of racks configured in the ceph cluster.  The racks that are
+            present in the crush hierarchy may not be used.  The un-used rack
+            would not show up in the crushFD.
+            """
+            self.count_racks = 0
+
+            """depth level - 3 is OSD, 2 is host, 1 is rack, 0 is root"""
+            self.osd_depth = 0
+            """Construct the Failure Domains - OSD -> Host -> Rack -> Root"""
+            for chitem in self.crushHierarchy:
+                if chitem['type'] == 'host' or \
+                   chitem['type'] == 'rack' or \
+                   chitem['type'] == 'root':
+                    for child in chitem['children']:
+                        self.crushFD[child] = {'id': chitem['id'], 'name': chitem['name'], 'type': chitem['type']}
+                    if chitem['type'] == 'rack' and len(chitem['children']) > 0:
+                        self.count_racks += 1
+                elif chitem['type'] == 'osd':
+                    if self.osd_depth == 0:
+                        self.osd_depth = chitem['depth']
+
+            """[ { 'pg-name' : [osd.1, osd.2, osd.3] } ... ]"""
+            self.poolPGs = []
+            """Replica of the pool.  Initialize to 0."""
+            self.poolSize = 0
+
+        def isSupportedRelease(self):
+            cephMajorVer = int(subprocess.check_output("ceph mon versions | awk '/version/{print $3}' | cut -d. -f1", shell=True))  # nosec
+            return cephMajorVer >= 14
+
+        def getPoolSize(self, poolName):
+            """
+            size (number of replica) is an attribute of a pool
+            { "pool": "rbd", "pool_id": 1, "size": 3 }
+            """
+            pSize = {}
+            """Get the size attribute of the poolName"""
+            try:
+                poolGet = 'ceph osd pool get ' + poolName + ' size -f json-pretty'
+                szstr = subprocess.check_output(poolGet, shell=True)  # nosec
+                pSize = json.loads(szstr)
+                self.poolSize = pSize['size']
+            except subprocess.CalledProcessError as e:
+                print('{}'.format(e))
+                self.poolSize = 0
+                """Continue on"""
+            return
+
+        def checkPGs(self, poolName):
+            poolPGs = self.poolPGs['pg_stats'] if self.isSupportedRelease() else self.poolPGs
+            if not poolPGs:
+                return
+            print('Checking PGs in pool {} ...'.format(poolName)),
+            badPGs = False
+            for pg in poolPGs:
+                osdUp = pg['up']
+                """
+                Construct the OSD path from the leaf to the root.  If the
+                replica is set to 3 and there are 3 racks.  Each OSD has its
+                own rack (failure domain).   If more than one OSD has the
+                same rack, this is a violation.  If the number of rack is
+                one, then we need to make sure the hosts for the three OSDs
+                are different.
+                """
+                check_FD = {}
+                checkFailed = False
+                for osd in osdUp:
+                    traverseID = osd
+                    """Start the level with 1 to include the OSD leaf"""
+                    traverseLevel = 1
+                    while (self.crushFD[traverseID]['type'] != 'root'):
+                        crushType = self.crushFD[traverseID]['type']
+                        crushName = self.crushFD[traverseID]['name']
+                        if crushType in check_FD:
+                            check_FD[crushType].append(crushName)
+                        else:
+                            check_FD[crushType] = [crushName]
+                        """traverse up (to the root) one level"""
+                        traverseID = self.crushFD[traverseID]['id']
+                        traverseLevel += 1
+                    if not (traverseLevel == self.osd_depth):
+                        raise Exception("OSD depth mismatch")
+                """
+                check_FD should have
+                {
+                 'host': ['host1', 'host2', 'host3', 'host4'],
+                 'rack': ['rack1', 'rack2', 'rack3']
+                }
+                Not checking for the 'root' as there is only one root.
+                """
+                for ktype in check_FD:
+                    kvalue = check_FD[ktype]
+                    if ktype == 'host':
+                        """
+                        At the host level, every OSD should come from different
+                        host.  It is a violation if duplicate hosts are found.
+                        """
+                        if len(kvalue) != len(set(kvalue)):
+                            if not badPGs:
+                                print('Failed')
+                            badPGs = True
+                            print('OSDs {} in PG {} failed check in host {}'.format(pg['up'], pg['pgid'], kvalue))
+                    elif ktype == 'rack':
+                        if len(kvalue) == len(set(kvalue)):
+                            continue
+                        else:
+                            """
+                            There are duplicate racks.  This could be due to
+                            situation like pool's size is 3 and there are only
+                            two racks (or one rack).  OSDs should come from
+                            different hosts as verified in the 'host' section.
+                            """
+                            if self.count_racks == len(set(kvalue)):
+                                continue
+                            elif self.count_racks > len(set(kvalue)):
+                                """Not all the racks were used to allocate OSDs"""
+                                if not badPGs:
+                                    print('Failed')
+                                badPGs = True
+                                print('OSDs {} in PG {} failed check in rack {}'.format(pg['up'], pg['pgid'], kvalue))
+                check_FD.clear()
+            if not badPGs:
+                print('Passed')
+            return
+
+        def checkPoolPGs(self):
+            for pool in self.listPoolName:
+                self.getPoolSize(pool)
+                if self.poolSize == 1:
+                    """No need to check pool with the size set to 1 copy"""
+                    print('Checking PGs in pool {} ... {}'.format(pool, 'Skipped'))
+                    continue
+                elif self.poolSize == 0:
+                    print('Pool {} was not found.'.format(pool))
+                    continue
+                if not self.poolSize > 1:
+                    raise Exception("Pool size was incorrectly set")
+
+                try:
+                    """Get the list of PGs in the pool"""
+                    lsByPool = 'ceph pg ls-by-pool ' + pool + ' -f json-pretty'
+                    pgstr = subprocess.check_output(lsByPool, shell=True)  # nosec
+                    self.poolPGs = json.loads(pgstr)
+                    """Check that OSDs in the PG are in separate failure domains"""
+                    self.checkPGs(pool)
+                except subprocess.CalledProcessError as e:
+                    print('{}'.format(e))
+                    """Continue to the next pool (if any)"""
+            return
+
+    def Main():
+        parser = ArgumentParser(description='''
+    Cross-check the OSDs assigned to the Placement Groups (PGs) of a ceph pool
+    with the CRUSH topology.  The cross-check compares the OSDs in a PG and
+    verifies the OSDs reside in separate failure domains.  PGs with OSDs in
+    the same failure domain are flagged as violation.  The offending PGs are
+    printed to stdout.
+
+    This CLI is executed on-demand on a ceph-mon pod.  To invoke the CLI, you
+    can specify one pool or list of pools to check.  The special pool name
+    All (or all) checks all the pools in the ceph cluster.
+    ''',
+        formatter_class=RawTextHelpFormatter)
+        parser.add_argument('PoolName', type=str, nargs='+',
+          help='List of pools (or All) to validate the PGs and OSDs mapping')
+        args = parser.parse_args()
+
+        if ('all' in args.PoolName or
+            'All' in args.PoolName) and len(args.PoolName) > 1:
+            print('You only need to give one pool with special pool All')
+            sys.exit(1)
+
+        """
+        Retrieve the crush hierarchies and store it.  Cross-check the OSDs
+        in each PG searching for failure domain violation.
+        """
+        ccm = cephCRUSH(args.PoolName)
+        ccm.checkPoolPGs()
+
+    if __name__ == '__main__':
+        Main()
+  utils-checkPGs.sh: |
+    #!/bin/bash
+
+
+
+    set -ex
+
+    mgrPod=$(kubectl get pods --namespace=${DEPLOYMENT_NAMESPACE} --selector=application=ceph --selector=component=mgr --output=jsonpath={.items[0].metadata.name} 2>/dev/null)
+
+    kubectl exec -t ${mgrPod} --namespace=${DEPLOYMENT_NAMESPACE} -- python3 /tmp/utils-checkPGs.py All 2>/dev/null
+  utils-defragOSDs.sh: |
+    #!/bin/bash
+
+
+
+    set -ex
+
+    PODS=$(kubectl get pods --namespace=${NAMESPACE} \
+      --selector=application=ceph,component=osd --field-selector=status.phase=Running \
+      '--output=jsonpath={range .items[*]}{.metadata.name}{"\n"}{end}')
+
+    for POD in ${PODS}; do
+      kubectl exec -t ${POD} --namespace=${NAMESPACE} -- \
+      sh -c -e "/tmp/utils-defragOSDs.sh"
+    done
+
+
+    exit 0
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ceph-client-etc
+data:
+  ceph.conf: |
+    [global]
+    cephx = true
+    cephx_cluster_require_signatures = true
+    cephx_require_signatures = false
+    cephx_service_require_signatures = false
+    debug_ms = 0/0
+    log_file = /dev/stdout
+    mon_cluster_log_file = /dev/stdout
+    mon_host = ceph-mon.default.svc.cluster.local:3300
+    objecter_inflight_op_bytes = 1073741824
+    objecter_inflight_ops = 10240
+    [osd]
+    cluster_network = 192.168.0.0/16
+    ms_bind_port_max = 7100
+    ms_bind_port_min = 6800
+    osd_max_object_name_len = 256
+    osd_mkfs_options_xfs = -f -i size=2048
+    osd_mkfs_type = xfs
+    public_network = 192.168.0.0/16
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-default-ceph-pool-checkpgs
+  namespace: bdA9DsS
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - batch
+      - apps
+    verbs:
+      - get
+      - list
+    resources:
+      - services
+      - endpoints
+      - jobs
+      - pods
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ceph-pool-checkpgs
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - pods/exec
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ceph-defragosds
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - pods/exec
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-default-ceph-checkdns
+  namespace: bdA9DsS
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - batch
+      - apps
+    verbs:
+      - get
+      - list
+    resources:
+      - services
+      - endpoints
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ceph-checkdns
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - endpoints
+      - pods/exec
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-default-ceph-mds
+  namespace: bdA9DsS
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - batch
+      - apps
+    verbs:
+      - get
+      - list
+    resources:
+      - services
+      - endpoints
+      - jobs
+      - pods
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-default-ceph-mgr
+  namespace: bdA9DsS
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - batch
+      - apps
+    verbs:
+      - get
+      - list
+    resources:
+      - services
+      - endpoints
+      - jobs
+      - pods
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-default-ceph-rbd-pool
+  namespace: bdA9DsS
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - batch
+      - apps
+    verbs:
+      - get
+      - list
+    resources:
+      - services
+      - endpoints
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-default-release-name-test
+  namespace: bdA9DsS
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - batch
+      - apps
+    verbs:
+      - get
+      - list
+    resources:
+      - services
+      - endpoints
+      - jobs
+      - pods
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-ceph-pool-checkpgs
+  namespace: bdA9DsS
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-default-ceph-pool-checkpgs
+subjects:
+  - kind: ServiceAccount
+    name: ceph-pool-checkpgs
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ceph-pool-checkpgs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ceph-pool-checkpgs
+subjects:
+  - kind: ServiceAccount
+    name: ceph-pool-checkpgs
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ceph-defragosds
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ceph-defragosds
+subjects:
+  - kind: ServiceAccount
+    name: ceph-defragosds
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-ceph-checkdns
+  namespace: bdA9DsS
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-default-ceph-checkdns
+subjects:
+  - kind: ServiceAccount
+    name: ceph-checkdns
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ceph-checkdns
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ceph-checkdns
+subjects:
+  - kind: ServiceAccount
+    name: ceph-checkdns
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-ceph-mds
+  namespace: bdA9DsS
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-default-ceph-mds
+subjects:
+  - kind: ServiceAccount
+    name: ceph-mds
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-ceph-mgr
+  namespace: bdA9DsS
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-default-ceph-mgr
+subjects:
+  - kind: ServiceAccount
+    name: ceph-mgr
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-ceph-rbd-pool
+  namespace: bdA9DsS
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-default-ceph-rbd-pool
+subjects:
+  - kind: ServiceAccount
+    name: ceph-rbd-pool
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-release-name-test
+  namespace: bdA9DsS
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-default-release-name-test
+subjects:
+  - kind: ServiceAccount
+    name: release-name-test
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ceph-mgr
+  labels:
+    release_group: release-name
+    application: ceph
+    component: manager
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9283"
+spec:
+  ports:
+    - name: ceph-mgr
+      port: 7000
+      protocol: TCP
+      targetPort: 7000
+    - name: metrics
+      protocol: TCP
+      port: 9283
+  selector:
+    release_group: release-name
+    application: ceph
+    component: mgr
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: ceph-checkdns
+  annotations:
+    configmap-bin-hash: aa84f116394754844fa7d84f74aba1e7ca4c2f7c6ff6eba98dec7ecd96e5dcc0
+  labels:
+    release_group: release-name
+    application: ceph
+    component: checkdns
+spec:
+  selector:
+    matchLabels:
+      release_group: release-name
+      application: ceph
+      component: checkdns
+  template:
+    metadata:
+      labels:
+        release_group: release-name
+        application: ceph
+        component: checkdns
+      annotations:
+        openstackhelm.openstack.org/release_uuid: ""
+    spec:
+      securityContext:
+        runAsUser: 65534
+      serviceAccountName: ceph-checkdns
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: release_group
+                      operator: In
+                      values:
+                        - release-name
+                    - key: application
+                      operator: In
+                      values:
+                        - ceph
+                    - key: component
+                      operator: In
+                      values:
+                        - checkdns
+                topologyKey: kubernetes.io/hostname
+              weight: 10
+      tolerations:
+        - effect: NoExecute
+          key: node.kubernetes.io/not-ready
+          operator: Exists
+          tolerationSeconds: 60
+        - effect: NoExecute
+          key: node.kubernetes.io/unreachable
+          operator: Exists
+          tolerationSeconds: 60
+      nodeSelector:
+        ceph-mon: enabled
+      initContainers:
+        - name: init
+          image: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: INTERFACE_NAME
+              value: eth0
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: DEPENDENCY_SERVICE
+              value: default:ceph-mon
+            - name: DEPENDENCY_DAEMONSET
+              value: ""
+            - name: DEPENDENCY_CONTAINER
+              value: ""
+            - name: DEPENDENCY_POD_JSON
+              value: ""
+            - name: DEPENDENCY_CUSTOM_RESOURCE
+              value: ""
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: ceph-checkdns
+          image: docker.io/openstackhelm/ceph-config-helper:change_770201_ubuntu_bionic-20210113
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                "": NET_RAW
+          env:
+            - name: CLUSTER
+              value: ceph
+            - name: K8S_HOST_NETWORK
+              value: "1"
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: MON_PORT
+              value: "6789"
+            - name: MON_PORT_V2
+              value: "3300"
+            - name: KUBECTL_PARAM
+              value: -l application=ceph -l component=checkdns
+          command:
+            - /tmp/_start.sh
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: ceph-client-bin
+              mountPath: /tmp/_start.sh
+              subPath: utils-checkDNS_start.sh
+              readOnly: true
+      volumes:
+        - name: pod-tmp
+          emptyDir: {}
+        - name: ceph-client-bin
+          configMap:
+            name: ceph-client-bin
+            defaultMode: 365
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: ceph-mds
+  annotations:
+    openstackhelm.openstack.org/release_uuid: ""
+  labels:
+    release_group: release-name
+    application: ceph
+    component: mds
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      release_group: release-name
+      application: ceph
+      component: mds
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
+  template:
+    metadata:
+      name: ceph-mds
+      labels:
+        release_group: release-name
+        application: ceph
+        component: mds
+      annotations:
+        openstackhelm.openstack.org/release_uuid: ""
+        configmap-bin-hash: aa84f116394754844fa7d84f74aba1e7ca4c2f7c6ff6eba98dec7ecd96e5dcc0
+        configmap-etc-client-hash: 2e3fc275686ae0170b6270527b6eb1e59d511283f7272ff90455c3bfcb57bff6
+    spec:
+      securityContext:
+        runAsUser: 65534
+      serviceAccountName: ceph-mds
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: release_group
+                      operator: In
+                      values:
+                        - release-name
+                    - key: application
+                      operator: In
+                      values:
+                        - ceph
+                    - key: component
+                      operator: In
+                      values:
+                        - mds
+                topologyKey: kubernetes.io/hostname
+              weight: 10
+      tolerations:
+        - effect: NoExecute
+          key: node.kubernetes.io/not-ready
+          operator: Exists
+          tolerationSeconds: 60
+        - effect: NoExecute
+          key: node.kubernetes.io/unreachable
+          operator: Exists
+          tolerationSeconds: 60
+      nodeSelector:
+        ceph-mds: enabled
+      initContainers:
+        - name: init
+          image: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: INTERFACE_NAME
+              value: eth0
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: DEPENDENCY_SERVICE
+              value: default:ceph-mon
+            - name: DEPENDENCY_JOBS
+              value: ceph-storage-keys-generator,ceph-mds-keyring-generator,ceph-rbd-pool
+            - name: DEPENDENCY_DAEMONSET
+              value: ""
+            - name: DEPENDENCY_CONTAINER
+              value: ""
+            - name: DEPENDENCY_POD_JSON
+              value: ""
+            - name: DEPENDENCY_CUSTOM_RESOURCE
+              value: ""
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+        - name: ceph-init-dirs
+          image: docker.io/openstackhelm/ceph-daemon:change_770201_ubuntu_bionic-20210113
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+          command:
+            - /tmp/init-dirs.sh
+          env:
+            - name: CLUSTER
+              value: ceph
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: pod-run
+              mountPath: /run
+            - name: pod-etc-ceph
+              mountPath: /etc/ceph
+            - name: ceph-client-bin
+              mountPath: /tmp/init-dirs.sh
+              subPath: init-dirs.sh
+              readOnly: true
+            - name: pod-var-lib-ceph
+              mountPath: /var/lib/ceph
+              readOnly: false
+      containers:
+        - name: ceph-mds
+          image: docker.io/openstackhelm/ceph-daemon:change_770201_ubuntu_bionic-20210113
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 10775
+            capabilities:
+              drop:
+                "": NET_RAW
+          command:
+            - /tmp/mds-start.sh
+          env:
+            - name: CLUSTER
+              value: ceph
+            - name: CEPHFS_CREATE
+              value: "1"
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: MON_PORT
+              value: "6789"
+            - name: MON_PORT_V2
+              value: "3300"
+          ports:
+            - containerPort: 6800
+          livenessProbe:
+            tcpSocket:
+              port: 6800
+            initialDelaySeconds: 60
+            timeoutSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: 6800
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: pod-run
+              mountPath: /run
+            - name: pod-etc-ceph
+              mountPath: /etc/ceph
+            - name: ceph-client-bin
+              mountPath: /tmp/mds-start.sh
+              subPath: mds-start.sh
+              readOnly: true
+            - name: ceph-client-bin
+              mountPath: /tmp/utils-checkDNS.sh
+              subPath: utils-checkDNS.sh
+              readOnly: true
+            - name: ceph-client-etc
+              mountPath: /etc/ceph/ceph.conf.template
+              subPath: ceph.conf
+              readOnly: true
+            - name: ceph-client-admin-keyring
+              mountPath: /etc/ceph/ceph.client.admin.keyring
+              subPath: ceph.client.admin.keyring
+              readOnly: true
+            - name: ceph-bootstrap-mds-keyring
+              mountPath: /var/lib/ceph/bootstrap-mds/ceph.keyring
+              subPath: ceph.keyring
+              readOnly: false
+            - name: pod-var-lib-ceph
+              mountPath: /var/lib/ceph
+              readOnly: false
+      volumes:
+        - name: pod-tmp
+          emptyDir: {}
+        - name: pod-run
+          emptyDir:
+            medium: Memory
+        - name: pod-etc-ceph
+          emptyDir: {}
+        - name: ceph-client-etc
+          configMap:
+            name: ceph-client-etc
+            defaultMode: 292
+        - name: ceph-client-bin
+          configMap:
+            name: ceph-client-bin
+            defaultMode: 365
+        - name: pod-var-lib-ceph
+          emptyDir: {}
+        - name: ceph-client-admin-keyring
+          secret:
+            secretName: ceph-client-admin-keyring
+        - name: ceph-bootstrap-mds-keyring
+          secret:
+            secretName: ceph-bootstrap-mds-keyring
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: ceph-mgr
+  annotations:
+    openstackhelm.openstack.org/release_uuid: ""
+  labels:
+    release_group: release-name
+    application: ceph
+    component: mgr
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      release_group: release-name
+      application: ceph
+      component: mgr
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        release_group: release-name
+        application: ceph
+        component: mgr
+      annotations:
+        openstackhelm.openstack.org/release_uuid: ""
+        configmap-bin-hash: aa84f116394754844fa7d84f74aba1e7ca4c2f7c6ff6eba98dec7ecd96e5dcc0
+        configmap-etc-client-hash: 2e3fc275686ae0170b6270527b6eb1e59d511283f7272ff90455c3bfcb57bff6
+    spec:
+      securityContext:
+        runAsUser: 65534
+      serviceAccountName: ceph-mgr
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: release_group
+                      operator: In
+                      values:
+                        - release-name
+                    - key: application
+                      operator: In
+                      values:
+                        - ceph
+                    - key: component
+                      operator: In
+                      values:
+                        - mgr
+                topologyKey: kubernetes.io/hostname
+              weight: 10
+      tolerations:
+        - effect: NoExecute
+          key: node.kubernetes.io/not-ready
+          operator: Exists
+          tolerationSeconds: 60
+        - effect: NoExecute
+          key: node.kubernetes.io/unreachable
+          operator: Exists
+          tolerationSeconds: 60
+      nodeSelector:
+        ceph-mgr: enabled
+      hostNetwork: true
+      hostPID: true
+      dnsPolicy: ClusterFirstWithHostNet
+      initContainers:
+        - name: init
+          image: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: INTERFACE_NAME
+              value: eth0
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: DEPENDENCY_SERVICE
+              value: default:ceph-mon
+            - name: DEPENDENCY_JOBS
+              value: ceph-storage-keys-generator,ceph-mgr-keyring-generator
+            - name: DEPENDENCY_DAEMONSET
+              value: ""
+            - name: DEPENDENCY_CONTAINER
+              value: ""
+            - name: DEPENDENCY_POD_JSON
+              value: ""
+            - name: DEPENDENCY_CUSTOM_RESOURCE
+              value: ""
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+        - name: ceph-init-dirs
+          image: docker.io/openstackhelm/ceph-daemon:change_770201_ubuntu_bionic-20210113
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+          command:
+            - /tmp/init-dirs.sh
+          env:
+            - name: CLUSTER
+              value: ceph
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: pod-run
+              mountPath: /run
+            - name: pod-etc-ceph
+              mountPath: /etc/ceph
+            - name: ceph-client-bin
+              mountPath: /tmp/init-dirs.sh
+              subPath: init-dirs.sh
+              readOnly: true
+            - name: pod-var-lib-ceph
+              mountPath: /var/lib/ceph
+              readOnly: false
+      containers:
+        - name: ceph-mgr
+          image: docker.io/openstackhelm/ceph-daemon:change_770201_ubuntu_bionic-20210113
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 10062
+            capabilities:
+              drop:
+                "": NET_RAW
+          env:
+            - name: CLUSTER
+              value: ceph
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: MON_PORT
+              value: "6789"
+            - name: MON_PORT_V2
+              value: "3300"
+            - name: ENABLED_MODULES
+              value: |-
+                restful
+                status
+                prometheus
+                balancer
+                iostat
+                pg_autoscaler
+          command:
+            - /mgr-start.sh
+          ports:
+            - name: mgr
+              containerPort: 7000
+            - name: metrics
+              containerPort: 9283
+          livenessProbe:
+            exec:
+              command:
+                - /tmp/mgr-check.sh
+                - liveness
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+                - /tmp/mgr-check.sh
+                - readiness
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: pod-run
+              mountPath: /run
+            - name: pod-etc-ceph
+              mountPath: /etc/ceph
+            - name: ceph-client-bin
+              mountPath: /mgr-start.sh
+              subPath: mgr-start.sh
+              readOnly: true
+            - name: ceph-client-bin
+              mountPath: /tmp/mgr-check.sh
+              subPath: mgr-check.sh
+              readOnly: true
+            - name: ceph-client-bin
+              mountPath: /tmp/utils-checkDNS.sh
+              subPath: utils-checkDNS.sh
+              readOnly: true
+            - name: ceph-client-etc
+              mountPath: /etc/ceph/ceph.conf.template
+              subPath: ceph.conf
+              readOnly: true
+            - name: ceph-client-admin-keyring
+              mountPath: /etc/ceph/ceph.client.admin.keyring
+              subPath: ceph.client.admin.keyring
+              readOnly: true
+            - name: ceph-bootstrap-mgr-keyring
+              mountPath: /var/lib/ceph/bootstrap-mgr/ceph.keyring
+              subPath: ceph.keyring
+              readOnly: false
+            - name: pod-var-lib-ceph
+              mountPath: /var/lib/ceph
+              readOnly: false
+            - name: ceph-client-bin
+              mountPath: /tmp/utils-checkPGs.py
+              subPath: utils-checkPGs.py
+              readOnly: true
+            - name: ceph-client-bin
+              mountPath: /tmp/utils-checkPGs.sh
+              subPath: utils-checkPGs.sh
+              readOnly: true
+      volumes:
+        - name: pod-tmp
+          emptyDir: {}
+        - name: pod-run
+          emptyDir:
+            medium: Memory
+        - name: pod-etc-ceph
+          emptyDir: {}
+        - name: ceph-client-bin
+          configMap:
+            name: ceph-client-bin
+            defaultMode: 365
+        - name: ceph-client-etc
+          configMap:
+            name: ceph-client-etc
+            defaultMode: 292
+        - name: pod-var-lib-ceph
+          emptyDir: {}
+        - name: ceph-client-admin-keyring
+          secret:
+            secretName: ceph-client-admin-keyring
+        - name: ceph-bootstrap-mgr-keyring
+          secret:
+            secretName: ceph-bootstrap-mgr-keyring
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ceph-rbd-pool
+  annotations:
+    openstackhelm.openstack.org/release_uuid: ""
+spec:
+  template:
+    metadata:
+      name: ceph-rbd-pool
+      labels:
+        release_group: release-name
+        application: ceph
+        component: rbd-pool
+      annotations: null
+    spec:
+      securityContext:
+        runAsUser: 65534
+      serviceAccountName: ceph-rbd-pool
+      restartPolicy: OnFailure
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: release_group
+                      operator: In
+                      values:
+                        - release-name
+                    - key: application
+                      operator: In
+                      values:
+                        - ceph
+                    - key: component
+                      operator: In
+                      values:
+                        - rbd-pool
+                topologyKey: kubernetes.io/hostname
+              weight: 10
+      nodeSelector:
+        openstack-control-plane: enabled
+      initContainers:
+        - name: init
+          image: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: INTERFACE_NAME
+              value: eth0
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: DEPENDENCY_SERVICE
+              value: default:ceph-mon,default:ceph-mgr
+            - name: DEPENDENCY_DAEMONSET
+              value: ""
+            - name: DEPENDENCY_CONTAINER
+              value: ""
+            - name: DEPENDENCY_POD_JSON
+              value: ""
+            - name: DEPENDENCY_CUSTOM_RESOURCE
+              value: ""
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+      containers:
+        - name: ceph-rbd-pool
+          image: docker.io/openstackhelm/ceph-config-helper:change_770201_ubuntu_bionic-20210113
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                "": NET_RAW
+          env:
+            - name: CLUSTER
+              value: ceph
+            - name: ENABLE_AUTOSCALER
+              value: "true"
+            - name: CLUSTER_SET_FLAGS
+              value: ""
+            - name: CLUSTER_UNSET_FLAGS
+              value: ""
+          command:
+            - /tmp/pool-init.sh
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: ceph-client-bin
+              mountPath: /tmp/pool-init.sh
+              subPath: pool-init.sh
+              readOnly: true
+            - name: ceph-client-bin
+              mountPath: /tmp/pool-calc.py
+              subPath: pool-calc.py
+              readOnly: true
+            - name: ceph-client-etc
+              mountPath: /etc/ceph/ceph.conf
+              subPath: ceph.conf
+              readOnly: true
+            - name: ceph-client-admin-keyring
+              mountPath: /etc/ceph/ceph.client.admin.keyring
+              subPath: ceph.client.admin.keyring
+              readOnly: true
+            - name: pod-var-lib-ceph
+              mountPath: /var/lib/ceph
+              readOnly: false
+            - name: pod-run
+              mountPath: /run
+              readOnly: false
+      volumes:
+        - name: pod-tmp
+          emptyDir: {}
+        - name: ceph-client-etc
+          configMap:
+            name: ceph-client-etc
+            defaultMode: 292
+        - name: ceph-client-bin
+          configMap:
+            name: ceph-client-bin
+            defaultMode: 365
+        - name: pod-var-lib-ceph
+          emptyDir: {}
+        - name: pod-run
+          emptyDir:
+            medium: Memory
+        - name: ceph-client-admin-keyring
+          secret:
+            secretName: ceph-client-admin-keyring
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: ceph-pool-checkpgs
+  annotations:
+    openstackhelm.openstack.org/release_uuid: ""
+  labels:
+    release_group: release-name
+    application: ceph
+    component: pool-checkpgs
+spec:
+  schedule: '*/15 * * * *'
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 60
+  jobTemplate:
+    metadata:
+      labels:
+        release_group: release-name
+        application: ceph
+        component: pool-checkpgs
+    spec:
+      template:
+        metadata:
+          labels:
+            release_group: release-name
+            application: ceph
+            component: pool-checkpgs
+        spec:
+          serviceAccountName: ceph-pool-checkpgs
+          nodeSelector:
+            ceph-mgr: enabled
+          initContainers:
+            - name: init
+              image: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsUser: 65534
+              env:
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.name
+                - name: NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.namespace
+                - name: INTERFACE_NAME
+                  value: eth0
+                - name: PATH
+                  value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+                - name: DEPENDENCY_SERVICE
+                  value: default:ceph-mgr
+                - name: DEPENDENCY_JOBS
+                  value: ceph-rbd-pool
+                - name: DEPENDENCY_DAEMONSET
+                  value: ""
+                - name: DEPENDENCY_CONTAINER
+                  value: ""
+                - name: DEPENDENCY_POD_JSON
+                  value: ""
+                - name: DEPENDENCY_CUSTOM_RESOURCE
+                  value: ""
+              command:
+                - kubernetes-entrypoint
+              volumeMounts: []
+          containers:
+            - name: ceph-pool-checkpgs
+              image: docker.io/openstackhelm/ceph-config-helper:change_770201_ubuntu_bionic-20210113
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: DEPLOYMENT_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              command:
+                - /tmp/utils-checkPGs.sh
+              volumeMounts:
+                - name: pod-tmp
+                  mountPath: /tmp
+                - name: pod-etc-ceph
+                  mountPath: /etc/ceph
+                - name: ceph-client-bin
+                  mountPath: /tmp/utils-checkPGs.py
+                  subPath: utils-checkPGs.py
+                  readOnly: true
+                - name: ceph-client-bin
+                  mountPath: /tmp/utils-checkPGs.sh
+                  subPath: utils-checkPGs.sh
+                  readOnly: true
+                - name: ceph-client-etc
+                  mountPath: /etc/ceph/ceph.conf
+                  subPath: ceph.conf
+                  readOnly: true
+                - mountPath: /etc/ceph/ceph.client.admin.keyring
+                  name: ceph-client-admin-keyring
+                  readOnly: true
+                  subPath: ceph.client.admin.keyring
+                - mountPath: /etc/ceph/ceph.mon.keyring.seed
+                  name: ceph-mon-keyring
+                  readOnly: true
+                  subPath: ceph.mon.keyring
+                - mountPath: /var/lib/ceph/bootstrap-osd/ceph.keyring
+                  name: ceph-bootstrap-osd-keyring
+                  readOnly: true
+                  subPath: ceph.keyring
+                - mountPath: /var/lib/ceph/bootstrap-mds/ceph.keyring
+                  name: ceph-bootstrap-mds-keyring
+                  readOnly: true
+                  subPath: ceph.keyring
+          restartPolicy: Never
+          hostNetwork: true
+          volumes:
+            - name: pod-tmp
+              emptyDir: {}
+            - name: pod-etc-ceph
+              emptyDir: {}
+            - name: ceph-client-bin
+              configMap:
+                name: ceph-client-bin
+                defaultMode: 365
+            - name: ceph-client-etc
+              configMap:
+                name: ceph-client-etc
+                defaultMode: 292
+            - name: ceph-client-admin-keyring
+              secret:
+                defaultMode: 420
+                secretName: ceph-client-admin-keyring
+            - name: ceph-mon-keyring
+              secret:
+                defaultMode: 420
+                secretName: ceph-mon-keyring
+            - name: ceph-bootstrap-osd-keyring
+              secret:
+                defaultMode: 420
+                secretName: ceph-bootstrap-osd-keyring
+            - name: ceph-bootstrap-mds-keyring
+              secret:
+                defaultMode: 420
+                secretName: ceph-bootstrap-mds-keyring
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: ceph-defragosds
+  annotations:
+    openstackhelm.openstack.org/release_uuid: ""
+  labels:
+    release_group: release-name
+    application: ceph
+    component: ceph-defragosds
+spec:
+  schedule: 0 0 1 * *
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 60
+  jobTemplate:
+    metadata:
+      labels:
+        release_group: release-name
+        application: ceph
+        component: ceph-defragosds
+    spec:
+      template:
+        metadata:
+          labels:
+            release_group: release-name
+            application: ceph
+            component: ceph-defragosds
+        spec:
+          serviceAccountName: ceph-defragosds
+          nodeSelector:
+            ceph-mgr: enabled
+          containers:
+            - name: ceph-defragosds
+              image: docker.io/openstackhelm/ceph-config-helper:change_770201_ubuntu_bionic-20210113
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: KUBECTL_PARAM
+                  value: -l application=ceph -l component=ceph-defragosd
+              command:
+                - /tmp/utils-defragOSDs.sh
+                - cron
+              volumeMounts:
+                - name: pod-tmp
+                  mountPath: /tmp
+                - name: pod-etc-ceph
+                  mountPath: /etc/ceph
+                - name: ceph-client-bin
+                  mountPath: /tmp/utils-defragOSDs.sh
+                  subPath: utils-defragOSDs.sh
+                  readOnly: true
+          restartPolicy: Never
+          hostNetwork: true
+          volumes:
+            - name: pod-tmp
+              emptyDir: {}
+            - name: pod-etc-ceph
+              emptyDir: {}
+            - name: ceph-client-bin
+              configMap:
+                name: ceph-client-bin
+                defaultMode: 365
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-test
+  labels:
+    release_group: release-name
+    application: ceph-client
+    component: test
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  securityContext:
+    runAsUser: 65534
+  restartPolicy: Never
+  serviceAccountName: release-name-test
+  nodeSelector:
+    openstack-control-plane: enabled
+  initContainers:
+    - name: init
+      image: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+      imagePullPolicy: IfNotPresent
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsUser: 65534
+      env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+        - name: INTERFACE_NAME
+          value: eth0
+        - name: PATH
+          value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+        - name: DEPENDENCY_SERVICE
+          value: default:ceph-mon,default:ceph-mgr
+        - name: DEPENDENCY_JOBS
+          value: ceph-rbd-pool,ceph-mgr-keyring-generator
+        - name: DEPENDENCY_DAEMONSET
+          value: ""
+        - name: DEPENDENCY_CONTAINER
+          value: ""
+        - name: DEPENDENCY_POD_JSON
+          value: ""
+        - name: DEPENDENCY_CUSTOM_RESOURCE
+          value: ""
+      command:
+        - kubernetes-entrypoint
+      volumeMounts: []
+  containers:
+    - name: ceph-cluster-helm-test
+      image: docker.io/openstackhelm/ceph-config-helper:change_770201_ubuntu_bionic-20210113
+      imagePullPolicy: IfNotPresent
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+      env:
+        - name: CLUSTER
+          value: ceph
+        - name: CEPH_DEPLOYMENT_NAMESPACE
+          value: default
+        - name: REQUIRED_PERCENT_OF_OSDS
+          value: "75"
+        - name: EXPECTED_CRUSHRULE
+          value: replicated_rule
+        - name: MGR_COUNT
+          value: "2"
+        - name: ENABLE_AUTOSCALER
+          value: "true"
+        - name: DEVICE_HEALTH_METRICS
+          value: "1"
+        - name: RBD
+          value: "3"
+        - name: CEPHFS_METADATA
+          value: "3"
+        - name: CEPHFS_DATA
+          value: "3"
+        - name: _RGW_ROOT
+          value: "3"
+        - name: DEFAULT_RGW_CONTROL
+          value: "3"
+        - name: DEFAULT_RGW_DATA_ROOT
+          value: "3"
+        - name: DEFAULT_RGW_GC
+          value: "3"
+        - name: DEFAULT_RGW_LOG
+          value: "3"
+        - name: DEFAULT_RGW_INTENT-LOG
+          value: "3"
+        - name: DEFAULT_RGW_META
+          value: "3"
+        - name: DEFAULT_RGW_USAGE
+          value: "3"
+        - name: DEFAULT_RGW_USERS_KEYS
+          value: "3"
+        - name: DEFAULT_RGW_USERS_EMAIL
+          value: "3"
+        - name: DEFAULT_RGW_USERS_SWIFT
+          value: "3"
+        - name: DEFAULT_RGW_USERS_UID
+          value: "3"
+        - name: DEFAULT_RGW_BUCKETS_EXTRA
+          value: "3"
+        - name: DEFAULT_RGW_BUCKETS_INDEX
+          value: "3"
+        - name: DEFAULT_RGW_BUCKETS_DATA
+          value: "3"
+      command:
+        - /tmp/helm-tests.sh
+      volumeMounts:
+        - name: pod-tmp
+          mountPath: /tmp
+        - name: ceph-client-bin
+          mountPath: /tmp/helm-tests.sh
+          subPath: helm-tests.sh
+          readOnly: true
+        - name: ceph-client-admin-keyring
+          mountPath: /etc/ceph/ceph.client.admin.keyring
+          subPath: ceph.client.admin.keyring
+          readOnly: true
+        - name: ceph-client-etc
+          mountPath: /etc/ceph/ceph.conf
+          subPath: ceph.conf
+          readOnly: true
+  volumes:
+    - name: pod-tmp
+      emptyDir: {}
+    - name: ceph-client-bin
+      configMap:
+        name: ceph-client-bin
+        defaultMode: 365
+    - name: ceph-client-admin-keyring
+      secret:
+        secretName: ceph-client-admin-keyring
+    - name: ceph-client-etc
+      configMap:
+        name: ceph-client-etc
+        defaultMode: 292

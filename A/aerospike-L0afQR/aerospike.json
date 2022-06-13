@@ -1,0 +1,170 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-aerospike",
+      "labels": {
+        "app": "aerospike",
+        "chart": "aerospike-0.2.7",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "aerospike.conf": "# aerospike configuration\n    #default config file\nservice {\n    user root\n    group root\n    paxos-protocol v5\n    paxos-single-replica-limit 1\n    pidfile /var/run/aerospike/asd.pid\n    service-threads 4\n    transaction-queues 4\n    transaction-threads-per-queue 4\n    proto-fd-max 15000\n}\n\nlogging {\n    file /var/log/aerospike/aerospike.log {\n        context any info\n    }\n\n    console {\n        context any info\n    }\n}\n\nnetwork {\n    service {\n        address any\n        port 3000\n    }\n\n    heartbeat {\n        address any\n        interval 150\n        \n    mesh-seed-address-port release-name-aerospike-0.release-name-aerospike-mesh 3002\n        mode mesh\n        port 3002\n        timeout 20\n        protocol v3\n    }\n\n    fabric {\n        port 3001\n    }\n\n    info {\n        port 3003\n    }\n}\n\nnamespace test {\n    replication-factor 2\n    memory-size 1G\n    default-ttl 5d\n    storage-engine device {\n        file /opt/aerospike/data/test.dat\n        filesize 4G\n    }\n}\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-aerospike-mesh",
+      "labels": {
+        "app": "aerospike",
+        "chart": "aerospike-0.2.7",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": {
+        "service.alpha.kubernetes.io/tolerate-unready-endpoints": "true"
+      }
+    },
+    "spec": {
+      "publishNotReadyAddresses": true,
+      "clusterIP": "None",
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 3002,
+          "protocol": "TCP",
+          "name": "aerospike-mesh"
+        }
+      ],
+      "selector": {
+        "app": "aerospike",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-aerospike",
+      "labels": {
+        "app": "aerospike",
+        "chart": "aerospike-0.2.7",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": {
+        "service.alpha.kubernetes.io/tolerate-unready-endpoints": "true"
+      }
+    },
+    "spec": {
+      "publishNotReadyAddresses": true,
+      "clusterIP": "None",
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 3000,
+          "protocol": "TCP",
+          "name": "aerospike-client"
+        },
+        {
+          "port": 3002,
+          "protocol": "TCP",
+          "name": "aerospike-mesh"
+        }
+      ],
+      "selector": {
+        "app": "aerospike",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-aerospike",
+      "labels": {
+        "app": "aerospike",
+        "chart": "aerospike-0.2.7",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "serviceName": "release-name-aerospike-mesh",
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "aerospike",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "terminationGracePeriodSeconds": 30,
+          "containers": [
+            {
+              "name": "release-name-aerospike",
+              "image": "aerospike/aerospike-server:4.5.0.5",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "containerPort": 3000,
+                  "name": "aero-clients"
+                },
+                {
+                  "containerPort": 3002,
+                  "name": "aero-mesh"
+                },
+                {
+                  "containerPort": 3003,
+                  "name": "aero-info"
+                }
+              ],
+              "readinessProbe": {
+                "tcpSocket": {
+                  "port": 3000
+                },
+                "initialDelaySeconds": 15,
+                "timeoutSeconds": 1
+              },
+              "volumeMounts": [
+                {
+                  "name": "config-volume",
+                  "mountPath": "/etc/aerospike"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "nodeSelector": {},
+          "volumes": [
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "release-name-aerospike",
+                "items": [
+                  {
+                    "key": "aerospike.conf",
+                    "path": "aerospike.conf"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": null
+    }
+  }
+]

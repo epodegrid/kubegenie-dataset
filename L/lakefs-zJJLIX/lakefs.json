@@ -1,0 +1,177 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-lakefs"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-lakefs",
+      "labels": {
+        "helm.sh/chart": "lakefs-0.5.62",
+        "app": "lakefs",
+        "app.kubernetes.io/name": "lakefs",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.66.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app": "lakefs",
+        "app.kubernetes.io/name": "lakefs",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-lakefs",
+      "labels": {
+        "helm.sh/chart": "lakefs-0.5.62",
+        "app": "lakefs",
+        "app.kubernetes.io/name": "lakefs",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.66.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "lakefs",
+          "app.kubernetes.io/name": "lakefs",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config": "733d43669d8c80736953942d35b8e56ed4b79b012d5b63cd02990c12a7722fa2"
+          },
+          "labels": {
+            "app": "lakefs",
+            "app.kubernetes.io/name": "lakefs",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "securityContext": null,
+          "containers": [
+            {
+              "name": "lakefs",
+              "command": [
+                "/app/wait-for",
+                "localhost:5432",
+                "--",
+                "/app/lakefs",
+                "run"
+              ],
+              "args": [
+                "run"
+              ],
+              "securityContext": null,
+              "image": "treeverse/lakefs:0.66.0",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8000,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/_health",
+                  "port": "http"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/_health",
+                  "port": "http"
+                }
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "lakefs-local-data",
+                  "mountPath": "/lakefs/data"
+                }
+              ],
+              "env": [
+                {
+                  "name": "LAKEFS_DATABASE_CONNECTION_STRING",
+                  "value": "postgres://postgres:password@localhost:5432/postgres?sslmode=disable"
+                },
+                {
+                  "name": "LAKEFS_AUTH_ENCRYPT_SECRET_KEY",
+                  "value": "asdjfhjaskdhuioaweyuiorasdsjbaskcbkj"
+                },
+                {
+                  "name": "LAKEFS_BLOCKSTORE_TYPE",
+                  "value": "local"
+                },
+                {
+                  "name": "LAKEFS_BLOCKSTORE_LOCAL_PATH",
+                  "value": "/lakefs/data"
+                }
+              ]
+            },
+            {
+              "name": "lakefs-postgres",
+              "image": "postgres:11",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "containerPort": 5432
+                }
+              ],
+              "env": [
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "value": "password"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/var/lib/postgresql/data",
+                  "name": "lakefs-postgredb"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "lakefs-postgredb"
+            },
+            {
+              "name": "lakefs-local-data"
+            }
+          ]
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,427 @@
+apiVersion: extensions/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: release-name-grafana
+  labels:
+    app: grafana
+    chart: grafana-3.3.6
+    heritage: Helm
+    release: release-name
+  annotations:
+    seccomp.security.alpha.kubernetes.io/allowedProfileNames: docker/default
+    seccomp.security.alpha.kubernetes.io/defaultProfileName: docker/default
+    apparmor.security.beta.kubernetes.io/allowedProfileNames: runtime/default
+    apparmor.security.beta.kubernetes.io/defaultProfileName: runtime/default
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - FOWNER
+    - FSETID
+    - KILL
+    - SETGID
+    - SETUID
+    - SETPCAP
+    - NET_BIND_SERVICE
+    - NET_RAW
+    - SYS_CHROOT
+    - MKNOD
+    - AUDIT_WRITE
+    - SETFCAP
+  volumes:
+    - configMap
+    - emptyDir
+    - projected
+    - secret
+    - downwardAPI
+    - persistentVolumeClaim
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  runAsUser:
+    rule: RunAsAny
+  seLinux:
+    rule: RunAsAny
+  supplementalGroups:
+    rule: RunAsAny
+  fsGroup:
+    rule: RunAsAny
+  readOnlyRootFilesystem: false
+  rule: MustRunAsNonRoot
+---
+apiVersion: extensions/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: release-name-grafana-test
+  labels:
+    app: grafana
+    chart: grafana-3.3.6
+    heritage: Helm
+    release: release-name
+spec:
+  allowPrivilegeEscalation: true
+  privileged: false
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  fsGroup:
+    rule: RunAsAny
+  seLinux:
+    rule: RunAsAny
+  supplementalGroups:
+    rule: RunAsAny
+  runAsUser:
+    rule: RunAsAny
+  volumes:
+    - configMap
+    - downwardAPI
+    - emptyDir
+    - projected
+    - secret
+  rule: MustRunAsNonRoot
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: grafana
+    chart: grafana-3.3.6
+    heritage: Helm
+    release: release-name
+  name: release-name-grafana
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: grafana
+    chart: grafana-3.3.6
+    heritage: Helm
+    release: release-name
+  name: release-name-grafana-test
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-grafana
+  labels:
+    app: grafana
+    chart: grafana-3.3.6
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  admin-user: YWRtaW4=
+  admin-password: UkVOaXI0bUNOSkdUTG9jalRMRmVqeUNQRDZrYWxxM0s4WVBSTVFveQ==
+  ldap-toml: ""
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-grafana
+  labels:
+    app: grafana
+    chart: grafana-3.3.6
+    release: release-name
+    heritage: Helm
+data:
+  grafana.ini: |
+    [analytics]
+    check_for_updates = true
+    [grafana_net]
+    url = https://grafana.net
+    [log]
+    mode = console
+    [paths]
+    data = /var/lib/grafana/data
+    logs = /var/log/grafana
+    plugins = /var/lib/grafana/plugins
+    provisioning = /etc/grafana/provisioning
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-grafana-test
+  labels:
+    app: release-name-grafana
+    chart: grafana-3.3.6
+    heritage: Helm
+    release: release-name
+data:
+  run.sh: |-
+    @test "Test Health" {
+      url="http://release-name-grafana/api/health"
+
+      code=$(curl -s -o /dev/null -I -w "%{http_code}" $url)
+      [ "$code" == "200" ]
+    }
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  labels:
+    app: grafana
+    chart: grafana-3.3.6
+    release: release-name
+    heritage: Helm
+  name: release-name-grafana-clusterrole
+rules: []
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-grafana-clusterrolebinding
+  labels:
+    app: grafana
+    chart: grafana-3.3.6
+    release: release-name
+    heritage: Helm
+subjects:
+  - kind: ServiceAccount
+    name: release-name-grafana
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: release-name-grafana-clusterrole
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: Role
+metadata:
+  name: release-name-grafana
+  labels:
+    app: grafana
+    chart: grafana-3.3.6
+    heritage: Helm
+    release: release-name
+rules:
+  - apiGroups:
+      - extensions
+    resources:
+      - podsecuritypolicies
+    verbs:
+      - use
+    resourceNames:
+      - release-name-grafana
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-grafana-test
+  labels:
+    app: grafana
+    chart: grafana-3.3.6
+    heritage: Helm
+    release: release-name
+rules:
+  - apiGroups:
+      - policy
+    resources:
+      - podsecuritypolicies
+    verbs:
+      - use
+    resourceNames:
+      - release-name-grafana-test
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: RoleBinding
+metadata:
+  name: release-name-grafana
+  labels:
+    app: grafana
+    chart: grafana-3.3.6
+    heritage: Helm
+    release: release-name
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-grafana
+subjects:
+  - kind: ServiceAccount
+    name: release-name-grafana
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-grafana-test
+  labels:
+    app: grafana
+    chart: grafana-3.3.6
+    heritage: Helm
+    release: release-name
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-grafana-test
+subjects:
+  - kind: ServiceAccount
+    name: release-name-grafana-test
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-grafana
+  labels:
+    app: grafana
+    chart: grafana-3.3.6
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: service
+      port: 80
+      protocol: TCP
+      targetPort: 3000
+  selector:
+    app: grafana
+    release: release-name
+---
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  name: release-name-grafana
+  labels:
+    app: grafana
+    chart: grafana-3.3.6
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+      release: release-name
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: grafana
+        release: release-name
+      annotations:
+        checksum/config: 763bad740e5491cf552ec841eb4aa4192f9d301fdea7ce65389a78e024bd752e
+        checksum/dashboards-json-config: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
+        checksum/sc-dashboard-provider-config: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
+        checksum/secret: 438d8954db8458a655d63f4aaadd733e861acb259f7190933e7fef7729f87046
+    spec:
+      serviceAccountName: release-name-grafana
+      securityContext:
+        fsGroup: 472
+        runAsUser: 472
+      containers:
+        - name: grafana
+          image: grafana/grafana:6.1.6
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: config
+              mountPath: /etc/grafana/grafana.ini
+              subPath: grafana.ini
+            - name: ldap
+              mountPath: /etc/grafana/ldap.toml
+              subPath: ldap.toml
+            - name: storage
+              mountPath: /var/lib/grafana
+          ports:
+            - name: service
+              containerPort: 80
+              protocol: TCP
+            - name: grafana
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-grafana
+                  key: admin-user
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-grafana
+                  key: admin-password
+          livenessProbe:
+            failureThreshold: 10
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 60
+            timeoutSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-grafana
+        - name: ldap
+          secret:
+            secretName: release-name-grafana
+            items:
+              - key: ldap-toml
+                path: ldap.toml
+        - name: storage
+          emptyDir: {}
+---
+apiVersion: jenkins.io/v1
+kind: App
+metadata:
+  name: release-name-jx-app-grafana
+  labels:
+    chart: jx-app-grafana-0.0.10
+spec:
+  exposedServices:
+    - release-name-grafana
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-grafana-test
+  labels:
+    app: release-name-grafana
+    chart: grafana-3.3.6
+    heritage: Helm
+    release: release-name
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  serviceAccountName: release-name-grafana-test
+  initContainers:
+    - name: test-framework
+      image: dduportal/bats:0.4.0
+      command:
+        - bash
+        - -c
+        - |
+          set -ex
+          # copy bats to tools dir
+          cp -R /usr/local/libexec/ /tools/bats/
+      volumeMounts:
+        - mountPath: /tools
+          name: tools
+  containers:
+    - name: release-name-test
+      image: dduportal/bats:0.4.0
+      command:
+        - /tools/bats/bats
+        - -t
+        - /tests/run.sh
+      volumeMounts:
+        - mountPath: /tests
+          name: tests
+          readOnly: true
+        - mountPath: /tools
+          name: tools
+  volumes:
+    - name: tests
+      configMap:
+        name: release-name-grafana-test
+    - name: tools
+      emptyDir: {}
+  restartPolicy: Never

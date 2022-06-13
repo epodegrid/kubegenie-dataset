@@ -1,0 +1,190 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "nginx-rtmp-config"
+    },
+    "data": {
+      "nginx_rtmp_config.sh": "#!/bin/bash\n#ip addr add 192.168.99.2 dev north0\n#ip addr add 192.168.99.3 dev north0d1\n#ip route del default dev eth0\n#ip route add default gw 192.168.99.2 north0\nip route add 16.0.0.0/8 via 13.0.0.83 dev sgi-net;\nip route add 17.0.0.0/8 via 13.0.0.83 dev sgi-net;\nip link set sgi-net mtu 1200;\ncp /conf/nginx.conf  /etc/nginx/\n#nginx -c /etc/nginx/nginx.conf\n#while true; do sleep 1; done\nnginx -g \"daemon off;\"\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "nginx-rtmp-conf"
+    },
+    "data": {
+      "nginx.conf": "#user  nobody;\nworker_processes  1;\n\n#error_log  logs/error.log;\n#error_log  logs/error.log  notice;\n#error_log  logs/error.log  info;\n\n#pid        logs/nginx.pid;\n\n\nevents {\n    worker_connections  1024;\n}\n\n\nhttp {\n    include       mime.types;\n    default_type  application/octet-stream;\n\n    #log_format  main  '$remote_addr - $remote_user [$time_local] \"$request\" '\n    #                  '$status $body_bytes_sent \"$http_referer\" '\n    #                  '\"$http_user_agent\" \"$http_x_forwarded_for\"';\n\n    #access_log  logs/access.log  main;\n\n    sendfile        on;\n    #tcp_nopush     on;\n\n    #keepalive_timeout  0;\n    keepalive_timeout  65;\n\n    #gzip  on;\n\n    server {\n        listen       8085;\n        server_name  localhost;\n\n        #charset koi8-r;\n\n        #access_log  logs/host.access.log  main;\n\n        location / {\n            root   html;\n            index  index.html index.htm;\n        }\n\n        #error_page  404              /404.html;\n\n        # redirect server error pages to the static page /50x.html\n        #\n        error_page   500 502 503 504  /50x.html;\n        location = /50x.html {\n            root   html;\n        }\n\n        # proxy the PHP scripts to Apache listening on 127.0.0.1:80\n        #\n        #location ~ \\.php$ {\n        #    proxy_pass   http://127.0.0.1;\n        #}\n\n        # pass the PHP scripts to FastCGI server listening on 127.0.0.1:9000\n        #\n        #location ~ \\.php$ {\n        #    root           html;\n        #    fastcgi_pass   127.0.0.1:9000;\n        #    fastcgi_index  index.php;\n        #    fastcgi_param  SCRIPT_FILENAME  /scripts$fastcgi_script_name;\n        #    include        fastcgi_params;\n        #}\n\n        # deny access to .htaccess files, if Apache's document root\n        # concurs with nginx's one\n        #\n        #location ~ /\\.ht {\n        #    deny  all;\n        #}\n    }\n\n\n    # another virtual host using mix of IP-, name-, and port-based configuration\n    #\n    #server {\n    #    listen       8000;\n    #    listen       somename:8080;\n    #    server_name  somename  alias  another.alias;\n\n    #    location / {\n    #        root   html;\n    #        index  index.html index.htm;\n    #    }\n    #}\n\n\n    # HTTPS server\n    #\n    #server {\n    #    listen       443 ssl;\n    #    server_name  localhost;\n\n    #    ssl_certificate      cert.pem;\n   #    ssl_certificate_key  cert.key;\n\n    #    ssl_session_cache    shared:SSL:1m;\n    #    ssl_session_timeout  5m;\n\n    #    ssl_ciphers  HIGH:!aNULL:!MD5;\n    #    ssl_prefer_server_ciphers  on;\n\n    #    location / {\n    #        root   html;\n    #        index  index.html index.htm;\n    #    }\n    #}\n\n}\nrtmp {\n    server {\n        listen 1935;\n        chunk_size 4000;\n        application r {\n           live on;\n           pull rtmp://10.10.10.10:1935/live;\n        }\n        application l {\n           #live on;\n           play /opt/cdn/movies;\n        }\n    }\n}\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "nginx-rtmp"
+    },
+    "spec": {
+      "selector": {
+        "app": "nginx-rtmp"
+      },
+      "type": "NodePort",
+      "ports": [
+        {
+          "name": "vlc",
+          "port": 1935,
+          "nodePort": 31935,
+          "protocol": "TCP"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "nginx-rtmp"
+    },
+    "spec": {
+      "serviceName": "nginx-rtmp",
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "name": "nginx-rtmp",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "name": "nginx-rtmp",
+            "app": "nginx-rtmp"
+          },
+          "annotations": {
+            "k8s.v1.cni.cncf.io/networks": "[ { \"name\": \"sgi-net\", \"interface\": \"sgi-net\", \"namespace\": \"default\" } ]"
+          }
+        },
+        "spec": {
+          "nodeSelector": {
+            "kubernetes.io/hostname": "node3"
+          },
+          "terminationGracePeriodSeconds": 0,
+          "imagePullSecrets": [
+            {
+              "name": "nexus-docker-secret"
+            }
+          ],
+          "initContainers": [
+            {
+              "name": "nginx-rtmp-init",
+              "image": "woojoong/nginx:onf-video-v3",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "cp /config/*.sh /shared-vol;cp /conf/* /shared-vol"
+              ],
+              "command": [
+                "/bin/bash",
+                "-c"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "shared-volume",
+                  "mountPath": "/shared-vol"
+                },
+                {
+                  "name": "nginx-rtmp-config",
+                  "mountPath": "/config"
+                },
+                {
+                  "name": "nginx-rtmp-conf",
+                  "mountPath": "/conf"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "nginx-rtmp",
+              "image": "woojoong/nginx:onf-video-v3",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "chmod a+x /config/*.sh;/config/nginx_rtmp_config.sh"
+              ],
+              "command": [
+                "/bin/bash",
+                "-c"
+              ],
+              "tty": true,
+              "securityContext": {
+                "privileged": true,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "ports": [
+                {
+                  "containerPort": 1935
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "shared-volume",
+                  "mountPath": "/config"
+                },
+                {
+                  "name": "shared-volume",
+                  "mountPath": "/conf"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "intel.com/sriov": "2"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "nginx-rtmp-config",
+              "configMap": {
+                "name": "nginx-rtmp-config",
+                "items": [
+                  {
+                    "key": "nginx_rtmp_config.sh",
+                    "path": "nginx_rtmp_config.sh"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "nginx-rtmp-conf",
+              "configMap": {
+                "name": "nginx-rtmp-conf",
+                "items": [
+                  {
+                    "key": "nginx.conf",
+                    "path": "nginx.conf"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "shared-volume",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  null,
+  null
+]

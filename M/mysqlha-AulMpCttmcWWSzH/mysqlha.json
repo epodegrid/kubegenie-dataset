@@ -1,0 +1,356 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-mysqlha",
+      "labels": {
+        "app": "release-name-mysqlha",
+        "chart": "mysqlha-0.5.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "mysql-root-password": "M25iQ1NoaDJZa2M0",
+      "mysql-replication-password": "SVZsbXBsTUMxVUlu"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-mysqlha",
+      "labels": {
+        "app": "release-name-mysqlha",
+        "chart": "mysqlha-0.5.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "master.cnf": "# Apply this config only on the master.\n[mysqld]\nlog-bin\nskip_name_resolve\n",
+      "slave.cnf": "# Apply this config only on slaves.\n[mysqld]\nsuper-read-only\nskip_name_resolve\n",
+      "server-id.cnf": "[mysqld]\nserver-id=@@SERVER_ID@@\n",
+      "create-replication-user.sh": "#!/bin/bash\nset -e\n\nmysql -h 127.0.0.1 --verbose -e \"CREATE USER IF NOT EXISTS '${MYSQL_REPLICATION_USER}' IDENTIFIED BY '${MYSQL_REPLICATION_PASSWORD}';\"\nmysql -h 127.0.0.1 --verbose -e \"GRANT PROCESS, RELOAD, REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO '${MYSQL_REPLICATION_USER}';\"\nmysql -h 127.0.0.1 --verbose -e \"FLUSH PRIVILEGES;\""
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-mysqlha",
+      "labels": {
+        "app": "release-name-mysqlha",
+        "chart": "mysqlha-0.5.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "release-name-mysqlha",
+          "port": 3306
+        }
+      ],
+      "clusterIP": "None",
+      "selector": {
+        "app": "release-name-mysqlha"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-mysqlha-readonly",
+      "labels": {
+        "app": "release-name-mysqlha",
+        "chart": "mysqlha-0.5.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "release-name-mysqlha",
+          "port": 3306
+        }
+      ],
+      "selector": {
+        "app": "release-name-mysqlha"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-mysqlha",
+      "labels": {
+        "app": "release-name-mysqlha",
+        "chart": "mysqlha-0.5.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "serviceName": "release-name-mysqlha",
+      "replicas": 3,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "release-name-mysqlha"
+          }
+        },
+        "spec": {
+          "initContainers": [
+            {
+              "name": "clone-mysql",
+              "image": "registry.cn-hangzhou.aliyuncs.com/kubeapps/gcr-xtrabackup:1.0",
+              "command": [
+                "bash",
+                "-c",
+                "set -ex\n# Skip the clone on master (ordinal index 0).\n[[ `hostname` =~ -([0-9]+)$ ]] || exit 1\nordinal=${BASH_REMATCH[1]}\n[[ $ordinal -eq 0 ]] && exit 0\n\n# If data already exists, delete and proceed to clone.\n[[ -d /var/lib/mysql/mysql ]] && rm -fr /var/lib/mysql/*\n\n# Clone data from previous peer.\nncat --recv-only release-name-mysqlha-$(($ordinal-1)).release-name-mysqlha 3307 | xbstream -x -C /var/lib/mysql\n# Prepare the backup.\nxtrabackup --prepare --user=${MYSQL_REPLICATION_USER} --password=${MYSQL_REPLICATION_PASSWORD} --target-dir=/var/lib/mysql\n"
+              ],
+              "env": [
+                {
+                  "name": "MYSQL_REPLICATION_USER",
+                  "value": "repl"
+                },
+                {
+                  "name": "MYSQL_REPLICATION_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-mysqlha",
+                      "key": "mysql-replication-password"
+                    }
+                  }
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/var/lib/mysql",
+                  "subPath": "mysql"
+                },
+                {
+                  "name": "conf",
+                  "mountPath": "/etc/mysql/conf.d"
+                }
+              ]
+            },
+            {
+              "name": "init-mysql",
+              "image": "mysql:5.7.13",
+              "command": [
+                "/bin/bash"
+              ],
+              "args": [
+                "-c",
+                "set -ex\n# Generate mysql server-id from pod ordinal index.\n[[ `hostname` =~ -([0-9]+)$ ]] || exit 1\nordinal=${BASH_REMATCH[1]}\n# Copy server-id.conf adding offset to avoid reserved server-id=0 value.\ncat /mnt/config-map/server-id.cnf | sed s/@@SERVER_ID@@/$((100 + $ordinal))/g > /mnt/conf.d/server-id.cnf\n# Copy appropriate conf.d files from config-map to config mount.\nif [[ $ordinal -eq 0 ]]; then\n  cp -f /mnt/config-map/master.cnf /mnt/conf.d/\nelse\n  cp -f /mnt/config-map/slave.cnf /mnt/conf.d/\nfi\n# Copy replication user script\nif [[ $ordinal -eq 0 ]]; then\n  cp -f /mnt/config-map/create-replication-user.sh /mnt/scripts/create-replication-user.sh\n  chmod 700 /mnt/scripts/create-replication-user.sh\nfi\n"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "conf",
+                  "mountPath": "/mnt/conf.d"
+                },
+                {
+                  "name": "config-map",
+                  "mountPath": "/mnt/config-map"
+                },
+                {
+                  "name": "scripts",
+                  "mountPath": "/mnt/scripts"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "mysql",
+              "image": "mysql:5.7.13",
+              "env": [
+                {
+                  "name": "MYSQL_DATABASE",
+                  "value": ""
+                },
+                {
+                  "name": "MYSQL_ROOT_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-mysqlha",
+                      "key": "mysql-root-password"
+                    }
+                  }
+                },
+                {
+                  "name": "MYSQL_REPLICATION_USER",
+                  "value": "repl"
+                },
+                {
+                  "name": "MYSQL_REPLICATION_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-mysqlha",
+                      "key": "mysql-replication-password"
+                    }
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "name": "mysql",
+                  "containerPort": 3306
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/var/lib/mysql",
+                  "subPath": "mysql"
+                },
+                {
+                  "name": "conf",
+                  "mountPath": "/etc/mysql/conf.d"
+                }
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "128Mi"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/sh",
+                    "-c",
+                    "mysqladmin ping -h 127.0.0.1 -u root -p${MYSQL_ROOT_PASSWORD}"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 5
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/sh",
+                    "-c",
+                    "MYSQL_PWD=\"${MYSQL_ROOT_PASSWORD}\"",
+                    "mysql -h 127.0.0.1 -u root -e \"SELECT 1\""
+                  ]
+                },
+                "initialDelaySeconds": 10,
+                "timeoutSeconds": 1
+              }
+            },
+            {
+              "name": "xtrabackup",
+              "image": "registry.cn-hangzhou.aliyuncs.com/kubeapps/gcr-xtrabackup:1.0",
+              "env": [
+                {
+                  "name": "MYSQL_PWD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-mysqlha",
+                      "key": "mysql-root-password"
+                    }
+                  }
+                },
+                {
+                  "name": "MYSQL_REPLICATION_USER",
+                  "value": "repl"
+                },
+                {
+                  "name": "MYSQL_REPLICATION_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-mysqlha",
+                      "key": "mysql-replication-password"
+                    }
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "name": "xtrabackup",
+                  "containerPort": 3307
+                }
+              ],
+              "command": [
+                "/bin/bash"
+              ],
+              "args": [
+                "-c",
+                "set -ex\n\necho \"Waiting for mysqld to be ready (accepting connections)\"\nuntil mysql -h 127.0.0.1 -e \"SELECT 1\"; do sleep 5; done\n\n# Create replication user\ncd /mnt/scripts\n# file exists and is not empty with -s\nif [[ -s create-replication-user.sh  ]]; then\n  ls -la\n  ./create-replication-user.sh\nfi\n\ncd /var/lib/mysql\n# Determine binlog position of cloned data, if any.\nif [[ -f xtrabackup_slave_info ]]; then\n  # XtraBackup already generated a partial \"CHANGE MASTER TO\" query\n  # because we're cloning from an existing slave.\n  cp xtrabackup_slave_info change_master_to.sql.in\nelif [[ -f xtrabackup_binlog_info ]]; then\n  # We're cloning directly from master. Parse binlog position.\n  [[ $(cat xtrabackup_binlog_info) =~ ^(.*?)[[:space:]]+(.*?)$ ]] || exit 1\n  echo \"CHANGE MASTER TO MASTER_LOG_FILE='${BASH_REMATCH[1]}',\\\n        MASTER_LOG_POS=${BASH_REMATCH[2]}\" > change_master_to.sql.in\nfi\n\n# Check if we need to complete a clone by starting replication.\nif [[ -f change_master_to.sql.in ]]; then\n\n  # In case of container restart, attempt this at-most-once.\n  cp change_master_to.sql.in change_master_to.sql.orig\n  mysql -h 127.0.0.1 --verbose<<EOF\n  STOP SLAVE IO_THREAD;\n  $(<change_master_to.sql.orig),\n  MASTER_HOST='release-name-mysqlha-0.release-name-mysqlha',\n  MASTER_USER='${MYSQL_REPLICATION_USER}',\n  MASTER_PASSWORD='${MYSQL_REPLICATION_PASSWORD}',\n  MASTER_CONNECT_RETRY=10;\n  START SLAVE;\nEOF\nfi\n\n# Start a server to send backups when requested by peers.\nexec ncat --listen --keep-open --send-only --max-conns=1 3307 -c \\\n  \"xtrabackup --backup --slave-info --stream=xbstream --host=127.0.0.1 --user=${MYSQL_REPLICATION_USER} --password=${MYSQL_REPLICATION_PASSWORD}\"\n"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/var/lib/mysql",
+                  "subPath": "mysql"
+                },
+                {
+                  "name": "conf",
+                  "mountPath": "/etc/mysql/conf.d"
+                },
+                {
+                  "name": "scripts",
+                  "mountPath": "/mnt/scripts"
+                }
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "100Mi"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "conf",
+              "emptyDir": {}
+            },
+            {
+              "name": "config-map",
+              "configMap": {
+                "name": "release-name-mysqlha"
+              }
+            },
+            {
+              "name": "scripts",
+              "emptyDir": {}
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data",
+            "annotations": null
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "10Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+]

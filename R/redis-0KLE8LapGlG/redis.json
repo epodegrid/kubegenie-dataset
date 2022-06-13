@@ -1,0 +1,135 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "drycc-redis",
+      "annotations": null,
+      "labels": {
+        "heritage": "drycc"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "selector": {
+        "app": "drycc-redis"
+      },
+      "ports": [
+        {
+          "port": 6379
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "drycc-redis",
+      "labels": {
+        "heritage": "drycc"
+      },
+      "annotations": {
+        "component.drycc.cc/version": "canary"
+      }
+    },
+    "spec": {
+      "serviceName": "drycc-redis",
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "drycc-redis"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "drycc-redis"
+          }
+        },
+        "spec": {
+          "affinity": {
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "weight": 2,
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "app",
+                          "operator": "In",
+                          "values": [
+                            "drycc-redis"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "topology.kubernetes.io/zone"
+                  }
+                },
+                {
+                  "weight": 1,
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {
+                          "key": "app",
+                          "operator": "In",
+                          "values": [
+                            "drycc-redis"
+                          ]
+                        }
+                      ]
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  }
+                }
+              ]
+            }
+          },
+          "containers": [
+            {
+              "name": "drycc-redis",
+              "image": "registry.drycc.cc/drycc/redis:canary",
+              "imagePullPolicy": "Always",
+              "args": [
+                "/bin/boot",
+                "--port",
+                "6379"
+              ],
+              "ports": [
+                {
+                  "containerPort": 6379
+                }
+              ]
+            }
+          ],
+          "securityContext": {
+            "fsGroup": 1001,
+            "runAsGroup": 1001,
+            "runAsUser": 1001
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "redis-creds",
+      "labels": {
+        "app": "drycc-redis",
+        "heritage": "drycc"
+      },
+      "annotations": {
+        "helm.sh/hook": "pre-install"
+      }
+    },
+    "data": {
+      "addrs": "ZHJ5Y2MtcmVkaXMtMC5kcnljYy1yZWRpcy5kZWZhdWx0LnN2Yy4lIXMoPG5pbD4pOjYzNzk=",
+      "password": "aDFJbzFsbFNVZjI3RWVzNWNGZk9NdkxXR0I0UzRqRnY="
+    }
+  }
+]

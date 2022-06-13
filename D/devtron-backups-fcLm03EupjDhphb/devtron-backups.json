@@ -1,0 +1,248 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/name": "argocd-backup"
+      },
+      "name": "argocd-backup",
+      "namespace": "devtroncd"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/name": "argocd-backup"
+      },
+      "name": "argocd-backup",
+      "namespace": "devtroncd"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "secrets",
+          "configmaps"
+        ],
+        "verbs": [
+          "get",
+          "list"
+        ]
+      },
+      {
+        "apiGroups": [
+          "argoproj.io"
+        ],
+        "resources": [
+          "applications",
+          "appprojects"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "labels": {
+        "app.kubernetes.io/name": "argocd-backup"
+      },
+      "name": "argocd-backup",
+      "namespace": "devtroncd"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "argocd-backup"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "argocd-backup"
+      }
+    ]
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "postgres-app-backup-cronjob",
+      "namespace": "devtroncd"
+    },
+    "spec": {
+      "schedule": "0 */12 * * *",
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "spec": {
+              "initContainers": [
+                {
+                  "name": "postgres-app-backup-cronjob",
+                  "image": "postgres:11.3",
+                  "volumeMounts": [
+                    {
+                      "mountPath": "/tmp",
+                      "name": "psql-volume"
+                    }
+                  ],
+                  "env": [
+                    {
+                      "name": "PGPASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "PG_PASSWORD",
+                          "name": "devtron-secret"
+                        }
+                      }
+                    }
+                  ],
+                  "imagePullPolicy": "Always",
+                  "args": [
+                    "/bin/bash",
+                    "-c",
+                    "pg_dumpall -h postgresql-postgresql.devtroncd -p 5432 -U postgres --no-privileges > /tmp/backup.tar;"
+                  ]
+                }
+              ],
+              "containers": [
+                {
+                  "name": "aws-cli-for-s3-download",
+                  "image": "quay.io/devtron/k8s-utils:aws-cli-ubuntu",
+                  "volumeMounts": [
+                    {
+                      "mountPath": "/tmp",
+                      "name": "psql-volume"
+                    }
+                  ],
+                  "env": [
+                    {
+                      "name": "S3_BUCKET",
+                      "value": "s3://"
+                    },
+                    {
+                      "name": "AWS_ACCESS_KEY_ID",
+                      "value": null
+                    },
+                    {
+                      "name": "AWS_SECRET_ACCESS_KEY",
+                      "value": null
+                    },
+                    {
+                      "name": "AWS_DEFAULT_REGION",
+                      "value": null
+                    }
+                  ],
+                  "imagePullPolicy": "Always",
+                  "args": [
+                    "/bin/bash",
+                    "-c",
+                    "date1=$(date +%Y%m%d-%H%M); mv /tmp/backup.tar /tmp/backup-$date1.tar; aws s3 cp /tmp/backup-$date1.tar $S3_BUCKET/postgres/;"
+                  ]
+                }
+              ],
+              "volumes": [
+                {
+                  "name": "psql-volume",
+                  "emptyDir": {}
+                }
+              ],
+              "restartPolicy": "OnFailure"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "argocd-app-backup-cronjob",
+      "namespace": "devtroncd"
+    },
+    "spec": {
+      "schedule": "0 */12 * * *",
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "spec": {
+              "initContainers": [
+                {
+                  "name": "argocd-app-backup-job",
+                  "image": "argoproj/argocd:v1.8.1",
+                  "volumeMounts": [
+                    {
+                      "mountPath": "/cache",
+                      "name": "argocd-volume"
+                    }
+                  ],
+                  "env": null,
+                  "imagePullPolicy": "Always",
+                  "args": [
+                    "/bin/bash",
+                    "-c",
+                    "argocd-util export --namespace devtroncd > /cache/backup.yaml;"
+                  ]
+                }
+              ],
+              "containers": [
+                {
+                  "name": "aws-cli-for-s3-upload",
+                  "image": "quay.io/devtron/k8s-utils:aws-cli-ubuntu",
+                  "volumeMounts": [
+                    {
+                      "mountPath": "/cache",
+                      "name": "argocd-volume"
+                    }
+                  ],
+                  "env": [
+                    {
+                      "name": "S3_BUCKET",
+                      "value": "s3://"
+                    },
+                    {
+                      "name": "AWS_ACCESS_KEY_ID",
+                      "value": null
+                    },
+                    {
+                      "name": "AWS_SECRET_ACCESS_KEY",
+                      "value": null
+                    },
+                    {
+                      "name": "AWS_DEFAULT_REGION",
+                      "value": null
+                    }
+                  ],
+                  "imagePullPolicy": "Always",
+                  "args": [
+                    "/bin/bash",
+                    "-c",
+                    "date1=$(date +%Y%m%d-%H%M); mv /cache/backup.yaml /cache/backup-$date1.yaml; aws s3 cp /cache/backup-$date1.yaml $S3_BUCKET/argocd/;"
+                  ]
+                }
+              ],
+              "volumes": [
+                {
+                  "name": "argocd-volume",
+                  "emptyDir": {}
+                }
+              ],
+              "restartPolicy": "OnFailure",
+              "serviceAccountName": "argocd-backup"
+            }
+          }
+        }
+      }
+    }
+  }
+]

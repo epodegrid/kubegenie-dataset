@@ -1,0 +1,289 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-configmap
+data:
+  topo.py: |
+    #!/usr/bin/python
+
+    # Copyright 2017-present Open Networking Foundation
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    # http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+
+    import re
+    import sys
+    import socket
+
+    from mininet.cli import CLI
+    from mininet.log import setLogLevel, info, error
+    from mininet.net import Mininet
+    from mininet.link import Intf
+    from mininet.topo import Topo, SingleSwitchTopo
+    from mininet.node import OVSSwitch, Controller, RemoteController
+    from mininet.nodelib import LinuxBridge
+    from functools import partial
+    from mininet.util import quietRun
+
+    if __name__ == '__main__':
+        setLogLevel( 'info' )
+
+        print quietRun( 'ovs-vsctl set Open_vSwitch . other_config:vlan-limit=2' )
+        OVSSwitch13 = partial( OVSSwitch, protocols='OpenFlow13' )
+        controllerIp = socket.gethostbyname( 'onos-openflow.default.svc.cluster.local' )
+
+        net = Mininet( topo=None )
+
+        info( '*** Adding controllers\n' )
+        onos = net.addController( name='onos', controller=RemoteController, ip=controllerIp, port=6653 )
+
+        info( '*** Adding switches\n' )
+        s1 = net.addSwitch( name='s1', cls=OVSSwitch13 )
+        s2 = net.addSwitch( 's2', cls=LinuxBridge )
+
+        info( '*** Creating hosts\n' )
+        h1 = net.addHost( 'h1', ip='10.0.0.1/24')
+        h2 = net.addHost( 'h2', ip='10.1.0.2/24')
+
+        # Topology: pon1 - eth1 - s1 - h1 - s2 - h2
+        net.addLink( h1, s1 )
+        net.addLink( h1, s2 )
+        net.addLink( h2, s2 )
+
+        info( '*** Adding hardware interface eth1 to switch s1\n')
+        _intf = Intf( 'eth1', node=s1 )
+
+        info( '*** Turning off checksum offloading for eth1\n' )
+        print quietRun( 'ethtool -K eth1 tx off rx off' )
+
+        info( '*** Adding VLAN interface to host h1\n')
+        h1.cmd( 'ifconfig h1-eth1 10.1.0.1/24 up')
+        h1.cmd( 'ip link add link h1-eth0 name h1-eth0.222 type vlan proto 802.1Q id 222' )
+        h1.cmd( 'ip link add link h1-eth0.222 name h1-eth0.222.111 type vlan proto 802.1Q id 111' )
+        h1.cmd( 'ifconfig h1-eth0.222 up' )
+        h1.cmd( 'ifconfig h1-eth0.222.111 up' )
+        h1.cmd( 'ifconfig h1-eth0.222.111 172.18.0.10/24' )
+        h1.cmd( 'dnsmasq  --dhcp-range=172.18.0.50,172.18.0.150,12h' )
+        info( '*** Start multicast routing on h1 and source on h2\n')
+        h1.cmd( 'service pimd start' )
+        h2.cmd( 'mcjoin -s -i h2-eth0 -t 2 >& /tmp/mcjoin.log &')
+
+        onos.start()
+        s1.start( [onos] )
+
+        net.start()
+        CLI( net )
+        net.stop()
+  topo_sdbng.py: |
+    #!/usr/bin/python
+
+    # Copyright 2019-present Open Networking Foundation
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    # http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+
+    from mininet.cli import CLI
+    from mininet.log import setLogLevel, info, error
+    from mininet.net import Mininet
+    from mininet.link import Intf
+    from mininet.nodelib import LinuxBridge
+    from stratum import StratumBmv2Switch
+    from mininet.util import quietRun
+
+    CPU_PORT = 255
+
+    if __name__ == '__main__':
+        setLogLevel( 'info' )
+
+        net = Mininet( topo=None )
+
+        info( '*** Adding switches\n' )
+        agg1 = net.addSwitch( name='agg1', cls=StratumBmv2Switch, cpuport=CPU_PORT)
+        # FIXME: enable multicast
+        # s2 = net.addSwitch( 's2', cls=LinuxBridge )
+
+        info( '*** Creating hosts\n' )
+        h1 = net.addHost( 'h1' ) # PPPoE Server
+        h2 = net.addHost( 'h2', ip='10.10.10.1/24', mac="00:66:77:88:99:AA") # Upstream
+        # FIXME: enable multicast
+        # h3 = net.addHost( 'h3')
+
+        # Topology: pon1 - eth1 - agg1 - h2 - s2 - h3
+        #                          |
+        #                          h1
+        net.addLink( h1, agg1 )
+        net.addLink( h2, agg1 )
+        # FIXME: enable multicast
+        # net.addLink( h2, s2 )
+        # net.addLink( h3, s2 )
+
+        info( '*** Adding hardware interface eth1 to switch agg1\n')
+        _intf = Intf( 'eth1', node=agg1 )
+
+        info( '*** Turning off checksum offloading for eth1\n' )
+        print quietRun( 'ethtool -K eth1 tx off rx off' )
+
+
+    # FIXME: enable multicast
+    #
+    #     info( '*** Start multicast routing on h1 and source on h2\n')
+    #     h2.cmd( 'service pimd start' )
+    #     h3.cmd( 'mcjoin -s -i h2-eth0 -t 2 >& /tmp/mcjoin.log &')
+    #
+
+        net.start()
+        info( '*** Starting PPPoE Server')
+        h1.cmd( 'echo 10.255.255.100-250 > /iptoassign')
+        h1.cmd( 'pppoe-server -I h1-eth0 -L 10.255.255.1 -p /iptoassign -O /pppoe-options')
+        info( '*** Setting route back to access network')
+        h2.cmd( 'ip route add 10.255.255.0/24 via 10.10.10.254')
+        CLI( net )
+        net.stop()
+  topo_stratum.py: |
+    #!/usr/bin/python
+
+    # Copyright 2019-present Open Networking Foundation
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    # http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+
+    from mininet.cli import CLI
+    from mininet.log import setLogLevel, info, error
+    from mininet.net import Mininet
+    from mininet.link import Intf
+    from mininet.nodelib import LinuxBridge
+    from stratum import StratumBmv2Switch
+    from mininet.util import quietRun
+
+    CPU_PORT = 255
+
+    if __name__ == '__main__':
+        setLogLevel( 'info' )
+
+        net = Mininet( topo=None )
+
+        info( '*** Adding switches\n' )
+        agg1 = net.addSwitch( name='agg1', cls=StratumBmv2Switch, cpuport=CPU_PORT)
+        s2 = net.addSwitch( 's2', cls=LinuxBridge )
+
+        info( '*** Creating hosts\n' )
+        h1 = net.addHost( 'h1', ip='10.0.0.1/24')
+        h2 = net.addHost( 'h2', ip='10.1.0.2/24')
+
+        # Topology: pon1 - eth1 - agg1 - h1 - s2 - h2
+        net.addLink( h1, agg1 )
+        net.addLink( h1, s2 )
+        net.addLink( h2, s2 )
+
+        info( '*** Adding hardware interface eth1 to switch agg1\n')
+        _intf = Intf( 'eth1', node=agg1 )
+
+        info( '*** Turning off checksum offloading for eth1\n' )
+        print quietRun( 'ethtool -K eth1 tx off rx off' )
+
+        info( '*** Adding VLAN interface to host h1\n')
+        h1.cmd( 'ifconfig h1-eth1 10.1.0.1/24 up')
+        h1.cmd( 'ip link add link h1-eth0 name h1-eth0.222 type vlan proto 802.1Q id 222' )
+        h1.cmd( 'ip link add link h1-eth0.222 name h1-eth0.222.111 type vlan proto 802.1Q id 111' )
+        h1.cmd( 'ifconfig h1-eth0.222 up' )
+        h1.cmd( 'ifconfig h1-eth0.222.111 up' )
+        h1.cmd( 'ifconfig h1-eth0.222.111 172.18.0.10/24' )
+        h1.cmd( 'dnsmasq  --dhcp-range=172.18.0.50,172.18.0.150,12h' )
+        info( '*** Start multicast routing on h1 and source on h2\n')
+        h1.cmd( 'service pimd start' )
+        h2.cmd( 'mcjoin -s -i h2-eth0 -t 2 >& /tmp/mcjoin.log &')
+
+        net.start()
+        CLI( net )
+        net.stop()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-mininet
+  labels:
+    app: mininet
+    chart: mininet-1.1.4
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mininet
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: mininet
+        release: release-name
+      annotations:
+        cni: calico,nni0
+    spec:
+      containers:
+        - name: mininet
+          image: andybavier/mininet:1.0.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - /toposcripts/topo.py
+          stdin: true
+          tty: true
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: topo-config
+              mountPath: /toposcripts
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: topo-config
+          configMap:
+            name: release-name-configmap
+            defaultMode: 493
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - olt
+                topologyKey: kubernetes.io/hostname
+              weight: 100
+---
+null

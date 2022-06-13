@@ -1,0 +1,109 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-flexo
+  labels:
+    helm.sh/chart: flexo-0.1.0
+    app.kubernetes.io/name: flexo
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.1.6
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-flexo
+  labels:
+    helm.sh/chart: flexo-0.1.0
+    app.kubernetes.io/name: flexo
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.1.6
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: flexo
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-flexo
+  labels:
+    helm.sh/chart: flexo-0.1.0
+    app.kubernetes.io/name: flexo
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.1.6
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: flexo
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: flexo
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-flexo
+      securityContext: {}
+      containers:
+        - name: flexo
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: ghcr.io/seccdc/flexo:v0.1.6
+          imagePullPolicy: IfNotPresent
+          env: null
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-flexo-test-connection
+  labels:
+    helm.sh/chart: flexo-0.1.0
+    app.kubernetes.io/name: flexo
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.1.6
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-flexo:80
+  restartPolicy: Never

@@ -1,0 +1,266 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-teleport",
+      "labels": {
+        "app": "teleport",
+        "chart": "teleport-0.0.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-teleport",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "teleport-0.0.2",
+        "app": "teleport"
+      }
+    },
+    "data": {
+      "teleport.yaml": "auth_service:\n  authentication:\n    type: oidc\n  cluster_name: teleport.example.com\n  enabled: true\n  license_file: /var/lib/license/license-enterprise.pem\n  public_addr: teleport.example.com:3025\nproxy_service:\n  enabled: true\n  https_cert_file: /var/lib/certs/tls.crt\n  https_key_file: /var/lib/certs/tls.key\n  kubernetes:\n    enabled: true\n    listen_addr: 0.0.0.0:3026\n  listen_addr: 0.0.0.0:3023\n  public_addr: teleport.example.com\n  web_listen_addr: 0.0.0.0:3080\nssh_service:\n  enabled: true\n  public_addr: teleport.example.com:3022\nteleport:\n  data_dir: /var/lib/teleport\n  log:\n    output: stderr\n    severity: DEBUG\n  storage:\n    type: dir\n"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "name": "release-name-teleport",
+      "labels": {
+        "app": "teleport",
+        "chart": "teleport-0.0.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "certificates.k8s.io"
+        ],
+        "resources": [
+          "certificatesigningrequests"
+        ],
+        "verbs": [
+          "create",
+          "delete",
+          "get",
+          "list",
+          "watch"
+        ]
+      },
+      {
+        "apiGroups": [
+          "certificates.k8s.io"
+        ],
+        "resources": [
+          "certificatesigningrequests/approval",
+          "certificatesigningrequests/status"
+        ],
+        "verbs": [
+          "update"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "release-name-teleport",
+      "labels": {
+        "app": "teleport",
+        "chart": "teleport-0.0.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "release-name-teleport"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-teleport",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-teleport",
+      "labels": {
+        "app": "teleport",
+        "chart": "teleport-0.0.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "authssh",
+          "port": 3025,
+          "protocol": "TCP",
+          "targetPort": 3025
+        },
+        {
+          "name": "proxykube",
+          "port": 3026,
+          "protocol": "TCP",
+          "targetPort": 3026
+        },
+        {
+          "name": "proxyssh",
+          "port": 3023,
+          "protocol": "TCP",
+          "targetPort": 3023
+        },
+        {
+          "name": "proxytunnel",
+          "port": 3024,
+          "protocol": "TCP",
+          "targetPort": 3024
+        },
+        {
+          "name": "proxyweb",
+          "port": 3080,
+          "protocol": "TCP",
+          "targetPort": 3080
+        }
+      ],
+      "selector": {
+        "app": "teleport",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-teleport",
+      "labels": {
+        "app": "teleport",
+        "chart": "teleport-0.0.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "teleport",
+            "release": "release-name",
+            "heritage": "Helm"
+          },
+          "annotations": {
+            "checksum/config": "a196fdac8696fb3aa2d1d5028f2f83a0ca39410c469a4d88c1c8cc109880383d"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "teleport",
+              "image": "quay.io/gravitational/teleport-ent:2.7.0-alpha.3",
+              "imagePullPolicy": "IfNotPresent",
+              "args": null,
+              "env": null,
+              "ports": [
+                {
+                  "name": "authssh",
+                  "containerPort": 3025
+                },
+                {
+                  "name": "nodessh",
+                  "containerPort": 3022
+                },
+                {
+                  "name": "proxykube",
+                  "containerPort": 3026
+                },
+                {
+                  "name": "proxyssh",
+                  "containerPort": 3023
+                },
+                {
+                  "name": "proxytunnel",
+                  "containerPort": 3024
+                },
+                {
+                  "name": "proxyweb",
+                  "containerPort": 3080
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/var/lib/certs",
+                  "name": "tls-web",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/etc/teleport",
+                  "name": "config",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/var/lib/license",
+                  "name": "license",
+                  "readOnly": true
+                },
+                {
+                  "mountPath": "/var/lib/teleport",
+                  "name": "storage"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "tls-web",
+              "secret": {
+                "secretName": "tls-web"
+              }
+            },
+            {
+              "name": "license",
+              "secret": {
+                "secretName": "license"
+              }
+            },
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-teleport"
+              }
+            },
+            {
+              "name": "storage",
+              "emptyDir": {}
+            }
+          ],
+          "serviceAccountName": "release-name-teleport"
+        }
+      }
+    }
+  }
+]

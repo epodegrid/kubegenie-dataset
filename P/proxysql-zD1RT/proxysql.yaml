@@ -1,0 +1,273 @@
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: release-name-proxysql
+  labels:
+    app: release-name-proxysql
+    chart: proxysql-0.0.2
+    release: release-name
+    heritage: Helm
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: release-name-proxysql
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-proxysql
+  labels:
+    app: release-name-proxysql
+    chart: proxysql-0.0.2
+    release: release-name
+    heritage: Helm
+data:
+  proxysql.cnf: |
+    datadir="/var/lib/proxysql"
+
+    admin_variables =
+    {
+      admin_credentials="admin:admin"
+      mysql_ifaces="0.0.0.0:6032"
+      refresh_interval=2000
+      web_enabled=true
+      web_port=6080
+      stats_credentials="stats:admin"
+    }
+
+    mysql_variables =
+    {
+        threads=8
+        max_connections=2048
+        default_query_delay=0
+        default_query_timeout=36000000
+        have_compress=true
+        poll_timeout=2000
+        interfaces="0.0.0.0:3306;/tmp/proxysql.sock"
+        default_schema="information_schema"
+        stacksize=1048576
+        server_version="8.0.19-10"
+        connect_timeout_server=10000
+        monitor_history=60000
+        monitor_connect_interval=200000
+        monitor_ping_interval=200000
+        ping_interval_server_msec=10000
+        ping_timeout_server=200
+        commands_stats=true
+        sessions_sort=true
+        monitor_username="root"
+        monitor_password="rootpass"
+        monitor_galera_healthcheck_interval=2000
+        monitor_galera_healthcheck_timeout=800
+        set_query_lock_on_hostgroup=0
+    }
+
+    proxysql_servers =
+    (
+        {
+            hostname="release-name-proxysql-announce-0"
+            port=6032
+            weight=1
+            comment="release-name-proxysql-announce-0"
+        },
+        {
+            hostname="release-name-proxysql-announce-1"
+            port=6032
+            weight=1
+            comment="release-name-proxysql-announce-1"
+        }
+    )
+
+    mysql_servers =
+    (
+        { address="mysql_server_0.headless_service.namespace.svc.cluster.local", port=3306 , hostgroup=10, max_connections=500 },
+        { address="mysql_server_1.headless_service.namespace.svc.cluster.local", port=3306 , hostgroup=10, max_connections=500 },
+        { address="mysql_server_2.headless_service.namespace.svc.cluster.local", port=3306 , hostgroup=10, max_connections=500 }
+    )
+    mysql_galera_hostgroups =
+    (
+        {
+          writer_hostgroup=10
+          backup_writer_hostgroup=20
+          reader_hostgroup=30
+          offline_hostgroup=9999
+          max_writers=1
+          writer_is_also_reader=1
+          max_transactions_behind=30
+          active=1
+        }
+    )
+    mysql_users =
+    (
+        { username = "root" , password = "rootpass" , default_hostgroup = 10 ,transaction_persistent = 0, active = 1 }
+    )
+    mysql_query_rules =
+    (
+        {
+            rule_id=100
+            active=1
+            match_pattern="^SELECT .* FOR UPDATE"
+            destination_hostgroup=10
+            apply=1
+        },
+        {
+            rule_id=200
+            active=1
+            match_pattern="^SELECT .*"
+            destination_hostgroup=30
+            apply=1
+        },
+        {
+            rule_id=300
+            active=1
+            match_pattern=".*"
+            destination_hostgroup=10
+            apply=1
+        }
+    )
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-proxysql
+  labels:
+    app: release-name-proxysql
+    chart: proxysql-0.0.2
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6032
+      protocol: TCP
+      name: proxysql-admin
+    - port: 3306
+      protocol: TCP
+      name: proxysql-sql
+  selector:
+    app: release-name-proxysql
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+  labels:
+    app: release-name-proxysql
+    chart: proxysql-0.0.2
+    release: release-name
+    heritage: Helm
+  name: release-name-proxysql-announce-0
+spec:
+  ports:
+    - name: proxysql-admin
+      port: 6032
+      protocol: TCP
+      targetPort: 6032
+  publishNotReadyAddresses: true
+  selector:
+    app: release-name-proxysql
+    statefulset.kubernetes.io/pod-name: release-name-proxysql-0
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+  labels:
+    app: release-name-proxysql
+    chart: proxysql-0.0.2
+    release: release-name
+    heritage: Helm
+  name: release-name-proxysql-announce-1
+spec:
+  ports:
+    - name: proxysql-admin
+      port: 6032
+      protocol: TCP
+      targetPort: 6032
+  publishNotReadyAddresses: true
+  selector:
+    app: release-name-proxysql
+    statefulset.kubernetes.io/pod-name: release-name-proxysql-1
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-proxysql
+  labels:
+    app: release-name-proxysql
+    chart: proxysql-0.0.2
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 2
+  serviceName: release-name-proxysql
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: release-name-proxysql
+  template:
+    metadata:
+      labels:
+        app: release-name-proxysql
+    spec:
+      terminationGracePeriodSeconds: 30
+      restartPolicy: Always
+      containers:
+        - image: severalnines/proxysql:2.0.15
+          name: proxysql
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3306
+              name: proxysql-mysql
+            - containerPort: 6032
+              name: proxysql-admin
+          readinessProbe:
+            initialDelaySeconds: 3
+            successThreshold: 1
+            failureThreshold: 2
+            timeoutSeconds: 3
+            periodSeconds: 3
+            tcpSocket:
+              port: 6032
+          livenessProbe:
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+            successThreshold: 1
+            failureThreshold: 5
+            tcpSocket:
+              port: 6032
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - sleep 5
+          volumeMounts:
+            - mountPath: /etc/proxysql.cnf
+              name: proxysql
+              subPath: proxysql.cnf
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 1
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - release-name-proxysql
+      volumes:
+        - name: proxysql
+          configMap:
+            name: release-name-proxysql
+            defaultMode: 511

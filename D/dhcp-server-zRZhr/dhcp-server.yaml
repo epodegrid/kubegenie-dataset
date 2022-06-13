@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dhcp-server
+  labels:
+    app: release-name-dhcp-server
+    version: 1.0.2
+    release: release-name
+data:
+  config: |
+    subnet 10.233.0.0 netmask 255.255.0.0 {
+      range 10.233.0.1 10.233.0.2;
+    }
+    subnet 10.200.0.0 netmask 255.255.0.0 {
+      range 10.200.0.1 10.200.0.253;
+      option routers 10.200.0.254;
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dhcp-server
+  labels:
+    app: release-name-dhcp-server
+    version: 1.0.2
+    release: release-name
+spec:
+  type: ClusterIP
+  ports:
+    - port: 67
+      name: dhcp
+      targetPort: 67
+      protocol: UDP
+  selector:
+    app: dhcp-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dhcp-server
+  labels:
+    app: dhcp-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: dhcp-server
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: dhcp-server
+    spec:
+      containers:
+        - name: dhcp-server
+          image: networkboot/dhcpd:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 67
+              port: 67
+              protocol: UDP
+          volumeMounts:
+            - name: dhcp-server
+              mountPath: /data/dhcpd.conf
+              subPath: mymounts/dhcpd.conf
+      volumes:
+        - name: dhcp-server
+          configMap:
+            name: dhcp-server
+            items:
+              - key: config
+                path: mymounts/dhcpd.conf

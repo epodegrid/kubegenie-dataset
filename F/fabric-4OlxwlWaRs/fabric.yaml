@@ -1,0 +1,87 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fabric
+data:
+  serviceConfig: |
+    name: fabric
+    accessor:
+      username: "admin@opencord.org"
+      password: "letmein"
+      endpoint: "xos-core:50051"
+    event_bus:
+      endpoint: "cord-kafka"
+      kind: kafka
+    logging:
+      version: 1
+      handlers:
+        console:
+          class: logging.StreamHandler
+        file:
+          class: logging.handlers.RotatingFileHandler
+          filename: /var/log/xos.log
+          maxBytes: 10485760
+          backupCount: 5
+        kafka:
+          class: kafkaloghandler.KafkaLogHandler
+          bootstrap_servers:
+            - "cord-kafka:9092"
+          topic: xos.log.fabric
+      loggers:
+        '':
+          handlers:
+              - console
+              - file
+              - kafka
+          level: DEBUG
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-fabric
+  labels:
+    app: fabric
+    chart: fabric-3.0.1
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fabric
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: fabric
+        release: release-name
+      annotations:
+        checksum/config: 7a2c297919bfa78b99fc69efcfb7c399790f5c5fbdb142f3f8657cb3b6560a90
+    spec:
+      containers:
+        - name: fabric
+          image: xosproject/fabric-synchronizer:3.0.0
+          imagePullPolicy: Always
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: fabric-config
+              mountPath: /opt/xos/synchronizers/fabric/mounted_config.yaml
+              subPath: mounted_config.yaml
+            - name: certchain-volume
+              mountPath: /usr/local/share/ca-certificates/local_certs.crt
+              subPath: config/ca_cert_chain.pem
+      volumes:
+        - name: fabric-config
+          configMap:
+            name: fabric
+            items:
+              - key: serviceConfig
+                path: mounted_config.yaml
+        - name: certchain-volume
+          configMap:
+            name: ca-certificates
+            items:
+              - key: chain
+                path: config/ca_cert_chain.pem

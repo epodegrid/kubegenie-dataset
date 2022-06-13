@@ -1,0 +1,117 @@
+[
+  {
+    "kind": "ServiceAccount",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-rds-downscaler",
+      "namespace": "j79frJTEhh",
+      "annotations": {},
+      "labels": {
+        "app.kubernetes.io/name": "rds-downscaler",
+        "helm.sh/chart": "rds-downscaler-1.0.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-rds-downscaler",
+      "labels": {
+        "app.kubernetes.io/name": "rds-downscaler",
+        "helm.sh/chart": "rds-downscaler-1.0.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "docker-entrypoint.sh": "#!/bin/sh\n\nset -eu\n\npip3 install --user boto3\n\nexec \"$@\"\n",
+      "run.py": "import boto3\nimport time\nimport os\n\n\nclient = boto3.client('rds')\n\ntry:\n    tag_key = os.environ['TAG_KEY']\n    tag_values = os.environ['TAG_VALUES'].split(',')\nexcept KeyError:\n    print('Environment variable TAG_KEY or TAG_VALUE not set')\nelse:\n    for instance in client.describe_db_instances()['DBInstances']:\n        instance_tags = client.list_tags_for_resource(ResourceName=instance['DBInstanceArn'])['TagList']\n\n        if instance['DBInstanceStatus'] != 'available':\n            print('Skipping instance, not available: {0}'.format(instance['DBInstanceIdentifier']))\n            continue\n\n        if not [tag for tag in instance_tags if tag['Key'] == tag_key and tag['Value'] in tag_values]:\n            print('Skipping instance, tags do not match: {0}'.format(instance['DBInstanceIdentifier']))\n            continue\n\n        print('Stopping instance {0}'.format(instance['DBInstanceIdentifier']))\n\n        try:\n            if instance['StorageType'] == 'aurora':\n                client.stop_db_cluster(DBClusterIdentifier=instance['DBClusterIdentifier'])\n            else:\n                client.stop_db_instance(DBInstanceIdentifier=instance['DBInstanceIdentifier'])\n        except Exception as e:\n            print('Failed to stop instance {0}: {1}'.format(instance['DBInstanceIdentifier'], e))\n\ntry:\n    cluster_identifiers = os.environ['CLUSTER_IDENTIFIERS']\nexcept KeyError:\n    print('Environment variable CLUSTER_IDENTIFIERS not set')\nelse:\n    clusters = cluster_identifiers.split(',')\n    for cluster in client.describe_db_clusters()['DBClusters']:\n        if cluster['DBClusterIdentifier'] in clusters:\n            if cluster['Status'] != 'available':\n                print('Skipping instance, not available: {0}'.format(cluster['DBClusterIdentifier']))\n                continue\n\n            print('Stopping instance {0}'.format(cluster['DBClusterIdentifier']))\n            try:\n                client.stop_db_cluster(DBClusterIdentifier=cluster['DBClusterIdentifier'])\n            except Exception as e:\n                print('Failed to stop cluster {0}: {1}'.format(cluster['DBClusterIdentifier'], e))\n"
+    }
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "release-name-rds-downscaler",
+      "labels": {
+        "app.kubernetes.io/name": "rds-downscaler",
+        "helm.sh/chart": "rds-downscaler-1.0.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "schedule": "00 20 * * *",
+      "concurrencyPolicy": "Forbid",
+      "startingDeadlineSeconds": 10,
+      "jobTemplate": {
+        "spec": {
+          "backoffLimit": 0,
+          "template": {
+            "metadata": {
+              "annotations": {
+                "checksum/config1": "f34f2080585555269149ceae8431d6966e2c3156753a0ef6470c49dc02433841"
+              },
+              "labels": {
+                "app.kubernetes.io/name": "rds-downscaler",
+                "app.kubernetes.io/instance": "release-name"
+              }
+            },
+            "spec": {
+              "serviceAccount": null,
+              "serviceAccountName": null,
+              "restartPolicy": "Never",
+              "containers": [
+                {
+                  "name": "app",
+                  "image": "python:3.7.0-alpine3.8",
+                  "command": [
+                    "sh",
+                    "/config/docker-entrypoint.sh"
+                  ],
+                  "args": [
+                    "/usr/local/bin/python",
+                    "-u",
+                    "/config/run.py"
+                  ],
+                  "imagePullPolicy": "IfNotPresent",
+                  "env": null,
+                  "resources": {
+                    "limits": {
+                      "cpu": "500m",
+                      "memory": "128Mi"
+                    },
+                    "requests": {
+                      "cpu": "10m",
+                      "memory": "128Mi"
+                    }
+                  },
+                  "volumeMounts": [
+                    {
+                      "mountPath": "/config",
+                      "name": "config"
+                    }
+                  ]
+                }
+              ],
+              "volumes": [
+                {
+                  "name": "config",
+                  "configMap": {
+                    "name": "release-name-rds-downscaler"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+]

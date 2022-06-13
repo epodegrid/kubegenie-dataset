@@ -1,0 +1,178 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-jwks-merge
+  labels:
+    helm.sh/chart: jwks-merge-0.1.0
+    app.kubernetes.io/name: jwks-merge
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.1.0
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-jwks-merge-nginx
+  labels:
+    helm.sh/chart: jwks-merge-0.1.0
+    app.kubernetes.io/name: jwks-merge
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.1.0
+    app.kubernetes.io/managed-by: Helm
+data:
+  nginx.conf: |
+    user nginx;
+    worker_processes auto;
+
+    error_log /var/log/nginx/error.log notice;
+    pid       /var/run/nginx.pid;
+
+    events {
+      worker_connections 1024;
+    }
+
+    http {
+      log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+      access_log /var/log/nginx/access.log  main;
+
+      server {
+        listen       80;
+        listen  [::]:80;
+        server_name  localhost;
+
+        location / {
+          return 200 'It Works!';
+        }
+
+        location /jwks.json {
+          alias /var/local/jwks.json;
+        }
+      }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-jwks-merge
+  labels:
+    helm.sh/chart: jwks-merge-0.1.0
+    app.kubernetes.io/name: jwks-merge
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.1.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: jwks-merge
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-jwks-merge
+  labels:
+    helm.sh/chart: jwks-merge-0.1.0
+    app.kubernetes.io/name: jwks-merge
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.1.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: jwks-merge
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: jwks-merge
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-jwks-merge
+      securityContext: {}
+      initContainers:
+        - name: jwks-merge
+          securityContext: {}
+          image: vitorbari/jwks-merge:v0.1.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: JWKS_URLS
+              value: https://vitorbari-test.eu.auth0.com/.well-known/jwks.json https://appleid.apple.com/auth/keys
+            - name: DEST_JWKS
+              value: /var/local/jwks.json
+          volumeMounts:
+            - name: merged-jwks-storage
+              mountPath: /var/local
+      containers:
+        - name: jwks-merge-nginx
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: nginx:stable
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: merged-jwks-storage
+              mountPath: /var/local
+              readOnly: true
+            - name: nginx-conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: merged-jwks-storage
+          emptyDir: {}
+        - name: nginx-conf
+          configMap:
+            name: release-name-jwks-merge-nginx
+            items:
+              - key: nginx.conf
+                path: nginx.conf
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-jwks-merge-test-connection
+  labels:
+    helm.sh/chart: jwks-merge-0.1.0
+    app.kubernetes.io/name: jwks-merge
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v0.1.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-jwks-merge:80
+  restartPolicy: Never

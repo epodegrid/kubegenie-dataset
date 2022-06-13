@@ -1,0 +1,136 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-riemann",
+      "labels": {
+        "app": "riemann",
+        "chart": "riemann-0.1.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "riemann.config": ";Init Logging\n(logging/init {:console true})\n\n; Listen on the local interface over TCP (5555), UDP (5555), and websockets\n; (5556)\n(let [host \"0.0.0.0\"]\n  (tcp-server {:host host})\n  (udp-server {:host host})\n  (ws-server  {:host host}))\n\n; Expire old events from the index every 5 seconds.\n(periodically-expire 5 {:keep-keys [:host :service :tags]})\n\n(let [index (index)]\n  ; Inbound events will be passed to these streams:\n  (streams\n    (default :ttl 60\n      ; Index all events immediately.\n      index\n      #(info %)\n)))\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-riemann",
+      "labels": {
+        "app": "riemann",
+        "chart": "riemann-0.1.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "riemann-tcp",
+          "port": 5555,
+          "targetPort": "riemann-tcp",
+          "protocol": "TCP"
+        },
+        {
+          "name": "riemann-udp",
+          "port": 5555,
+          "targetPort": "riemann-udp",
+          "protocol": "UDP"
+        },
+        {
+          "name": "riemann-ws",
+          "port": 5556,
+          "targetPort": "riemann-ws",
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app": "riemann",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "extensions/v1beta1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-riemann",
+      "labels": {
+        "app": "riemann",
+        "chart": "riemann-0.1.2",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "riemann",
+            "chart": "riemann-0.1.2",
+            "release": "release-name",
+            "heritage": "Helm"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "riemann",
+              "image": "raykrueger/riemann:0.2.14",
+              "imagePullPolicy": "IfNotPresent",
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": "riemann-tcp"
+                },
+                "initialDelaySeconds": 10
+              },
+              "readinessProbe": {
+                "tcpSocket": {
+                  "port": "riemann-tcp"
+                },
+                "initialDelaySeconds": 5
+              },
+              "volumeMounts": [
+                {
+                  "name": "release-name-config",
+                  "mountPath": "/usr/local/etc/riemann"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "riemann-tcp",
+                  "containerPort": 5555,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "riemann-udp",
+                  "containerPort": 5555,
+                  "protocol": "UDP"
+                },
+                {
+                  "name": "riemann-ws",
+                  "protocol": "TCP",
+                  "containerPort": 5556
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "release-name-config",
+              "configMap": {
+                "name": "release-name-riemann"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

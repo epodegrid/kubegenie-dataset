@@ -1,0 +1,153 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-geth-monitoring
+  labels:
+    app: geth
+    chart: geth-0.4.4
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: monitoring
+      port: 6060
+      targetPort: monitoring
+  selector:
+    app: geth
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-geth
+  labels:
+    app: geth
+    chart: geth-0.4.4
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: rpc
+      port: 8545
+      targetPort: rpc
+    - name: ws
+      port: 8546
+      targetPort: ws
+    - name: proxy-rpc
+      port: 9545
+      targetPort: proxy-rpc
+    - name: proxy-ws
+      port: 9546
+      targetPort: proxy-ws
+  selector:
+    app: geth
+    release: release-name
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-geth
+  labels:
+    app: geth
+    chart: geth-0.4.4
+    release: release-name
+    heritage: Helm
+spec:
+  serviceName: geth
+  selector:
+    matchLabels:
+      app: geth
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: geth
+        release: release-name
+    spec:
+      initContainers:
+        - name: remove-lock
+          command:
+            - rm
+            - -f
+            - /root/.ethereum/geth/LOCK
+          image: busybox
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: data
+              mountPath: /root
+        - name: remove-nodekey
+          command:
+            - rm
+            - -f
+            - /root/.ethereum/geth/nodekey
+          image: busybox
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: data
+              mountPath: /root
+      containers:
+        - name: release-name-geth
+          image: ethereum/client-go:v1.10.17
+          imagePullPolicy: IfNotPresent
+          command:
+            - /usr/local/bin/geth
+          args:
+            - --maxpeers
+            - "50"
+            - --cache
+            - "4096"
+            - --syncmode
+            - fast
+            - --pprof
+            - --pprof.addr=0.0.0.0
+            - --pprof.port=6060
+            - --metrics
+            - --http
+            - --http.api
+            - net,eth,personal,web3
+            - --http.addr
+            - 0.0.0.0
+            - --http.port
+            - "8545"
+            - --http.vhosts
+            - '*'
+            - --http.corsdomain
+            - '*'
+            - --ws
+            - --ws.addr
+            - 0.0.0.0
+            - --ws.port
+            - "8546"
+            - --ws.api
+            - net,eth,personal,web3
+            - --ws.origins
+            - '*'
+          ports:
+            - name: rpc
+              containerPort: 8545
+            - name: ws
+              containerPort: 8546
+          volumeMounts:
+            - name: data
+              mountPath: /root
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        annotations:
+          helm.sh/resource-policy: keep
+        labels:
+          app: geth
+          chart: geth-0.4.4
+          release: release-name
+          heritage: Helm
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 400Gi

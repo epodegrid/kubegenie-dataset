@@ -1,0 +1,401 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name
+  namespace: HUmQ7T
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name
+  labels:
+    app: fluentbit
+    chart: fluentbit-0.1.0
+    release: release-name
+    heritage: Helm
+    component: agent
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush         1
+        Log_Level     info
+        Daemon        off
+        Parsers_File  parsers.conf
+        HTTP_Server   On
+        HTTP_Listen   0.0.0.0
+        HTTP_Port     2020
+
+    @INCLUDE inputs.conf
+    @INCLUDE filters.conf
+
+
+
+    #[OUTPUT]
+    #    Name    stdout
+    #    Match   kern.*
+    #
+    #[OUTPUT]
+    #    Name    stdout
+    #    Match   msg.*
+    #
+    #[OUTPUT]
+    #    Name    stdout
+    #    Match   systemd.*
+  filters.conf: |
+    # FLuentbit configuration to remove health checks and ping endpoints from the logs to prevent extra saturation
+    [FILTER]
+        Name         grep
+        Match        *
+        Exclude      path /^\/health[A-Za-z\/]*/
+
+    [FILTER]
+        Name         grep
+        Match        *
+        Exclude      msg /^.*\/health[A-Za-z\/]*/
+
+    [FILTER]
+        Name         grep
+        Match        *
+        Exclude      log /^.*\/health[A-Za-z\/]*/
+
+    [FILTER]
+        Name         grep
+        Match        *
+        Exclude      path /^\/ping[A-Za-z\/]*/
+
+    [FILTER]
+        Name         grep
+        Match        *
+        Exclude      msg /^.*\/ping[A-Za-z\/]*/
+
+    [FILTER]
+        Name         grep
+        Match        *
+        Exclude      path /^.*\/ping[A-Za-z\/]*/
+
+    [FILTER]
+        Name         grep
+        Match        *
+        Exclude      log /^.*\/ping[A-Za-z\/]*/
+
+
+    # exlcude empty message rows
+    [FILTER]
+        Name              grep
+        Match             kube.*
+        Exclude           log ^\s*$
+
+    # enrich container data with kubernetes
+    [FILTER]
+        Name                kubernetes
+        Match               kube.*
+        # Kube_URL            https://kubernetes.default.svc.cluster.local:443
+        Merge_Log           On
+        Merge_Log_Trim      On
+        Keep_Log            Off
+        K8S-Logging.Exclude On
+        K8S-Logging.Parser  On
+
+    [FILTER]
+        Name        modify
+        Match       kube.*
+        Condition   Key_Does_Not_Exist  short_message
+        Condition   Key_Exists          log
+        Rename      log                 short_message
+
+    # ${HOSTNAME} returns the host name.
+    # But Fluentbit runs in a container. So, it is not meaningful.
+    # Instead, copy the host name from the Kubernetes object.
+    [FILTER]
+        Name            nest
+        Match           *
+        Operation       lift
+        Nested_under    kubernetes
+
+    # change hostname to nodename via env variable
+    [FILTER]
+        Name    record_modifier
+        Match   *
+        Record  host    ${K8S_HOSTNAME}
+
+    # add hostname if missing entirely
+    [FILTER]
+        Name        modify
+        Condition   Key_Does_Not_Exist  host
+        Match       *
+        Add         host                ${K8S_HOSTNAME}
+
+    # systemd: rename MESSAGE -> short_message
+    [FILTER]
+        Name        modify
+        Match       *
+        Condition   Key_Does_Not_Exist  short_message
+        Condition   Key_Exists          MESSAGE
+        Rename      MESSAGE             short_message
+
+    # syslog-rfc5424: rename log -> short_message
+    [FILTER]
+        Name        modify
+        Match       *
+        Condition   Key_Does_Not_Exist  short_message
+        Condition   Key_Exists          log
+        Rename      log             short_message
+
+    # catch-all with missing short_message field
+    [FILTER]
+        Name        modify
+        Match       *
+        Condition   Key_Does_Not_Exist  short_message
+        Set         short_message       EMPTY
+  inputs.conf: |
+    [INPUT]
+        Name              tail
+        Tag               kube.*
+        Path              /var/log/containers/*.log
+        Parser            cri
+        DB                /var/log/flb_kube.db
+        Mem_Buf_Limit     5MB
+        Skip_Long_Lines   On
+        Refresh_Interval  10
+
+    [INPUT]
+        Name              systemd
+        Tag               systemd.*
+        Path              /var/log/journal
+        DB                /var/log/flb_systemd.db
+        Strip_Underscores On
+
+    [INPUT]
+        Name              Tail
+        Tag               msg.*
+        Path              /var/log/messages
+        Path_Key          log_file
+        DB                /var/log/flb_messages.db
+        Parser            syslog-rfc5424
+
+    [INPUT]
+        Name              Tail
+        Tag               kern.*
+        Path              /var/log/kern.log
+        Path_Key          log_file
+        DB                /var/log/flb_kern.db
+        Parser            syslog-rfc5424
+
+    [INPUT]
+        Name              Tail
+        Path              /var/log/auth.log
+        Path_Key          log_file
+        DB                /var/log/flb_auth.db
+        Parser            syslog-rfc5424
+  parsers.conf: |
+    [PARSER]
+        Name        cri
+        Format      regex
+        Regex       ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<log>.*)$
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S.%L%z
+
+    [PARSER]
+        Name   json
+        Format json
+        Time_Key time
+        Time_Format %d/%b/%Y:%H:%M:%S %z
+
+    [PARSER]
+        Name        docker
+        Format      json
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S.%L
+        # Command      |  Decoder | Field | Optional Action
+        # =============|==================|=================
+        Decode_Field_As   escaped    log
+
+    [PARSER]
+        Name        syslog-rfc5424
+        Format      regex
+        Regex       ^\<(?<pri>[0-9]{1,5})\>1 (?<time>[^ ]+) (?<host>[^ ]+) (?<ident>[^ ]+) (?<pid>[-0-9]+) (?<msgid>[^ ]+) (?<extradata>(\[(.*)\]|-)) (?<message>.+)$
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S.%L
+
+    [PARSER]
+        Name        syslog-rfc3164-local
+        Format      regex
+        Regex       ^\<(?<pri>[0-9]+)\>(?<time>[^ ]* {1,2}[^ ]* [^ ]*) (?<ident>[a-zA-Z0-9_\/\.\-]*)(?:\[(?<pid>[0-9]+)\])?(?:[^\:]*\:)? *(?<message>.*)$
+        Time_Key    time
+        Time_Format %b %d %H:%M:%S
+
+    [PARSER]
+        Name        syslog-rfc3164
+        Format      regex
+        Regex       /^\<(?<pri>[0-9]+)\>(?<time>[^ ]* {1,2}[^ ]* [^ ]*) (?<host>[^ ]*) (?<ident>[a-zA-Z0-9_\/\.\-]*)(?:\[(?<pid>[0-9]+)\])?(?:[^\:]*\:)? *(?<message>.*)$/
+        Time_Key    time
+        Time_Format %b %d %H:%M:%S
+        Time_Format %Y-%m-%dT%H:%M:%S.%L
+
+    [PARSER]
+        Name    mongodb
+        Format  regex
+        Regex   ^(?<time>[^ ]*)\s+(?<severity>\w)\s+(?<context>[^ ]+)\s+\[(?<connection>[^\]]+)]\s+(?<message>.*)$
+        Time_Format %Y-%m-%dT%H:%M:%S.%L
+        Time_Keep   On
+        Time_Key time
+
+    [PARSER]
+        # http://rubular.com/r/tjUt3Awgg4
+        Name cri
+        Format regex
+        Regex ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<message>.*)$
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S.%L%z
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-read
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+      - pods
+      - nodes
+      - nodes/proxy
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-read
+subjects:
+  - kind: ServiceAccount
+    name: release-name
+    namespace: default
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: release-name
+  labels:
+    app: fluentbit
+    chart: fluentbit-0.1.0
+    release: release-name
+    heritage: Helm
+    component: agent
+spec:
+  selector:
+    app: fluentbit
+    release: release-name
+    component: agent
+  ports:
+    - name: metrics
+      port: 2020
+      targetPort: 2020
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: release-name
+  labels:
+    app: fluentbit
+    chart: fluentbit-0.1.0
+    release: release-name
+    heritage: Helm
+    component: agent
+    kubernetes.io/cluster-service: "true"
+spec:
+  selector:
+    matchLabels:
+      app: fluentbit
+      chart: fluentbit-0.1.0
+      release: release-name
+      heritage: Helm
+      component: agent
+  template:
+    metadata:
+      labels:
+        app: fluentbit
+        chart: fluentbit-0.1.0
+        release: release-name
+        heritage: Helm
+        component: agent
+        kubernetes.io/cluster-service: "true"
+        revision: "1"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "2020"
+        prometheus.io/path: /api/v1/metrics/prometheus
+    spec:
+      containers:
+        - name: agent
+          image: fluent/fluent-bit:1.8
+          imagePullPolicy: Always
+          env:
+            - name: K8S_HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - containerPort: 2020
+          volumeMounts:
+            - name: var-log
+              mountPath: /var/log
+            - name: var-lib-docker-containers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+            - name: fluent-bit-config
+              mountPath: /fluent-bit/etc/
+          resources:
+            limits:
+              cpu: 100m
+              memory: 200Mi
+            requests:
+              cpu: 50m
+              memory: 100Mi
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      terminationGracePeriodSeconds: 10
+      volumes:
+        - name: var-log
+          hostPath:
+            path: /var/log
+        - name: var-lib-docker-containers
+          hostPath:
+            path: /var/lib/docker/containers
+        - name: fluent-bit-config
+          configMap:
+            name: release-name
+      serviceAccountName: release-name
+      tolerations:
+        - operator: Exists
+---
+kind: ServiceMonitor
+apiVersion: monitoring.coreos.com/v1
+metadata:
+  name: release-name
+  labels:
+    app: fluentbit
+    chart: fluentbit-0.1.0
+    release: release-name
+    heritage: Helm
+    component: agent
+    monitor-group: k8s
+spec:
+  jobLabel: release-name-metrics
+  selector:
+    matchLabels:
+      app: fluentbit
+      release: release-name
+      component: agent
+  namespaceSelector:
+    matchNames:
+      - default
+  endpoints:
+    - port: metrics
+      path: /api/v1/metrics/prometheus

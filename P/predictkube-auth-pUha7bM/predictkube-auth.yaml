@@ -1,0 +1,225 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-predictkube-auth
+  labels:
+    app.kubernetes.io/name: predictkube-auth
+    helm.sh/chart: predictkube-auth-0.1.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+immutable: false
+metadata:
+  name: release-name-predictkube-auth
+  labels:
+    app.kubernetes.io/name: predictkube-auth
+    helm.sh/chart: predictkube-auth-0.1.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  configs.yaml: |
+    debugMode: false
+    grpc:
+      compression:
+        enabled: false
+        type: Zstd
+      connection:
+        host: 0.0.0.0
+        insecure: true
+        maxMessageSize: 1MiB
+        port: 8091
+        readBufferSize: 4MiB
+        timeout: 15s
+        writeBufferSize: 4MiB
+      enabled: true
+      keepalive:
+        enforcementPolicy:
+          minTime: 20m
+          permitWithoutStream: false
+        time: 5m
+        timeout: 5m
+      useReflection: false
+    httpServer:
+      buffer:
+        readBufferSize: 256KiB
+        writeBufferSize: 256KiB
+      concurrency: 100000
+      enabled: true
+      host: 0.0.0.0
+      httptransport:
+        maxIdleConnDuration: 15s
+        readTimeout: 7s
+        writeTimeout: 7s
+      name: auth api server
+      port: 8098
+      tcpKeepalive:
+        enabled: true
+        period: 1s
+    monitoring:
+      enabled: true
+    postgres:
+      database: predictkube
+      host: release-name-predictkube-auth-postgresql.default.svc.cluster.local
+      password: ""
+      pool:
+        connMaxLifetime: 1m
+        maxIdleConns: 1
+        maxOpenConns: 10
+      port: 5432
+      schema: public
+      sslmode: disable
+      username: predictkube
+    profiling:
+      enabled: false
+    single:
+      buffer:
+        readBufferSize: 4MiB
+        writeBufferSize: 4MiB
+      concurrency: 100000
+      enabled: true
+      host: 0.0.0.0
+      httptransport:
+        maxIdleConnDuration: 15s
+        readTimeout: 7s
+        writeTimeout: 7s
+      name: pprof/monitoring server
+      port: 8097
+      tcpKeepalive:
+        enabled: true
+        period: 1s
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-predictkube-auth
+  labels:
+    app.kubernetes.io/name: predictkube-auth
+    helm.sh/chart: predictkube-auth-0.1.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: rest
+      port: 8098
+      protocol: TCP
+      targetPort: rest
+    - name: grpc
+      port: 8091
+      protocol: TCP
+      targetPort: grpc
+    - name: monitoring
+      port: 8097
+      protocol: TCP
+      targetPort: monitoring
+  selector:
+    app.kubernetes.io/name: predictkube-auth
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-predictkube-auth
+  labels:
+    app.kubernetes.io/name: predictkube-auth
+    helm.sh/chart: predictkube-auth-0.1.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: predictkube-auth
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config: 100821f633aa6d2196a9736b6a6399b32edd0dc355beacfa3c914799565a9875
+      labels:
+        app.kubernetes.io/name: predictkube-auth
+        helm.sh/chart: predictkube-auth-0.1.1
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: release-name-predictkube-auth
+      securityContext:
+        fsGroup: 1001
+      initContainers:
+        - name: check-postgresql
+          image: alpine:3.9.2
+          command:
+            - sh
+            - -c
+            - |
+              until printf "." && nc -z -w 2 release-name-predictkube-auth-postgresql.default.svc.cluster.local 5432; do
+                  sleep 2;
+              done;
+
+              echo 'PostgreSQL OK ✓'
+        - name: migrations
+          image: eu.gcr.io/predictkube/migrator:latest
+          command:
+            - /usr/local/bin/migrate
+          args:
+            - -source
+            - file://./migrations
+            - -database
+            - postgres://predictkube:%!s(<nil>)@release-name-predictkube-auth-postgresql.default.svc.cluster.local:5432/predictkube?sslmode=disable
+            - up
+      containers:
+        - name: predictkube-auth
+          image: foo/bar:latest
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10845
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          command:
+            - /app
+          args:
+            - -conf=/etc/auth/configs/configs.yaml
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            - name: grpc
+              containerPort: 8091
+            - name: monitoring
+              containerPort: 8097
+            - name: rest
+              containerPort: 8098
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /healthz
+              port: 8097
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /readyz
+              port: 8097
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 5
+          volumeMounts:
+            - mountPath: /etc/auth/configs
+              name: configs
+              readOnly: true
+      volumes:
+        - configMap:
+            name: release-name-predictkube-auth
+          name: configs

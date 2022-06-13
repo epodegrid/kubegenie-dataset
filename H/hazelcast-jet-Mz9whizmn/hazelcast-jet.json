@@ -1,0 +1,502 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-hazelcast-jet",
+      "labels": {
+        "app.kubernetes.io/name": "hazelcast-jet",
+        "helm.sh/chart": "hazelcast-jet",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-hazelcast-jet-configuration",
+      "labels": {
+        "app.kubernetes.io/name": "hazelcast-jet",
+        "helm.sh/chart": "hazelcast-jet",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "hazelcast.yaml": "hazelcast:\n cluster-name: jet\n management-center:\n   enabled: ${hazelcast.mancenter.enabled}\n   url: ${hazelcast.mancenter.url}\n network:\n   join:\n     kubernetes:\n       enabled: true\n       namespace: ${namespace}\n       resolve-not-ready-addresses: true\n       service-name: ${serviceName}\n     multicast:\n       enabled: false\n   rest-api:\n     enabled: true\n     endpoint-groups:\n       HEALTH_CHECK:\n         enabled: true",
+      "hazelcast-jet.yaml": "hazelcast-jet:\n edge-defaults:\n   packet-size-limit: 16384\n   queue-size: 1024\n   receive-window-multiplier: 3\n instance:\n   backup-count: 1\n   flow-control-period: 100\n   lossless-restart-enabled: false\n   scale-up-delay-millis: 10000\n metrics:\n   collection-interval-seconds: 5\n   enabled: true\n   jmx-enabled: true\n   metrics-for-data-structures: false\n   retention-seconds: 120"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-hazelcast-jet-management-center-configuration",
+      "labels": {
+        "app.kubernetes.io/name": "hazelcast-jet",
+        "helm.sh/chart": "hazelcast-jet",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "hazelcast-client.yaml": "hazelcast-client:\n  cluster-name: jet\n  network:\n    kubernetes:\n      enabled: true\n      namespace: ${namespace}\n      service-name: ${serviceName}"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "name": "release-name-hazelcast-jet-default",
+      "labels": {
+        "app.kubernetes.io/name": "hazelcast-jet",
+        "helm.sh/chart": "hazelcast-jet",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "endpoints",
+          "pods",
+          "nodes"
+        ],
+        "verbs": [
+          "get",
+          "list"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "release-name-hazelcast-jet-default",
+      "labels": {
+        "app.kubernetes.io/name": "hazelcast-jet",
+        "helm.sh/chart": "hazelcast-jet",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "release-name-hazelcast-jet-default"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-hazelcast-jet",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-hazelcast-jet-management-center",
+      "labels": {
+        "app.kubernetes.io/name": "hazelcast-jet-management-center",
+        "helm.sh/chart": "hazelcast-jet",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "LoadBalancer",
+      "selector": {
+        "app.kubernetes.io/name": "hazelcast-jet-management-center",
+        "app.kubernetes.io/instance": "release-name",
+        "role": "managementcenter"
+      },
+      "ports": [
+        {
+          "protocol": "TCP",
+          "port": 8080,
+          "targetPort": "mc-port",
+          "name": "mc-port"
+        },
+        {
+          "protocol": "TCP",
+          "port": 443,
+          "targetPort": "mc-port",
+          "name": "mc-https-port"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-hazelcast-jet",
+      "labels": {
+        "app.kubernetes.io/name": "hazelcast-jet",
+        "helm.sh/chart": "hazelcast-jet",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "selector": {
+        "app.kubernetes.io/name": "hazelcast-jet",
+        "app.kubernetes.io/instance": "release-name"
+      },
+      "ports": [
+        {
+          "protocol": "TCP",
+          "port": 5701,
+          "targetPort": "hazelcast-jet",
+          "name": "hzport"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-hazelcast-jet-management-center",
+      "labels": {
+        "app.kubernetes.io/name": "hazelcast-jet-management-center",
+        "helm.sh/chart": "hazelcast-jet",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "serviceName": "release-name-hazelcast-jet-management-center",
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "hazelcast-jet-management-center",
+          "app.kubernetes.io/instance": "release-name",
+          "role": "managementcenter"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "hazelcast-jet-management-center",
+            "helm.sh/chart": "hazelcast-jet",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "role": "managementcenter"
+          }
+        },
+        "spec": {
+          "hostNetwork": false,
+          "hostPID": false,
+          "hostIPC": false,
+          "securityContext": {
+            "fsGroup": 65534
+          },
+          "containers": [
+            {
+              "name": "release-name-hazelcast-jet-management-center",
+              "image": "hazelcast/management-center:4.2021.12-1",
+              "imagePullPolicy": "IfNotPresent",
+              "resources": null,
+              "ports": [
+                {
+                  "name": "mc-port",
+                  "containerPort": 8080
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": 8081
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 3
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": 8081
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "timeoutSeconds": 1,
+                "successThreshold": 1,
+                "failureThreshold": 3
+              },
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/config"
+                },
+                {
+                  "name": "managementcenter-storage",
+                  "mountPath": "/data"
+                }
+              ],
+              "env": [
+                {
+                  "name": "MC_INIT_CMD",
+                  "value": "./bin/mc-conf.sh cluster add --lenient=true -H /data -cc /config/hazelcast-client.yaml"
+                },
+                {
+                  "name": "JAVA_OPTS",
+                  "value": " -Dhazelcast.mc.healthCheck.enable=true -DserviceName=release-name-hazelcast-jet -Dnamespace=default -Dhazelcast.mc.tls.enabled=false "
+                }
+              ],
+              "securityContext": {
+                "runAsNonRoot": true,
+                "runAsUser": 65534,
+                "runAsGroup": 65534,
+                "privileged": false,
+                "readOnlyRootFilesystem": true,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": [
+                    "ALL"
+                  ]
+                }
+              }
+            }
+          ],
+          "serviceAccountName": "release-name-hazelcast-jet",
+          "automountServiceAccountToken": null,
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-hazelcast-jet-management-center-configuration"
+              }
+            },
+            {
+              "name": "managementcenter-storage"
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "managementcenter-storage",
+            "labels": {
+              "app.kubernetes.io/name": "hazelcast-jet-management-center",
+              "helm.sh/chart": "hazelcast-jet-1.17.1",
+              "app.kubernetes.io/instance": "release-name",
+              "app.kubernetes.io/managed-by": "Helm"
+            }
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "8Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-hazelcast-jet",
+      "labels": {
+        "app.kubernetes.io/name": "hazelcast-jet",
+        "helm.sh/chart": "hazelcast-jet",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "serviceName": "release-name-hazelcast-jet",
+      "replicas": 2,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "hazelcast-jet",
+          "helm.sh/chart": "hazelcast-jet",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/managed-by": "Helm",
+          "role": "hazelcast-jet"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "hazelcast-jet",
+            "helm.sh/chart": "hazelcast-jet",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "role": "hazelcast-jet"
+          }
+        },
+        "spec": {
+          "terminationGracePeriodSeconds": 600,
+          "hostNetwork": false,
+          "hostPID": false,
+          "hostIPC": false,
+          "securityContext": {
+            "runAsNonRoot": true,
+            "runAsUser": 65534,
+            "runAsGroup": 65534,
+            "fsGroup": 65534
+          },
+          "containers": [
+            {
+              "name": "release-name-hazelcast-jet",
+              "image": "hazelcast/hazelcast-jet:4.5.3",
+              "imagePullPolicy": "IfNotPresent",
+              "resources": null,
+              "ports": [
+                {
+                  "name": "hazelcast-jet",
+                  "containerPort": 5701,
+                  "hostPort": null
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/hazelcast/health/node-state",
+                  "port": 5701,
+                  "scheme": "HTTP"
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 3
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/hazelcast/health/node-state",
+                  "port": 5701,
+                  "scheme": "HTTP"
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "timeoutSeconds": 1,
+                "successThreshold": 1,
+                "failureThreshold": 3
+              },
+              "volumeMounts": [
+                {
+                  "name": "hazelcast-jet-storage",
+                  "mountPath": "/data/hazelcast-jet"
+                }
+              ],
+              "env": [
+                {
+                  "name": "JAVA_OPTS",
+                  "value": "-Dhazelcast.config=/data/hazelcast-jet/hazelcast.yaml -Dhazelcast.jet.config=/data/hazelcast-jet/hazelcast-jet.yaml -DserviceName=release-name-hazelcast-jet -Dnamespace=default  -Dhazelcast.shutdownhook.policy=GRACEFUL -Dhazelcast.shutdownhook.enabled=true -Dhazelcast.graceful.shutdown.max.wait=600    "
+                }
+              ],
+              "securityContext": {
+                "runAsNonRoot": true,
+                "runAsUser": 65534,
+                "runAsGroup": 65534,
+                "privileged": false,
+                "readOnlyRootFilesystem": true,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": [
+                    "ALL"
+                  ]
+                }
+              }
+            }
+          ],
+          "serviceAccountName": "release-name-hazelcast-jet",
+          "volumes": [
+            {
+              "name": "hazelcast-jet-storage",
+              "configMap": {
+                "name": "release-name-hazelcast-jet-configuration"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-hazelcast-jet-test-sevrc",
+      "annotations": {
+        "helm.sh/hook": "test",
+        "helm.sh/hook-delete-policy": "hook-succeeded, hook-failed"
+      },
+      "labels": {
+        "app.kubernetes.io/name": "hazelcast-jet",
+        "helm.sh/chart": "hazelcast-jet",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "test",
+        "role": "test"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "release-name-hazelcast-jet-test",
+          "image": "alpine",
+          "command": [
+            "sh",
+            "-c",
+            "# set -ex\n# Install required test tools\napk add -q curl\n# Get the number of Hazelcast members in the cluster\nCLUSTER_SIZE=$(curl release-name-hazelcast-jet:5701/hazelcast/health/cluster-size)\n# Test the correct number of Hazelcast members\ntest ${CLUSTER_SIZE} -eq 2\n"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-hazelcast-jet-management-center-test-gmkas",
+      "annotations": {
+        "helm.sh/hook": "test",
+        "helm.sh/hook-delete-policy": "hook-succeeded, hook-failed"
+      },
+      "labels": {
+        "app.kubernetes.io/name": "hazelcast-jet",
+        "helm.sh/chart": "hazelcast-jet",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "test",
+        "role": "test"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "release-name-hazelcast-jet-management-center-test",
+          "image": "alpine",
+          "command": [
+            "sh",
+            "-c",
+            "set -ex\n# Install required test tools\napk add -q jq curl\necho release-name-hazelcast-jet-management-center:8080/health\n# Get the HTTP Response Code of the Health Check\nHEALTH_CHECK_HTTP_RESPONSE_CODE=$(curl --write-out %{http_code} --silent --output /dev/null release-name-hazelcast-jet-management-center:8080/health)\n# Test the MC HTTP RESPONSE CODE\ntest ${HEALTH_CHECK_HTTP_RESPONSE_CODE} -eq 200\n"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

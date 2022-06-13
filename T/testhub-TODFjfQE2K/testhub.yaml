@@ -1,0 +1,268 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: testhub
+  labels:
+    helm.sh/chart: testhub-0.1.4
+    app.kubernetes.io/name: testhub
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.16.0
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  creationTimestamp: null
+  labels:
+    io.kompose.service: testhub-mysql-claim
+  name: testhub-mysql-claim
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Mi
+status: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: mysql
+  name: mysql
+spec:
+  ports:
+    - name: "3306"
+      port: 3306
+      targetPort: 3306
+  selector:
+    app: mysql
+status:
+  loadBalancer: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    helm.sh/chart: testhub-0.1.4
+    app.kubernetes.io/name: testhub
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.16.0
+    app.kubernetes.io/managed-by: Helm
+  name: testhub-api
+spec:
+  ports:
+    - name: "8080"
+      port: 8080
+      targetPort: 80
+    - name: "8443"
+      port: 8443
+      targetPort: 443
+  selector:
+    app: testhub-api
+status:
+  loadBalancer: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    helm.sh/chart: testhub-0.1.4
+    app.kubernetes.io/name: testhub
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.16.0
+    app.kubernetes.io/managed-by: Helm
+  name: testhub-frontend
+spec:
+  ports:
+    - name: "8080"
+      port: 8080
+      targetPort: 8080
+  selector:
+    app: testhub-frontend
+status:
+  loadBalancer: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: mysql
+  name: mysql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      serviceAccountName: testhub
+      containers:
+        - env:
+            - name: MYSQL_PASS
+              value: pass
+            - name: MYSQL_ROOT_PASSWORD
+              value: test_pass
+            - name: MYSQL_USER
+              value: test
+          image: mysql:8.0.17
+          name: mysql
+          ports:
+            - containerPort: 3306
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - mountPath: /var/lib/mysql
+              name: testhub-mysql-claim
+      restartPolicy: Always
+      volumes:
+        - name: testhub-mysql-claim
+          persistentVolumeClaim:
+            claimName: testhub-mysql-claim
+status: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: testhub-api
+  name: testhub-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: testhub-api
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        app: testhub-api
+    spec:
+      serviceAccountName: testhub
+      containers:
+        - env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Dev
+            - name: CUSTOMCONNSTR_DEFAULTCONNECTION
+              value: Host=mysql;Database=testHub;Username=root;Password=test_pass
+          image: testhubio/testhub-api:on-prem
+          name: testhub-api
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+            - containerPort: 443
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: testhub-frontend
+  labels:
+    app: testhub-frontend
+    helm.sh/chart: testhub-0.1.4
+    app.kubernetes.io/name: testhub
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.16.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: testhub-frontend
+  strategy: {}
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert
+        kompose.version: 1.22.0 (955b78124)
+      creationTimestamp: null
+      labels:
+        app: testhub-frontend
+    spec:
+      serviceAccountName: testhub
+      containers:
+        - image: testhubio/testhub-frontend:on-prem
+          name: testhub-frontend
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: API_ENDPOINT
+              value: https://testhub-api.local
+      restartPolicy: Always
+status: {}
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: testhub-api
+  labels:
+    helm.sh/chart: testhub-0.1.4
+    app.kubernetes.io/name: testhub
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.16.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  rules:
+    - host: testhub-api.local
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: testhub-api
+              servicePort: 8080
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: testhub-frontend
+  labels:
+    helm.sh/chart: testhub-0.1.4
+    app.kubernetes.io/name: testhub
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.16.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  rules:
+    - host: testhub.local
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: testhub-frontend
+              servicePort: 8080
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-testhub-test-connection
+  labels:
+    helm.sh/chart: testhub-0.1.4
+    app.kubernetes.io/name: testhub
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.16.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-testhub:80
+  restartPolicy: Never

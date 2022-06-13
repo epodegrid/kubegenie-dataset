@@ -1,0 +1,365 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-mysql",
+      "namespace": "F6V3Du",
+      "labels": {
+        "app.kubernetes.io/name": "mysql",
+        "helm.sh/chart": "mysql-8.0.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": null
+    },
+    "secrets": [
+      {
+        "name": "release-name-mysql"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-mysql",
+      "namespace": "F6V3Du",
+      "labels": {
+        "app.kubernetes.io/name": "mysql",
+        "helm.sh/chart": "mysql-8.0.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "mysql-root-password": "MTIzNA==",
+      "mysql-password": "ejBsVFlJUVFGOA=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-mysql",
+      "namespace": "F6V3Du",
+      "labels": {
+        "app.kubernetes.io/name": "mysql",
+        "helm.sh/chart": "mysql-8.0.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "primary"
+      }
+    },
+    "data": {
+      "my.cnf": "\n[mysqld]\ndefault_authentication_plugin=mysql_native_password\nskip-name-resolve\nexplicit_defaults_for_timestamp\nbasedir=/opt/bitnami/mysql\nplugin_dir=/opt/bitnami/mysql/plugin\nport=3306\nsocket=/opt/bitnami/mysql/tmp/mysql.sock\ndatadir=/bitnami/mysql/data\ntmpdir=/opt/bitnami/mysql/tmp\nmax_allowed_packet=16M\nbind-address=0.0.0.0\npid-file=/opt/bitnami/mysql/tmp/mysqld.pid\nlog-error=/opt/bitnami/mysql/logs/mysqld.log\ncharacter-set-server=UTF8\ncollation-server=utf8_general_ci\n\n[client]\nport=3306\nsocket=/opt/bitnami/mysql/tmp/mysql.sock\ndefault-character-set=UTF8\nplugin_dir=/opt/bitnami/mysql/plugin\n\n[manager]\nport=3306\nsocket=/opt/bitnami/mysql/tmp/mysql.sock\npid-file=/opt/bitnami/mysql/tmp/mysqld.pid"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "oncall-config"
+    },
+    "data": {
+      "config.yaml": "\n#######################\n### Oncall-api settings\n#######################\nserver:\n  host: 0.0.0.0\n  port: 8080\noncall_host: http://localhost:8080\nmetrics: dummy\ndb:\n  conn:\n    kwargs:\n      scheme: mysql+pymysql\n      user: root\n      password: \"1234\"\n      host: release-name-mysql\n      port: 3306\n      database: oncall\n      charset: utf8\n      echo: True\n    str: \"%(scheme)s://%(user)s:%(password)s@%(host)s:%(port)s/%(database)s?charset=%(charset)s\"\n  kwargs:\n    pool_recycle: 3600\nhealthcheck_path: /tmp/status\n\n# Keys for encrypting/signing session cookies.\n# Change to random long values in production.\nsession:\n  encrypt_key: 'abc'\n  sign_key: '123'\n\n# Debug mode toggle. Disable in production.\n# Debug mode disables authentication, allows access to debug-only API endpoints\n# (used for testing), allows HTTP access, and removes some security headers\n# from responses.\ndebug: True\n\n## To run Oncall without https, set this value to True\n## WARNING: use this only for debugging purposes, to avoid sending\n## usernames and passwords in plain text.\n#allow_http: False\n\n# Pluggable authentication module configuration.\n# Additional auth modules can be added by implementing the Authenticator\n# class, with two required methods: __init__(self, config) and\n# authenticate(self, username, password)\nauth:\n  debug: True\n  module: 'oncall.auth.modules.debug'  # Auth module where Authenticator is implemented\n\n# Example configuration for LDAP-based auth\n#   module: 'oncall.auth.modules.ldap_example'\n#   module: 'oncall.auth.modules.ldap_import' # for automatically import user at first connexion\n#   ldap_url: 'ldaps://example.com'\n#   ldap_user_suffix: '@example.biz'\n#   ldap_cert_path: '/etc/ldap_cert.pem'\n#   ldap_bind_user: 'cn=binduser,ou=services,dc=company,dc=org'\n#   ldap_bind_password: 'abc123'\n#   ldap_base_dn: 'ou=accounts,dc=company,dc=org'\n#   ldap_search_filter: '(uid=%s)'\n# options used by the ldap_import module.\n#   import_user: True\n#   attrs:\n#     username: 'uid'\n#     full_name: 'displayName'\n#     email: 'mail'\n#     mobile: 'mobile'\n#     sms: 'phone'\n#     slack: 'uid'\n\n############################\n### Oncall-notifier settings\n############################\nnotifier:\n  # Skip sending messages, log instead\n  skipsend: True\n\n# Reminder notification settings\nnotifications:\n  # The notifier will send reminders for events with these roles\n  default_roles:\n    - \"primary\"\n    - \"secondary\"\n    - \"shadow\"\n    - \"manager\"\n  # Reminders will be sent $x seconds before events start, for $x in this list\n  default_times:\n    - 86400\n    - 604800\n  # Reminders are sent using these modes of contact\n  default_modes:\n    - \"email\"\n    # - \"teams_messenger\"\n# Reminder task settings\nreminder:\n  activated: True\n  polling_interval: 360  # In seconds, the reminder will poll DB for events every $n seconds\n  default_timezone: 'US/Pacific'  # Dates/times in the reminders are formatted in this timezone\n\n# User validator checks that people scheduled for on-call events have defined phone numbers\nuser_validator:\n  activated: True\n  subject: 'Warning: Missing phone number in Oncall'\n  body: 'You are scheduled for an on-call shift in the future, but have no phone number recorded. Please update your information in Oncall.'\n\n# Reminders sent using these messengers\nmessengers:\n#   - type: teams_messenger\n#     webhook: \"channel_webhook_url\"\n#\n#   - type: rocketchat_messenger\n#     user: username\n#     password: abc123\n#     refresh: 60000\n#     api_host: https://example.rocket.chat\n#\n#  - type: iris_messenger\n#    application: oncall\n#    iris_api_key: magic\n#    api_host: http://localhost:16649\n\n  - type: dummy\n    application: oncall\n    iris_api_key: magic\n\n############################\n### Oncall frontend settings\n############################\nsupported_timezones:\n  - 'US/Pacific'\n  - 'US/Eastern'\n  - 'US/Central'\n  - 'US/Mountain'\n  - 'US/Alaska'\n  - 'US/Hawaii'\n  - 'Asia/Kolkata'\n  - 'Asia/Shanghai'\n  - 'UTC'\n\nindex_content_setting:\n  # Page footer contents\n  #footer: |\n  #  <ul>\n  #    <li>Oncall © LinkedIn 2020</li>\n  #    <li>Feedback</li>\n  #    <li><a href=\"http://oncall.tools\" target=\"_blank\">About</a></li>\n  #  </ul>\n  # Note displayed when a user has no phone number\n  missing_number_note: 'No number'\nheader_color: '#3a3a3a'\n\n# The base url for the public oncall calendar. This url has to open to the public internet for most web calendar subscriptions to work.\n# The public calendar url will be formatted as follows: \"{public_calendar_base_url}/{ical_key}\".\n# Replace localhost with the hostname of the oncall or iris-relay instance.\npublic_calendar_base_url: 'http://localhost:8080/api/v0/ical'\n# Additional message you want to put here, could be a link to the FAQ\npublic_calendar_additional_message: 'Link to FAQ'\n\n# Integration with Iris, allowing for escalation from Oncall\niris_plan_integration:\n  activated: True\n  # Iris app and key settings\n  app: oncall\n  api_key: magic\n  api_host: http://localhost:16649\n  # API url to get a list of Oncall-compatible plans\n  # This will be /v0/applications/$app_name/plans\n  plan_url: '/v0/applications/oncall/plans'\n  # Plan to follow with urgent escalations; must be a dynamic plan\n  urgent_plan:\n    name: 'Oncall test'\n    # In the Iris plan, dynamic target $n will map to dynamic_targets[$n].\n    # For example, here, Iris target 0 will be the oncall-primary of the\n    # team, target 1 will be the team, and target 2 will be the manager\n    dynamic_targets:\n      - role: 'oncall-primary'\n      - role: 'team'\n      - role: 'manager'\n  # Similar to above, but for medium teams.\n  medium_plan:\n    name: 'Oncall test'\n    dynamic_targets:\n      - role: 'oncall-primary'\n      - role: 'team'\n      - role: 'manager'\n# CORS settings\n# allow_origins_list:\n#   - http://www.example.com\n\n# Configures whether Slack settings will appear in the frontend\nslack_instance: foobar\n\n# Setting to determine whether the Oncall API/frontend is available unauthenticated.\n# Set to True to force login splash page and authentication on API calls and False to allow read\n# APIs without authentication\nrequire_auth: False\n\n###########################\n### Oncall bonus management\n###########################\n# add_bonus_events_api: True\n# bonus_url: 'https://ONCALL_BONUS_TEAMS_ENDPOINT'\n# bonus_whitelist:\n#      - 'team_foo'\n# bonus_blacklist:\n#      - 'team_bar'\n#      - 'team_baz'\n\n##########################\n### Oncall user management\n##########################\n\n# # Configure which user_sync module is being used\n# user_sync:\n#   module: 'oncall.user_sync.ldap_sync'\n#\n# # User management by syncing from Slack\n# slack:\n#   oauth_access_token: 'foo'\n#\n# # User management by syncing from LDAP\n# ldap_sync:\n#   url: 'ldaps://example.com'\n#   base: 'ou=Staff Users,dc=multiforest,dc=biz'\n#   user: 'CN=example,DC=multiforest,DC=biz'\n#   password: 'password'\n#   cert_path: '/etc/ldap_cert.pem'\n#   query: '(&(objectClass=userProxy)(employeeId=*))'\n#   # Map of Oncall user information to LDAP attribute\n#   attrs:\n#     username: 'sAMAccountName'\n#     full_name: 'displayName'\n#     mail: 'mail'\n#     mobile: 'mobile'\n#   image_url: 'https://image.example.com/api/%s/picture'"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-mysql",
+      "namespace": "F6V3Du",
+      "labels": {
+        "app.kubernetes.io/name": "mysql",
+        "helm.sh/chart": "mysql-8.0.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "primary"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "mysql",
+          "port": 3306,
+          "protocol": "TCP",
+          "targetPort": "mysql",
+          "nodePort": null
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "mysql",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "primary"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "oncall",
+      "labels": {
+        "oncall-component": "web",
+        "oncall-version": "0.0.14",
+        "chart": "oncall-0.0.1"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "oncall",
+          "port": 80,
+          "targetPort": 8080,
+          "nodePort": 31234,
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app": "release-name-oncall"
+      },
+      "type": "NodePort"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-oncall",
+      "labels": {
+        "oncall-component": "sender",
+        "oncall-version": "0.0.14",
+        "chart": "oncall-0.0.1",
+        "app": "release-name-oncall"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "release-name-oncall"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "release-name-oncall"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "oncall",
+              "image": "lukdz/oncall:latest",
+              "imagePullPolicy": "",
+              "ports": [
+                {
+                  "containerPort": 8080
+                }
+              ],
+              "env": [
+                {
+                  "name": "DOCKER_DB_BOOTSTRAP",
+                  "value": "1"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "oncall-volume",
+                  "mountPath": "/home/oncall/config",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "oncall-volume",
+              "configMap": {
+                "name": "oncall-config"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-mysql",
+      "namespace": "F6V3Du",
+      "labels": {
+        "app.kubernetes.io/name": "mysql",
+        "helm.sh/chart": "mysql-8.0.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "primary"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "mysql",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "primary"
+        }
+      },
+      "serviceName": "release-name-mysql",
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/configuration": "28e9a839efe0e2e9e35350b7dae173e7439e5499ebc0a52bb4808e1df2ae9a9c"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "mysql",
+            "helm.sh/chart": "mysql-8.0.0",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "primary"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-mysql",
+          "affinity": {
+            "podAffinity": null,
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app.kubernetes.io/name": "mysql",
+                        "app.kubernetes.io/instance": "release-name",
+                        "app.kubernetes.io/component": "primary"
+                      }
+                    },
+                    "namespaces": [
+                      "default"
+                    ],
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 1
+                }
+              ]
+            },
+            "nodeAffinity": null
+          },
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "containers": [
+            {
+              "name": "mysql",
+              "image": "docker.io/bitnami/mysql:8.0.22-debian-10-r23",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 10827,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "env": [
+                {
+                  "name": "BITNAMI_DEBUG",
+                  "value": "false"
+                },
+                {
+                  "name": "MYSQL_ROOT_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-mysql",
+                      "key": "mysql-root-password"
+                    }
+                  }
+                },
+                {
+                  "name": "MYSQL_DATABASE",
+                  "value": "my_database"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "mysql",
+                  "containerPort": 3306
+                }
+              ],
+              "livenessProbe": {
+                "failureThreshold": 3,
+                "initialDelaySeconds": 120,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 1,
+                "exec": {
+                  "command": [
+                    "/bin/bash",
+                    "-ec",
+                    "password_aux=\"${MYSQL_ROOT_PASSWORD:-}\"\nif [[ -f \"${MYSQL_ROOT_PASSWORD_FILE:-}\" ]]; then\n    password_aux=$(cat \"$MYSQL_ROOT_PASSWORD_FILE\")\nfi\nmysqladmin status -uroot -p\"${password_aux}\"\n"
+                  ]
+                }
+              },
+              "readinessProbe": {
+                "failureThreshold": 3,
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 1,
+                "exec": {
+                  "command": [
+                    "/bin/bash",
+                    "-ec",
+                    "password_aux=\"${MYSQL_ROOT_PASSWORD:-}\"\nif [[ -f \"${MYSQL_ROOT_PASSWORD_FILE:-}\" ]]; then\n    password_aux=$(cat \"$MYSQL_ROOT_PASSWORD_FILE\")\nfi\nmysqladmin status -uroot -p\"${password_aux}\"\n"
+                  ]
+                }
+              },
+              "resources": {
+                "limits": {},
+                "requests": {},
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/bitnami/mysql"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/opt/bitnami/mysql/conf/my.cnf",
+                  "subPath": "my.cnf"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-mysql"
+              }
+            },
+            {
+              "name": "data",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  }
+]

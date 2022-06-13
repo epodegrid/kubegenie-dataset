@@ -1,0 +1,215 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-ignite"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-ignite-configmap"
+    },
+    "data": {
+      "ignite-config.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\n<!--\n  Licensed to the Apache Software Foundation (ASF) under one or more\n  contributor license agreements.  See the NOTICE file distributed with\n  this work for additional information regarding copyright ownership.\n  The ASF licenses this file to You under the Apache License, Version 2.0\n  (the \"License\"); you may not use this file except in compliance with\n  the License.  You may obtain a copy of the License at\n\n       http://www.apache.org/licenses/LICENSE-2.0\n\n  Unless required by applicable law or agreed to in writing, software\n  distributed under the License is distributed on an \"AS IS\" BASIS,\n  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n  See the License for the specific language governing permissions and\n  limitations under the License.\n-->\n\n<!--\n    Configuration example with Kubernetes IP finder and Ignite persistence enabled.\n    WAL files and database files are stored in separate disk drives.\n-->\n<beans xmlns=\"http://www.springframework.org/schema/beans\"\n       xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n       xsi:schemaLocation=\"\n        http://www.springframework.org/schema/beans\n        http://www.springframework.org/schema/beans/spring-beans.xsd\">\n\n    <bean class=\"org.apache.ignite.configuration.IgniteConfiguration\">\n\n        <property name=\"peerClassLoadingEnabled\" value=\"false\"/>\n        <!-- Explicitly configure TCP discovery SPI to provide list of initial nodes. -->\n        <property name=\"discoverySpi\">\n            <bean class=\"org.apache.ignite.spi.discovery.tcp.TcpDiscoverySpi\">\n                <property name=\"ipFinder\">\n                    <!--\n                        Enables Kubernetes IP finder and setting custom namespace and service names.\n                    -->\n                    <bean class=\"org.apache.ignite.spi.discovery.tcp.ipfinder.kubernetes.TcpDiscoveryKubernetesIpFinder\">\n                        <property name=\"namespace\" value=\"default\"/>\n                        <property name=\"serviceName\" value=\"release-name-ignite\"/>\n                    </bean>\n                </property>\n            </bean>\n        </property>\n    </bean>\n</beans>\n"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1beta1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "name": "release-name-ignite"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "pods",
+          "endpoints"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch"
+        ]
+      }
+    ]
+  },
+  {
+    "kind": "ClusterRoleBinding",
+    "apiVersion": "rbac.authorization.k8s.io/v1beta1",
+    "metadata": {
+      "name": "release-name-ignite"
+    },
+    "roleRef": {
+      "kind": "ClusterRole",
+      "name": "release-name-ignite",
+      "apiGroup": "rbac.authorization.k8s.io"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-ignite",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-ignite",
+      "labels": {
+        "app": "release-name-ignite"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "jdbc",
+          "port": 11211,
+          "targetPort": 11211
+        },
+        {
+          "name": "spi-communication",
+          "port": 47100,
+          "targetPort": 47100
+        },
+        {
+          "name": "spi-discovery",
+          "port": 47500,
+          "targetPort": 47500
+        },
+        {
+          "name": "jmx",
+          "port": 49112,
+          "targetPort": 49112
+        },
+        {
+          "name": "sql",
+          "port": 10800,
+          "targetPort": 10800
+        },
+        {
+          "name": "rest",
+          "port": 8080,
+          "targetPort": 8080
+        },
+        {
+          "name": "thin-clients",
+          "port": 10900,
+          "targetPort": 10900
+        }
+      ],
+      "clusterIP": "None",
+      "selector": {
+        "app": "release-name-ignite"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-ignite",
+      "labels": {
+        "app.kubernetes.io/name": "ignite",
+        "helm.sh/chart": "ignite-1.0.0",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "release-name-ignite"
+        }
+      },
+      "serviceName": "release-name-ignite",
+      "replicas": 2,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "release-name-ignite"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-ignite",
+          "volumes": [
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "release-name-ignite-configmap",
+                "items": [
+                  {
+                    "key": "ignite-config.xml",
+                    "path": "default-config.xml"
+                  }
+                ]
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "ignite",
+              "image": "apacheignite/ignite:2.7.0",
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "env": [
+                {
+                  "name": "IGNITE_QUIET",
+                  "value": "false"
+                },
+                {
+                  "name": "JVM_OPTS",
+                  "value": "-Djava.net.preferIPv4Stack=true"
+                },
+                {
+                  "name": "OPTION_LIBS",
+                  "value": "ignite-kubernetes,ignite-rest-http"
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 11211
+                },
+                {
+                  "containerPort": 47100
+                },
+                {
+                  "containerPort": 47500
+                },
+                {
+                  "containerPort": 49112
+                },
+                {
+                  "containerPort": 10800
+                },
+                {
+                  "containerPort": 8080
+                },
+                {
+                  "containerPort": 10900
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config-volume",
+                  "mountPath": "/opt/ignite/apache-ignite-fabric/config"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": null
+    }
+  }
+]

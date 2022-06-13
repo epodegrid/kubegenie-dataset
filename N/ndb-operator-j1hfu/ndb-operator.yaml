@@ -1,0 +1,274 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-webhook-sa
+  namespace: j1hfu
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-app-sa
+  namespace: j1hfu
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-webhook-cr
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: default-release-name-webhook-vwc-cr
+rules:
+  - apiGroups:
+      - admissionregistration.k8s.io
+    resources:
+      - validatingwebhookconfigurations
+    verbs:
+      - list
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-cr
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - list
+      - watch
+      - create
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - create
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - create
+      - delete
+  - apiGroups:
+      - events.k8s.io
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets
+    verbs:
+      - create
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - create
+      - list
+      - patch
+      - watch
+      - delete
+  - apiGroups:
+      - policy
+    resources:
+      - poddisruptionbudgets
+    verbs:
+      - list
+      - watch
+      - create
+  - apiGroups:
+      - mysql.oracle.com
+    resources:
+      - ndbclusters
+      - ndbclusters/status
+    verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: default-release-name-webhook-vwc-crb
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: default-release-name-webhook-vwc-cr
+subjects:
+  - kind: ServiceAccount
+    name: release-name-webhook-sa
+    namespace: default
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-webhook-crb
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-webhook-cr
+subjects:
+  - kind: ServiceAccount
+    name: release-name-webhook-sa
+    namespace: default
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-crb
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-cr
+subjects:
+  - kind: ServiceAccount
+    name: release-name-app-sa
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-webhook-service
+  namespace: j1hfu
+spec:
+  ports:
+    - port: 9443
+  selector:
+    app: ndb-operator-webhook-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-webhook-server
+  namespace: j1hfu
+  labels:
+    release: 8.0.29-0.2.0
+    app: ndb-operator-webhook-deployment
+spec:
+  selector:
+    matchLabels:
+      app: ndb-operator-webhook-server
+  template:
+    metadata:
+      labels:
+        app: ndb-operator-webhook-server
+    spec:
+      serviceAccountName: release-name-webhook-sa
+      containers:
+        - name: ndb-operator-webhook
+          image: mysql/ndb-operator:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9443
+          command:
+            - ndb-operator-webhook
+          args:
+            - -service=release-name-webhook-service
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9443
+              scheme: HTTPS
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-app
+  namespace: j1hfu
+  labels:
+    release: 8.0.29-0.2.0
+    app: ndb-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ndb-operator
+  template:
+    metadata:
+      labels:
+        app: ndb-operator
+    spec:
+      serviceAccountName: release-name-app-sa
+      containers:
+        - name: ndb-operator-controller
+          image: mysql/ndb-operator:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - ndb-operator
+          args:
+            - -cluster-scoped=true
+          ports:
+            - containerPort: 1186
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0
+---
+null
+---
+null
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: default-release-name-webhook-config
+  labels:
+    webhook-server: default-release-name-webhook-service
+webhooks:
+  - clientConfig:
+      service:
+        name: release-name-webhook-service
+        namespace: default
+        path: /validate-ndb
+        port: 9443
+    failurePolicy: Fail
+    name: validating-webhook.ndbcluster.mysql.oracle.com
+    rules:
+      - apiGroups:
+          - mysql.oracle.com
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - ndbclusters
+    admissionReviewVersions:
+      - v1
+    sideEffects: None

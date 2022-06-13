@@ -1,0 +1,210 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bbsim-pon-ports-0
+data:
+  bbsimPonPortsConfig: |
+    null
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bbsim-services-0
+data:
+  bbsimServicesConfig: |
+    services:
+    - c_tag: 900
+      c_tag_allocation: unique
+      name: hsia
+      needs_dhcp: true
+      needs_eapol: true
+      s_tag: 900
+      s_tag_allocation: shared
+      tp_id: 64
+    workflow: att
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-bbsim
+  namespace: UYweIHyPmWNWGc
+  labels:
+    app: bbsim
+    name: bbsim
+    chart: bbsim-4.8.5
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: bbsim-0
+      port: 50060
+      protocol: TCP
+    - name: bbsim-0-api
+      port: 50070
+      protocol: TCP
+    - name: bbsim-0-sadis
+      port: 50074
+      protocol: TCP
+    - name: bbsim-0-rest
+      port: 50071
+      protocol: TCP
+    - name: bbsim-0-dmi
+      port: 50075
+      protocol: TCP
+  selector:
+    app: bbsim
+    name: bbsim
+    release: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-bbsim
+  namespace: UYweIHyPmWNWGc
+  labels:
+    app: bbsim
+    name: bbsim
+    chart: bbsim-4.8.5
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bbsim
+      name: bbsim
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: bbsim
+        name: bbsim
+        release: release-name
+        app.kubernetes.io/name: bbsim
+        app.kubernetes.io/version: 1.12.9
+        app.kubernetes.io/component: device-emulator
+        app.kubernetes.io/part-of: voltha
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: bbsim-4.8.5
+    spec:
+      serviceAccount: default
+      serviceAccountName: default
+      containers:
+        - name: bbsim
+          image: voltha/bbsim:1.12.9
+          imagePullPolicy: Always
+          securityContext:
+            privileged: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          livenessProbe:
+            exec:
+              command:
+                - bbsimctl
+                - olt
+                - get
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /v2/cfg
+              port: 50074
+              httpHeaders: null
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 5
+          command:
+            - /app/bbsim
+            - -openolt_address
+            - 0.0.0.0:50060
+            - -dmi_server_address
+            - :50075
+            - -olt_id
+            - "0"
+            - -nni
+            - "1"
+            - -nni_speed
+            - "10000"
+            - -pon
+            - "1"
+            - -onu
+            - "1"
+            - -uni
+            - "4"
+            - -pots
+            - "0"
+            - -omccVersion
+            - "163"
+            - -nni_dhcp_trap_vid
+            - "0"
+            - -bp_format
+            - mef
+            - -oltRebootDelay
+            - "60"
+            - -logLevel
+            - debug
+            - -delay
+            - "200"
+            - -services
+            - configs/services.yaml
+            - -rest_api_address
+            - :50071
+            - -ca
+            - default
+            - -omci_response_rate
+            - "10"
+            - -kafkaEventTopic
+            - ""
+          ports:
+            - name: bbsim-0
+              containerPort: 50060
+              protocol: TCP
+            - name: bbsim-0-api
+              containerPort: 50070
+              protocol: TCP
+            - name: bbsim-0-sadis
+              containerPort: 50074
+              protocol: TCP
+            - name: bbsim-0-rest
+              containerPort: 50071
+              protocol: TCP
+            - name: bbsim-0-dmi
+              containerPort: 50075
+              protocol: TCP
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: bbsim-services-config
+              mountPath: /app/configs/services.yaml
+              subPath: services.yaml
+            - name: bbsim-pon-ports-config
+              mountPath: /app/configs/pon-config.yaml
+              subPath: pon-config.yaml
+      volumes:
+        - name: bbsim-services-config
+          configMap:
+            name: bbsim-services-0
+            items:
+              - key: bbsimServicesConfig
+                path: services.yaml
+        - name: bbsim-pon-ports-config
+          configMap:
+            name: bbsim-pon-ports-0
+            items:
+              - key: bbsimPonPortsConfig
+                path: pon-config.yaml

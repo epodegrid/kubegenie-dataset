@@ -1,0 +1,222 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-predictkube-auth",
+      "labels": {
+        "app.kubernetes.io/name": "predictkube-auth",
+        "helm.sh/chart": "predictkube-auth-0.1.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "immutable": false,
+    "metadata": {
+      "name": "release-name-predictkube-auth",
+      "labels": {
+        "app.kubernetes.io/name": "predictkube-auth",
+        "helm.sh/chart": "predictkube-auth-0.1.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "configs.yaml": "debugMode: false\ngrpc:\n  compression:\n    enabled: false\n    type: Zstd\n  connection:\n    host: 0.0.0.0\n    insecure: true\n    maxMessageSize: 1MiB\n    port: 8091\n    readBufferSize: 4MiB\n    timeout: 15s\n    writeBufferSize: 4MiB\n  enabled: true\n  keepalive:\n    enforcementPolicy:\n      minTime: 20m\n      permitWithoutStream: false\n    time: 5m\n    timeout: 5m\n  useReflection: false\nhttpServer:\n  buffer:\n    readBufferSize: 256KiB\n    writeBufferSize: 256KiB\n  concurrency: 100000\n  enabled: true\n  host: 0.0.0.0\n  httptransport:\n    maxIdleConnDuration: 15s\n    readTimeout: 7s\n    writeTimeout: 7s\n  name: auth api server\n  port: 8098\n  tcpKeepalive:\n    enabled: true\n    period: 1s\nmonitoring:\n  enabled: true\npostgres:\n  database: predictkube\n  host: release-name-predictkube-auth-postgresql.default.svc.cluster.local\n  password: \"\"\n  pool:\n    connMaxLifetime: 1m\n    maxIdleConns: 1\n    maxOpenConns: 10\n  port: 5432\n  schema: public\n  sslmode: disable\n  username: predictkube\nprofiling:\n  enabled: false\nsingle:\n  buffer:\n    readBufferSize: 4MiB\n    writeBufferSize: 4MiB\n  concurrency: 100000\n  enabled: true\n  host: 0.0.0.0\n  httptransport:\n    maxIdleConnDuration: 15s\n    readTimeout: 7s\n    writeTimeout: 7s\n  name: pprof/monitoring server\n  port: 8097\n  tcpKeepalive:\n    enabled: true\n    period: 1s\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-predictkube-auth",
+      "labels": {
+        "app.kubernetes.io/name": "predictkube-auth",
+        "helm.sh/chart": "predictkube-auth-0.1.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "rest",
+          "port": 8098,
+          "protocol": "TCP",
+          "targetPort": "rest"
+        },
+        {
+          "name": "grpc",
+          "port": 8091,
+          "protocol": "TCP",
+          "targetPort": "grpc"
+        },
+        {
+          "name": "monitoring",
+          "port": 8097,
+          "protocol": "TCP",
+          "targetPort": "monitoring"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "predictkube-auth",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-predictkube-auth",
+      "labels": {
+        "app.kubernetes.io/name": "predictkube-auth",
+        "helm.sh/chart": "predictkube-auth-0.1.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "predictkube-auth",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config": "100821f633aa6d2196a9736b6a6399b32edd0dc355beacfa3c914799565a9875"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "predictkube-auth",
+            "helm.sh/chart": "predictkube-auth-0.1.1",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-predictkube-auth",
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "initContainers": [
+            {
+              "name": "check-postgresql",
+              "image": "alpine:3.9.2",
+              "command": [
+                "sh",
+                "-c",
+                "until printf \".\" && nc -z -w 2 release-name-predictkube-auth-postgresql.default.svc.cluster.local 5432; do\n    sleep 2;\ndone;\n\necho 'PostgreSQL OK ✓'\n"
+              ]
+            },
+            {
+              "name": "migrations",
+              "image": "eu.gcr.io/predictkube/migrator:latest",
+              "command": [
+                "/usr/local/bin/migrate"
+              ],
+              "args": [
+                "-source",
+                "file://./migrations",
+                "-database",
+                "postgres://predictkube:%!s(<nil>)@release-name-predictkube-auth-postgresql.default.svc.cluster.local:5432/predictkube?sslmode=disable",
+                "up"
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "predictkube-auth",
+              "image": "foo/bar:latest",
+              "securityContext": {
+                "runAsNonRoot": true,
+                "runAsUser": 10845,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "command": [
+                "/app"
+              ],
+              "args": [
+                "-conf=/etc/auth/configs/configs.yaml"
+              ],
+              "resources": {
+                "limits": {},
+                "requests": {},
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "ports": [
+                {
+                  "name": "grpc",
+                  "containerPort": 8091
+                },
+                {
+                  "name": "monitoring",
+                  "containerPort": 8097
+                },
+                {
+                  "name": "rest",
+                  "containerPort": 8098
+                }
+              ],
+              "livenessProbe": {
+                "failureThreshold": 3,
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": 8097
+                },
+                "initialDelaySeconds": 20,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 5
+              },
+              "readinessProbe": {
+                "failureThreshold": 3,
+                "httpGet": {
+                  "path": "/readyz",
+                  "port": 8097
+                },
+                "initialDelaySeconds": 20,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 5
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/etc/auth/configs",
+                  "name": "configs",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "configMap": {
+                "name": "release-name-predictkube-auth"
+              },
+              "name": "configs"
+            }
+          ]
+        }
+      }
+    }
+  }
+]

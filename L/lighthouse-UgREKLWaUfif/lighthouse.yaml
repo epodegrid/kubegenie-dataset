@@ -1,0 +1,572 @@
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: lighthouse-foghorn
+---
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: lighthouse-gc-jobs
+---
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: lighthouse-keeper
+---
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: lighthouse-webhooks
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: lighthouse-hmac-token
+  labels:
+    app: release-name-lighthouse
+    chart: lighthouse-0.0.939
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  hmac: ""
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: lighthouse-oauth-token
+  labels:
+    app: release-name-lighthouse
+    chart: lighthouse-0.0.939
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  oauth: ""
+---
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: lighthousejobs.lighthouse.jenkins.io
+spec:
+  group: lighthouse.jenkins.io
+  names:
+    kind: LighthouseJob
+    singular: lighthousejob
+    plural: lighthousejobs
+    shortNames:
+      - lhjob
+  scope: Namespaced
+  subresources:
+    status: {}
+  version: v1alpha1
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: lighthouse-foghorn
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+      - configmaps
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - lighthouse.jenkins.io
+    resources:
+      - lighthousejobs
+    verbs:
+      - create
+      - delete
+      - list
+      - update
+      - get
+      - watch
+      - patch
+  - apiGroups:
+      - lighthouse.jenkins.io
+    resources:
+      - lighthousejobs/status
+    verbs:
+      - create
+      - delete
+      - list
+      - update
+      - get
+      - watch
+      - patch
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: lighthouse-gc-jobs
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+      - configmaps
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - lighthouse.jenkins.io
+    resources:
+      - lighthousejobs
+    verbs:
+      - create
+      - delete
+      - list
+      - update
+      - get
+      - watch
+      - patch
+  - apiGroups:
+      - lighthouse.jenkins.io
+    resources:
+      - lighthousejobs/status
+    verbs:
+      - create
+      - delete
+      - list
+      - update
+      - get
+      - watch
+      - patch
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: lighthouse-keeper
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - tekton.dev
+    resources:
+      - pipelineresources
+      - tasks
+      - pipelines
+      - pipelineruns
+    verbs:
+      - create
+      - list
+      - get
+      - update
+      - watch
+      - patch
+      - delete
+  - apiGroups:
+      - lighthouse.jenkins.io
+    resources:
+      - lighthousejobs
+    verbs:
+      - create
+      - delete
+      - list
+      - update
+      - get
+      - watch
+      - patch
+  - apiGroups:
+      - lighthouse.jenkins.io
+    resources:
+      - lighthousejobs/status
+    verbs:
+      - create
+      - delete
+      - list
+      - update
+      - get
+      - watch
+      - patch
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: lighthouse-webhooks
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+      - configmaps
+      - secrets
+    verbs:
+      - get
+      - update
+      - create
+      - list
+      - watch
+  - apiGroups:
+      - lighthouse.jenkins.io
+    resources:
+      - lighthousejobs
+    verbs:
+      - create
+      - delete
+      - list
+      - update
+      - get
+      - watch
+      - patch
+  - apiGroups:
+      - lighthouse.jenkins.io
+    resources:
+      - lighthousejobs/status
+    verbs:
+      - create
+      - delete
+      - list
+      - update
+      - get
+      - watch
+      - patch
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: lighthouse-foghorn
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: lighthouse-foghorn
+subjects:
+  - kind: ServiceAccount
+    name: lighthouse-foghorn
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: lighthouse-gc-jobs
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: lighthouse-gc-jobs
+subjects:
+  - kind: ServiceAccount
+    name: lighthouse-gc-jobs
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: lighthouse-keeper
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: lighthouse-keeper
+subjects:
+  - kind: ServiceAccount
+    name: lighthouse-keeper
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: lighthouse-webhooks
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: lighthouse-webhooks
+subjects:
+  - kind: ServiceAccount
+    name: lighthouse-webhooks
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lighthouse-keeper
+spec:
+  type: ClusterIP
+  selector:
+    app: lighthouse-keeper
+  ports:
+    - port: 80
+      targetPort: 8888
+      protocol: TCP
+      name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hook
+  labels:
+    chart: lighthouse-0.0.939
+  annotations: {}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app: lighthouse-webhooks
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lighthouse-foghorn
+  labels:
+    chart: lighthouse-0.0.939
+    app: lighthouse-foghorn
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lighthouse-foghorn
+  template:
+    metadata:
+      labels:
+        app: lighthouse-foghorn
+    spec:
+      serviceAccountName: lighthouse-foghorn
+      containers:
+        - name: lighthouse-foghorn
+          image: gcr.io/jenkinsxio/lighthouse-foghorn:0.0.939
+          imagePullPolicy: IfNotPresent
+          args:
+            - --namespace=default
+          env:
+            - name: GIT_KIND
+              value: github
+            - name: GIT_SERVER
+              value: ""
+            - name: GIT_USER
+              value: null
+            - name: GIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: lighthouse-oauth-token
+                  key: oauth
+            - name: HMAC_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: lighthouse-hmac-token
+                  key: hmac
+                  optional: false
+            - name: JX_LOG_FORMAT
+              value: json
+            - name: LOGRUS_FORMAT
+              value: json
+            - name: JX_DEFAULT_IMAGE
+              value: ""
+          resources:
+            limits:
+              cpu: 100m
+              memory: 256Mi
+            requests:
+              cpu: 80m
+              memory: 128Mi
+      terminationGracePeriodSeconds: 180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lighthouse-keeper
+  labels:
+    chart: lighthouse-0.0.939
+    app: lighthouse-keeper
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: lighthouse-keeper
+  template:
+    metadata:
+      annotations:
+        ad.datadoghq.com/keeper.logs: '[{"source":"lighthouse","service":"keeper"}]'
+      labels:
+        app: lighthouse-keeper
+    spec:
+      serviceAccountName: lighthouse-keeper
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: lighthouse-keeper
+          image: gcr.io/jenkinsxio/lighthouse-keeper:0.0.939
+          imagePullPolicy: IfNotPresent
+          args:
+            - --namespace=default
+          ports:
+            - name: http
+              containerPort: 8888
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          env:
+            - name: GIT_KIND
+              value: github
+            - name: GIT_SERVER
+              value: ""
+            - name: GIT_USER
+              value: null
+            - name: GIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: lighthouse-oauth-token
+                  key: oauth
+            - name: JX_LOG_FORMAT
+              value: json
+            - name: LOGRUS_FORMAT
+              value: json
+            - name: LIGHTHOUSE_KEEPER_STATUS_CONTEXT_LABEL
+              value: Lighthouse Merge Status
+          resources:
+            limits:
+              cpu: 400m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lighthouse-webhooks
+  labels:
+    chart: lighthouse-0.0.939
+    app: lighthouse-webhooks
+  annotations:
+    checksum/config: 054512123022271b09eb0d406e6f234ce8362c0858662ed97cea3b9825a724fa
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lighthouse-webhooks
+  template:
+    metadata:
+      labels:
+        app: lighthouse-webhooks
+    spec:
+      serviceAccountName: lighthouse-webhooks
+      containers:
+        - name: lighthouse-webhooks
+          image: gcr.io/jenkinsxio/lighthouse-webhooks:0.0.939
+          imagePullPolicy: IfNotPresent
+          args:
+            - --namespace=default
+          env:
+            - name: GIT_KIND
+              value: github
+            - name: LH_CUSTOM_TRIGGER_COMMAND
+              value: ""
+            - name: GIT_SERVER
+              value: ""
+            - name: GIT_USER
+              value: null
+            - name: GIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: lighthouse-oauth-token
+                  key: oauth
+            - name: HMAC_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: lighthouse-hmac-token
+                  key: hmac
+                  optional: false
+            - name: JX_LOG_FORMAT
+              value: json
+            - name: LOGRUS_FORMAT
+              value: json
+            - name: JX_DEFAULT_IMAGE
+              value: ""
+          ports:
+            - containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources:
+            limits:
+              cpu: 100m
+              memory: 512Mi
+            requests:
+              cpu: 80m
+              memory: 128Mi
+      terminationGracePeriodSeconds: 180
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: lighthouse-gc-jobs
+  labels:
+    app: jenkins-x-lighthouse-gcjobs
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    metadata:
+      creationTimestamp: null
+    spec:
+      template:
+        metadata:
+          creationTimestamp: null
+          labels:
+            app: lighthouse-gc-jobs
+            release: release-name
+        spec:
+          containers:
+            - command:
+                - /home/jx/gc-jobs
+              image: gcr.io/jenkinsxio/lighthouse-gc-jobs:0.0.939
+              imagePullPolicy: IfNotPresent
+              args:
+                - --namespace=default
+                - --max-age=168h
+              name: lighthouse-gc-jobs
+              resources: {}
+              terminationMessagePath: /dev/termination-log
+              terminationMessagePolicy: File
+          dnsPolicy: ClusterFirst
+          restartPolicy: Never
+          schedulerName: default-scheduler
+          securityContext: {}
+          terminationGracePeriodSeconds: 30
+          serviceAccountName: lighthouse-gc-jobs
+  successfulJobsHistoryLimit: 3
+  schedule: 0/30 * * * *
+  startingDeadlineSeconds: 4000
+  suspend: false

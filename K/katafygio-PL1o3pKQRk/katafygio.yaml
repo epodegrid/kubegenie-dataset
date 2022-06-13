@@ -1,0 +1,120 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-katafygio
+  labels:
+    app: katafygio
+    heritage: Helm
+    release: release-name
+    chart: katafygio-0.4.0
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-katafygio
+  labels:
+    app: katafygio
+    heritage: Helm
+    release: release-name
+    chart: katafygio-0.4.0
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-katafygio
+  labels:
+    app: katafygio
+    heritage: Helm
+    release: release-name
+    chart: katafygio-0.4.0
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-katafygio
+  labels:
+    app: katafygio
+    heritage: Helm
+    release: release-name
+    chart: katafygio-0.4.0
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-katafygio
+subjects:
+  - kind: ServiceAccount
+    name: release-name-katafygio
+    namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-katafygio
+  labels:
+    app: katafygio
+    heritage: Helm
+    release: release-name
+    chart: katafygio-0.4.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: katafygio
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: katafygio
+        heritage: Helm
+        release: release-name
+        chart: katafygio-0.4.0
+    spec:
+      serviceAccountName: release-name-katafygio
+      containers:
+        - name: katafygio
+          image: bpineau/katafygio:v0.7.1
+          imagePullPolicy: IfNotPresent
+          command:
+            - /usr/bin/katafygio
+            - --local-dir=/var/lib/katafygio/data
+            - --healthcheck-port=8080
+            - --log-level=warning
+            - --log-output=stdout
+            - --resync-interval=300
+            - --exclude-kind=replicaset
+            - --exclude-kind=endpoints
+            - --exclude-kind=event
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+    volumes:
+      - name: katafygio-data
+        persistentVolumeClaim:
+          claimName: release-name-katafygio

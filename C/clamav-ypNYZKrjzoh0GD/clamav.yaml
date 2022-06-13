@@ -1,0 +1,383 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-clamav-logs
+  labels:
+    helm.sh/chart: clamav-3.0.3
+    app.kubernetes.io/name: clamav
+    app.kubernetes.io/instance: release-name
+    helm-revision: "1"
+    app.kubernetes.io/version: 0.105.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 999Gi
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-clamav-scandir
+  labels:
+    helm.sh/chart: clamav-3.0.3
+    app.kubernetes.io/name: clamav
+    app.kubernetes.io/instance: release-name
+    helm-revision: "1"
+    app.kubernetes.io/version: 0.105.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 999Gi
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-clamav-sigdatabase
+  labels:
+    helm.sh/chart: clamav-3.0.3
+    app.kubernetes.io/name: clamav
+    app.kubernetes.io/instance: release-name
+    helm-revision: "1"
+    app.kubernetes.io/version: 0.105.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 999Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-clamav
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: clamav
+    app.kubernetes.io/version: 0.105.0
+    helm-revision: "1"
+    helm.sh/chart: clamav-3.0.3
+  annotations: null
+spec:
+  type: ClusterIP
+  ipFamilyPolicy: SingleStack
+  ports:
+    - port: 3310
+      targetPort: 3310
+      protocol: TCP
+      name: main
+  selector:
+    app.kubernetes.io/name: clamav
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-clamav-milter
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: clamav
+    app.kubernetes.io/version: 0.105.0
+    helm-revision: "1"
+    helm.sh/chart: clamav-3.0.3
+  annotations: null
+spec:
+  type: ClusterIP
+  ports:
+    - port: 7357
+      targetPort: 7357
+      protocol: TCP
+      name: milter
+  selector:
+    app.kubernetes.io/name: clamav
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-clamav
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: clamav
+    app.kubernetes.io/version: 0.105.0
+    helm-revision: "1"
+    helm.sh/chart: clamav-3.0.3
+spec:
+  revisionHistoryLimit: 3
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: clamav
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations: null
+      labels:
+        app.kubernetes.io/name: clamav
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      securityContext:
+        fsGroup: 568
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 0
+        runAsUser: 0
+        supplementalGroups:
+          - 568
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 10
+      initContainers:
+        - name: autopermissions
+          image: ghcr.io/truecharts/alpine:v3.15.2@sha256:29ed3480a0ee43f7af681fed5d4fc215516abf1c41eade6938b26d8c9c2c7583
+          securityContext:
+            runAsUser: 11398
+            privileged: true
+            allowPrivilegeEscalation: false
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+          command:
+            - /bin/sh
+            - -c
+            - |
+              /bin/bash <<'EOF'
+              echo "Automatically correcting permissions..."
+              echo "increasing inotify limits..."
+              ( sysctl -w fs.inotify.max_user_watches=524288 || echo "error setting inotify") && ( sysctl -w fs.inotify.max_user_instances=512 || echo "error setting inotify")
+              EOF
+          volumeMounts: null
+      containers:
+        - name: release-name-clamav
+          image: tccr.io/truecharts/clamav:v0.105.0@sha256:1e823d0489134be13ed34e6022b526d78e53dedfa916dcb4a46d2b762d01d1bc
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: false
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: PUID
+              value: "568"
+            - name: USER_ID
+              value: "568"
+            - name: UID
+              value: "568"
+            - name: UMASK
+              value: "2"
+            - name: UMASK_SET
+              value: "2"
+            - name: PGID
+              value: "568"
+            - name: GROUP_ID
+              value: "568"
+            - name: GID
+              value: "568"
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: void
+            - name: TZ
+              value: UTC
+            - name: CLAMAV_NO_CLAMD
+              value: "false"
+            - name: CLAMAV_NO_FRESHCLAMD
+              value: "false"
+            - name: CLAMAV_NO_MILTERD
+              value: "true"
+            - name: CLAMD_STARTUP_TIMEOUT
+              value: "1800"
+            - name: FRESHCLAM_CHECKS
+              value: "1"
+          envFrom: null
+          ports:
+            - name: main
+              containerPort: 3310
+              protocol: TCP
+            - name: milter
+              containerPort: 7357
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /logs
+              name: logs
+            - mountPath: /scandir
+              name: scandir
+              readOnly: true
+            - mountPath: /shared
+              name: shared
+            - mountPath: /var/lib/clamav
+              name: sigdatabase
+            - mountPath: /tmp
+              name: temp
+            - mountPath: /var/logs
+              name: varlogs
+          livenessProbe:
+            exec:
+              command:
+                - clamdcheck.sh
+            failureThreshold: 5
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+                - clamdcheck.sh
+            failureThreshold: 5
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          startupProbe:
+            exec:
+              command:
+                - clamdcheck.sh
+            failureThreshold: 60
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 2
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+            requests:
+              cpu: 10m
+              memory: 50Mi
+      volumes:
+        - name: logs
+          persistentVolumeClaim:
+            claimName: release-name-clamav-logs
+        - name: scandir
+          persistentVolumeClaim:
+            claimName: release-name-clamav-scandir
+        - name: shared
+          emptyDir: {}
+        - name: sigdatabase
+          persistentVolumeClaim:
+            claimName: release-name-clamav-sigdatabase
+        - name: temp
+          emptyDir:
+            medium: Memory
+        - name: varlogs
+          emptyDir: {}
+---
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: release-name-clamav-cronjob
+  labels:
+    helm.sh/chart: clamav-3.0.3
+    app.kubernetes.io/name: clamav
+    app.kubernetes.io/instance: release-name
+    helm-revision: "1"
+    app.kubernetes.io/version: 0.105.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  schedule: '* * * * *'
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 5
+  successfulJobsHistoryLimit: 2
+  jobTemplate:
+    metadata: null
+    spec:
+      template:
+        metadata: null
+        spec:
+          restartPolicy: Never
+          volumes:
+            - name: logs
+              persistentVolumeClaim:
+                claimName: release-name-clamav-logs
+            - name: scandir
+              persistentVolumeClaim:
+                claimName: release-name-clamav-scandir
+            - name: shared
+              emptyDir: {}
+            - name: sigdatabase
+              persistentVolumeClaim:
+                claimName: release-name-clamav-sigdatabase
+            - name: temp
+              emptyDir:
+                medium: Memory
+            - name: varlogs
+              emptyDir: {}
+          containers:
+            - name: clamav
+              image: tccr.io/truecharts/clamav:v0.105.0@sha256:1e823d0489134be13ed34e6022b526d78e53dedfa916dcb4a46d2b762d01d1bc
+              env:
+                - name: date_format
+                  value: +%m-%d-%Y_%H.%M.%S
+                - name: log_file_name
+                  value: clamscan_report
+                - name: report_path
+                  value: /logs
+                - name: extra_args
+                  value: null
+              command:
+                - sh
+                - -c
+              args:
+                - |
+                  export databasePath=/var/lib/clamav; if [ "$(ls -A $databasePath)" ];
+                    then
+                      echo "Virus database exists...";
+                  else
+                      echo "Virus database does not exist yet...";
+                      echo "Exiting...";
+                      exit 1;
+                  fi; export status=99; export now=$(date ${date_format}); export log_file=$report_path/${log_file_name}_${now}; touch $log_file; echo "Starting scan of \"/scandir\""; echo "Args for clamscan: --database=${databasePath} --log=$log_file --recursive ${extra_args}"; clamscan --database=${databasePath} --log=$log_file --recursive ${extra_args} /scandir; status=$?; if [ $status -eq 0 ];
+                    then
+                      echo "Exit Status: $status";
+                      echo "No Virus found!";
+                  elif [ $status -eq 1 ];
+                    then
+                      echo "Exit Status: $status.";
+                      echo "Virus(es) found. Check \"${log_file}\".";
+                  elif [ $status -eq 2 ];
+                    then
+                      echo "Exit Status: $status.";
+                      echo "Some error(s) occured.";
+                  else
+                    echo "Exit Status: $status.";
+                  fi;
+              volumeMounts:
+                - mountPath: /logs
+                  name: logs
+                - mountPath: /scandir
+                  name: scandir
+                  readOnly: true
+                - mountPath: /shared
+                  name: shared
+                - mountPath: /var/lib/clamav
+                  name: sigdatabase
+                - mountPath: /tmp
+                  name: temp
+                - mountPath: /var/logs
+                  name: varlogs
+              resources:
+                limits:
+                  cpu: 4000m
+                  memory: 8Gi
+                requests:
+                  cpu: 10m
+                  memory: 50Mi

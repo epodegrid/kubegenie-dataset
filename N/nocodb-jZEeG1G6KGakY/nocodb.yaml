@@ -1,0 +1,106 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-nocodb
+  labels:
+    helm.sh/chart: nocodb-1.84.15
+    app.kubernetes.io/name: nocodb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.84.15
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    helm.sh/chart: nocodb-1.84.15
+    app.kubernetes.io/name: nocodb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.84.15
+    app.kubernetes.io/managed-by: Helm
+  name: release-name-nocodb
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-nocodb
+  labels:
+    helm.sh/chart: nocodb-1.84.15
+    app.kubernetes.io/name: nocodb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.84.15
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: nocodb
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-nocodb
+  labels:
+    helm.sh/chart: nocodb-1.84.15
+    app.kubernetes.io/name: nocodb
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.84.15
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nocodb
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nocodb
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-nocodb
+      securityContext: {}
+      containers:
+        - name: nocodb
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: nocodb/nocodb:0.84.15
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          volumeMounts:
+            - mountPath: /usr/app/data/
+              name: data
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: release-name-nocodb

@@ -1,0 +1,598 @@
+[
+  {
+    "apiVersion": "policy/v1beta1",
+    "kind": "PodDisruptionBudget",
+    "metadata": {
+      "name": "release-name-zookeeper",
+      "labels": {
+        "app": "zookeeper",
+        "chart": "zookeeper-2.1.3",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "server"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "zookeeper",
+          "release": "release-name",
+          "component": "server"
+        }
+      },
+      "maxUnavailable": 1
+    }
+  },
+  {
+    "apiVersion": "policy/v1beta1",
+    "kind": "PodDisruptionBudget",
+    "metadata": {
+      "name": "release-name-solr",
+      "labels": {
+        "app.kubernetes.io/name": "solr",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "helm.sh/chart": "solr-1.5.8"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "solr",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "server"
+        }
+      },
+      "maxUnavailable": 1
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-zookeeper",
+      "labels": {
+        "app": "zookeeper",
+        "chart": "zookeeper-2.1.3",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "server"
+      }
+    },
+    "data": {
+      "ok": "#!/bin/sh\nzkServer.sh status\n",
+      "ready": "#!/bin/sh\necho ruok | nc 127.0.0.1 ${1:-2181}\n",
+      "run": "#!/bin/bash\n\nset -a\nROOT=$(echo /apache-zookeeper-*)\n\nZK_USER=${ZK_USER:-\"zookeeper\"}\nZK_LOG_LEVEL=${ZK_LOG_LEVEL:-\"INFO\"}\nZK_DATA_DIR=${ZK_DATA_DIR:-\"/data\"}\nZK_DATA_LOG_DIR=${ZK_DATA_LOG_DIR:-\"/data/log\"}\nZK_CONF_DIR=${ZK_CONF_DIR:-\"/conf\"}\nZK_CLIENT_PORT=${ZK_CLIENT_PORT:-2181}\nZK_SERVER_PORT=${ZK_SERVER_PORT:-2888}\nZK_ELECTION_PORT=${ZK_ELECTION_PORT:-3888}\nZK_TICK_TIME=${ZK_TICK_TIME:-2000}\nZK_INIT_LIMIT=${ZK_INIT_LIMIT:-10}\nZK_SYNC_LIMIT=${ZK_SYNC_LIMIT:-5}\nZK_HEAP_SIZE=${ZK_HEAP_SIZE:-2G}\nZK_MAX_CLIENT_CNXNS=${ZK_MAX_CLIENT_CNXNS:-60}\nZK_MIN_SESSION_TIMEOUT=${ZK_MIN_SESSION_TIMEOUT:- $((ZK_TICK_TIME*2))}\nZK_MAX_SESSION_TIMEOUT=${ZK_MAX_SESSION_TIMEOUT:- $((ZK_TICK_TIME*20))}\nZK_SNAP_RETAIN_COUNT=${ZK_SNAP_RETAIN_COUNT:-3}\nZK_PURGE_INTERVAL=${ZK_PURGE_INTERVAL:-0}\nID_FILE=\"$ZK_DATA_DIR/myid\"\nZK_CONFIG_FILE=\"$ZK_CONF_DIR/zoo.cfg\"\nLOG4J_PROPERTIES=\"$ZK_CONF_DIR/log4j.properties\"\nHOST=$(hostname)\nDOMAIN=`hostname -d`\nJVMFLAGS=\"-Xmx$ZK_HEAP_SIZE -Xms$ZK_HEAP_SIZE\"\n\nAPPJAR=$(echo $ROOT/*jar)\nCLASSPATH=\"${ROOT}/lib/*:${APPJAR}:${ZK_CONF_DIR}:\"\n\nif [[ $HOST =~ (.*)-([0-9]+)$ ]]; then\n    NAME=${BASH_REMATCH[1]}\n    ORD=${BASH_REMATCH[2]}\n    MY_ID=$((ORD+1))\nelse\n    echo \"Failed to extract ordinal from hostname $HOST\"\n    exit 1\nfi\n\nmkdir -p $ZK_DATA_DIR\nmkdir -p $ZK_DATA_LOG_DIR\necho $MY_ID >> $ID_FILE\n\necho \"clientPort=$ZK_CLIENT_PORT\" >> $ZK_CONFIG_FILE\necho \"dataDir=$ZK_DATA_DIR\" >> $ZK_CONFIG_FILE\necho \"dataLogDir=$ZK_DATA_LOG_DIR\" >> $ZK_CONFIG_FILE\necho \"tickTime=$ZK_TICK_TIME\" >> $ZK_CONFIG_FILE\necho \"initLimit=$ZK_INIT_LIMIT\" >> $ZK_CONFIG_FILE\necho \"syncLimit=$ZK_SYNC_LIMIT\" >> $ZK_CONFIG_FILE\necho \"maxClientCnxns=$ZK_MAX_CLIENT_CNXNS\" >> $ZK_CONFIG_FILE\necho \"minSessionTimeout=$ZK_MIN_SESSION_TIMEOUT\" >> $ZK_CONFIG_FILE\necho \"maxSessionTimeout=$ZK_MAX_SESSION_TIMEOUT\" >> $ZK_CONFIG_FILE\necho \"autopurge.snapRetainCount=$ZK_SNAP_RETAIN_COUNT\" >> $ZK_CONFIG_FILE\necho \"autopurge.purgeInterval=$ZK_PURGE_INTERVAL\" >> $ZK_CONFIG_FILE\necho \"4lw.commands.whitelist=*\" >> $ZK_CONFIG_FILE\n\nfor (( i=1; i<=$ZK_REPLICAS; i++ ))\ndo\n    echo \"server.$i=$NAME-$((i-1)).$DOMAIN:$ZK_SERVER_PORT:$ZK_ELECTION_PORT\" >> $ZK_CONFIG_FILE\ndone\n\nrm -f $LOG4J_PROPERTIES\n\necho \"zookeeper.root.logger=$ZK_LOG_LEVEL, CONSOLE\" >> $LOG4J_PROPERTIES\necho \"zookeeper.console.threshold=$ZK_LOG_LEVEL\" >> $LOG4J_PROPERTIES\necho \"zookeeper.log.threshold=$ZK_LOG_LEVEL\" >> $LOG4J_PROPERTIES\necho \"zookeeper.log.dir=$ZK_DATA_LOG_DIR\" >> $LOG4J_PROPERTIES\necho \"zookeeper.log.file=zookeeper.log\" >> $LOG4J_PROPERTIES\necho \"zookeeper.log.maxfilesize=256MB\" >> $LOG4J_PROPERTIES\necho \"zookeeper.log.maxbackupindex=10\" >> $LOG4J_PROPERTIES\necho \"zookeeper.tracelog.dir=$ZK_DATA_LOG_DIR\" >> $LOG4J_PROPERTIES\necho \"zookeeper.tracelog.file=zookeeper_trace.log\" >> $LOG4J_PROPERTIES\necho \"log4j.rootLogger=\\${zookeeper.root.logger}\" >> $LOG4J_PROPERTIES\necho \"log4j.appender.CONSOLE=org.apache.log4j.ConsoleAppender\" >> $LOG4J_PROPERTIES\necho \"log4j.appender.CONSOLE.Threshold=\\${zookeeper.console.threshold}\" >> $LOG4J_PROPERTIES\necho \"log4j.appender.CONSOLE.layout=org.apache.log4j.PatternLayout\" >> $LOG4J_PROPERTIES\necho \"log4j.appender.CONSOLE.layout.ConversionPattern=%d{ISO8601} [myid:%X{myid}] - %-5p [%t:%C{1}@%L] - %m%n\" >> $LOG4J_PROPERTIES\n\nif [ -n \"$JMXDISABLE\" ]\nthen\n    MAIN=org.apache.zookeeper.server.quorum.QuorumPeerMain\nelse\n    MAIN=\"-Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=$JMXPORT -Dcom.sun.management.jmxremote.authenticate=$JMXAUTH -Dcom.sun.management.jmxremote.ssl=$JMXSSL -Dzookeeper.jmx.log4j.disable=$JMXLOG4J org.apache.zookeeper.server.quorum.QuorumPeerMain\"\nfi\n\nset -x\nexec java -cp \"$CLASSPATH\" $JVMFLAGS $MAIN $ZK_CONFIG_FILE\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-solr-config-map",
+      "labels": {
+        "app.kubernetes.io/name": "solr",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "helm.sh/chart": "solr-1.5.8"
+      }
+    },
+    "data": {
+      "solr.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<solr>\n  <solrcloud>\n    <str name=\"host\">${host:}</str>\n    <int name=\"hostPort\">${jetty.port:8983}</int>\n    <str name=\"hostContext\">${hostContext:solr}</str>\n    <bool name=\"genericCoreNodeNames\">${genericCoreNodeNames:true}</bool>\n    <int name=\"zkClientTimeout\">${zkClientTimeout:30000}</int>\n    <int name=\"distribUpdateSoTimeout\">${distribUpdateSoTimeout:600000}</int>\n    <int name=\"distribUpdateConnTimeout\">${distribUpdateConnTimeout:60000}</int>\n    <str name=\"zkCredentialsProvider\">${zkCredentialsProvider:org.apache.solr.common.cloud.DefaultZkCredentialsProvider}</str>\n    <str name=\"zkACLProvider\">${zkACLProvider:org.apache.solr.common.cloud.DefaultZkACLProvider}</str>\n  </solrcloud>\n  <shardHandlerFactory name=\"shardHandlerFactory\"\n    class=\"HttpShardHandlerFactory\">\n    <int name=\"socketTimeout\">${socketTimeout:600000}</int>\n    <int name=\"connTimeout\">${connTimeout:60000}</int>\n  </shardHandlerFactory>\n</solr>\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-zookeeper-headless",
+      "labels": {
+        "app": "zookeeper",
+        "chart": "zookeeper-2.1.3",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "client",
+          "port": 2181,
+          "targetPort": "client",
+          "protocol": "TCP"
+        },
+        {
+          "name": "election",
+          "port": 3888,
+          "targetPort": "election",
+          "protocol": "TCP"
+        },
+        {
+          "name": "server",
+          "port": 2888,
+          "targetPort": "server",
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app": "zookeeper",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-zookeeper",
+      "labels": {
+        "app": "zookeeper",
+        "chart": "zookeeper-2.1.3",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "client",
+          "port": 2181,
+          "protocol": "TCP",
+          "targetPort": "client"
+        }
+      ],
+      "selector": {
+        "app": "zookeeper",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-solr-headless",
+      "labels": {
+        "app.kubernetes.io/name": "solr",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "helm.sh/chart": "solr-1.5.8"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "port": 8983,
+          "name": "solr-headless"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "solr",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "server"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-solr-svc",
+      "labels": {
+        "app.kubernetes.io/name": "solr",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "helm.sh/chart": "solr-1.5.8"
+      },
+      "annotations": {}
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 8983,
+          "name": "solr-client"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "solr",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "server"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-zookeeper",
+      "labels": {
+        "app": "zookeeper",
+        "chart": "zookeeper-2.1.3",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "server"
+      }
+    },
+    "spec": {
+      "serviceName": "release-name-zookeeper-headless",
+      "replicas": 3,
+      "selector": {
+        "matchLabels": {
+          "app": "zookeeper",
+          "release": "release-name",
+          "component": "server"
+        }
+      },
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "zookeeper",
+            "release": "release-name",
+            "component": "server"
+          }
+        },
+        "spec": {
+          "terminationGracePeriodSeconds": 1800,
+          "securityContext": {
+            "fsGroup": 1000,
+            "runAsUser": 1000
+          },
+          "containers": [
+            {
+              "name": "zookeeper",
+              "image": "zookeeper:3.5.5",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/bin/bash",
+                "-xec",
+                "/config-scripts/run"
+              ],
+              "ports": [
+                {
+                  "name": "client",
+                  "containerPort": 2181,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "election",
+                  "containerPort": 3888,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "server",
+                  "containerPort": 2888,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "sh",
+                    "/config-scripts/ok"
+                  ]
+                },
+                "initialDelaySeconds": 20,
+                "periodSeconds": 30,
+                "timeoutSeconds": 5,
+                "failureThreshold": 2,
+                "successThreshold": 1
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "sh",
+                    "/config-scripts/ready"
+                  ]
+                },
+                "initialDelaySeconds": 20,
+                "periodSeconds": 30,
+                "timeoutSeconds": 5,
+                "failureThreshold": 2,
+                "successThreshold": 1
+              },
+              "env": [
+                {
+                  "name": "ZK_REPLICAS",
+                  "value": "3"
+                },
+                {
+                  "name": "JMXAUTH",
+                  "value": "false"
+                },
+                {
+                  "name": "JMXDISABLE",
+                  "value": "false"
+                },
+                {
+                  "name": "JMXPORT",
+                  "value": "1099"
+                },
+                {
+                  "name": "JMXSSL",
+                  "value": "false"
+                },
+                {
+                  "name": "ZK_SYNC_LIMIT",
+                  "value": "10"
+                },
+                {
+                  "name": "ZK_TICK_TIME",
+                  "value": "2000"
+                },
+                {
+                  "name": "ZOO_AUTOPURGE_PURGEINTERVAL",
+                  "value": "0"
+                },
+                {
+                  "name": "ZOO_AUTOPURGE_SNAPRETAINCOUNT",
+                  "value": "3"
+                },
+                {
+                  "name": "ZOO_INIT_LIMIT",
+                  "value": "5"
+                },
+                {
+                  "name": "ZOO_MAX_CLIENT_CNXNS",
+                  "value": "60"
+                },
+                {
+                  "name": "ZOO_PORT",
+                  "value": "2181"
+                },
+                {
+                  "name": "ZOO_STANDALONE_ENABLED",
+                  "value": "false"
+                },
+                {
+                  "name": "ZOO_TICK_TIME",
+                  "value": "2000"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/data"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/config-scripts"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-zookeeper",
+                "defaultMode": 365
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "5Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-solr",
+      "labels": {
+        "app.kubernetes.io/name": "solr",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "helm.sh/chart": "solr-1.5.8",
+        "app.kubernetes.io/component": "server"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "solr",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "server"
+        }
+      },
+      "serviceName": "release-name-solr-headless",
+      "replicas": 3,
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "solr",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/component": "server"
+          },
+          "annotations": {}
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 8983,
+            "runAsUser": 8983
+          },
+          "affinity": {},
+          "tolerations": [],
+          "terminationGracePeriodSeconds": 180,
+          "volumes": [
+            {
+              "name": "solr-xml",
+              "configMap": {
+                "name": "release-name-solr-config-map",
+                "items": [
+                  {
+                    "key": "solr.xml",
+                    "path": "solr.xml"
+                  }
+                ]
+              }
+            }
+          ],
+          "initContainers": [
+            {
+              "name": "check-zk",
+              "image": "busybox:latest",
+              "command": [
+                "sh",
+                "-c",
+                "COUNTER=0;\nwhile [  $COUNTER -lt 120 ]; do\n  addr=$(nslookup -type=a release-name-zookeeper-headless | grep \"Address:\" | awk 'NR>1 {print $2}')\n  if [ ! -z \"$addr\" ]; then\n    while read -r line; do\n      echo $line;\n      exit 0;\n    done <<EOF\n$addr\nEOF\n  fi;\n  let COUNTER=COUNTER+1;\n  sleep 2;\ndone;\necho \"Did NOT see a ZK leader after 240 secs!\";\nexit 1;\n"
+              ]
+            },
+            {
+              "name": "cp-solr-xml",
+              "image": "busybox:latest",
+              "command": [
+                "sh",
+                "-c",
+                "cp /tmp/solr.xml /tmp-config/solr.xml"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "solr-xml",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "release-name-solr-pvc",
+                  "mountPath": "/tmp-config"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "solr",
+              "image": "solr:8.11.1",
+              "imagePullPolicy": "IfNotPresent",
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "ports": [
+                {
+                  "containerPort": 8983,
+                  "name": "solr-client"
+                }
+              ],
+              "env": [
+                {
+                  "name": "SOLR_JAVA_MEM",
+                  "value": "-Xms2g -Xmx3g"
+                },
+                {
+                  "name": "SOLR_HOME",
+                  "value": "/opt/solr/server/home"
+                },
+                {
+                  "name": "SOLR_PORT",
+                  "value": "8983"
+                },
+                {
+                  "name": "POD_HOSTNAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "SOLR_HOST",
+                  "value": "$(POD_HOSTNAME).release-name-solr-headless.default"
+                },
+                {
+                  "name": "ZK_HOST",
+                  "value": "release-name-zookeeper-headless:2181"
+                },
+                {
+                  "name": "SOLR_LOG_LEVEL",
+                  "value": "INFO"
+                }
+              ],
+              "livenessProbe": {
+                "initialDelaySeconds": 45,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 3,
+                "httpGet": {
+                  "scheme": "HTTP",
+                  "path": "/solr/admin/info/system",
+                  "port": 8983
+                }
+              },
+              "readinessProbe": {
+                "initialDelaySeconds": 15,
+                "periodSeconds": 5,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 3,
+                "httpGet": {
+                  "scheme": "HTTP",
+                  "path": "/solr/admin/info/system",
+                  "port": 8983
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "release-name-solr-pvc",
+                  "mountPath": "/opt/solr/server/home"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "release-name-solr-pvc",
+            "annotations": {
+              "pv.beta.kubernetes.io/gid": "8983"
+            }
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "20Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+]

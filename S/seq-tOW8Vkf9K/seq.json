@@ -1,0 +1,141 @@
+[
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-seq",
+      "labels": {
+        "app": "release-name-seq",
+        "chart": "seq-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "8Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-seq",
+      "labels": {
+        "app": "seq",
+        "chart": "seq-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 5341,
+          "targetPort": "ui",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app": "seq",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-seq",
+      "labels": {
+        "app": "seq",
+        "chart": "seq-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "seq",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "seq",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "seq",
+              "image": "datalust/seq:5.0.832-pre",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "ACCEPT_EULA",
+                  "value": "Y"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "ingestion",
+                  "containerPort": 5341,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "ui",
+                  "containerPort": 80,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "ui"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "ui"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "seq-data",
+                  "mountPath": "/data",
+                  "subPath": null
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "seq-data",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-seq"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

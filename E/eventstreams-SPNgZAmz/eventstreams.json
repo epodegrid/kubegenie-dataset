@@ -1,0 +1,237 @@
+[
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "NetworkPolicy",
+    "metadata": {
+      "name": "eventstreams-release-name",
+      "labels": {
+        "chart": "eventstreams",
+        "app": "eventstreams",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "podSelector": {
+        "matchLabels": {
+          "chart": "eventstreams",
+          "app": "eventstreams",
+          "release": "release-name"
+        }
+      },
+      "policyTypes": [
+        "Ingress"
+      ],
+      "ingress": [
+        {
+          "ports": [
+            {
+              "port": 8092,
+              "protocol": "TCP"
+            },
+            {
+              "port": 9102,
+              "protocol": "TCP"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "eventstreams-release-name-secret-config",
+      "labels": {
+        "chart": "eventstreams",
+        "app": "eventstreams",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "type": "Opaque"
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "eventstreams-release-name-config",
+      "labels": {
+        "chart": "eventstreams",
+        "app": "eventstreams",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "config.yaml": "# service-runner EventStreams app config.yaml.\n\n# Number of worker processes to spawn.\n# Set to 0 to run everything in a single process without clustering.\n# Use 'ncpu' to run as many workers as there are CPU units\nnum_workers: 1\n\n# Log error messages and gracefully restart a worker if v8 reports that it\n# uses more heap (note: not RSS) than this many mb.\nworker_heap_limit_mb: 750\n\n# Logger info\nlogging:\n  level:  info\n  streams:\n    - type: stdout\n      named_levels: true\n# Statsd metrics reporter\nmetrics:\n  - type: prometheus\n    port: 9102\n\nservices:\n  - name: eventstreams\n    module: app.js\n    conf:\n      port: 8092\n      cors: '*'\n      csp: \"default-src 'none'; script-src 'self' 'unsafe-inline'; connect-src *; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'\"\n      spec: ./spec.yaml\n      user_agent: eventstreams-release-name\n\n      # eventstreams app settings\n      kafka:\n        metadata.broker.list: kafka.default.svc.cluster.local:31092\n        ssl.ca.location: /etc/eventstreams/puppetca.crt.pem\n        ssl.cipher.suites: ECDHE-ECDSA-AES256-GCM-SHA384\n        ssl.curves.list: P-256\n        ssl.sigalgs.list: ECDSA+SHA256\n        statistics.interval.ms: 5000\n      schema_base_uris:\n      - https://schema.discovery.wmnet/repositories/primary/jsonschema\n      - https://schema.discovery.wmnet/repositories/secondary/jsonschema\n      schema_latest_version: latest",
+      "puppetca.crt.pem": "snakeoil"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "eventstreams-release-name",
+      "labels": {
+        "chart": "eventstreams",
+        "app": "eventstreams",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "NodePort",
+      "selector": {
+        "chart": "eventstreams",
+        "app": "eventstreams",
+        "routing_tag": "release-name"
+      },
+      "ports": [
+        {
+          "name": "eventstreams-http",
+          "targetPort": 8092,
+          "port": 8092,
+          "nodePort": 30892
+        },
+        {
+          "name": "prometheus-eventstreams",
+          "targetPort": 9102,
+          "port": 9102,
+          "nodePort": 31102
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "eventstreams-release-name",
+      "labels": {
+        "chart": "eventstreams",
+        "app": "eventstreams",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "chart": "eventstreams",
+          "app": "eventstreams",
+          "release": "release-name"
+        }
+      },
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "chart": "eventstreams",
+            "app": "eventstreams",
+            "release": "release-name",
+            "routing_tag": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "86f40e1616042acd6dad48897b38f105e35bd77f31bb43c042dee6f69daa4ee1",
+            "checksum/secrets": "d63bf8fea5738148af68018f350556934d77d686b6015f50ff8e45d2e9eb25f8",
+            "prometheus.io/port": "9102",
+            "prometheus.io/scrape": "true"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "eventstreams",
+              "image": "docker-registry.wikimedia.org/wikimedia/mediawiki-services-eventstreams:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "nodejs"
+              ],
+              "args": [
+                "/srv/service/server.js",
+                "-c",
+                "/etc/eventstreams/config.yaml"
+              ],
+              "ports": [
+                {
+                  "containerPort": 8092
+                }
+              ],
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": 8092
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/_info",
+                  "port": 8092
+                }
+              },
+              "env": [
+                {
+                  "name": "SERVICE_IDENTIFIER",
+                  "value": "eventstreams"
+                }
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "500Mi"
+                },
+                "limits": {
+                  "cpu": "1000m",
+                  "memory": "1000Mi"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "eventstreams-config-volume",
+                  "mountPath": "/etc/eventstreams"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "eventstreams-config-volume",
+              "configMap": {
+                "name": "eventstreams-release-name-config"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "eventstreams-service-checker",
+      "annotations": {
+        "helm.sh/hook": "test",
+        "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "eventstreams-service-checker",
+          "image": "docker-registry.wikimedia.org/service-checker",
+          "imagePullPolicy": "IfNotPresent",
+          "args": [
+            "-t",
+            "5",
+            "$(EVENTSTREAMS_RELEASE_NAME_SERVICE_HOST)",
+            "http://eventstreams-release-name:8092"
+          ]
+        }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "restartPolicy": "Never"
+    }
+  }
+]

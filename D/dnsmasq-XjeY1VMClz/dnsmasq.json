@@ -1,0 +1,95 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-cm"
+    },
+    "data": {
+      "dnsmasq.conf": "#dnsmasq config, for a complete example, see:\n#  http://oss.segetech.com/intra/srv/dnsmasq.conf\n#log all dns queries\nlog-queries\n#dont use hosts nameservers\nno-resolv\n#use 114 as default nameservers\nserver=114.114.114.114\n#explicitly define host-ip mappings\n"
+    }
+  },
+  {
+    "apiVersion": "extensions/v1beta1",
+    "kind": "Deployment",
+    "metadata": {
+      "labels": {
+        "choerodon.io/release": "release-name",
+        "choerodon.io/infra": "dnsmasq",
+        "choerodon.io/logs-parser": "docker"
+      },
+      "name": "release-name"
+    },
+    "spec": {
+      "replicas": 1,
+      "revisionHistoryLimit": 3,
+      "selector": {
+        "matchLabels": {
+          "choerodon.io/release": "release-name",
+          "choerodon.io/infra": "dnsmasq"
+        }
+      },
+      "strategy": {
+        "rollingUpdate": {
+          "maxUnavailable": 0
+        },
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "choerodon.io/release": "release-name",
+            "choerodon.io/infra": "dnsmasq"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "release-name",
+              "env": [
+                {
+                  "name": "HTTP_PASS",
+                  "value": "password"
+                },
+                {
+                  "name": "HTTP_USER",
+                  "value": "admin"
+                }
+              ],
+              "image": "registry.cn-hangzhou.aliyuncs.com/choerodon-tools/dnsmasq:2.78",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "containerPort": 53,
+                  "name": "dnsmasq",
+                  "protocol": "UDP"
+                },
+                {
+                  "containerPort": 8080,
+                  "name": "http",
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/etc/dnsmasq.conf",
+                  "name": "config",
+                  "subPath": "dnsmasq.conf"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "defaultMode": 420,
+                "name": "release-name-cm"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

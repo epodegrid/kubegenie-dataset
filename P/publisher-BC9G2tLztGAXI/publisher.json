@@ -1,0 +1,838 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-env",
+      "labels": {
+        "helm.sh/chart": "publisher-0.9.5",
+        "app.kubernetes.io/name": "publisher",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "EMAIL_GROUP_BUSINESS": "mainstream-publisher-notifications-test@digital.cabinet-office.gov.uk",
+      "EMAIL_GROUP_CITIZEN": "mainstream-publisher-notifications-test@digital.cabinet-office.gov.uk",
+      "EMAIL_GROUP_DEV": "mainstream-publisher-notifications-test@digital.cabinet-office.gov.uk",
+      "EMAIL_GROUP_FORCE_PUBLISH_ALERTS": "mainstream-publisher-notifications-test@digital.cabinet-office.gov.uk",
+      "FACT_CHECK_ADDRESS_FORMAT": "factcheck+test-{id}@alphagov.co.uk",
+      "FACT_CHECK_SUBJECT_PREFIX": "test",
+      "FACT_CHECK_REPLY_TO_ADDRESS": "govuk-fact-check-test@digital.cabinet-office.gov.uk",
+      "FACT_CHECK_REPLY_TO_ID": "govuk-fact-check-test@digital.cabinet-office.gov.uk",
+      "GOVUK_NOTIFY_TEMPLATE_ID": "123e4567-e89b-12d3-a456-426614174000",
+      "REDIS_URL": "redis://shared-redis-govuk.eks.test.govuk-internal.digital"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-nginx-conf",
+      "labels": {
+        "helm.sh/chart": "publisher-0.9.5",
+        "app.kubernetes.io/name": "publisher",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "web"
+      }
+    },
+    "data": {
+      "nginx.conf": "user nginx;\n\nerror_log /var/log/nginx/error.log warn;\npid /var/run/nginx.pid;\n\nevents {\n  worker_connections 1024;\n}\n\nhttp {\n  include /etc/nginx/mime.types;\n  default_type application/octet-stream;\n\n  server_tokens off;\n\n  sendfile on;\n  keepalive_timeout 65;\n\n  upstream release-name {\n    server localhost:3000;\n  }\n\n  server {\n    listen 80;\n\n    location / {\n      proxy_set_header Host $host;\n      proxy_set_header X-Real-IP $remote_addr;\n      proxy_pass http://release-name;\n      proxy_redirect off;\n    }\n  }\n}"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name",
+      "labels": {
+        "helm.sh/chart": "publisher-0.9.5",
+        "app.kubernetes.io/name": "publisher",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "web",
+        "app": "release-name"
+      }
+    },
+    "spec": {
+      "type": "NodePort",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": 80
+        }
+      ],
+      "selector": {
+        "app": "release-name-web"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-web",
+      "labels": {
+        "helm.sh/chart": "publisher-0.9.5",
+        "app.kubernetes.io/name": "publisher",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "web",
+        "app": "release-name-web"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "release-name-web"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "helm.sh/chart": "publisher-0.9.5",
+            "app.kubernetes.io/name": "publisher",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "web",
+            "app": "release-name-web"
+          },
+          "annotations": {
+            "checksum/configmap": "019890a75afa2171ba28245d2c4bbb9d87e7b6da027a500a5f5d232f6c71bad9"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "app",
+              "image": "172025368201.dkr.ecr.eu-west-1.amazonaws.com/publisher:latest",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 3000
+                }
+              ],
+              "envFrom": [
+                {
+                  "configMapRef": {
+                    "name": "govuk-apps-env"
+                  }
+                },
+                {
+                  "configMapRef": {
+                    "name": "release-name-env"
+                  }
+                },
+                {
+                  "secretRef": {
+                    "name": "release-name-env"
+                  }
+                }
+              ],
+              "env": [
+                {
+                  "name": "GDS_SSO_OAUTH_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "oauth_id",
+                      "name": "signon-app-publisher-eks"
+                    }
+                  }
+                },
+                {
+                  "name": "GDS_SSO_OAUTH_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "oauth_secret",
+                      "name": "signon-app-publisher-eks"
+                    }
+                  }
+                },
+                {
+                  "name": "ASSET_MANAGER_BEARER_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "bearer_token",
+                      "name": "signon-token-publisher-asset-manager"
+                    }
+                  }
+                },
+                {
+                  "name": "PUBLISHING_API_BEARER_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "bearer_token",
+                      "name": "signon-token-publisher-publishing-api"
+                    }
+                  }
+                },
+                {
+                  "name": "FACT_CHECK_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "FACT_CHECK_PASSWORD",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "FACT_CHECK_REPLY_TO_ADDRESS",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "FACT_CHECK_REPLY_TO_ADDRESS",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "FACT_CHECK_REPLY_TO_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "FACT_CHECK_REPLY_TO_ID",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "GA_UNIVERSAL_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "GA_UNIVERSAL_ID",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "GOVUK_NOTIFY_API_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "GOVUK_NOTIFY_API_KEY",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "GOVUK_NOTIFY_TEMPLATE_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "GOVUK_NOTIFY_TEMPLATE_ID",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "JWT_AUTH_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "JWT_AUTH_SECRET",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "LINK_CHECKER_API_BEARER_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "LINK_CHECKER_API_BEARER_TOKEN",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "LINK_CHECKER_API_SECRET_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "LINK_CHECKER_API_SECRET_TOKEN",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "MONGODB_URI",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "MONGODB_URI",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "SECRET_KEY_BASE",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "SECRET_KEY_BASE",
+                      "name": "publisher"
+                    }
+                  }
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/healthcheck/live",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 5
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/healthcheck/ready",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 5
+              }
+            },
+            {
+              "name": "nginx",
+              "image": "nginx:stable",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 80
+                }
+              ],
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": "http"
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 5,
+                "periodSeconds": 10,
+                "failureThreshold": 6,
+                "successThreshold": 1
+              },
+              "readinessProbe": {
+                "tcpSocket": {
+                  "port": "http"
+                },
+                "initialDelaySeconds": 5,
+                "timeoutSeconds": 3,
+                "periodSeconds": 5,
+                "failureThreshold": 3,
+                "successThreshold": 1
+              },
+              "volumeMounts": [
+                {
+                  "name": "release-name-nginx-conf",
+                  "mountPath": "/etc/nginx/nginx.conf",
+                  "subPath": "nginx.conf"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "release-name-nginx-conf",
+              "configMap": {
+                "name": "release-name-nginx-conf"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-worker",
+      "labels": {
+        "helm.sh/chart": "publisher-0.9.5",
+        "app.kubernetes.io/name": "publisher",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "worker",
+        "app": "release-name-worker"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "release-name-worker"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "helm.sh/chart": "publisher-0.9.5",
+            "app.kubernetes.io/name": "publisher",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "worker",
+            "app": "release-name-worker"
+          },
+          "annotations": {
+            "checksum/configmap": "019890a75afa2171ba28245d2c4bbb9d87e7b6da027a500a5f5d232f6c71bad9"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "app",
+              "image": "172025368201.dkr.ecr.eu-west-1.amazonaws.com/publisher:latest",
+              "command": [
+                "bundle"
+              ],
+              "args": [
+                "exec",
+                "sidekiq",
+                "-C",
+                "config/sidekiq.yml"
+              ],
+              "envFrom": [
+                {
+                  "configMapRef": {
+                    "name": "govuk-apps-env"
+                  }
+                },
+                {
+                  "configMapRef": {
+                    "name": "release-name-env"
+                  }
+                },
+                {
+                  "secretRef": {
+                    "name": "release-name-env"
+                  }
+                }
+              ],
+              "env": [
+                {
+                  "name": "GDS_SSO_OAUTH_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "oauth_id",
+                      "name": "signon-app-publisher-eks"
+                    }
+                  }
+                },
+                {
+                  "name": "GDS_SSO_OAUTH_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "oauth_secret",
+                      "name": "signon-app-publisher-eks"
+                    }
+                  }
+                },
+                {
+                  "name": "ASSET_MANAGER_BEARER_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "bearer_token",
+                      "name": "signon-token-publisher-asset-manager"
+                    }
+                  }
+                },
+                {
+                  "name": "PUBLISHING_API_BEARER_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "bearer_token",
+                      "name": "signon-token-publisher-publishing-api"
+                    }
+                  }
+                },
+                {
+                  "name": "FACT_CHECK_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "FACT_CHECK_PASSWORD",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "FACT_CHECK_REPLY_TO_ADDRESS",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "FACT_CHECK_REPLY_TO_ADDRESS",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "FACT_CHECK_REPLY_TO_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "FACT_CHECK_REPLY_TO_ID",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "GA_UNIVERSAL_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "GA_UNIVERSAL_ID",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "GOVUK_NOTIFY_API_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "GOVUK_NOTIFY_API_KEY",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "GOVUK_NOTIFY_TEMPLATE_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "GOVUK_NOTIFY_TEMPLATE_ID",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "JWT_AUTH_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "JWT_AUTH_SECRET",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "LINK_CHECKER_API_BEARER_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "LINK_CHECKER_API_BEARER_TOKEN",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "LINK_CHECKER_API_SECRET_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "LINK_CHECKER_API_SECRET_TOKEN",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "MONGODB_URI",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "MONGODB_URI",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "SECRET_KEY_BASE",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "SECRET_KEY_BASE",
+                      "name": "publisher"
+                    }
+                  }
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+      "name": "release-name-dbmigrate-0-9-5-latest",
+      "labels": {
+        "helm.sh/chart": "publisher-0.9.5",
+        "app.kubernetes.io/name": "publisher",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "web"
+      },
+      "annotations": {
+        "argocd.argoproj.io/hook": "PreSync",
+        "argocd.argoproj.io/sync-options": "Replace=true"
+      }
+    },
+    "spec": {
+      "template": {
+        "metadata": {
+          "name": "release-name-dbmigrate-0-9-5-latest",
+          "labels": {
+            "helm.sh/chart": "publisher-0.9.5",
+            "app.kubernetes.io/name": "publisher",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "web"
+          }
+        },
+        "spec": {
+          "restartPolicy": "Never",
+          "containers": [
+            {
+              "name": "release-name-dbmigrate-0-9-5-latest",
+              "image": "172025368201.dkr.ecr.eu-west-1.amazonaws.com/publisher:latest",
+              "command": [
+                "bundle"
+              ],
+              "args": [
+                "exec",
+                "rails",
+                "db:migrate"
+              ],
+              "envFrom": [
+                {
+                  "configMapRef": {
+                    "name": "govuk-apps-env"
+                  }
+                },
+                {
+                  "configMapRef": {
+                    "name": "release-name-env"
+                  }
+                },
+                {
+                  "secretRef": {
+                    "name": "release-name-env"
+                  }
+                }
+              ],
+              "env": [
+                {
+                  "name": "GDS_SSO_OAUTH_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "oauth_id",
+                      "name": "signon-app-publisher-eks"
+                    }
+                  }
+                },
+                {
+                  "name": "GDS_SSO_OAUTH_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "oauth_secret",
+                      "name": "signon-app-publisher-eks"
+                    }
+                  }
+                },
+                {
+                  "name": "ASSET_MANAGER_BEARER_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "bearer_token",
+                      "name": "signon-token-publisher-asset-manager"
+                    }
+                  }
+                },
+                {
+                  "name": "PUBLISHING_API_BEARER_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "bearer_token",
+                      "name": "signon-token-publisher-publishing-api"
+                    }
+                  }
+                },
+                {
+                  "name": "FACT_CHECK_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "FACT_CHECK_PASSWORD",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "FACT_CHECK_REPLY_TO_ADDRESS",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "FACT_CHECK_REPLY_TO_ADDRESS",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "FACT_CHECK_REPLY_TO_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "FACT_CHECK_REPLY_TO_ID",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "GA_UNIVERSAL_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "GA_UNIVERSAL_ID",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "GOVUK_NOTIFY_API_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "GOVUK_NOTIFY_API_KEY",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "GOVUK_NOTIFY_TEMPLATE_ID",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "GOVUK_NOTIFY_TEMPLATE_ID",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "JWT_AUTH_SECRET",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "JWT_AUTH_SECRET",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "LINK_CHECKER_API_BEARER_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "LINK_CHECKER_API_BEARER_TOKEN",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "LINK_CHECKER_API_SECRET_TOKEN",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "LINK_CHECKER_API_SECRET_TOKEN",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "MONGODB_URI",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "MONGODB_URI",
+                      "name": "publisher"
+                    }
+                  }
+                },
+                {
+                  "name": "SECRET_KEY_BASE",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "key": "SECRET_KEY_BASE",
+                      "name": "publisher"
+                    }
+                  }
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "release-name",
+      "labels": {
+        "helm.sh/chart": "publisher-0.9.5",
+        "app.kubernetes.io/name": "publisher",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "web"
+      },
+      "annotations": {
+        "alb.ingress.kubernetes.io/healthcheck-path": "/healthcheck/ready",
+        "alb.ingress.kubernetes.io/listen-ports": "[{\"HTTP\": 80}, {\"HTTPS\": 443}]",
+        "alb.ingress.kubernetes.io/load-balancer-name": "publisher",
+        "alb.ingress.kubernetes.io/scheme": "internet-facing",
+        "alb.ingress.kubernetes.io/ssl-redirect": "443",
+        "alb.ingress.kubernetes.io/target-type": "ip"
+      }
+    },
+    "spec": {
+      "rules": [
+        {
+          "host": "publisher.eks.test.govuk.digital",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "pathType": "Prefix",
+                "backend": {
+                  "service": {
+                    "name": "release-name",
+                    "port": {
+                      "number": 80
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "external-secrets.io/v1alpha1",
+    "kind": "ExternalSecret",
+    "metadata": {
+      "name": "release-name",
+      "labels": {
+        "helm.sh/chart": "publisher-0.9.5",
+        "app.kubernetes.io/name": "publisher",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "refreshInterval": "60m",
+      "secretStoreRef": {
+        "name": "aws-secretsmanager",
+        "kind": "ClusterSecretStore"
+      },
+      "target": {
+        "name": "release-name-env"
+      },
+      "dataFrom": [
+        {
+          "key": "govuk/publisher"
+        }
+      ]
+    }
+  }
+]

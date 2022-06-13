@@ -1,0 +1,215 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-flannel
+  namespace: gdGRKw77
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flannel-bin
+data:
+  image-repo-sync.sh: |
+    #!/bin/sh
+    set -ex
+
+    IFS=','; for IMAGE in ${IMAGE_SYNC_LIST}; do
+      docker pull ${IMAGE}
+      docker tag ${IMAGE} ${LOCAL_REPO}/${IMAGE}
+      docker push ${LOCAL_REPO}/${IMAGE}
+    done
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: kube-flannel-cfg
+  labels:
+    tier: node
+    app: flannel
+data:
+  cni-conf.json: |
+    {
+      "name": "cbr0",
+      "type": "flannel",
+      "delegate": {
+        "isDefaultGateway": true
+      }
+    }
+  net-conf.json: |
+    {
+      "Network": "192.168.0.0/16",
+      "Backend": {
+        "Type": "vxlan"
+      }
+    }
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-flannel
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - nodes/status
+    verbs:
+      - patch
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-flannel
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-flannel
+subjects:
+  - kind: ServiceAccount
+    name: release-name-flannel
+    namespace: default
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kube-flannel-ds
+  annotations:
+    openstackhelm.openstack.org/release_uuid: ""
+  labels:
+    tier: node
+    app: flannel
+    release_group: release-name
+    application: flannel
+    component: node
+spec:
+  selector:
+    matchLabels:
+      tier: node
+      app: flannel
+      release_group: release-name
+      application: flannel
+      component: node
+  template:
+    metadata:
+      labels:
+        tier: node
+        app: flannel
+        release_group: release-name
+        application: flannel
+        component: node
+      annotations:
+        openstackhelm.openstack.org/release_uuid: ""
+        configmap-bin-hash: 2beda82ecfff1d4f3151fa628254f56dd5682d2df3aca2dfec6a2d277c7683ee
+    spec:
+      hostNetwork: true
+      nodeSelector:
+        beta.kubernetes.io/arch: amd64
+      tolerations:
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+      serviceAccountName: release-name-flannel
+      initContainers:
+        - name: init
+          image: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: INTERFACE_NAME
+              value: eth0
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: DEPENDENCY_SERVICE
+              value: ""
+            - name: DEPENDENCY_DAEMONSET
+              value: ""
+            - name: DEPENDENCY_CONTAINER
+              value: ""
+            - name: DEPENDENCY_POD_JSON
+              value: ""
+            - name: DEPENDENCY_CUSTOM_RESOURCE
+              value: ""
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+      containers:
+        - name: kube-flannel
+          image: quay.io/coreos/flannel:v0.8.0-amd64
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          command:
+            - /opt/bin/flanneld
+            - --ip-masq
+            - --kube-subnet-mgr
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: run
+              mountPath: /run
+            - name: flannel-cfg
+              mountPath: /etc/kube-flannel/
+        - name: install-cni
+          image: quay.io/coreos/flannel:v0.8.0-amd64
+          command:
+            - /bin/sh
+            - -c
+            - set -e -x; cp -f /etc/kube-flannel/cni-conf.json /etc/cni/net.d/10-flannel.conf; while true; do sleep 3600; done
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: cni
+              mountPath: /etc/cni/net.d
+            - name: flannel-cfg
+              mountPath: /etc/kube-flannel/
+      volumes:
+        - name: pod-tmp
+          emptyDir: {}
+        - name: run
+          hostPath:
+            path: /run
+        - name: cni
+          hostPath:
+            path: /etc/cni/net.d
+        - name: flannel-cfg
+          configMap:
+            name: kube-flannel-cfg

@@ -1,0 +1,107 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-multichain-node
+  labels:
+    helm.sh/chart: multichain-node-0.5.0
+    app.kubernetes.io/name: multichain-node
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.5.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: rpc
+      port: 8570
+      targetPort: rpc
+    - name: tcp
+      port: 8571
+      targetPort: tcp
+    - name: web
+      port: 2750
+      targetPort: web
+  selector:
+    app.kubernetes.io/name: multichain-node
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-multichain-node
+  labels:
+    helm.sh/chart: multichain-node-0.5.0
+    app.kubernetes.io/name: multichain-node
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.5.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: multichain-node
+      app.kubernetes.io/instance: release-name
+  serviceName: release-name-multichain-node
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: multichain-node
+        app.kubernetes.io/instance: release-name
+    spec:
+      securityContext: {}
+      containers:
+        - name: multichain-node
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: sensrnetnl/multichain-node:0.5.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CHAINNAME
+              value: SensRNet
+            - name: PARAM_TARGET_BLOCK_SIZE
+              value: target-block-time|30
+            - name: PARAM_ANYONE_CAN_CONNECT
+              value: anyone-can-connect|true
+            - name: PARAM_ANYONE_CAN_MINE
+              value: anyone-can-mine|true
+            - name: PARAM_PRIVATE_KEY_VERSION
+              value: private-key-version|80ea7b28
+            - name: PARAM_ADDRESS_CHECKSUM_VALUE
+              value: address-checksum-value|344cbb15
+            - name: PARAM_ADDRESS_PUBKEYHASH_VERSION
+              value: address-pubkeyhash-version|00f7391c
+            - name: NETWORK_PORT
+              value: "8571"
+            - name: RPC_ALLOW_IP
+              value: 0.0.0.0/0.0.0.0
+            - name: RPC_USER
+              value: username
+            - name: RPC_PASSWORD
+              value: password
+            - name: RPC_PORT
+              value: "8570"
+          ports:
+            - name: rpc
+              containerPort: 8570
+            - name: tcp
+              containerPort: 8571
+            - name: web
+              containerPort: 2750
+          volumeMounts:
+            - mountPath: /data
+              name: multichain-node-data
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+  volumeClaimTemplates:
+    - metadata:
+        name: multichain-node-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 20Gi

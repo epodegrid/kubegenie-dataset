@@ -1,0 +1,212 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "labels": {
+        "app": "fluentd-operator",
+        "chart": "fluentd-operator-0.5.0",
+        "heritage": "Helm",
+        "release": "release-name"
+      },
+      "name": "release-name-fluentd-operator"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "labels": {
+        "app": "fluentd-operator",
+        "chart": "fluentd-operator-0.5.0",
+        "heritage": "Helm",
+        "release": "release-name"
+      },
+      "name": "release-name-fluentd-operator"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "configmaps",
+          "namespaces",
+          "pods"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "namespaces"
+        ],
+        "verbs": [
+          "patch",
+          "update"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "labels": {
+        "app": "fluentd-operator",
+        "chart": "fluentd-operator-0.5.0",
+        "heritage": "Helm",
+        "release": "release-name"
+      },
+      "name": "release-name-fluentd-operator"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-fluentd-operator",
+        "namespace": "default"
+      }
+    ],
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "release-name-fluentd-operator"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "DaemonSet",
+    "metadata": {
+      "name": "release-name-fluentd-operator",
+      "labels": {
+        "app": "fluentd-operator",
+        "chart": "fluentd-operator-0.5.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "fluentd-operator",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "fluentd-operator",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/fluentd-extraenv": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "checksum/reloader-extraenv": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-fluentd-operator",
+          "containers": [
+            {
+              "name": "fluentd",
+              "image": "vmware/kube-fluentd-operator:latest",
+              "env": [
+                {
+                  "name": "K8S_NODE_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "spec.nodeName"
+                    }
+                  }
+                }
+              ],
+              "imagePullPolicy": "IfNotPresent",
+              "volumeMounts": [
+                {
+                  "name": "fluentconf",
+                  "mountPath": "/fluentd/etc"
+                },
+                {
+                  "name": "varlog",
+                  "mountPath": "/var/log"
+                },
+                {
+                  "name": "kubeletroot",
+                  "mountPath": "/var/lib/kubelet",
+                  "readOnly": true
+                },
+                {
+                  "name": "varlibdockercontainers",
+                  "mountPath": "/var/lib/docker/containers",
+                  "readOnly": true
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            },
+            {
+              "name": "reloader",
+              "image": "vmware/kube-fluentd-operator:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/bin/config-reloader",
+                "--datasource=default",
+                "--default-configmap=fluentd-config",
+                "--interval=45",
+                "--log-level=debug",
+                "--fluentd-loglevel=debug",
+                "--output-dir=/fluentd/etc",
+                "--templates-dir=/templates",
+                "--id=release-name-fluentd-operator",
+                "--fluentd-binary",
+                "/usr/local/bundle/bin/fluentd -p /fluentd/plugins",
+                "--kubelet-root",
+                "/var/lib/kubelet",
+                "--admin-namespace=kube-system"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "fluentconf",
+                  "mountPath": "/fluentd/etc"
+                }
+              ],
+              "resources": {}
+            }
+          ],
+          "volumes": [
+            {
+              "name": "fluentconf",
+              "emptyDir": {}
+            },
+            {
+              "name": "kubeletroot",
+              "hostPath": {
+                "path": "/var/lib/kubelet"
+              }
+            },
+            {
+              "name": "varlog",
+              "hostPath": {
+                "path": "/var/log"
+              }
+            },
+            {
+              "name": "varlibdockercontainers",
+              "hostPath": {
+                "path": "/var/lib/docker/containers"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

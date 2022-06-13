@@ -1,0 +1,161 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-chproxy",
+      "labels": {
+        "helm.sh/chart": "chproxy-1.0.4",
+        "app.kubernetes.io/name": "chproxy",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.14.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-chproxy",
+      "labels": {
+        "helm.sh/chart": "chproxy-1.0.4",
+        "app.kubernetes.io/name": "chproxy",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.14.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "config.yaml": "\nhack_me_please: true\nserver:\n  http:\n    listen_addr: \":80\"\nusers:\n  - name: \"default\"\n    to_user: \"default\"\n    to_cluster: \"default\"\nclusters:\n  - name: \"default\"\n    scheme: \"http\"\n    nodes: [ \"clickhouse:8123\"]\n    users:\n      - name: \"default\"\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-chproxy",
+      "labels": {
+        "helm.sh/chart": "chproxy-1.0.4",
+        "app.kubernetes.io/name": "chproxy",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.14.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "chproxy",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-chproxy",
+      "labels": {
+        "helm.sh/chart": "chproxy-1.0.4",
+        "app.kubernetes.io/name": "chproxy",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.14.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "chproxy",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config": "843412eb"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "chproxy",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-chproxy",
+          "securityContext": {},
+          "containers": [
+            {
+              "name": "chproxy",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "siriusred/chproxy:v1.14.0",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "containerPort": 80,
+                  "protocol": "TCP",
+                  "name": "http"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/metrics",
+                  "port": 80
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/metrics",
+                  "port": 80
+                }
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/etc/chproxy",
+                  "readOnly": true
+                }
+              ],
+              "command": [
+                "/chproxy",
+                "--config",
+                "/etc/chproxy/config.yaml"
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "defaultMode": 384,
+                "name": "release-name-chproxy"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

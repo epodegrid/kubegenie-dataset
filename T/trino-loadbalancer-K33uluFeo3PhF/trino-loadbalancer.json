@@ -1,0 +1,219 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-trino-loadbalancer",
+      "labels": {
+        "helm.sh/chart": "trino-loadbalancer-0.2.4",
+        "app.kubernetes.io/name": "trino-loadbalancer",
+        "app.kubernetes.io/instance": "release-name",
+        "version": "0.2.4",
+        "app.kubernetes.io/version": "0.2.4",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-configmap",
+      "labels": {
+        "chart": "trino-loadbalancer-0.2.4",
+        "release": "release-name"
+      }
+    },
+    "data": {
+      "config.yml": "clusters:\n  healthcheck:\n    delay: 5s\n    enabled: true\n  statistics:\n    delay: 5s\n    enabled: true\n  sync:\n    delay: 10s\ncontroller:\n  features:\n    slow_worker_drainer:\n      analyzer:\n        std_deviation_ratio: 3\n      drainThreshold: 3\n      dryRun: true\n      enabled: false\n      gracePeriodSeconds: 300\n      k8s:\n        namespaceSelector: {}\n      provider: k8s\ndiscovery:\n  providers:\n  - enabled: false\n    provider: static\n    static:\n      clusters:\n      - enabled: true\n        name: cluster-0\n        tags:\n          env: dev\n          local: true\n        url: http://localhost:8080\n  - aws:\n      access_key_id: \"\"\n      region: eu-west-1\n      secret_key: \"\"\n    enabled: false\n    provider: aws-emr\n  - enabled: false\n    k8s:\n      cluster_domain: cluster.local\n      kube_config: tdac-test\n      selector_tags:\n        component: coordinator\n        deployment: trino\n    provider: k8s\nnotifier:\n  slack:\n    webhook: \"\"\npersistence:\n  postgres:\n    db: postgres\n    host: 127.0.0.1\n    password: trino\n    port: 5432\n    ssl_mode: disable\n    username: trinohub\nproxy:\n  port: 8998\nrouting:\n  rule: round-robin\n  users:\n    default:\n      behaviour: default\n      cluster: {}\n    rules: []\nsession:\n  store:\n    redis:\n      opts:\n        max_ttl: 24h\n        prefix: 'trino::'\n      sentinel:\n        db: 0\n        enabled: false\n        hosts:\n        - \"\"\n        - \"\"\n        master: mymaster\n        password: \"\"\n      standalone:\n        db: 0\n        enabled: true\n        host: 127.0.0.1:6379\n        password: \"\"\n"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "name": "release-name-trino-loadbalancer"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "apps"
+        ],
+        "resources": [
+          "deployments",
+          "deployments/scale"
+        ],
+        "verbs": [
+          "get",
+          "update",
+          "patch",
+          "list"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "services",
+          "namespaces",
+          "pods",
+          "deployments"
+        ],
+        "verbs": [
+          "get",
+          "watch",
+          "list",
+          "update"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "release-name-trino-loadbalancer"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "release-name-trino-loadbalancer"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-trino-loadbalancer",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-trino-loadbalancer",
+      "labels": {
+        "helm.sh/chart": "trino-loadbalancer-0.2.4",
+        "app.kubernetes.io/name": "trino-loadbalancer",
+        "app.kubernetes.io/instance": "release-name",
+        "version": "0.2.4",
+        "app.kubernetes.io/version": "0.2.4",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "trino-loadbalancer",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-trino-loadbalancer-proxy",
+      "labels": {
+        "helm.sh/chart": "trino-loadbalancer-0.2.4",
+        "app.kubernetes.io/name": "trino-loadbalancer",
+        "app.kubernetes.io/instance": "release-name",
+        "version": "0.2.4",
+        "app.kubernetes.io/version": "0.2.4",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 2,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "trino-loadbalancer",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "trino-loadbalancer",
+            "app.kubernetes.io/instance": "release-name",
+            "version": "0.2.4"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-trino-loadbalancer",
+          "securityContext": {},
+          "volumes": [
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "release-name-configmap"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "trino-loadbalancer",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "datappeal/trino-loadbalancer:edge",
+              "imagePullPolicy": "Always",
+              "args": [
+                "proxy",
+                "--config",
+                "/config/config.yml",
+                "--static-files",
+                "/ui"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config-volume",
+                  "mountPath": "/config"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8998,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "http"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "http"
+                }
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

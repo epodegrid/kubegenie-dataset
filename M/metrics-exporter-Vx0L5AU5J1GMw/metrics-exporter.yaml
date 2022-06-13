@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name
+  labels:
+    app: metrics-exporter
+    chart: metrics-exporter-1.0.3
+    release: release-name
+    heritage: Helm
+data: null
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name
+  labels:
+    helm.sh/chart: metrics-exporter-1.0.3
+    app.kubernetes.io/name: metrics-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "0.5"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: metrics-exporter
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config: 6d7af9ee6bc9dd5e39f4ba0ad476c8d90b7b12d90ad71ebacf0c4f29974bf09f
+        prometheus.io/port: "9399"
+        prometheus.io/scrape: "true"
+      labels:
+        app.kubernetes.io/name: metrics-exporter
+        app.kubernetes.io/instance: release-name
+    spec:
+      securityContext: {}
+      volumes:
+        - name: config
+          configMap:
+            name: release-name
+            items:
+              - key: sql_exporter.yaml
+                path: sql_exporter.yaml
+      containers:
+        - name: metrics-exporter
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: githubfree/sql_exporter:0.5
+          imagePullPolicy: IfNotPresent
+          args:
+            - -config.file=/config/sql_exporter.yaml
+          ports:
+            - name: metrics
+              containerPort: 9399
+              protocol: TCP
+          resources:
+            limits:
+              memory: 128Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true

@@ -1,0 +1,139 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-http-url-playlist
+  labels:
+    helm.sh/chart: http-url-playlist-1.0.0
+    app.kubernetes.io/name: http-url-playlist
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.0.2
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-http-url-playlist
+  labels:
+    helm.sh/chart: http-url-playlist-1.0.0
+    app.kubernetes.io/name: http-url-playlist
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.0.2
+    app.kubernetes.io/managed-by: Helm
+data:
+  config.json: '{"rotationDelay":60000,"urls":[]}'
+  nginx.conf: "worker_processes  auto;\n\nerror_log  /var/log/nginx/error.log warn;\n\npid        /tmp/nginx.pid;\n\nevents {\n    worker_connections  1024;\n}\n\nhttp {\n    include       /etc/nginx/mime.types;\n    default_type  application/octet-stream;\n\n    log_format  main  '$remote_addr - $remote_user [$time_local] \"$request\" '\n                    '$status $body_bytes_sent \"$http_referer\" '\n                    '\"$http_user_agent\" \"$http_x_forwarded_for\"';\n\n    access_log  /var/log/nginx/access.log  main;\n\n    sendfile        on;\n\n    keepalive_timeout  65;\n\n    gzip  on;\n\n    # Specifics around Non-Root user\n    client_body_temp_path /tmp/client_temp;\n    proxy_temp_path       /tmp/proxy_temp_path;\n    fastcgi_temp_path     /tmp/fastcgi_temp;\n    uwsgi_temp_path       /tmp/uwsgi_temp;\n    scgi_temp_path        /tmp/scgi_temp;\n\n    # Server listening\n    server {\n        server_name  _;\n        listen 8080;\n    \n        location / {\n            root   /usr/share/nginx/html;\n            index  index.html index.htm;\n        }\n    }\n}\n"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-http-url-playlist
+  labels:
+    helm.sh/chart: http-url-playlist-1.0.0
+    app.kubernetes.io/name: http-url-playlist
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.0.2
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: http-url-playlist
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-http-url-playlist
+  labels:
+    helm.sh/chart: http-url-playlist-1.0.0
+    app.kubernetes.io/name: http-url-playlist
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.0.2
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: http-url-playlist
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/configmap: ce3b9b7212da1da341b47b61fe0bda47c726543747b2f734c60302e2ff100a95
+      labels:
+        app.kubernetes.io/name: http-url-playlist
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-http-url-playlist
+      securityContext:
+        fsGroup: 101
+      containers:
+        - name: http-url-playlist
+          securityContext:
+            runAsGroup: 101
+            runAsNonRoot: true
+            runAsUser: 11289
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: julb/http-url-playlist:1.0.2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: configmap-nginx-conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: configmap-nginx-conf
+              mountPath: /usr/share/nginx/html/config.json
+              subPath: config.json
+      volumes:
+        - name: configmap-nginx-conf
+          configMap:
+            name: release-name-http-url-playlist
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-http-url-playlist-test-connection
+  labels:
+    helm.sh/chart: http-url-playlist-1.0.0
+    app.kubernetes.io/name: http-url-playlist
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.0.2
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-http-url-playlist:80
+  restartPolicy: Never

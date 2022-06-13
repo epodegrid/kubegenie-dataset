@@ -1,0 +1,215 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "ovs-plugin",
+      "namespace": "kube-system"
+    }
+  },
+  {
+    "kind": "ConfigMap",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "ovs-config",
+      "namespace": "kube-system"
+    },
+    "data": {
+      "cni_ovs_network_config": "{\n  \"name\":\"ovs\",\n  \"cniVersion\":\"0.3.1\",\n  \"type\":\"ovs\",\n  \"ovsBridge\":\"br0\",\n  \"vtepIPs\":[\n      \"10.245.2.2\",\n      \"10.245.2.3\"\n  ],\n  \"isDefaultGateway\": true,\n  \"ipMasq\": true,\n  \"ipam\":{\n      \"type\":\"host-local\",\n      \"subnet\":\"10.244.0.0/16\",\n      \"rangeStart\":\"10.244.1.10\",\n      \"rangeEnd\":\"10.244.1.150\",\n      \"routes\":[\n        {\n            \"dst\":\"0.0.0.0/0\"\n        }\n      ],\n      \"gateway\":\"10.244.1.1\"\n  }\n}",
+      "cni_ovsctlip_network_config": "{\n  \"name\":\"ovs-ctl\",\n  \"cniVersion\":\"0.3.1\",\n  \"type\":\"ovs\",\n  \"ovsBridge\":\"br0\",\n    \"ipam\":{\n      \"type\":\"centralip\",\n      \"ipType\": \"cluster\",\n      \"network\":\"10.245.0.0/16\",\n      \"etcdURL\": \"https://127.0.0.1:2379\",\n      \"etcdCertFile\": \"/etc/ovs/certs/cert.crt\",\n      \"etcdKeyFile\": \"/etc/ovs/certs/key.pem\",\n      \"etcdTrustedCAFileFile\": \"/etc/ovs/certs/ca_cert.crt\"\n  }\n}"
+    }
+  },
+  {
+    "kind": "ClusterRole",
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "metadata": {
+      "name": "ovs-plugin"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "pods"
+        ],
+        "verbs": [
+          "get",
+          "update",
+          "patch"
+        ]
+      },
+      {
+        "apiGroups": [
+          "alpha.network.k8s.io"
+        ],
+        "resources": [
+          "logicalnetworks"
+        ],
+        "verbs": [
+          "get",
+          "update",
+          "patch"
+        ]
+      },
+      {
+        "apiGroups": [
+          "alpha.network.k8s.io"
+        ],
+        "resources": [
+          "physicalnetworks"
+        ],
+        "verbs": [
+          "get",
+          "update",
+          "patch"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "configmaps"
+        ],
+        "verbs": [
+          "get"
+        ]
+      },
+      {
+        "apiGroups": [
+          "admissionregistration.k8s.io"
+        ],
+        "resources": [
+          "validatingwebhookconfigurations"
+        ],
+        "verbs": [
+          "get",
+          "update",
+          "create",
+          "delete"
+        ]
+      }
+    ]
+  },
+  {
+    "kind": "ClusterRoleBinding",
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "metadata": {
+      "name": "ovs-plugin"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "ovs-plugin"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "ovs-plugin",
+        "namespace": "kube-system"
+      },
+      {
+        "kind": "Group",
+        "name": "system:authenticated",
+        "apiGroup": "rbac.authorization.k8s.io"
+      }
+    ]
+  },
+  {
+    "kind": "DaemonSet",
+    "apiVersion": "apps/v1",
+    "metadata": {
+      "name": "ovs-plugin",
+      "namespace": "kube-system",
+      "labels": {
+        "k8s-app": "ovs"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "k8s-app": "ovs"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "k8s-app": "ovs"
+          },
+          "annotations": {
+            "scheduler.alpha.kubernetes.io/critical-pod": "",
+            "scheduler.alpha.kubernetes.io/tolerations": "[\n  {\n    \"key\": \"dedicated\",\n    \"value\": \"master\",\n    \"effect\": \"NoSchedule\"\n  },\n  {\n    \"key\": \"CriticalAddonsOnly\",\n    \"operator\": \"Exists\"\n  }\n]\n"
+          }
+        },
+        "spec": {
+          "hostNetwork": true,
+          "hostPID": true,
+          "serviceAccountName": "ovs-plugin",
+          "containers": [
+            {
+              "name": "install-cni",
+              "image": "gopinatht/ovs-plugin-installer:latest",
+              "imagePullPolicy": "Always",
+              "command": [
+                "/place_conf.sh"
+              ],
+              "env": [
+                {
+                  "name": "CNI_OVS_NETWORK_CONFIG",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "name": "ovs-config",
+                      "key": "cni_ovs_network_config"
+                    }
+                  }
+                },
+                {
+                  "name": "CNI_OVSCTLIP_NETWORK_CONFIG",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "name": "ovs-config",
+                      "key": "cni_ovsctlip_network_config"
+                    }
+                  }
+                },
+                {
+                  "name": "KUBERNETES_NODE_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "spec.nodeName"
+                    }
+                  }
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/host/opt/cni/bin",
+                  "name": "cni-bin-dir"
+                },
+                {
+                  "mountPath": "/host/etc/cni/net.d",
+                  "name": "cni-net-dir"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "cni-bin-dir",
+              "hostPath": {
+                "path": "/opt/cni/bin"
+              }
+            },
+            {
+              "name": "cni-net-dir",
+              "hostPath": {
+                "path": "/etc/cni/net.d"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,338 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-photoprism-environment",
+      "labels": {
+        "helm.sh/chart": "photoprism-0.2.0",
+        "app.kubernetes.io/name": "photoprism",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "3.1.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "PHOTOPRISM_AUTH": "true",
+      "PHOTOPRISM_HTTP_COMPRESSION": "gzip",
+      "PHOTOPRISM_LOG_LEVEL": "info",
+      "PHOTOPRISM_READONLY": "true",
+      "PHOTOPRISM_SITE_AUTHOR": "You",
+      "PHOTOPRISM_SITE_CAPTION": "Your media center",
+      "PHOTOPRISM_SITE_DESCRIPTION": "Your media center"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-photoprism-storage",
+      "labels": {
+        "helm.sh/chart": "photoprism-0.2.0",
+        "app.kubernetes.io/name": "photoprism",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "3.1.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "PHOTOPRISM_HTTP_HOST": "0.0.0.0",
+      "PHOTOPRISM_HTTP_PORT": "2342",
+      "PHOTOPRISM_DATABASE_DRIVER": "mysql",
+      "PHOTOPRISM_DATABASE_SERVER": "mariadb:3306",
+      "PHOTOPRISM_ORIGINALS_PATH": "/photoprism/originals",
+      "PHOTOPRISM_IMPORT_PATH": "/photoprism/import",
+      "PHOTOPRISM_STORAGE_PATH": "/photoprism/storage"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-photoprism",
+      "labels": {
+        "helm.sh/chart": "photoprism-0.2.0",
+        "app.kubernetes.io/name": "photoprism",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "3.1.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "photoprism",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-photoprism",
+      "labels": {
+        "helm.sh/chart": "photoprism-0.2.0",
+        "app.kubernetes.io/name": "photoprism",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "3.1.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "photoprism",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "photoprism",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "photoprism",
+              "image": "photoprism/photoprism:220302-bullseye",
+              "imagePullPolicy": "IfNotPresent",
+              "envFrom": [
+                {
+                  "configMapRef": {
+                    "name": "release-name-photoprism-environment"
+                  }
+                },
+                {
+                  "configMapRef": {
+                    "name": "release-name-photoprism-storage"
+                  }
+                },
+                {
+                  "secretRef": {
+                    "name": "photoprism"
+                  }
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "http"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "http"
+                }
+              },
+              "resources": {
+                "limits": {
+                  "cpu": 1,
+                  "memory": "512Mi"
+                },
+                "requests": {
+                  "cpu": "250m",
+                  "memory": "128Mi"
+                }
+              },
+              "ports": [
+                {
+                  "containerPort": 2342,
+                  "name": "http"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/photoprism/originals",
+                  "name": "originals"
+                },
+                {
+                  "mountPath": "/photoprism/import",
+                  "name": "import"
+                },
+                {
+                  "mountPath": "/photoprism/storage",
+                  "name": "storage"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "originals",
+              "nfs": {
+                "path": "/photoprism/originals",
+                "server": "my.nas.hostname"
+              }
+            },
+            {
+              "name": "import",
+              "nfs": {
+                "path": "/photoprism/import",
+                "server": "my.nas.hostname"
+              }
+            },
+            {
+              "name": "storage",
+              "nfs": {
+                "path": "/photoprism/storage",
+                "server": "my.nas.hostname"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "release-name-photoprism-sync",
+      "labels": {
+        "helm.sh/chart": "photoprism-0.2.0",
+        "app.kubernetes.io/name": "photoprism",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "3.1.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "schedule": "0 3,15 * * *",
+      "concurrencyPolicy": "Forbid",
+      "jobTemplate": {
+        "spec": {
+          "backoffLimit": 5,
+          "parallelism": 1,
+          "completions": 1,
+          "template": {
+            "spec": {
+              "restartPolicy": "OnFailure",
+              "containers": [
+                {
+                  "name": "photoprism",
+                  "image": "photoprism/photoprism:220302-bullseye",
+                  "imagePullPolicy": "IfNotPresent",
+                  "command": [
+                    "photoprism"
+                  ],
+                  "args": [
+                    "index"
+                  ],
+                  "envFrom": [
+                    {
+                      "configMapRef": {
+                        "name": "release-name-photoprism-environment"
+                      }
+                    },
+                    {
+                      "configMapRef": {
+                        "name": "release-name-photoprism-storage"
+                      }
+                    },
+                    {
+                      "secretRef": {
+                        "name": "photoprism"
+                      }
+                    }
+                  ],
+                  "resources": {
+                    "limits": {
+                      "cpu": 2,
+                      "memory": "4Gi"
+                    },
+                    "requests": {
+                      "cpu": "500m",
+                      "memory": "512Mi"
+                    }
+                  },
+                  "volumeMounts": [
+                    {
+                      "mountPath": "/photoprism/originals",
+                      "name": "originals"
+                    },
+                    {
+                      "mountPath": "/photoprism/import",
+                      "name": "import"
+                    },
+                    {
+                      "mountPath": "/photoprism/storage",
+                      "name": "storage"
+                    }
+                  ]
+                }
+              ],
+              "volumes": [
+                {
+                  "name": "originals",
+                  "nfs": {
+                    "path": "/photoprism/originals",
+                    "server": "my.nas.hostname"
+                  }
+                },
+                {
+                  "name": "import",
+                  "nfs": {
+                    "path": "/photoprism/import",
+                    "server": "my.nas.hostname"
+                  }
+                },
+                {
+                  "name": "storage",
+                  "nfs": {
+                    "path": "/photoprism/storage",
+                    "server": "my.nas.hostname"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "traefik.containo.us/v1alpha1",
+    "kind": "IngressRoute",
+    "metadata": {
+      "name": "release-name-photoprism",
+      "labels": {
+        "helm.sh/chart": "photoprism-0.2.0",
+        "app.kubernetes.io/name": "photoprism",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "3.1.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "entryPoints": [
+        "websecure"
+      ],
+      "routes": [
+        {
+          "kind": "Rule",
+          "match": "Host(`photoprism.org`)",
+          "services": [
+            {
+              "kind": "Service",
+              "name": "release-name-photoprism",
+              "port": 80
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

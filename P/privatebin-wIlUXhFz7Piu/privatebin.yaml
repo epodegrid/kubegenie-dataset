@@ -1,0 +1,116 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-privatebin-configs
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: privatebin
+    helm.sh/chart: privatebin-0.15.0
+data: null
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-privatebin
+  labels:
+    app.kubernetes.io/name: privatebin
+    helm.sh/chart: privatebin-0.15.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: privatebin
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-privatebin
+  labels:
+    app.kubernetes.io/name: privatebin
+    helm.sh/chart: privatebin-0.15.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: privatebin
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: privatebin
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 82
+        fsGroup: 82
+      containers:
+        - name: privatebin
+          image: privatebin/nginx-fpm-alpine:1.3.5
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          securityContext:
+            readOnlyRootFilesystem: true
+            privileged: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: configs
+              mountPath: /srv/cfg
+      volumes:
+        - name: configs
+          configMap:
+            name: release-name-privatebin-configs
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-privatebin-test-connection
+  labels:
+    app.kubernetes.io/name: privatebin
+    helm.sh/chart: privatebin-0.15.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-privatebin:80
+  restartPolicy: Never

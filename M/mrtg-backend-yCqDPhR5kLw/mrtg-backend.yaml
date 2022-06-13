@@ -1,0 +1,184 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-mrtg-backend
+  labels:
+    helm.sh/chart: mrtg-backend-0.6.3
+    app.kubernetes.io/name: mrtg-backend
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.0.4
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-mrtg-backend
+  labels:
+    helm.sh/chart: mrtg-backend-0.6.3
+    app.kubernetes.io/name: mrtg-backend
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.0.4
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: oauthproxy
+      protocol: TCP
+      name: oauthproxy
+  selector:
+    app.kubernetes.io/name: mrtg-backend
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-mrtg-backend
+  labels:
+    helm.sh/chart: mrtg-backend-0.6.3
+    app.kubernetes.io/name: mrtg-backend
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.0.4
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mrtg-backend
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mrtg-backend
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-mrtg-backend
+      securityContext: {}
+      containers:
+        - name: mrtg-backend-oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.2.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: OAUTH2_PROXY_HTTP_ADDRESS
+              value: 0.0.0.0:3000
+            - name: OAUTH2_PROXY_UPSTREAMS
+              value: http://localhost:8080
+            - name: OAUTH2_PROXY_REVERSE_PROXY
+              value: "true"
+            - name: OAUTH2_PROXY_COOKIE_SECURE
+              value: "false"
+            - name: OAUTH2_PROXY_PROVIDER
+              value: keycloak-oidc
+            - name: OAUTH2_PROXY_OIDC_ISSUER_URL
+              value: https://fqdn/auth/realms/realm
+            - name: OAUTH2_PROXY_CLIENT_ID
+              value: mrtg-admin
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-mrtg-backend-oauth
+                  key: secret
+            - name: OAUTH2_PROXY_REDIRECT_URL
+              value: https://chart-example.local/oauth2/callback
+            - name: OAUTH2_PROXY_EMAIL_DOMAINS
+              value: '*'
+            - name: OAUTH2_PROXY_INSECURE_OIDC_ALLOW_UNVERIFIED_EMAIL
+              value: "true"
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              value: null
+          ports:
+            - name: oauthproxy
+              containerPort: 3000
+              protocol: TCP
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+        - name: mrtg-backend
+          securityContext: {}
+          image: my-registry/someorg/mrtg-backend:1.0.4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MRTG_DB_HOST
+              value: localhost
+            - name: MRTG_DB_NAME
+              value: mrtg
+            - name: MRTG_DB_USER
+              value: user
+            - name: MRTG_DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-mrtg-backend
+                  key: secret
+            - name: NOC_DB_HOST
+              value: noc-db-host
+            - name: NOC_DB_NAME
+              value: ISP
+            - name: NOC_DB_USER
+              value: user
+            - name: NOC_DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-mrtg-backend-nocdb
+                  key: secret
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health/
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /health/
+              port: http
+          resources: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: release-name-mrtg-backend
+  labels:
+    helm.sh/chart: mrtg-backend-0.6.3
+    app.kubernetes.io/name: mrtg-backend
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.0.4
+    app.kubernetes.io/managed-by: Helm
+spec:
+  tls:
+    - hosts:
+        - chart-example.local
+      secretName: chart-example-tls
+  rules:
+    - host: chart-example.local
+      http:
+        paths:
+          - path: /
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: release-name-mrtg-backend
+                port:
+                  number: 3000
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-mrtg-backend-test-connection
+  labels:
+    helm.sh/chart: mrtg-backend-0.6.3
+    app.kubernetes.io/name: mrtg-backend
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.0.4
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-mrtg-backend:8080
+  restartPolicy: Never

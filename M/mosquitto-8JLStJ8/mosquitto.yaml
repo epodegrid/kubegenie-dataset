@@ -1,0 +1,120 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-mosquitto
+  labels:
+    helm.sh/chart: mosquitto-1.0.3
+    app.kubernetes.io/name: mosquitto
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.6.12
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-mosquitto
+  labels:
+    helm.sh/chart: mosquitto-1.0.3
+    app.kubernetes.io/name: mosquitto
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.6.12
+    app.kubernetes.io/managed-by: Helm
+data:
+  mosquitto.conf: |2
+    listener 1883 0.0.0.0
+    listener 8883 0.0.0.0
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-mosquitto
+  labels:
+    helm.sh/chart: mosquitto-1.0.3
+    app.kubernetes.io/name: mosquitto
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.6.12
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: mqtt
+      port: 1883
+      targetPort: mqtt
+      protocol: TCP
+    - name: websocket
+      port: 9090
+      targetPort: websocket
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: mosquitto
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-mosquitto
+  labels:
+    helm.sh/chart: mosquitto-1.0.3
+    app.kubernetes.io/name: mosquitto
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.6.12
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    checksum/config: c181bce6d9ddafb40e14f78a92983740391ce26104a1ce2dd42a712336902437
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mosquitto
+      app.kubernetes.io/instance: release-name
+  serviceName: mosquitto
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mosquitto
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-mosquitto
+      securityContext: {}
+      containers:
+        - name: mosquitto
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: eclipse-mosquitto:1.6.12
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: mqtt
+              containerPort: 1883
+              protocol: TCP
+            - name: websocket
+              containerPort: 9090
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /mosquitto/config
+            - name: data
+              mountPath: /mosquitto/data
+          livenessProbe:
+            tcpSocket:
+              port: mqtt
+            initialDelaySeconds: 5
+            periodSeconds: 1
+          readinessProbe:
+            tcpSocket:
+              port: mqtt
+            initialDelaySeconds: 3
+            periodSeconds: 3
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-mosquitto
+        - name: data
+          emptyDir: {}
+  volumeClaimTemplates: null

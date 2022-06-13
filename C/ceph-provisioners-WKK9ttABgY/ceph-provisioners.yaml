@@ -1,0 +1,831 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-ceph-cephfs-provisioner
+  namespace: WKK9ttABgY
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-ceph-rbd-provisioner
+  namespace: WKK9ttABgY
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ceph-cephfs-client-key-generator
+  namespace: WKK9ttABgY
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-ceph-prov-bin
+data:
+  provisioner-cephfs-start.sh: |
+    #!/bin/bash
+
+
+
+    set -ex
+
+    exec /usr/local/bin/cephfs-provisioner -id "${POD_NAME}"
+  provisioner-cephfs-client-key-manager.sh: |
+    #!/bin/bash
+
+
+
+    set -ex
+
+    CEPH_CEPHFS_KEY=$(kubectl get secret ${PVC_CEPH_CEPHFS_STORAGECLASS_ADMIN_SECRET_NAME} \
+        --namespace=${PVC_CEPH_CEPHFS_STORAGECLASS_DEPLOYED_NAMESPACE} \
+        -o json )
+
+    ceph_activate_namespace() {
+      kube_namespace=$1
+      secret_type=$2
+      secret_name=$3
+      ceph_key=$4
+      {
+      cat <<EOF
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: "${secret_name}"
+      labels:
+        release_group: release-name
+        application: ceph
+        component: cephfs
+    type: "${secret_type}"
+    data:
+      key: $( echo ${ceph_key} )
+    EOF
+      } | kubectl apply --namespace ${kube_namespace} -f -
+    }
+
+    if ! kubectl get --namespace ${DEPLOYMENT_NAMESPACE} secrets ${PVC_CEPH_CEPHFS_STORAGECLASS_USER_SECRET_NAME}; then
+      ceph_activate_namespace \
+        ${DEPLOYMENT_NAMESPACE} \
+        "kubernetes.io/cephfs" \
+        ${PVC_CEPH_CEPHFS_STORAGECLASS_USER_SECRET_NAME} \
+        "$(echo ${CEPH_CEPHFS_KEY} | jq -r '.data | .[]')"
+    fi
+  provisioner-rbd-start.sh: |
+    #!/bin/bash
+
+
+
+    set -ex
+
+    exec /usr/local/bin/rbd-provisioner -id "${POD_NAME}"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ceph-etc
+data:
+  ceph.conf: |
+    [global]
+    cephx = true
+    cephx_cluster_require_signatures = true
+    cephx_require_signatures = false
+    cephx_service_require_signatures = false
+    debug_ms = 0/0
+    mon_addr = :6789
+    mon_host = ceph-mon.default.svc.cluster.local:6789
+    objecter_inflight_op_bytes = 1073741824
+    objecter_inflight_ops = 10240
+    [osd]
+    cluster_network = 192.168.0.0/16
+    ms_bind_port_max = 7100
+    ms_bind_port_min = 6800
+    osd_max_object_name_len = 256
+    osd_mkfs_options_xfs = -f -i size=2048
+    osd_mkfs_type = xfs
+    public_network = 192.168.0.0/16
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: cephfs
+provisioner: ceph.com/cephfs
+parameters:
+  monitors: ceph-mon.default.svc.cluster.local:6789
+  adminId: admin
+  adminSecretName: pvc-ceph-cephfs-client-key
+  adminSecretNamespace: ceph
+allowVolumeExpansion: true
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+  name: general
+provisioner: ceph.com/rbd
+parameters:
+  monitors: ceph-mon.default.svc.cluster.local:6789
+  adminId: admin
+  adminSecretName: pvc-ceph-conf-combined-storageclass
+  adminSecretNamespace: ceph
+  imageFeatures: layering
+  imageFormat: "2"
+  pool: rbd
+  userId: admin
+  userSecretName: pvc-ceph-client-key
+allowVolumeExpansion: true
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-ceph-cephfs-provisioner
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - persistentvolumes
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+  - apiGroups:
+      - storage.k8s.io
+    resources:
+      - storageclasses
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - list
+      - watch
+      - create
+      - update
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - services
+      - endpoints
+    verbs:
+      - get
+  - apiGroups:
+      - extensions
+    resources:
+      - podsecuritypolicies
+    resourceNames:
+      - cephfs-provisioner
+    verbs:
+      - use
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-ceph-rbd-provisioner
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - persistentvolumes
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - persistentvolumeclaims
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+  - apiGroups:
+      - storage.k8s.io
+    resources:
+      - storageclasses
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - list
+      - watch
+      - create
+      - update
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - services
+      - endpoints
+    verbs:
+      - get
+  - apiGroups:
+      - extensions
+    resources:
+      - podsecuritypolicies
+    resourceNames:
+      - rbd-provisioner
+    verbs:
+      - use
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-ceph-cephfs-provisioner-run-cephfs-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: release-name-ceph-cephfs-provisioner
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: release-name-ceph-cephfs-provisioner
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-ceph-rbd-provisioner-run-rbd-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: release-name-ceph-rbd-provisioner
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: release-name-ceph-rbd-provisioner
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: Role
+metadata:
+  name: release-name-default-release-name-ceph-cephfs-provisioner
+  namespace: WKK9ttABgY
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - batch
+      - apps
+    verbs:
+      - get
+      - list
+    resources:
+      - services
+      - endpoints
+      - jobs
+      - pods
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: Role
+metadata:
+  name: release-name-ceph-cephfs-provisioner
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: Role
+metadata:
+  name: release-name-default-release-name-ceph-rbd-provisioner
+  namespace: WKK9ttABgY
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - batch
+      - apps
+    verbs:
+      - get
+      - list
+    resources:
+      - services
+      - endpoints
+      - jobs
+      - pods
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: Role
+metadata:
+  name: release-name-ceph-rbd-provisioner
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: Role
+metadata:
+  name: ceph-cephfs-client-key-generator
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - create
+      - update
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: Role
+metadata:
+  name: ceph-cephfs-client-key-generator-0qpge
+  namespace: ceph
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: RoleBinding
+metadata:
+  name: release-name-release-name-ceph-cephfs-provisioner
+  namespace: WKK9ttABgY
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-default-release-name-ceph-cephfs-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: release-name-ceph-cephfs-provisioner
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: RoleBinding
+metadata:
+  name: release-name-ceph-cephfs-provisioner
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-ceph-cephfs-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: release-name-ceph-cephfs-provisioner
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: RoleBinding
+metadata:
+  name: release-name-release-name-ceph-rbd-provisioner
+  namespace: WKK9ttABgY
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-default-release-name-ceph-rbd-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: release-name-ceph-rbd-provisioner
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: RoleBinding
+metadata:
+  name: release-name-ceph-rbd-provisioner
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-ceph-rbd-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: release-name-ceph-rbd-provisioner
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: RoleBinding
+metadata:
+  name: ceph-cephfs-client-key-generator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ceph-cephfs-client-key-generator
+subjects:
+  - kind: ServiceAccount
+    name: ceph-cephfs-client-key-generator
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: RoleBinding
+metadata:
+  name: ceph-cephfs-client-key-generator-0qpge
+  namespace: ceph
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ceph-cephfs-client-key-generator-0qpge
+subjects:
+  - kind: ServiceAccount
+    name: ceph-cephfs-client-key-generator
+    namespace: default
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: ceph-cephfs-provisioner
+  annotations:
+    openstackhelm.openstack.org/release_uuid: ""
+  labels:
+    release_group: release-name
+    application: cephfs
+    component: provisioner
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      release_group: release-name
+      application: cephfs
+      component: provisioner
+  revisionHistoryLimit: null
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        release_group: release-name
+        application: cephfs
+        component: provisioner
+      annotations:
+        openstackhelm.openstack.org/release_uuid: ""
+    spec:
+      securityContext:
+        runAsUser: 0
+      serviceAccountName: release-name-ceph-cephfs-provisioner
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: release_group
+                      operator: In
+                      values:
+                        - release-name
+                    - key: application
+                      operator: In
+                      values:
+                        - cephfs
+                    - key: component
+                      operator: In
+                      values:
+                        - provisioner
+                topologyKey: kubernetes.io/hostname
+              weight: 10
+      nodeSelector:
+        openstack-control-plane: enabled
+      initContainers:
+        - name: init
+          image: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: INTERFACE_NAME
+              value: eth0
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: DEPENDENCY_SERVICE
+              value: default:ceph-mon
+            - name: DEPENDENCY_JOBS
+              value: ceph-rbd-pool
+            - name: DEPENDENCY_DAEMONSET
+              value: ""
+            - name: DEPENDENCY_CONTAINER
+              value: ""
+            - name: DEPENDENCY_POD_JSON
+              value: ""
+            - name: DEPENDENCY_CUSTOM_RESOURCE
+              value: ""
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+      containers:
+        - name: ceph-cephfs-provisioner
+          image: docker.io/openstackhelm/ceph-cephfs-provisioner:ubuntu_xenial-20191119
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                "": NET_RAW
+          env:
+            - name: PROVISIONER_NAME
+              value: ceph.com/cephfs
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          command:
+            - /tmp/provisioner-cephfs-start.sh
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: pod-run
+              mountPath: /run
+            - name: pod-etc-ceph
+              mountPath: /etc/ceph
+            - name: ceph-provisioners-bin
+              mountPath: /tmp/provisioner-cephfs-start.sh
+              subPath: provisioner-cephfs-start.sh
+              readOnly: true
+      volumes:
+        - name: pod-tmp
+          emptyDir: {}
+        - name: pod-run
+          emptyDir:
+            medium: Memory
+        - name: pod-etc-ceph
+          emptyDir: {}
+        - name: ceph-provisioners-bin
+          configMap:
+            name: release-name-ceph-prov-bin
+            defaultMode: 365
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: ceph-rbd-provisioner
+  annotations:
+    openstackhelm.openstack.org/release_uuid: ""
+  labels:
+    release_group: release-name
+    application: rbd
+    component: provisioner
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      release_group: release-name
+      application: rbd
+      component: provisioner
+  revisionHistoryLimit: null
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        release_group: release-name
+        application: rbd
+        component: provisioner
+      annotations:
+        openstackhelm.openstack.org/release_uuid: ""
+    spec:
+      securityContext:
+        runAsUser: 0
+      serviceAccountName: release-name-ceph-rbd-provisioner
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: release_group
+                      operator: In
+                      values:
+                        - release-name
+                    - key: application
+                      operator: In
+                      values:
+                        - rbd
+                    - key: component
+                      operator: In
+                      values:
+                        - provisioner
+                topologyKey: kubernetes.io/hostname
+              weight: 10
+      nodeSelector:
+        openstack-control-plane: enabled
+      initContainers:
+        - name: init
+          image: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: INTERFACE_NAME
+              value: eth0
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: DEPENDENCY_SERVICE
+              value: default:ceph-mon
+            - name: DEPENDENCY_JOBS
+              value: ceph-rbd-pool
+            - name: DEPENDENCY_DAEMONSET
+              value: ""
+            - name: DEPENDENCY_CONTAINER
+              value: ""
+            - name: DEPENDENCY_POD_JSON
+              value: ""
+            - name: DEPENDENCY_CUSTOM_RESOURCE
+              value: ""
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+      containers:
+        - name: ceph-rbd-provisioner
+          image: docker.io/openstackhelm/ceph-rbd-provisioner:ubuntu_xenial-20191119
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                "": NET_RAW
+          env:
+            - name: PROVISIONER_NAME
+              value: ceph.com/rbd
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          command:
+            - /tmp/provisioner-rbd-start.sh
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: pod-run
+              mountPath: /run
+            - name: pod-etc-ceph
+              mountPath: /etc/ceph
+            - name: ceph-provisioners-bin
+              mountPath: /tmp/provisioner-rbd-start.sh
+              subPath: provisioner-rbd-start.sh
+              readOnly: true
+      volumes:
+        - name: pod-tmp
+          emptyDir: {}
+        - name: pod-run
+          emptyDir:
+            medium: Memory
+        - name: pod-etc-ceph
+          emptyDir: {}
+        - name: ceph-provisioners-bin
+          configMap:
+            name: release-name-ceph-prov-bin
+            defaultMode: 365
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ceph-cephfs-client-key-generator
+  annotations:
+    openstackhelm.openstack.org/release_uuid: ""
+spec:
+  template:
+    metadata:
+      labels:
+        release_group: release-name
+        application: ceph
+        component: cephfs-client-key-generator
+    spec:
+      securityContext:
+        runAsUser: 99
+      serviceAccountName: ceph-cephfs-client-key-generator
+      restartPolicy: OnFailure
+      nodeSelector:
+        openstack-control-plane: enabled
+      initContainers:
+        - name: init
+          image: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: INTERFACE_NAME
+              value: eth0
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: DEPENDENCY_SERVICE
+              value: ""
+            - name: DEPENDENCY_DAEMONSET
+              value: ""
+            - name: DEPENDENCY_CONTAINER
+              value: ""
+            - name: DEPENDENCY_POD_JSON
+              value: ""
+            - name: DEPENDENCY_CUSTOM_RESOURCE
+              value: ""
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+      containers:
+        - name: ceph-storage-keys-generator
+          image: docker.io/openstackhelm/ceph-config-helper:ubuntu_xenial-20191119
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                "": NET_RAW
+          env:
+            - name: DEPLOYMENT_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: PVC_CEPH_CEPHFS_STORAGECLASS_USER_SECRET_NAME
+              value: pvc-ceph-cephfs-client-key
+            - name: PVC_CEPH_CEPHFS_STORAGECLASS_ADMIN_SECRET_NAME
+              value: pvc-ceph-conf-combined-storageclass
+            - name: PVC_CEPH_CEPHFS_STORAGECLASS_DEPLOYED_NAMESPACE
+              value: ceph
+          command:
+            - /tmp/provisioner-cephfs-client-key-manager.sh
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: pod-etc-ceph
+              mountPath: /etc/ceph
+            - name: ceph-provisioners-bin
+              mountPath: /tmp/provisioner-cephfs-client-key-manager.sh
+              subPath: provisioner-cephfs-client-key-manager.sh
+              readOnly: true
+      volumes:
+        - name: pod-tmp
+          emptyDir: {}
+        - name: pod-etc-ceph
+          emptyDir: {}
+        - name: ceph-provisioners-bin
+          configMap:
+            name: release-name-ceph-prov-bin
+            defaultMode: 365

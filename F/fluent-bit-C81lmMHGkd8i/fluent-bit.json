@@ -1,0 +1,310 @@
+[
+  {
+    "apiVersion": "policy/v1beta1",
+    "kind": "PodSecurityPolicy",
+    "metadata": {
+      "name": "release-name-fluent-bit-loki",
+      "labels": {
+        "app": "fluent-bit-loki",
+        "chart": "fluent-bit-2.3.1",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "spec": {
+      "privileged": false,
+      "allowPrivilegeEscalation": false,
+      "volumes": [
+        "secret",
+        "configMap",
+        "hostPath",
+        "projected",
+        "downwardAPI"
+      ],
+      "hostNetwork": false,
+      "hostIPC": false,
+      "hostPID": false,
+      "runAsUser": {
+        "rule": "RunAsAny"
+      },
+      "seLinux": {
+        "rule": "RunAsAny"
+      },
+      "supplementalGroups": {
+        "rule": "RunAsAny"
+      },
+      "fsGroup": {
+        "rule": "RunAsAny"
+      },
+      "readOnlyRootFilesystem": true,
+      "requiredDropCapabilities": [
+        "ALL"
+      ],
+      "rule": "MustRunAsNonRoot"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "labels": {
+        "app": "fluent-bit-loki",
+        "chart": "fluent-bit-2.3.1",
+        "heritage": "Helm",
+        "release": "release-name"
+      },
+      "name": "release-name-fluent-bit-loki",
+      "namespace": "C81lmMHGkd8i"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-fluent-bit-loki",
+      "namespace": "C81lmMHGkd8i",
+      "labels": {
+        "app": "fluent-bit-loki",
+        "chart": "fluent-bit-2.3.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "fluent-bit.conf": "[SERVICE]\n    HTTP_Server    On\n    HTTP_Listen    0.0.0.0\n    HTTP_PORT      2020\n    Flush          1\n    Daemon         Off\n    Log_Level      warn\n    Parsers_File   parsers.conf\n[INPUT]\n    Name              tail\n    Tag               kube.*\n    Path              /var/log/containers/*.log\n    Parser            docker\n    DB                /run/fluent-bit/flb_kube.db\n    Mem_Buf_Limit     5MB\n    Buffer_Chunk_size 32k\n    Buffer_Max_size   32k\n[FILTER]\n    Name           kubernetes\n    Match          kube.*\n    Kube_URL       https://kubernetes.default.svc:443\n    Merge_Log On\n    K8S-Logging.Exclude Off\n    K8S-Logging.Parser Off\n[Output]\n    Name grafana-loki\n    Match *\n    Url http://release-name-loki:3100/api/prom/push\n    TenantID \"\"\n    BatchWait 1\n    BatchSize 1048576\n    Labels {job=\"fluent-bit\"}\n    RemoveKeys kubernetes,stream\n    AutoKubernetesLabels false\n    LabelMapPath /fluent-bit/etc/labelmap.json\n    LineFormat json\n    LogLevel warn",
+      "parsers.conf": "[PARSER]\n    Name        docker\n    Format      json\n    Time_Key    time\n    Time_Format %Y-%m-%dT%H:%M:%S.%L",
+      "labelmap.json": "{\n  \"kubernetes\": {\n    \"container_name\": \"container\",\n    \"host\": \"node\",\n    \"labels\": {\n      \"app\": \"app\",\n      \"release\": \"release\"\n    },\n    \"namespace_name\": \"namespace\",\n    \"pod_name\": \"instance\"\n  },\n  \"stream\": \"stream\"\n}"
+    }
+  },
+  {
+    "kind": "ClusterRole",
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "metadata": {
+      "labels": {
+        "app": "fluent-bit-loki",
+        "chart": "fluent-bit-2.3.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "name": "release-name-fluent-bit-loki-clusterrole"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "namespaces",
+          "pods"
+        ],
+        "verbs": [
+          "get",
+          "watch",
+          "list"
+        ]
+      }
+    ]
+  },
+  {
+    "kind": "ClusterRoleBinding",
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "metadata": {
+      "name": "release-name-fluent-bit-loki-clusterrolebinding",
+      "labels": {
+        "app": "fluent-bit-loki",
+        "chart": "fluent-bit-2.3.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-fluent-bit-loki",
+        "namespace": "default"
+      }
+    ],
+    "roleRef": {
+      "kind": "ClusterRole",
+      "name": "release-name-fluent-bit-loki-clusterrole",
+      "apiGroup": "rbac.authorization.k8s.io"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "release-name-fluent-bit-loki",
+      "namespace": "C81lmMHGkd8i",
+      "labels": {
+        "app": "fluent-bit-loki",
+        "chart": "fluent-bit-2.3.1",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "extensions"
+        ],
+        "resources": [
+          "podsecuritypolicies"
+        ],
+        "verbs": [
+          "use"
+        ],
+        "resourceNames": [
+          "release-name-fluent-bit-loki"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "release-name-fluent-bit-loki",
+      "namespace": "C81lmMHGkd8i",
+      "labels": {
+        "app": "fluent-bit-loki",
+        "chart": "fluent-bit-2.3.1",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "release-name-fluent-bit-loki"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-fluent-bit-loki"
+      }
+    ]
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "DaemonSet",
+    "metadata": {
+      "name": "release-name-fluent-bit-loki",
+      "namespace": "C81lmMHGkd8i",
+      "labels": {
+        "app": "fluent-bit-loki",
+        "chart": "fluent-bit-2.3.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": {}
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "fluent-bit-loki",
+          "release": "release-name"
+        }
+      },
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "fluent-bit-loki",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "df06363e48b9f6cf53d7e5185df6d30a826547d7412f5fa05b6d244903c447c1",
+            "prometheus.io/path": "/api/v1/metrics/prometheus",
+            "prometheus.io/port": "2020",
+            "prometheus.io/scrape": "true"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-fluent-bit-loki",
+          "containers": [
+            {
+              "name": "fluent-bit-loki",
+              "image": "grafana/fluent-bit-plugin-loki:2.1.0-amd64",
+              "imagePullPolicy": "IfNotPresent",
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/fluent-bit/etc"
+                },
+                {
+                  "name": "run",
+                  "mountPath": "/run/fluent-bit"
+                },
+                {
+                  "mountPath": "/var/log",
+                  "name": "varlog"
+                },
+                {
+                  "mountPath": "/var/lib/docker/containers",
+                  "name": "varlibdockercontainers",
+                  "readOnly": true
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 2020,
+                  "name": "http-metrics"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "memory": "100Mi"
+                },
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "100Mi"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "nodeSelector": {},
+          "affinity": {},
+          "tolerations": [
+            {
+              "effect": "NoSchedule",
+              "key": "node-role.kubernetes.io/master"
+            }
+          ],
+          "terminationGracePeriodSeconds": 10,
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-fluent-bit-loki"
+              }
+            },
+            {
+              "name": "run",
+              "hostPath": {
+                "path": "/run/fluent-bit"
+              }
+            },
+            {
+              "hostPath": {
+                "path": "/var/log"
+              },
+              "name": "varlog"
+            },
+            {
+              "hostPath": {
+                "path": "/var/lib/docker/containers"
+              },
+              "name": "varlibdockercontainers"
+            }
+          ]
+        }
+      }
+    }
+  }
+]

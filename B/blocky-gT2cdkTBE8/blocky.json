@@ -1,0 +1,92 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-blocky-config",
+      "labels": {
+        "helm.sh/chart": "blocky-10.3.0",
+        "app.kubernetes.io/name": "blocky",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v0.18",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "config.yml": "upstream:\n  # these external DNS resolvers will be used. Blocky picks 2 random resolvers from the list for each query\n  # format for resolver: [net:]host:[port][/path]. net could be empty (default, shortcut for tcp+udp), tcp+udp, tcp, udp, tcp-tls or https (DoH). If port is empty, default port will be used (53 for udp and tcp, 853 for tcp-tls, 443 for https (Doh))\n  # this configuration is mandatory, please define at least one external DNS resolver\n  default:\n    - 46.182.19.48\n    - 80.241.218.68\n    - tcp-tls:fdns1.dismail.de:853\n    - https://dns.digitale-gesellschaft.ch/dns-query\n  # optional: use client name (with wildcard support: * - sequence of any characters, [0-9] - range)\n  # or single ip address / client subnet as CIDR notation\n  laptop*:\n    - 123.123.123.123\n\n# optional: timeout to query the upstream resolver. Default: 2s\nupstreamTimeout: 2s\n\n# optional: custom IP address(es) for domain name (with all sub-domains). Multiple addresses must be separated by a comma\n# example: query \"printer.lan\" or \"my.printer.lan\" will return 192.168.178.3\ncustomDNS:\n  mapping:\n    printer.lan: 192.168.178.3,2001:0db8:85a3:08d3:1319:8a2e:0370:7344\n\n# optional: definition, which DNS resolver(s) should be used for queries to the domain (with all sub-domains). Multiple resolvers must be separated by a comma\n# Example: Query client.fritz.box will ask DNS server 192.168.178.1. This is necessary for local network, to resolve clients by host name\nconditional:\n  # optional: replace domain in the query with other domain before resolver lookup in the mapping\n  rewrite:\n    example.com: fritz.box\n  mapping:\n    fritz.box: udp:192.168.178.1\n    lan.net: udp:192.168.178.1,udp:192.168.178.2\n\n# optional: use black and white lists to block queries (for example ads, trackers, adult pages etc.)\nblocking:\n  # definition of blacklist groups. Can be external link (http/https) or local file\n  blackLists:\n    ads:\n      - https://s3.amazonaws.com/lists.disconnect.me/simple_ad.txt\n      - https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts\n      - https://mirror1.malwaredomains.com/files/justdomains\n      - http://sysctl.org/cameleon/hosts\n      - https://zeustracker.abuse.ch/blocklist.php?download=domainblocklist\n      - https://s3.amazonaws.com/lists.disconnect.me/simple_tracking.txt\n      - |\n        # inline definition with YAML literal block scalar style\n        # hosts format\n        someadsdomain.com\n    special:\n      - https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/fakenews/hosts\n  # definition of whitelist groups. Attention: if the same group has black and whitelists, whitelists will be used to disable particular blacklist entries. If a group has only whitelist entries -> this means only domains from this list are allowed, all other domains will be blocked\n  whiteLists:\n    ads:\n      - whitelist.txt\n      - |\n        # inline definition with YAML literal block scalar style\n        # hosts format\n        whitelistdomain.com\n        # this is a regex\n        /^banners?[_.-]/\n  # definition: which groups should be applied for which client\n  clientGroupsBlock:\n    # default will be used, if no special definition for a client name exists\n    default:\n      - ads\n      - special\n    # use client name (with wildcard support: * - sequence of any characters, [0-9] - range)\n    # or single ip address / client subnet as CIDR notation\n    laptop*:\n      - ads\n    192.168.178.1/24:\n      - special\n  # which response will be sent, if query is blocked:\n  # zeroIp: 0.0.0.0 will be returned (default)\n  # nxDomain: return NXDOMAIN as return code\n  # comma separated list of destination IP addresses (for example: 192.100.100.15, 2001:0db8:85a3:08d3:1319:8a2e:0370:7344). Should contain ipv4 and ipv6 to cover all query types. Useful with running web server on this address to display the \"blocked\" page.\n  blockType: zeroIp\n  # optional: TTL for answers to blocked domains\n  # default: 6h\n  blockTTL: 1m\n  # optional: automatically list refresh period (in duration format). Default: 4h.\n  # Negative value -> deactivate automatically refresh.\n  # 0 value -> use default\n  refreshPeriod: 4h\n  # optional: timeout for list download (each url). Default: 60s. Use large values for big lists or slow internet connections\n  downloadTimeout: 4m\n  # optional: Download attempt timeout. Default: 60s\n  downloadAttempts: 5\n  # optional: Time between the download attempts. Default: 1s\n  downloadCooldown: 10s\n  # optional: if true, application startup will fail if at least one list can't be downloaded / opened. Default: false\n  failStartOnListError: false\n\n# optional: configuration for caching of DNS responses\ncaching:\n  # duration how long a response must be cached (min value).\n  # If <=0, use response's TTL, if >0 use this value, if TTL is smaller\n  # Default: 0\n  minTime: 5m\n  # duration how long a response must be cached (max value).\n  # If <0, do not cache responses\n  # If 0, use TTL\n  # If > 0, use this value, if TTL is greater\n  # Default: 0\n  maxTime: -1\n  # Max number of cache entries (responses) to be kept in cache (soft limit). Useful on systems with limited amount of RAM.\n  # Default (0): unlimited\n  maxItemsCount: 0\n  # if true, will preload DNS results for often used queries (default: names queried more than 5 times in a 2-hour time window)\n  # this improves the response time for often used queries, but significantly increases external traffic\n  # default: false\n  prefetching: true\n  # prefetch track time window (in duration format)\n  # default: 120\n  prefetchExpires: 2h\n  # name queries threshold for prefetch\n  # default: 5\n  prefetchThreshold: 5\n  # Max number of domains to be kept in cache for prefetching (soft limit). Useful on systems with limited amount of RAM.\n  # Default (0): unlimited\n  prefetchMaxItemsCount: 0\n\n# optional: configuration of client name resolution\nclientLookup:\n  # optional: this DNS resolver will be used to perform reverse DNS lookup (typically local router)\n  upstream: udp:192.168.178.1\n  # optional: some routers return multiple names for client (host name and user defined name). Define which single name should be used.\n  # Example: take second name if present, if not take first name\n  singleNameOrder:\n    - 2\n    - 1\n  # optional: custom mapping of client name to IP addresses. Useful if reverse DNS does not work properly or just to have custom client names.\n  clients:\n    laptop:\n      - 192.168.178.29\n# optional: configuration for prometheus metrics endpoint\nprometheus:\n  # enabled if true\n  enable: true\n  # url path, optional (default '/metrics')\n  path: /metrics\n\n# optional: write query information (question, answer, client, duration etc.) to daily csv file\nqueryLog:\n  # optional one of: mysql, csv, csv-client. If empty, log to console\n  type: mysql\n  # directory (should be mounted as volume in docker) for csv, db connection string for mysql\n  target: db_user:db_password@tcp(db_host_or_ip:3306)/db_user?charset=utf8mb4&parseTime=True&loc=Local\n  # if > 0, deletes log files which are older than ... days\n  logRetentionDays: 7\n\n# optional: DNS listener port and bind ip address, default 53 (UDP and TCP). Example: 53, :53, 127.0.0.1:53\nport: 53\n# optional: Port for DoT (DNS-over-TLS) listener. Example: 853, 127.0.0.1:853\n#tlsPort: 53\n# optional: HTTPS listener port and bind ip address, default empty = no http listener. If > 0, will be used for prometheus metrics, pprof, REST API, DoH... Example: 443, :443, 127.0.0.1:443\nhttpPort: 4000\n#httpsPort: 443\n# mandatory, if https port > 0: path to cert and key file for SSL encryption\n#certFile: server.crt\n#keyFile: server.key\n# optional: use this DNS server to resolve blacklist urls and upstream DNS servers. Useful if no DNS resolver is configured and blocky needs to resolve a host name. Format net:IP:port, net must be udp or tcp\nbootstrapDns: tcp+udp:1.1.1.1\n# optional: Drop all AAAA query if set to true. Default: false\ndisableIPv6: false\n# optional: Log level (one from debug, info, warn, error). Default: info\nlogLevel: info\n# optional: Log format (text or json). Default: text\nlogFormat: text\n# optional: log timestamps. Default: true\nlogTimestamp: true\n# optional: obfuscate log output (replace all alphanumeric characters with *) for user sensitive data like request domains or responses to increase privacy. Default: false\nlogPrivacy: false\n#redis:\n  #address: blocky-redis-headless:6379\n  #password: passwd\n  #database: 2\n  #required: true\n  #connectionAttempts: 10\n  #connectionCooldown: 3s\n"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-blocky",
+      "labels": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "blocky",
+        "app.kubernetes.io/version": "v0.18",
+        "helm.sh/chart": "blocky-10.3.0"
+      }
+    },
+    "spec": {
+      "revisionHistoryLimit": 3,
+      "replicas": 1,
+      "strategy": {
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "blocky",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "blocky",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "automountServiceAccountToken": true,
+          "dnsPolicy": "ClusterFirst",
+          "enableServiceLinks": true,
+          "containers": [
+            {
+              "name": "release-name-blocky",
+              "image": "ghcr.io/0xerr0r/blocky:v0.18",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "TZ",
+                  "value": "UTC"
+                }
+              ],
+              "ports": null,
+              "volumeMounts": [
+                {
+                  "name": "blocky-config",
+                  "mountPath": "/app/config.yml",
+                  "subPath": "config.yml"
+                }
+              ],
+              "livenessProbe": null,
+              "readinessProbe": null,
+              "startupProbe": null
+            }
+          ],
+          "volumes": [
+            {
+              "name": "blocky-config",
+              "configMap": {
+                "name": "release-name-blocky-config"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

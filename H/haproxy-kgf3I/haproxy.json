@@ -1,0 +1,177 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-haproxy",
+      "labels": {
+        "helm.sh/chart": "haproxy-1.4.0",
+        "app.kubernetes.io/name": "haproxy",
+        "app.kubernetes.io/instance": "release-name",
+        "app": "haproxy",
+        "app.kubernetes.io/version": "2.5-alpine",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-haproxy-configmap",
+      "labels": {
+        "helm.sh/chart": "haproxy-1.4.0",
+        "app.kubernetes.io/name": "haproxy",
+        "app.kubernetes.io/instance": "release-name",
+        "app": "haproxy",
+        "app.kubernetes.io/version": "2.5-alpine",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "000-global.cfg": "global\n  maxconn 10000\n  log 127.0.0.1 local0\n  nbproc 1\n  nbthread 1\n",
+      "001-defaults.cfg": "defaults\n  backlog           2000\n  timeout connect   10s\n  timeout client    30s\n  timeout server    30s\n  timeout check     10s\n  log global\n  mode tcp\n  option httplog\n  maxconn 3000\n",
+      "002-metrics.cfg": "frontend metrics\n  mode http\n  log global\n  maxconn 10\n  bind *:8404\n  option http-use-htx\n  http-request use-service prometheus-exporter if { path /metrics }\n  stats enable\n  stats uri /\n  stats refresh 10s\n  stats admin if LOCALHOST\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-haproxy",
+      "labels": {
+        "helm.sh/chart": "haproxy-1.4.0",
+        "app.kubernetes.io/name": "haproxy",
+        "app.kubernetes.io/instance": "release-name",
+        "app": "haproxy",
+        "app.kubernetes.io/version": "2.5-alpine",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "metrics",
+          "protocol": "TCP",
+          "port": 8404,
+          "targetPort": "metrics"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "haproxy",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-haproxy",
+      "labels": {
+        "helm.sh/chart": "haproxy-1.4.0",
+        "app.kubernetes.io/name": "haproxy",
+        "app.kubernetes.io/instance": "release-name",
+        "app": "haproxy",
+        "app.kubernetes.io/version": "2.5-alpine",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "haproxy",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "haproxy",
+            "app.kubernetes.io/instance": "release-name"
+          },
+          "annotations": {
+            "checksum/environment": "c01409f2f9e218a7bed4240c135951ef5f11577698a513d38c434df43af05edf"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-haproxy",
+          "securityContext": {},
+          "volumes": [
+            {
+              "name": "haproxy-config",
+              "configMap": {
+                "name": "release-name-haproxy-configmap"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "haproxy",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "haproxy:2.2-alpine",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "-f",
+                "/usr/local/etc/haproxy"
+              ],
+              "ports": [
+                {
+                  "name": "metrics",
+                  "containerPort": 8404,
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "haproxy-config",
+                  "mountPath": "/usr/local/etc/haproxy/"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-haproxy-test-metrics-connection",
+      "labels": {
+        "helm.sh/chart": "haproxy-1.4.0",
+        "app.kubernetes.io/name": "haproxy",
+        "app.kubernetes.io/instance": "release-name",
+        "app": "haproxy",
+        "app.kubernetes.io/version": "2.5-alpine",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "wait-connection-to-start",
+          "image": "willwill/wait-for-it",
+          "args": [
+            "release-name-haproxy:8404"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

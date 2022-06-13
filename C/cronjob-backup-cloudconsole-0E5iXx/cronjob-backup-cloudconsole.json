@@ -1,0 +1,132 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-secret",
+      "labels": {
+        "helm.sh/chart": "cronjob-backup-cloudconsole-1.0.0",
+        "app.kubernetes.io/name": "cronjob-backup-cloudconsole",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.0.0"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "password": "bnBpbmZyYTEh"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-sh",
+      "labels": {
+        "helm.sh/chart": "cronjob-backup-cloudconsole-1.0.0",
+        "app.kubernetes.io/name": "cronjob-backup-cloudconsole",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.0.0"
+      }
+    },
+    "data": {
+      "transfer.sh": "#!/bin/bash\necho -e \"Setup environment for backup...\\n\"\n\n# backup variables\nBACKUP_DATE=\"${BACKUP_DATE:-$( date '+%Y%m%d-%H%M%S' )}\"\nTARGET_FILE_FORMAT=\"./tacomodb-backup-%BACKUP_DATE%.db\"\nTARGET_FILE=\"$( echo $TARGET_FILE_FORMAT | sed \"s/%BACKUP_DATE%/${BACKUP_DATE}/g\" )\"\nTARGET_FILE_LATEST=\"$( echo $TARGET_FILE_FORMAT | sed \"s/%BACKUP_DATE%/latest/g\" )\"\nDOWNLOAD_TACOMODB_URL=\"http://btvpaas-dev-cloudconsole.skbroadband.com/api/auth/downloadTacomoDb\"\n\n# ssh/scp command variables\nBACKUP_SERVER_PASSWORD_PATH=\"${BACKUP_SERVER_PASSWORD_PATH:-/dev/null}\"\nSSH_OPTS=\"-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null\"\nSSSH=\"sshpass -f ${BACKUP_SERVER_PASSWORD_PATH} ssh ${SSH_OPTS} \"\nSSCP=\"sshpass -f ${BACKUP_SERVER_PASSWORD_PATH} scp ${SSH_OPTS} \"\n\n# change working directory : backup directory\ncd /app/cloudconsole\necho -e \"-------------------------------------\\n\\n\"\n\n# get cloudconsole db file\necho -e \"Get Cloud Console DB file...\\n\"\necho \"Target file : ${TARGET_FILE}\"\necho \"Target file(latest) : ${TARGET_FILE_LATEST}\"\ncurl -s ${DOWNLOAD_TACOMODB_URL} 2>/tmp/backup.err >${TARGET_FILE}\nif [ -s /tmp/backup.err ]; then\n  echo -e \"*** Error backup cloud console database; \\n\"\n  cat /tmp/backup.err && rm -f $_\n  exit 1\nfi\n\n# set destination hosts and ssh key\nDESTS=(\n  \"doj-dev@10.10.217.20\"\n)\nDEST_DIR=\"cloudconsole_bak\"\n\nfor dest in ${DESTS[@]}; do\n  echo \"Copy Cloud Console database backup file to [ ${DEST_DIR} in ${dest} ]...\"\n  ${SSSH} ${dest} \"mkdir -p ${DEST_DIR}\"\n  ${SSCP} /app/cloudconsole/* ${dest}:${DEST_DIR}\n  ${SSCP} /app/cloudconsole/* ${dest}:${DEST_DIR}/${TARGET_FILE_LATEST}\ndone\n\necho -e \"-------------------------------------\\n\\n\"\necho -e \"\\nDone to backup cloud-console database file. Backup date : [ $( date '+%Y/%m/%d %H:%M:%S' ) ]\""
+    }
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "release-name",
+      "labels": {
+        "helm.sh/chart": "cronjob-backup-cloudconsole-1.0.0",
+        "app.kubernetes.io/name": "cronjob-backup-cloudconsole",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.0.0"
+      }
+    },
+    "spec": {
+      "schedule": "* */1 * * *",
+      "concurrencyPolicy": "Forbid",
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "metadata": {
+              "labels": {
+                "helm.sh/chart": "cronjob-backup-cloudconsole-1.0.0",
+                "app.kubernetes.io/name": "cronjob-backup-cloudconsole",
+                "app.kubernetes.io/instance": "release-name",
+                "app.kubernetes.io/version": "1.0.0"
+              }
+            },
+            "spec": {
+              "containers": [
+                {
+                  "image": "pseudojo/docker-sshd-with-curl:alpine3.12",
+                  "imagePullPolicy": "Always",
+                  "name": "transfer",
+                  "command": [
+                    "/app/shell/transfer.sh"
+                  ],
+                  "env": [
+                    {
+                      "name": "BACKUP_SERVER_PASSWORD_PATH",
+                      "value": "/app/.password"
+                    }
+                  ],
+                  "volumeMounts": [
+                    {
+                      "name": "shared-data",
+                      "mountPath": "/app/cloudconsole"
+                    },
+                    {
+                      "name": "transfer-sh",
+                      "mountPath": "/app/shell"
+                    },
+                    {
+                      "name": "password",
+                      "mountPath": "/app/.password",
+                      "subPath": "password"
+                    },
+                    {
+                      "name": "tz-config",
+                      "mountPath": "/etc/localtime"
+                    }
+                  ]
+                }
+              ],
+              "restartPolicy": "Never",
+              "volumes": [
+                {
+                  "name": "shared-data",
+                  "emptyDir": {}
+                },
+                {
+                  "name": "transfer-sh",
+                  "configMap": {
+                    "name": "release-name-sh",
+                    "defaultMode": 320
+                  }
+                },
+                {
+                  "name": "password",
+                  "secret": {
+                    "defaultMode": 256,
+                    "secretName": "release-name-secret"
+                  }
+                },
+                {
+                  "name": "tz-config",
+                  "hostPath": {
+                    "path": "/usr/share/zoneinfo/Asia/Seoul"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failedJobsHistoryLimit": 3,
+      "successfulJobsHistoryLimit": 3
+    }
+  }
+]

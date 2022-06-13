@@ -1,0 +1,520 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-test",
+      "namespace": "cnejvBEI"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "kubernetes-keystone-webhook-certs"
+    },
+    "type": "kubernetes.io/tls",
+    "data": {
+      "tls.crt": null,
+      "tls.key": null
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "kubernetes-keystone-webhook-admin"
+    },
+    "type": "Opaque",
+    "data": {
+      "OS_AUTH_URL": "aHR0cDovL2tleXN0b25lLWFwaS5kZWZhdWx0LnN2Yy5jbHVzdGVyLmxvY2FsOjUwMDAvdjM=",
+      "OS_REGION_NAME": "UmVnaW9uT25l",
+      "OS_INTERFACE": "aW50ZXJuYWw=",
+      "OS_PROJECT_DOMAIN_NAME": "ZGVmYXVsdA==",
+      "OS_PROJECT_NAME": "YWRtaW4=",
+      "OS_USER_DOMAIN_NAME": "ZGVmYXVsdA==",
+      "OS_USERNAME": "YWRtaW4=",
+      "OS_PASSWORD": "cGFzc3dvcmQ=",
+      "OS_DEFAULT_DOMAIN": "ZGVmYXVsdA=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "kubernetes-keystone-webhook-bin"
+    },
+    "data": {
+      "start.sh": "#!/bin/sh\n\n\n\nset -xe\n\nexec /bin/k8s-keystone-auth \\\n  --tls-cert-file /opt/kubernetes-keystone-webhook/pki/tls.crt \\\n  --tls-private-key-file /opt/kubernetes-keystone-webhook/pki/tls.key \\\n  --keystone-policy-file /etc/kubernetes-keystone-webhook/policy.json \\\n  --keystone-url http://keystone-api.default.svc.cluster.local:5000/v3\n",
+      "kubernetes-keystone-webhook-test.sh": "#!/bin/bash\n\n\n\nset -ex\n\nTOKEN=\"$(openstack token issue -f value -c id)\"\ncat << EOF | curl -kvs -XPOST -d @- \"${WEBHOOK_URL}\" | python -mjson.tool\n{\n    \"apiVersion\": \"authentication.k8s.io/v1beta1\",\n    \"kind\": \"TokenReview\",\n    \"metadata\": {\n        \"creationTimestamp\": null\n    },\n    \"spec\": {\n        \"token\": \"$TOKEN\"\n    }\n}\nEOF\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "kubernetes-keystone-webhook-etc"
+    },
+    "data": {
+      "policy.json": "[\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"admin\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"*\",\n      \"resources\": [\n        \"*\"\n      ],\n      \"verbs\": [\n        \"*\"\n      ],\n      \"version\": \"*\"\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"kube-system-admin\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"kube-system\",\n      \"resources\": [\n        \"*\"\n      ],\n      \"verbs\": [\n        \"*\"\n      ],\n      \"version\": \"*\"\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"kube-system-viewer\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"kube-system\",\n      \"resources\": [\n        \"*\"\n      ],\n      \"verbs\": [\n        \"get\",\n        \"list\",\n        \"watch\"\n      ],\n      \"version\": \"*\"\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"project\",\n        \"values\": [\n          \"openstack-system\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"openstack\",\n      \"resources\": [\n        \"*\"\n      ],\n      \"verbs\": [\n        \"*\"\n      ],\n      \"version\": \"*\"\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"admin_k8cluster\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"*\",\n      \"resources\": [\n        \"*\"\n      ],\n      \"verbs\": [\n        \"*\"\n      ],\n      \"version\": \"*\"\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"admin_k8cluster\"\n        ]\n      }\n    ],\n    \"nonresource\": {\n      \"path\": \"*\",\n      \"verbs\": [\n        \"*\"\n      ]\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"admin_k8cluster_editor\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"*\",\n      \"resources\": [\n        \"pods\",\n        \"pods/attach\",\n        \"pods/exec\",\n        \"pods/portforward\",\n        \"pods/proxy\",\n        \"configmaps\",\n        \"endpoints\",\n        \"persistentvolumeclaims\",\n        \"replicationcontrollers\",\n        \"replicationcontrollers/scale\",\n        \"secrets\",\n        \"serviceaccounts\",\n        \"services\",\n        \"services/proxy\"\n      ],\n      \"verbs\": [\n        \"create\",\n        \"delete\",\n        \"deletecollection\",\n        \"get\",\n        \"list\",\n        \"patch\",\n        \"update\",\n        \"watch\"\n      ],\n      \"version\": \"\"\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"admin_k8cluster_editor\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"*\",\n      \"resources\": [\n        \"bindings\",\n        \"events\",\n        \"limitranges\",\n        \"namespaces/status\",\n        \"pods/log\",\n        \"pods/status\",\n        \"replicationcontrollers/status\",\n        \"resourcequotas\",\n        \"resourcequotas/status\",\n        \"namespaces\"\n      ],\n      \"verbs\": [\n        \"get\",\n        \"list\",\n        \"watch\"\n      ],\n      \"version\": \"\"\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"admin_k8cluster_editor\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"*\",\n      \"resources\": [\n        \"serviceaccounts\"\n      ],\n      \"verbs\": [\n        \"impersonate\"\n      ],\n      \"version\": \"\"\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"admin_k8cluster_editor\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"*\",\n      \"resources\": [\n        \"daemonsets\",\n        \"deployments\",\n        \"deployments/rollback\",\n        \"deployments/scale\",\n        \"replicasets\",\n        \"replicasets/scale\",\n        \"statefulsets\"\n      ],\n      \"verbs\": [\n        \"create\",\n        \"delete\",\n        \"deletecollection\",\n        \"get\",\n        \"list\",\n        \"patch\",\n        \"update\",\n        \"watch\"\n      ],\n      \"version\": \"apps\"\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"admin_k8cluster_editor\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"*\",\n      \"resources\": [\n        \"horizontalpodautoscalers\"\n      ],\n      \"verbs\": [\n        \"create\",\n        \"delete\",\n        \"deletecollection\",\n        \"get\",\n        \"list\",\n        \"patch\",\n        \"update\",\n        \"watch\"\n      ],\n      \"version\": \"autoscaling\"\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"admin_k8cluster_editor\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"*\",\n      \"resources\": [\n        \"cronjobs\",\n        \"jobs\"\n      ],\n      \"verbs\": [\n        \"create\",\n        \"delete\",\n        \"deletecollection\",\n        \"get\",\n        \"list\",\n        \"patch\",\n        \"update\",\n        \"watch\"\n      ],\n      \"version\": \"batch\"\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"admin_k8cluster_editor\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"*\",\n      \"resources\": [\n        \"daemonsets\",\n        \"deployments\",\n        \"deployments/rollback\",\n        \"deployments/scale\",\n        \"ingresses\",\n        \"networkpolicies\",\n        \"replicasets\",\n        \"replicasets/scale\",\n        \"replicationcontrollers/scale\"\n      ],\n      \"verbs\": [\n        \"create\",\n        \"delete\",\n        \"deletecollection\",\n        \"get\",\n        \"list\",\n        \"patch\",\n        \"update\",\n        \"watch\"\n      ],\n      \"version\": \"extensions\"\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"admin_k8cluster_editor\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"*\",\n      \"resources\": [\n        \"poddisruptionbudgets\"\n      ],\n      \"verbs\": [\n        \"create\",\n        \"delete\",\n        \"deletecollection\",\n        \"get\",\n        \"list\",\n        \"patch\",\n        \"update\",\n        \"watch\"\n      ],\n      \"version\": \"policy\"\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"admin_k8cluster_editor\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"*\",\n      \"resources\": [\n        \"networkpolicies\"\n      ],\n      \"verbs\": [\n        \"create\",\n        \"delete\",\n        \"deletecollection\",\n        \"get\",\n        \"list\",\n        \"patch\",\n        \"update\",\n        \"watch\"\n      ],\n      \"version\": \"networking.k8s.io\"\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"admin_k8cluster_viewer\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"*\",\n      \"resources\": [\n        \"configmaps\",\n        \"endpoints\",\n        \"persistentvolumeclaims\",\n        \"pods\",\n        \"replicationcontrollers\",\n        \"replicationcontrollers/scale\",\n        \"serviceaccounts\",\n        \"services\",\n        \"bindings\",\n        \"events\",\n        \"limitranges\",\n        \"namespaces/status\",\n        \"pods/log\",\n        \"pods/status\",\n        \"replicationcontrollers/status\",\n        \"resourcequotas\",\n        \"resourcequotas/status\",\n        \"namespaces\"\n      ],\n      \"verbs\": [\n        \"get\",\n        \"list\",\n        \"watch\"\n      ],\n      \"version\": \"\"\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"admin_k8cluster_viewer\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"*\",\n      \"resources\": [\n        \"daemonsets\",\n        \"deployments\",\n        \"deployments/scale\",\n        \"replicasets\",\n        \"replicasets/scale\",\n        \"statefulsets\"\n      ],\n      \"verbs\": [\n        \"get\",\n        \"list\",\n        \"watch\"\n      ],\n      \"version\": \"apps\"\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"admin_k8cluster_viewer\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"*\",\n      \"resources\": [\n        \"horizontalpodautoscalers\"\n      ],\n      \"verbs\": [\n        \"get\",\n        \"list\",\n        \"watch\"\n      ],\n      \"version\": \"autoscaling\"\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"admin_k8cluster_viewer\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"*\",\n      \"resources\": [\n        \"cronjobs\",\n        \"jobs\"\n      ],\n      \"verbs\": [\n        \"get\",\n        \"list\",\n        \"watch\"\n      ],\n      \"version\": \"batch\"\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"admin_k8cluster_viewer\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"*\",\n      \"resources\": [\n        \"daemonsets\",\n        \"deployments\",\n        \"deployments/scale\",\n        \"ingresses\",\n        \"networkpolicies\",\n        \"replicasets\",\n        \"replicasets/scale\",\n        \"replicationcontrollers/scale\"\n      ],\n      \"verbs\": [\n        \"get\",\n        \"list\",\n        \"watch\"\n      ],\n      \"version\": \"extensions\"\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"admin_k8cluster_viewer\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"*\",\n      \"resources\": [\n        \"poddisruptionbudgets\"\n      ],\n      \"verbs\": [\n        \"get\",\n        \"list\",\n        \"watch\"\n      ],\n      \"version\": \"policy\"\n    }\n  },\n  {\n    \"match\": [\n      {\n        \"type\": \"role\",\n        \"values\": [\n          \"admin_k8cluster_viewer\"\n        ]\n      }\n    ],\n    \"resource\": {\n      \"namespace\": \"*\",\n      \"resources\": [\n        \"networkpolicies\"\n      ],\n      \"verbs\": [\n        \"get\",\n        \"list\",\n        \"watch\"\n      ],\n      \"version\": \"networking.k8s.io\"\n    }\n  }\n]\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "k8sksauth"
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "http",
+          "port": 80
+        },
+        {
+          "name": "https",
+          "port": 443
+        }
+      ],
+      "selector": {
+        "app": "ingress-api"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "k8sksauth-api"
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "k8sksauth-pub",
+          "port": 8443
+        }
+      ],
+      "selector": {
+        "release_group": "release-name",
+        "application": "kubernetes-keystone-webhook",
+        "component": "api"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "kubernetes-keystone-webhook",
+      "annotations": {
+        "openstackhelm.openstack.org/release_uuid": ""
+      },
+      "labels": {
+        "release_group": "release-name",
+        "application": "kubernetes-keystone-webhook",
+        "component": "api"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "release_group": "release-name",
+          "application": "kubernetes-keystone-webhook",
+          "component": "api"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "release_group": "release-name",
+            "application": "kubernetes-keystone-webhook",
+            "component": "api"
+          },
+          "annotations": {
+            "openstackhelm.openstack.org/release_uuid": "",
+            "configmap-bin-hash": "79688a0e91d135aba0db97b320a28bfb4d1bfa788cb5e0b1614cbd5fff19a241",
+            "configmap-etc-hash": "3d6da369f89795c74b7bd48b23e67628dde709edac3625bb8b055d18c83d7538",
+            "container.apparmor.security.beta.kubernetes.io/kubernetes-keystone-webhook": "runtime/default"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "runAsUser": 65534
+          },
+          "containers": [
+            {
+              "name": "kubernetes-keystone-webhook",
+              "image": "docker.io/k8scloudprovider/k8s-keystone-auth:v1.19.0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                }
+              },
+              "command": [
+                "/tmp/start.sh"
+              ],
+              "readinessProbe": {
+                "tcpSocket": {
+                  "port": 8443
+                },
+                "initialDelaySeconds": 15,
+                "periodSeconds": 10
+              },
+              "ports": [
+                {
+                  "name": "k8sksauth-pub",
+                  "containerPort": 8443
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "pod-tmp",
+                  "mountPath": "/tmp"
+                },
+                {
+                  "name": "etc-kubernetes-keystone-webhook",
+                  "mountPath": "/etc/kubernetes-keystone-webhook"
+                },
+                {
+                  "name": "key-kubernetes-keystone-webhook",
+                  "mountPath": "/opt/kubernetes-keystone-webhook/pki/tls.crt",
+                  "subPath": "tls.crt",
+                  "readOnly": true
+                },
+                {
+                  "name": "key-kubernetes-keystone-webhook",
+                  "mountPath": "/opt/kubernetes-keystone-webhook/pki/tls.key",
+                  "subPath": "tls.key",
+                  "readOnly": true
+                },
+                {
+                  "name": "kubernetes-keystone-webhook-etc",
+                  "mountPath": "/etc/kubernetes-keystone-webhook/policy.json",
+                  "subPath": "policy.json",
+                  "readOnly": true
+                },
+                {
+                  "name": "kubernetes-keystone-webhook-bin",
+                  "mountPath": "/tmp/start.sh",
+                  "subPath": "start.sh",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "pod-tmp",
+              "emptyDir": {}
+            },
+            {
+              "name": "etc-kubernetes-keystone-webhook",
+              "emptyDir": {}
+            },
+            {
+              "name": "key-kubernetes-keystone-webhook",
+              "secret": {
+                "secretName": "kubernetes-keystone-webhook-certs",
+                "defaultMode": 292
+              }
+            },
+            {
+              "name": "kubernetes-keystone-webhook-etc",
+              "configMap": {
+                "name": "kubernetes-keystone-webhook-etc",
+                "defaultMode": 292
+              }
+            },
+            {
+              "name": "kubernetes-keystone-webhook-bin",
+              "configMap": {
+                "name": "kubernetes-keystone-webhook-bin",
+                "defaultMode": 365
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1beta1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "k8sksauth",
+      "annotations": {
+        "kubernetes.io/ingress.class": "nginx",
+        "nginx.ingress.kubernetes.io/rewrite-target": "/",
+        "nginx.ingress.kubernetes.io/secure-backends": "true"
+      }
+    },
+    "spec": {
+      "rules": [
+        {
+          "host": "k8sksauth",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "backend": {
+                  "serviceName": "k8sksauth-api",
+                  "servicePort": "k8sksauth-pub"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "host": "k8sksauth.default",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "backend": {
+                  "serviceName": "k8sksauth-api",
+                  "servicePort": "k8sksauth-pub"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "host": "k8sksauth.default.svc.cluster.local",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "backend": {
+                  "serviceName": "k8sksauth-api",
+                  "servicePort": "k8sksauth-pub"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-test",
+      "annotations": {
+        "helm.sh/hook": "test-success"
+      }
+    },
+    "spec": {
+      "serviceAccountName": "release-name-test",
+      "nodeSelector": {
+        "openstack-control-plane": "enabled"
+      },
+      "restartPolicy": "Never",
+      "initContainers": [
+        {
+          "name": "init",
+          "image": "quay.io/airshipit/kubernetes-entrypoint:v1.0.0",
+          "imagePullPolicy": "IfNotPresent",
+          "securityContext": {
+            "allowPrivilegeEscalation": false,
+            "readOnlyRootFilesystem": true,
+            "runAsUser": 65534
+          },
+          "env": [
+            {
+              "name": "POD_NAME",
+              "valueFrom": {
+                "fieldRef": {
+                  "apiVersion": "v1",
+                  "fieldPath": "metadata.name"
+                }
+              }
+            },
+            {
+              "name": "NAMESPACE",
+              "valueFrom": {
+                "fieldRef": {
+                  "apiVersion": "v1",
+                  "fieldPath": "metadata.namespace"
+                }
+              }
+            },
+            {
+              "name": "INTERFACE_NAME",
+              "value": "eth0"
+            },
+            {
+              "name": "PATH",
+              "value": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/"
+            },
+            {
+              "name": "DEPENDENCY_SERVICE",
+              "value": ""
+            },
+            {
+              "name": "DEPENDENCY_DAEMONSET",
+              "value": ""
+            },
+            {
+              "name": "DEPENDENCY_CONTAINER",
+              "value": ""
+            },
+            {
+              "name": "DEPENDENCY_POD_JSON",
+              "value": ""
+            },
+            {
+              "name": "DEPENDENCY_CUSTOM_RESOURCE",
+              "value": ""
+            }
+          ],
+          "command": [
+            "kubernetes-entrypoint"
+          ],
+          "volumeMounts": null
+        }
+      ],
+      "containers": [
+        {
+          "name": "release-name-kubernetes-keystone-webhook-test",
+          "image": "docker.io/openstackhelm/heat:newton-ubuntu_xenial",
+          "imagePullPolicy": "IfNotPresent",
+          "env": [
+            {
+              "name": "WEBHOOK_URL",
+              "value": "https://k8sksauth-api.default.svc.cluster.local:8443/webhook"
+            },
+            {
+              "name": "OS_IDENTITY_API_VERSION",
+              "value": "3"
+            },
+            {
+              "name": "OS_AUTH_URL",
+              "valueFrom": {
+                "secretKeyRef": {
+                  "name": "kubernetes-keystone-webhook-admin",
+                  "key": "OS_AUTH_URL"
+                }
+              }
+            },
+            {
+              "name": "OS_REGION_NAME",
+              "valueFrom": {
+                "secretKeyRef": {
+                  "name": "kubernetes-keystone-webhook-admin",
+                  "key": "OS_REGION_NAME"
+                }
+              }
+            },
+            {
+              "name": "OS_INTERFACE",
+              "valueFrom": {
+                "secretKeyRef": {
+                  "name": "kubernetes-keystone-webhook-admin",
+                  "key": "OS_INTERFACE"
+                }
+              }
+            },
+            {
+              "name": "OS_ENDPOINT_TYPE",
+              "valueFrom": {
+                "secretKeyRef": {
+                  "name": "kubernetes-keystone-webhook-admin",
+                  "key": "OS_INTERFACE"
+                }
+              }
+            },
+            {
+              "name": "OS_PROJECT_DOMAIN_NAME",
+              "valueFrom": {
+                "secretKeyRef": {
+                  "name": "kubernetes-keystone-webhook-admin",
+                  "key": "OS_PROJECT_DOMAIN_NAME"
+                }
+              }
+            },
+            {
+              "name": "OS_PROJECT_NAME",
+              "valueFrom": {
+                "secretKeyRef": {
+                  "name": "kubernetes-keystone-webhook-admin",
+                  "key": "OS_PROJECT_NAME"
+                }
+              }
+            },
+            {
+              "name": "OS_USER_DOMAIN_NAME",
+              "valueFrom": {
+                "secretKeyRef": {
+                  "name": "kubernetes-keystone-webhook-admin",
+                  "key": "OS_USER_DOMAIN_NAME"
+                }
+              }
+            },
+            {
+              "name": "OS_USERNAME",
+              "valueFrom": {
+                "secretKeyRef": {
+                  "name": "kubernetes-keystone-webhook-admin",
+                  "key": "OS_USERNAME"
+                }
+              }
+            },
+            {
+              "name": "OS_PASSWORD",
+              "valueFrom": {
+                "secretKeyRef": {
+                  "name": "kubernetes-keystone-webhook-admin",
+                  "key": "OS_PASSWORD"
+                }
+              }
+            },
+            {
+              "name": "OS_DEFAULT_DOMAIN",
+              "valueFrom": {
+                "secretKeyRef": {
+                  "name": "kubernetes-keystone-webhook-admin",
+                  "key": "OS_DEFAULT_DOMAIN"
+                }
+              }
+            }
+          ],
+          "command": [
+            "/tmp/kubernetes-keystone-webhook-test.sh"
+          ],
+          "volumeMounts": [
+            {
+              "name": "pod-tmp",
+              "mountPath": "/tmp"
+            },
+            {
+              "name": "kubernetes-keystone-webhook-bin",
+              "mountPath": "/tmp/kubernetes-keystone-webhook-test.sh",
+              "subPath": "kubernetes-keystone-webhook-test.sh",
+              "readOnly": true
+            }
+          ]
+        }
+      ],
+      "volumes": [
+        {
+          "name": "pod-tmp",
+          "emptyDir": {}
+        },
+        {
+          "name": "kubernetes-keystone-webhook-bin",
+          "configMap": {
+            "name": "kubernetes-keystone-webhook-bin",
+            "defaultMode": 365
+          }
+        }
+      ]
+    }
+  }
+]

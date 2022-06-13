@@ -1,0 +1,566 @@
+[
+  {
+    "kind": "NetworkPolicy",
+    "apiVersion": "networking.k8s.io/v1",
+    "metadata": {
+      "name": "release-name-elastic-2"
+    },
+    "spec": {
+      "podSelector": {
+        "matchLabels": {
+          "release": "release-name"
+        }
+      },
+      "ingress": [
+        {
+          "from": [
+            {
+              "ipBlock": {
+                "cidr": "10.233.103.0/32"
+              }
+            },
+            {
+              "ipBlock": {
+                "cidr": "10.233.111.0/32"
+              }
+            }
+          ]
+        }
+      ],
+      "policyTypes": [
+        "Ingress"
+      ]
+    }
+  },
+  {
+    "kind": "NetworkPolicy",
+    "apiVersion": "networking.k8s.io/v1",
+    "metadata": {
+      "name": "release-name-elastic"
+    },
+    "spec": {
+      "podSelector": {
+        "matchLabels": {
+          "release": "release-name"
+        }
+      },
+      "ingress": [
+        {
+          "from": [
+            {
+              "podSelector": {}
+            }
+          ]
+        }
+      ],
+      "policyTypes": [
+        "Ingress"
+      ]
+    }
+  },
+  {
+    "apiVersion": "policy/v1",
+    "kind": "PodDisruptionBudget",
+    "metadata": {
+      "name": "elasticsearch-master-pdb"
+    },
+    "spec": {
+      "maxUnavailable": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "elasticsearch-master"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "discoverable-elastic",
+      "annotations": {
+        "onyxia/discovery": "elastic"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "elastic-service": "ZWxhc3RpY3NlYXJjaC1tYXN0ZXI=",
+      "elastic-port": "OTIwMA==",
+      "elastic-name": "ZWxhc3RpYw=="
+    }
+  },
+  {
+    "kind": "Service",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "elasticsearch-master",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "elasticsearch",
+        "app": "elasticsearch-master"
+      },
+      "annotations": {}
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "selector": {
+        "release": "release-name",
+        "chart": "elasticsearch",
+        "app": "elasticsearch-master"
+      },
+      "publishNotReadyAddresses": false,
+      "ports": [
+        {
+          "name": "http",
+          "protocol": "TCP",
+          "port": 9200
+        },
+        {
+          "name": "transport",
+          "protocol": "TCP",
+          "port": 9300
+        }
+      ]
+    }
+  },
+  {
+    "kind": "Service",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "elasticsearch-master-headless",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "elasticsearch",
+        "app": "elasticsearch-master"
+      },
+      "annotations": {
+        "service.alpha.kubernetes.io/tolerate-unready-endpoints": "true"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "publishNotReadyAddresses": true,
+      "selector": {
+        "app": "elasticsearch-master"
+      },
+      "ports": [
+        {
+          "name": "http",
+          "port": 9200
+        },
+        {
+          "name": "transport",
+          "port": 9300
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-kibana",
+      "labels": {
+        "app": "kibana",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 5601,
+          "protocol": "TCP",
+          "name": "http",
+          "targetPort": 5601
+        }
+      ],
+      "selector": {
+        "app": "kibana",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-kibana",
+      "labels": {
+        "app": "kibana",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "type": "Recreate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app": "kibana",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "kibana",
+            "release": "release-name"
+          },
+          "annotations": null
+        },
+        "spec": {
+          "automountServiceAccountToken": true,
+          "securityContext": {
+            "fsGroup": 1000
+          },
+          "volumes": null,
+          "containers": [
+            {
+              "name": "kibana",
+              "securityContext": {
+                "capabilities": {
+                  "drop": [
+                    "ALL"
+                  ]
+                },
+                "runAsNonRoot": true,
+                "runAsUser": 10644,
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true
+              },
+              "image": "kibana:7.17.3",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "ELASTICSEARCH_HOSTS",
+                  "value": "http://elasticsearch-master:9200"
+                },
+                {
+                  "name": "SERVER_HOST",
+                  "value": "0.0.0.0"
+                },
+                {
+                  "name": "NODE_OPTIONS",
+                  "value": "--max-old-space-size=1800"
+                }
+              ],
+              "readinessProbe": {
+                "failureThreshold": 3,
+                "initialDelaySeconds": 10,
+                "periodSeconds": 10,
+                "successThreshold": 3,
+                "timeoutSeconds": 5,
+                "exec": {
+                  "command": [
+                    "bash",
+                    "-c",
+                    "#!/usr/bin/env bash -e\n\n# Disable nss cache to avoid filling dentry cache when calling curl\n# This is required with Kibana Docker using nss < 3.52\nexport NSS_SDB_USE_CACHE=no\n\nhttp () {\n    local path=\"${1}\"\n    set -- -XGET -s --fail -L\n\n    if [ -n \"${ELASTICSEARCH_USERNAME}\" ] && [ -n \"${ELASTICSEARCH_PASSWORD}\" ]; then\n      set -- \"$@\" -u \"${ELASTICSEARCH_USERNAME}:${ELASTICSEARCH_PASSWORD}\"\n    fi\n\n    STATUS=$(curl --output /dev/null --write-out \"%{http_code}\" -k \"$@\" \"http://localhost:5601${path}\")\n    if [[ \"${STATUS}\" -eq 200 ]]; then\n      exit 0\n    fi\n\n    echo \"Error: Got HTTP code ${STATUS} but expected a 200\"\n    exit 1\n}\n\nhttp \"/app/kibana\"\n"
+                  ]
+                }
+              },
+              "ports": [
+                {
+                  "containerPort": 5601
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "1000m",
+                  "memory": "2Gi"
+                },
+                "requests": {
+                  "cpu": "1000m",
+                  "memory": "2Gi"
+                }
+              },
+              "volumeMounts": null
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "elasticsearch-master",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "elasticsearch",
+        "app": "elasticsearch-master"
+      },
+      "annotations": {
+        "esMajorVersion": "7"
+      }
+    },
+    "spec": {
+      "serviceName": "elasticsearch-master-headless",
+      "selector": {
+        "matchLabels": {
+          "app": "elasticsearch-master"
+        }
+      },
+      "replicas": 3,
+      "podManagementPolicy": "Parallel",
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "elasticsearch-master"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "30Gi"
+              }
+            }
+          }
+        }
+      ],
+      "template": {
+        "metadata": {
+          "name": "elasticsearch-master",
+          "labels": {
+            "release": "release-name",
+            "chart": "elasticsearch",
+            "app": "elasticsearch-master"
+          },
+          "annotations": null
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1000,
+            "runAsUser": 1000
+          },
+          "automountServiceAccountToken": true,
+          "affinity": {
+            "podAntiAffinity": {
+              "requiredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "labelSelector": {
+                    "matchExpressions": [
+                      {
+                        "key": "app",
+                        "operator": "In",
+                        "values": [
+                          "elasticsearch-master"
+                        ]
+                      }
+                    ]
+                  },
+                  "topologyKey": "kubernetes.io/hostname"
+                }
+              ]
+            }
+          },
+          "terminationGracePeriodSeconds": 120,
+          "volumes": null,
+          "enableServiceLinks": true,
+          "containers": [
+            {
+              "name": "elasticsearch",
+              "securityContext": {
+                "capabilities": {
+                  "drop": [
+                    "ALL"
+                  ]
+                },
+                "runAsNonRoot": true,
+                "runAsUser": 11813,
+                "allowPrivilegeEscalation": false,
+                "readOnlyRootFilesystem": true
+              },
+              "image": "elasticsearch:7.17.3",
+              "imagePullPolicy": "IfNotPresent",
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "bash",
+                    "-c",
+                    "set -e\n# If the node is starting up wait for the cluster to be ready (request params: \"wait_for_status=green&timeout=1s\" )\n# Once it has started only check that the node itself is responding\nSTART_FILE=/tmp/.es_start_file\n\n# Disable nss cache to avoid filling dentry cache when calling curl\n# This is required with Elasticsearch Docker using nss < 3.52\nexport NSS_SDB_USE_CACHE=no\n\nhttp () {\n  local path=\"${1}\"\n  local args=\"${2}\"\n  set -- -XGET -s\n\n  if [ \"$args\" != \"\" ]; then\n    set -- \"$@\" $args\n  fi\n\n  if [ -n \"${ELASTIC_PASSWORD}\" ]; then\n    set -- \"$@\" -u \"elastic:${ELASTIC_PASSWORD}\"\n  fi\n\n  curl --output /dev/null -k \"$@\" \"http://127.0.0.1:9200${path}\"\n}\n\nif [ -f \"${START_FILE}\" ]; then\n  echo 'Elasticsearch is already running, lets check the node is healthy'\n  HTTP_CODE=$(http \"/\" \"-w %{http_code}\")\n  RC=$?\n  if [[ ${RC} -ne 0 ]]; then\n    echo \"curl --output /dev/null -k -XGET -s -w '%{http_code}' \\${BASIC_AUTH} http://127.0.0.1:9200/ failed with RC ${RC}\"\n    exit ${RC}\n  fi\n  # ready if HTTP code 200, 503 is tolerable if ES version is 6.x\n  if [[ ${HTTP_CODE} == \"200\" ]]; then\n    exit 0\n  elif [[ ${HTTP_CODE} == \"503\" && \"7\" == \"6\" ]]; then\n    exit 0\n  else\n    echo \"curl --output /dev/null -k -XGET -s -w '%{http_code}' \\${BASIC_AUTH} http://127.0.0.1:9200/ failed with HTTP code ${HTTP_CODE}\"\n    exit 1\n  fi\n\nelse\n  echo 'Waiting for elasticsearch cluster to become ready (request params: \"wait_for_status=green&timeout=1s\" )'\n  if http \"/_cluster/health?wait_for_status=green&timeout=1s\" \"--fail\" ; then\n    touch ${START_FILE}\n    exit 0\n  else\n    echo 'Cluster is not yet ready (request params: \"wait_for_status=green&timeout=1s\" )'\n    exit 1\n  fi\nfi\n"
+                  ]
+                },
+                "failureThreshold": 3,
+                "initialDelaySeconds": 10,
+                "periodSeconds": 10,
+                "successThreshold": 3,
+                "timeoutSeconds": 5
+              },
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 9200
+                },
+                {
+                  "name": "transport",
+                  "containerPort": 9300
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "1000m",
+                  "memory": "10Gi"
+                },
+                "requests": {
+                  "cpu": "1000m",
+                  "memory": "10Gi"
+                }
+              },
+              "env": [
+                {
+                  "name": "node.name",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "cluster.initial_master_nodes",
+                  "value": "elasticsearch-master-0,elasticsearch-master-1,elasticsearch-master-2,"
+                },
+                {
+                  "name": "discovery.seed_hosts",
+                  "value": "elasticsearch-master-headless"
+                },
+                {
+                  "name": "cluster.name",
+                  "value": "elasticsearch"
+                },
+                {
+                  "name": "network.host",
+                  "value": "0.0.0.0"
+                },
+                {
+                  "name": "cluster.deprecation_indexing.enabled",
+                  "value": "false"
+                },
+                {
+                  "name": "ES_JAVA_OPTS",
+                  "value": "-Xmx8g -Xms8g"
+                },
+                {
+                  "name": "node.data",
+                  "value": "true"
+                },
+                {
+                  "name": "node.ingest",
+                  "value": "true"
+                },
+                {
+                  "name": "node.master",
+                  "value": "true"
+                },
+                {
+                  "name": "node.ml",
+                  "value": "true"
+                },
+                {
+                  "name": "node.remote_cluster_client",
+                  "value": "true"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "elasticsearch-master",
+                  "mountPath": "/usr/share/elasticsearch/data"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "release-name-kibana",
+      "labels": {
+        "helm.sh/chart": "elastic-2.0.8",
+        "app.kubernetes.io/name": "elastic",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "kubernetes.io/ingress.class": "nginx",
+        "nginx.ingress.kubernetes.io/whitelist-source-range": "0.0.0.0/0"
+      }
+    },
+    "spec": {
+      "tls": [
+        {
+          "hosts": [
+            "chart-example.local"
+          ]
+        }
+      ],
+      "rules": [
+        {
+          "host": "chart-example.local",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "pathType": "Prefix",
+                "backend": {
+                  "service": {
+                    "name": "release-name-kibana",
+                    "port": {
+                      "number": 5601
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-pivtf-test",
+      "annotations": {
+        "helm.sh/hook": "test",
+        "helm.sh/hook-delete-policy": "hook-succeeded"
+      }
+    },
+    "spec": {
+      "securityContext": {
+        "fsGroup": 1000,
+        "runAsUser": 1000
+      },
+      "containers": [
+        {
+          "name": "release-name-egeby-test",
+          "image": "elasticsearch:7.17.3",
+          "imagePullPolicy": "IfNotPresent",
+          "command": [
+            "sh",
+            "-c",
+            "#!/usr/bin/env bash -e\ncurl -XGET --fail 'elasticsearch-master:9200/_cluster/health?wait_for_status=green&timeout=1s'\n"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

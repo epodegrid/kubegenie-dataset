@@ -1,0 +1,113 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-chronyd
+  labels:
+    app: chronyd
+    chart: chronyd-0.3.5
+    release: release-name
+    heritage: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-chronyd
+  labels:
+    app: chronyd
+    chart: chronyd-0.3.5
+    release: release-name
+    heritage: Helm
+data:
+  chrony.conf: |
+    pool pool.ntp.org iburst maxsources 3
+    rtcsync
+    driftfile /var/lib/chrony/drift
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-chronyd
+  labels:
+    app: chronyd
+    chart: chronyd-0.3.5
+    release: release-name
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: unrestricted-psp
+subjects:
+  - kind: ServiceAccount
+    name: release-name-chronyd
+    namespace: default
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: release-name-chronyd
+  labels:
+    app: chronyd
+    chart: chronyd-0.3.5
+    release: release-name
+    heritage: Helm
+spec:
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 1
+    type: RollingUpdate
+  replicas: null
+  selector:
+    matchLabels:
+      app: chronyd
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: chronyd
+        release: release-name
+    spec:
+      containers:
+        - image: docker.io/pnnlmiscscripts/chronyd:3.4-4
+          imagePullPolicy: IfNotPresent
+          name: main
+          command:
+            - /bin/sh
+            - -xec
+            - |
+              [ -f /var/run/chronyd.pid ] && rm -f /var/run/chronyd.pid
+              /usr/sbin/chronyd -n
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - mountPath: /var/lib/cronyd
+              name: state
+            - mountPath: /etc/chrony/chrony.conf
+              subPath: chrony.conf
+              name: config
+      dnsPolicy: ClusterFirst
+      hostNetwork: true
+      hostPID: true
+      hostIPC: true
+      restartPolicy: Always
+      serviceAccountName: release-name-chronyd
+      volumes:
+        - configMap:
+            name: release-name-chronyd
+          name: config
+        - hostPath:
+            path: /var/lib/chrony
+          name: state
+      tolerations:
+        - key: CriticalAddonsOnly
+          operator: Exists
+        - operator: Exists
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master

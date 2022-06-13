@@ -1,0 +1,803 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keda-http-routing-table
+  labels:
+    control-plane: operator
+    keda.sh/addon: http-add-on
+    app: http-add-on
+    name: http-add-on-routing-table
+data:
+  routing-table: '{}'
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.6.1
+  creationTimestamp: null
+  name: httpscaledobjects.http.keda.sh
+spec:
+  group: http.keda.sh
+  names:
+    kind: HTTPScaledObject
+    listKind: HTTPScaledObjectList
+    plural: httpscaledobjects
+    shortNames:
+      - httpso
+    singular: httpscaledobject
+  scope: Namespaced
+  versions:
+    - additionalPrinterColumns:
+        - jsonPath: .spec.targetPendingRequests
+          name: TargetPendingRequests
+          type: integer
+        - jsonPath: .spec.scaleTargetRef.deploymentName
+          name: ScaleTargetDeploymentName
+          type: string
+        - jsonPath: .spec.scaleTargetRef
+          name: ScaleTargetServiceName
+          type: string
+        - jsonPath: .spec.scaleTargetRef
+          name: ScaleTargetPort
+          type: integer
+        - jsonPath: .spec.replicas.min
+          name: MinReplicas
+          type: integer
+        - jsonPath: .spec.replicas.max
+          name: MaxReplicas
+          type: integer
+        - jsonPath: .metadata.creationTimestamp
+          name: Age
+          type: date
+        - jsonPath: .status.conditions[?(@.type=="HTTPScaledObjectIsReady")].status
+          name: Active
+          type: string
+      name: v1alpha1
+      schema:
+        openAPIV3Schema:
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: HTTPScaledObjectSpec defines the desired state of HTTPScaledObject
+              properties:
+                host:
+                  description: The host to route. All requests with this host in the "Host" header will be routed to the Service and Port specified in the scaleTargetRef
+                  type: string
+                replicas:
+                  description: (optional) Replica information
+                  properties:
+                    max:
+                      description: Maximum amount of replicas to have in the deployment (Default 100)
+                      format: int32
+                      type: integer
+                    min:
+                      description: Minimum amount of replicas to have in the deployment (Default 0)
+                      format: int32
+                      type: integer
+                  type: object
+                targetPendingRequests:
+                  description: Value for the pending requests that the scaler will return to KEDA
+                  type: integer
+                scaleTargetRef:
+                  description: The name of the deployment to route HTTP requests to (and to autoscale). Either this or Image must be set
+                  properties:
+                    deployment:
+                      description: The name of the deployment to scale according to HTTP traffic
+                      type: string
+                    port:
+                      description: The port to route to
+                      format: int32
+                      type: integer
+                    service:
+                      description: The name of the service to route to
+                      type: string
+                  required:
+                    - deployment
+                    - port
+                    - service
+                  type: object
+              required:
+                - host
+                - scaleTargetRef
+              type: object
+            status:
+              description: HTTPScaledObjectStatus defines the observed state of HTTPScaledObject
+              properties:
+                conditions:
+                  description: List of auditable conditions of the operator
+                  items:
+                    description: Condition to store the condition state
+                    properties:
+                      message:
+                        description: A human readable message indicating details about the transition.
+                        type: string
+                      reason:
+                        description: The reason for the condition's last transition.
+                        enum:
+                          - ErrorCreatingAppScaledObject
+                          - AppScaledObjectCreated
+                          - TerminatingResources
+                          - AppScaledObjectTerminated
+                          - AppScaledObjectTerminationError
+                          - PendingCreation
+                          - HTTPScaledObjectIsReady
+                        type: string
+                      status:
+                        description: Status of the condition, one of True, False, Unknown.
+                        type: string
+                      timestamp:
+                        description: Timestamp of the condition
+                        type: string
+                      type:
+                        description: Type of condition
+                        enum:
+                          - Created
+                          - Error
+                          - Pending
+                          - Unknown
+                          - Terminating
+                          - Terminated
+                          - Ready
+                        type: string
+                    required:
+                      - status
+                      - type
+                    type: object
+                  type: array
+              type: object
+          type: object
+      served: true
+      storage: true
+      subresources:
+        status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  labels:
+    httpscaledobjects.http.keda.sh/version: 0.3.0
+    keda.sh/addon: keda-add-ons-http
+    app: keda-add-ons-http
+    name: keda-add-ons-http-manager-role
+    app.kubernetes.io/name: keda-add-ons-http-manager-role
+    helm.sh/chart: keda-add-ons-http-0.3.0
+    app.kubernetes.io/component: controller-manager
+    app.kubernetes.io/part-of: keda-add-ons-http
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.3.0
+  name: keda-add-ons-http-manager-role
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - pods
+      - services
+      - endpoints
+      - endpoint
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - keda.sh
+    resources:
+      - scaledobjects
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - update
+      - patch
+      - watch
+  - apiGroups:
+      - http.keda.sh
+    resources:
+      - httpscaledobjects
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - http.keda.sh
+    resources:
+      - httpscaledobjects/status
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - list
+      - create
+      - delete
+      - update
+  - apiGroups:
+      - networking
+    resources:
+      - ingresses
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    httpscaledobjects.http.keda.sh/version: 0.3.0
+    keda.sh/addon: keda-add-ons-http
+    app: keda-add-ons-http
+    name: keda-add-ons-http-proxy-role
+    app.kubernetes.io/name: keda-add-ons-http-proxy-role
+    helm.sh/chart: keda-add-ons-http-0.3.0
+    app.kubernetes.io/component: controller-manager
+    app.kubernetes.io/part-of: keda-add-ons-http
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.3.0
+  name: keda-add-ons-http-proxy-role
+rules:
+  - apiGroups:
+      - authentication.k8s.io
+    resources:
+      - tokenreviews
+    verbs:
+      - create
+  - apiGroups:
+      - authorization.k8s.io
+    resources:
+      - subjectaccessreviews
+    verbs:
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    httpscaledobjects.http.keda.sh/version: 0.3.0
+    keda.sh/addon: keda-add-ons-http
+    app: keda-add-ons-http
+    name: keda-add-ons-http-metrics-reader
+    app.kubernetes.io/name: keda-add-ons-http-metrics-reader
+    helm.sh/chart: keda-add-ons-http-0.3.0
+    app.kubernetes.io/component: controller-manager
+    app.kubernetes.io/part-of: keda-add-ons-http
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.3.0
+  name: keda-add-ons-http-metrics-reader
+rules:
+  - nonResourceURLs:
+      - /metrics
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    httpscaledobjects.http.keda.sh/version: 0.3.0
+    keda.sh/addon: keda-add-ons-http
+    app: keda-add-ons-http
+    name: keda-add-ons-http-manager-rolebinding
+    app.kubernetes.io/name: keda-add-ons-http-manager-rolebinding
+    helm.sh/chart: keda-add-ons-http-0.3.0
+    app.kubernetes.io/component: controller-manager
+    app.kubernetes.io/part-of: keda-add-ons-http
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.3.0
+  name: keda-add-ons-http-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: keda-add-ons-http-manager-role
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    httpscaledobjects.http.keda.sh/version: 0.3.0
+    keda.sh/addon: keda-add-ons-http
+    app: keda-add-ons-http
+    name: keda-add-ons-http-proxy-rolebinding
+    app.kubernetes.io/name: keda-add-ons-http-proxy-rolebinding
+    helm.sh/chart: keda-add-ons-http-0.3.0
+    app.kubernetes.io/component: controller-manager
+    app.kubernetes.io/part-of: keda-add-ons-http
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.3.0
+  name: keda-add-ons-http-proxy-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: keda-add-ons-http-proxy-role
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    httpscaledobjects.http.keda.sh/version: 0.3.0
+    keda.sh/addon: keda-add-ons-http
+    app: keda-add-ons-http
+    name: keda-add-ons-http-leader-election-role
+    app.kubernetes.io/name: keda-add-ons-http-leader-election-role
+    helm.sh/chart: keda-add-ons-http-0.3.0
+    app.kubernetes.io/component: controller-manager
+    app.kubernetes.io/part-of: keda-add-ons-http
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.3.0
+  name: keda-add-ons-http-leader-election-role
+  namespace: 3tLVjoJBg19rHh
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps/status
+    verbs:
+      - get
+      - update
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    httpscaledobjects.http.keda.sh/version: 0.3.0
+    keda.sh/addon: keda-add-ons-http
+    app: keda-add-ons-http
+    name: keda-add-ons-http-leader-election-binding
+    app.kubernetes.io/name: keda-add-ons-http-leader-election-binding
+    helm.sh/chart: keda-add-ons-http-0.3.0
+    app.kubernetes.io/component: controller-manager
+    app.kubernetes.io/part-of: keda-add-ons-http
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.3.0
+  name: keda-add-ons-http-leader-election-rolebinding
+  namespace: 3tLVjoJBg19rHh
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: keda-add-ons-http-leader-election-role
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    control-plane: interceptor-admin
+    httpscaledobjects.http.keda.sh/version: 0.3.0
+    keda.sh/addon: keda-add-ons-http
+    app: keda-add-ons-http
+    name: keda-add-ons-http-interceptor-admin
+    app.kubernetes.io/name: keda-add-ons-http-interceptor-admin
+    app.kubernetes.io/version: 0.3.0
+    app.kubernetes.io/component: interceptor-admin
+    app.kubernetes.io/part-of: keda-add-ons-http
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: release-name
+  name: keda-add-ons-http-interceptor-admin
+  namespace: 3tLVjoJBg19rHh
+spec:
+  ports:
+    - name: https
+      port: 9090
+      targetPort: inter-admin
+  selector:
+    control-plane: interceptor
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    control-plane: interceptor-proxy
+    httpscaledobjects.http.keda.sh/version: 0.3.0
+    keda.sh/addon: keda-add-ons-http
+    app: keda-add-ons-http
+    name: keda-add-ons-http-interceptor-proxy
+    app.kubernetes.io/name: keda-add-ons-http-interceptor-proxy
+    app.kubernetes.io/version: 0.3.0
+    app.kubernetes.io/component: interceptor-proxy
+    app.kubernetes.io/part-of: keda-add-ons-http
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: release-name
+  name: keda-add-ons-http-interceptor-proxy
+  namespace: 3tLVjoJBg19rHh
+spec:
+  ports:
+    - name: https
+      port: 8080
+      targetPort: inter-proxy
+  selector:
+    control-plane: interceptor
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    control-plane: operator-admin
+    httpscaledobjects.http.keda.sh/version: 0.3.0
+    keda.sh/addon: keda-add-ons-http
+    app: keda-add-ons-http
+    name: keda-add-ons-http-operator-admin
+    app.kubernetes.io/name: keda-add-ons-http-operator-admin
+    app.kubernetes.io/version: 0.3.0
+    app.kubernetes.io/component: operator-admin
+    app.kubernetes.io/part-of: keda-add-ons-http
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: release-name
+  name: keda-add-ons-http-operator-admin
+  namespace: 3tLVjoJBg19rHh
+spec:
+  ports:
+    - name: admin-http
+      port: 9090
+      targetPort: admin-http
+  selector:
+    control-plane: controller-manager
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    control-plane: controller-manager
+    httpscaledobjects.http.keda.sh/version: 0.3.0
+    keda.sh/addon: keda-add-ons-http
+    app: keda-add-ons-http
+    name: keda-add-ons-http-controller-manager-metrics-service
+    app.kubernetes.io/name: keda-add-ons-http-controller-manager-metrics-service
+    helm.sh/chart: keda-add-ons-http-0.3.0
+    app.kubernetes.io/component: controller-manager
+    app.kubernetes.io/part-of: keda-add-ons-http
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.3.0
+  name: keda-add-ons-http-controller-manager-metrics-service
+  namespace: 3tLVjoJBg19rHh
+spec:
+  ports:
+    - name: https
+      port: 8443
+      targetPort: https
+  selector:
+    control-plane: controller-manager
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    control-plane: external-scaler
+    httpscaledobjects.http.keda.sh/version: 0.3.0
+    keda.sh/addon: keda-add-ons-http
+    app: keda-add-ons-http
+    name: keda-add-ons-http-external-scaler
+    app.kubernetes.io/name: keda-add-ons-http-external-scaler-service
+    app.kubernetes.io/version: 0.3.0
+    app.kubernetes.io/component: external-scaler
+    app.kubernetes.io/part-of: keda-add-ons-http
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: release-name
+  name: keda-add-ons-http-external-scaler
+  namespace: 3tLVjoJBg19rHh
+spec:
+  ports:
+    - name: grpc
+      port: 9090
+      targetPort: scaler-grpc
+    - name: health
+      port: 9091
+      targetPort: scaler-health
+  selector:
+    control-plane: external-scaler
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    control-plane: interceptor
+    httpscaledobjects.http.keda.sh/version: 0.3.0
+    keda.sh/addon: keda-add-ons-http
+    app: keda-add-ons-http
+    name: keda-add-ons-http-interceptor
+    app.kubernetes.io/name: keda-add-ons-http-interceptor
+    app.kubernetes.io/version: 0.3.0
+    app.kubernetes.io/component: interceptor
+    app.kubernetes.io/part-of: keda-add-ons-http
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: release-name
+  name: keda-add-ons-http-interceptor
+  namespace: 3tLVjoJBg19rHh
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: interceptor
+      httpscaledobjects.http.keda.sh/version: 0.3.0
+      keda.sh/addon: keda-add-ons-http
+  template:
+    metadata:
+      labels:
+        control-plane: interceptor
+        httpscaledobjects.http.keda.sh/version: 0.3.0
+        keda.sh/addon: keda-add-ons-http
+        app: keda-add-ons-http
+        name: keda-add-ons-http-interceptor
+        app.kubernetes.io/name: keda-add-ons-http-interceptor
+        app.kubernetes.io/version: 0.3.0
+        app.kubernetes.io/component: interceptor
+        app.kubernetes.io/part-of: keda-add-ons-http
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/instance: release-name
+    spec:
+      containers:
+        - args: null
+          image: ghcr.io/kedacore/http-add-on-interceptor:0.3.0
+          imagePullPolicy: Always
+          name: keda-add-ons-http-interceptor
+          env:
+            - name: KEDA_HTTP_ROUTING_TABLE_UPDATE_DURATION_MS
+              value: "500"
+            - name: KEDA_HTTP_CURRENT_NAMESPACE
+              value: default
+            - name: KEDA_HTTP_PROXY_PORT
+              value: "8080"
+            - name: KEDA_HTTP_ADMIN_PORT
+              value: "9090"
+            - name: KEDA_HTTP_CONNECT_TIMEOUT
+              value: 500ms
+            - name: KEDA_HTTP_KEEP_ALIVE
+              value: 1s
+            - name: KEDA_RESPONSE_HEADER_TIMEOUT
+              value: 500ms
+            - name: KEDA_CONDITION_WAIT_TIMEOUT
+              value: 20s
+            - name: KEDA_HTTP_DEPLOYMENT_CACHE_POLLING_INTERVAL_MS
+              value: "250"
+            - name: KEDA_HTTP_FORCE_HTTP2
+              value: "false"
+            - name: KEDA_HTTP_MAX_IDLE_CONNS
+              value: "100"
+            - name: KEDA_HTTP_IDLE_CONN_TIMEOUT
+              value: 90s
+            - name: KEDA_HTTP_TLS_HANDSHAKE_TIMEOUT
+              value: 10s
+            - name: KEDA_HTTP_EXPECT_CONTINUE_TIMEOUT
+              value: 1s
+          ports:
+            - containerPort: 9090
+              name: inter-admin
+            - containerPort: 8080
+              name: inter-proxy
+          resources: null
+      terminationGracePeriodSeconds: 10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    control-plane: controller-manager
+    httpscaledobjects.http.keda.sh/version: 0.3.0
+    keda.sh/addon: keda-add-ons-http
+    app: keda-add-ons-http
+    name: keda-add-ons-http-controller-manager
+    app.kubernetes.io/name: keda-add-ons-http-controller-manager
+    helm.sh/chart: keda-add-ons-http-0.3.0
+    app.kubernetes.io/component: controller-manager
+    app.kubernetes.io/part-of: keda-add-ons-http
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.3.0
+  name: keda-add-ons-http-controller-manager
+  namespace: 3tLVjoJBg19rHh
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+      httpscaledobjects.http.keda.sh/version: 0.3.0
+      keda.sh/addon: keda-add-ons-http
+  template:
+    metadata:
+      labels:
+        control-plane: controller-manager
+        httpscaledobjects.http.keda.sh/version: 0.3.0
+        keda.sh/addon: keda-add-ons-http
+        app: keda-add-ons-http
+        name: keda-add-ons-http-controller-manager
+        app.kubernetes.io/name: keda-add-ons-http-controller-manager
+        helm.sh/chart: keda-add-ons-http-0.3.0
+        app.kubernetes.io/component: controller-manager
+        app.kubernetes.io/part-of: keda-add-ons-http
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/version: 0.3.0
+    spec:
+      containers:
+        - args:
+            - --secure-listen-address=0.0.0.0:8443
+            - --upstream=http://127.0.0.1:8080/
+            - --logtostderr=true
+            - --v=10
+          image: gcr.io/kubebuilder/kube-rbac-proxy:v0.5.0
+          name: kube-rbac-proxy
+        - args:
+            - --metrics-addr=127.0.0.1:8080
+            - --enable-leader-election
+            - --admin-port=9090
+          image: ghcr.io/kedacore/http-add-on-operator:0.3.0
+          imagePullPolicy: Always
+          name: keda-add-ons-http-operator
+          env:
+            - name: KEDAHTTP_INTERCEPTOR_SERVICE
+              value: keda-add-ons-http-interceptor-admin
+            - name: KEDAHTTP_OPERATOR_EXTERNAL_SCALER_SERVICE
+              value: keda-add-ons-http-external-scaler
+            - name: KEDAHTTP_OPERATOR_EXTERNAL_SCALER_PORT
+              value: "9090"
+            - name: KEDAHTTP_INTERCEPTOR_ADMIN_PORT
+              value: "9090"
+            - name: KEDAHTTP_INTERCEPTOR_PROXY_PORT
+              value: "8080"
+            - name: KEDA_HTTP_OPERATOR_NAMESPACE
+              value: default
+            - name: KEDA_HTTP_OPERATOR_WATCH_NAMESPACE
+              value: ""
+          ports:
+            - containerPort: 9090
+              name: admin-http
+          resources: null
+      terminationGracePeriodSeconds: 10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    control-plane: external-scaler
+    httpscaledobjects.http.keda.sh/version: 0.3.0
+    keda.sh/addon: keda-add-ons-http
+    app: keda-add-ons-http
+    name: keda-add-ons-http-external-scaler
+    app.kubernetes.io/name: keda-add-ons-http-external-scaler
+    app.kubernetes.io/version: 0.3.0
+    app.kubernetes.io/component: external-scaler
+    app.kubernetes.io/part-of: keda-add-ons-http
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/instance: release-name
+  name: keda-add-ons-http-external-scaler
+  namespace: 3tLVjoJBg19rHh
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: external-scaler
+      httpscaledobjects.http.keda.sh/version: 0.3.0
+      keda.sh/addon: keda-add-ons-http
+  template:
+    metadata:
+      labels:
+        control-plane: external-scaler
+        httpscaledobjects.http.keda.sh/version: 0.3.0
+        keda.sh/addon: keda-add-ons-http
+        app: keda-add-ons-http
+        name: keda-add-ons-http-external-scaler
+        app.kubernetes.io/name: keda-add-ons-http-external-scaler
+        app.kubernetes.io/version: 0.3.0
+        app.kubernetes.io/component: external-scaler
+        app.kubernetes.io/part-of: keda-add-ons-http
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/instance: release-name
+    spec:
+      containers:
+        - args: null
+          image: ghcr.io/kedacore/http-add-on-scaler:0.3.0
+          imagePullPolicy: Always
+          name: keda-add-ons-http-external-scaler
+          ports:
+            - containerPort: 9091
+              name: scaler-health
+            - containerPort: 9090
+              name: scaler-grpc
+          env:
+            - name: KEDA_HTTP_SCALER_PORT
+              value: "9090"
+            - name: KEDA_HTTP_HEALTH_PORT
+              value: "9091"
+            - name: KEDA_HTTP_SCALER_TARGET_ADMIN_NAMESPACE
+              value: default
+            - name: KEDA_HTTP_SCALER_TARGET_ADMIN_SERVICE
+              value: keda-add-ons-http-interceptor-admin
+            - name: KEDA_HTTP_SCALER_TARGET_ADMIN_PORT
+              value: "9090"
+            - name: KEDA_HTTP_SCALER_TARGET_PENDING_REQUESTS_INTERCEPTOR
+              value: "200"
+          resources: null
+      terminationGracePeriodSeconds: 10
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: keda-add-ons-http-interceptor
+spec:
+  minReplicaCount: 1
+  maxReplicaCount: 50
+  pollingInterval: 1
+  scaleTargetRef:
+    name: keda-add-ons-http-interceptor
+    kind: Deployment
+  triggers:
+    - type: external
+      metadata:
+        scalerAddress: keda-add-ons-http-external-scaler:9090
+        host: interceptor

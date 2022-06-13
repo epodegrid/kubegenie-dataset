@@ -1,0 +1,235 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "webhook-broker",
+      "labels": {
+        "helm.sh/chart": "webhook-broker-chart-0.1.2",
+        "app.kubernetes.io/name": "webhook-broker-chart",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v0.1.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "w7b6-configmap"
+    },
+    "data": {
+      "webhook-broker.cfg": "[rdbms]\ndialect=mysql\nconnection-url=webhook_broker:zxc909zxc@tcp(mysql:3306)/webhook-broker?charset=utf8&parseTime=true&multiStatements=true\nconnxn-max-idle-time-seconds=0\nconnxn-max-lifetime-seconds=0\nmax-idle-connxns=10\nmax-open-connxns=20\n\n[http]\nlistener=:8080\nread-timeout=240\nwrite-timeout=240\n\n[broker]\nmax-message-queue-size=1e+06\nmax-workers=15\nmax-retry=7\nrational-delay-in-seconds=2\nretry-backoff-delays-in-seconds=10,30,60,150\n\n[consumer-connection]\ntoken-header-name=X-Broker-Consumer-Token\nuser-agent=Webhook Message Broker\nconnection-timeout-in-seconds=30\n\n[initial-channels]\nsample-channel=Sample Channel\n\n[initial-producers]\nsample-producer=Sample Producer\n\n[initial-consumers]\nsample-consumer=http://sample-endpoint/webhook-receiver\n\n[initial-channel-tokens]\nsample-channel=sample-channel-token\n\n[initial-producer-tokens]\nsample-producer=sample-producer-token\n\n[sample-consumer]\ntoken=sample-consumer-token\nchannel=sample-channel\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-webhook-broker-chart",
+      "labels": {
+        "helm.sh/chart": "webhook-broker-chart-0.1.2",
+        "app.kubernetes.io/name": "webhook-broker-chart",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v0.1.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": 8080,
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "webhook-broker-chart",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-webhook-broker-chart",
+      "labels": {
+        "helm.sh/chart": "webhook-broker-chart-0.1.2",
+        "app.kubernetes.io/name": "webhook-broker-chart",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v0.1.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "webhook-broker-chart",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "webhook-broker-chart",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "webhook-broker",
+          "securityContext": {},
+          "containers": [
+            {
+              "name": "webhook-broker-chart",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true,
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "image": "registry.hub.docker.com/imyousuf/webhook-broker:v0.1.2",
+              "imagePullPolicy": "Always",
+              "command": [
+                "/webhook-broker"
+              ],
+              "args": [
+                "-migrate",
+                "/migration/sqls/",
+                "-config",
+                "/app-config/webhook-broker.cfg",
+                "-stop-on-conf-change"
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8080,
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "conf-vol",
+                  "mountPath": "/app-config/"
+                }
+              ],
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": 8080
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/_status",
+                  "port": 8080
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10
+              },
+              "resources": {
+                "limits": {
+                  "cpu": "1000m",
+                  "memory": "512Mi"
+                },
+                "requests": {
+                  "cpu": "1000m",
+                  "memory": "512Mi"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "conf-vol",
+              "configMap": {
+                "name": "w7b6-configmap"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "autoscaling/v2beta1",
+    "kind": "HorizontalPodAutoscaler",
+    "metadata": {
+      "name": "release-name-webhook-broker-chart",
+      "labels": {
+        "helm.sh/chart": "webhook-broker-chart-0.1.2",
+        "app.kubernetes.io/name": "webhook-broker-chart",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v0.1.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "scaleTargetRef": {
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "name": "release-name-webhook-broker-chart"
+      },
+      "minReplicas": 5,
+      "maxReplicas": 50,
+      "metrics": [
+        {
+          "type": "Resource",
+          "resource": {
+            "name": "cpu",
+            "targetAverageUtilization": 80
+          }
+        },
+        {
+          "type": "Resource",
+          "resource": {
+            "name": "memory",
+            "targetAverageUtilization": 70
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-webhook-broker-chart-test-connection",
+      "labels": {
+        "helm.sh/chart": "webhook-broker-chart-0.1.2",
+        "app.kubernetes.io/name": "webhook-broker-chart",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v0.1.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "wget",
+          "image": "busybox",
+          "command": [
+            "wget"
+          ],
+          "args": [
+            "release-name-webhook-broker-chart:80"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

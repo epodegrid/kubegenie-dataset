@@ -1,0 +1,127 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: release-name-verapdf
+  labels:
+    app.kubernetes.io/name: verapdf
+    helm.sh/chart: verapdf-1.2.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: verapdf
+      app.kubernetes.io/instance: release-name
+  policyTypes:
+    - Egress
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-verapdf
+  labels:
+    app.kubernetes.io/name: verapdf
+    helm.sh/chart: verapdf-1.2.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  selector:
+    app.kubernetes.io/name: verapdf
+    app.kubernetes.io/instance: release-name
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-verapdf
+  labels:
+    app.kubernetes.io/name: verapdf
+    helm.sh/chart: verapdf-1.2.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: verapdf
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: verapdf
+        helm.sh/chart: verapdf-1.2.0
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+      annotations: null
+    spec:
+      containers:
+        - name: verapdf-rest
+          image: verapdf/rest@sha256:ac5a37dd2d91b046ce790b88f0ea9c1c53bdf1dd0604f4246b19ddfc4eb579d0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 1
+              memory: 1Gi
+            limits:
+              cpu: 2
+              memory: 2Gi
+          readinessProbe:
+            httpGet:
+              port: 8080
+              path: /
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: release-name-verapdf
+  labels:
+    app.kubernetes.io/name: verapdf
+    app.kubernetes.io/instance: release-name
+  annotations: null
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: release-name-verapdf
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 75
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: release-name-verapdf
+  labels:
+    app.kubernetes.io/name: verapdf
+    helm.sh/chart: verapdf-1.2.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    kubernetes.io/tls-acme: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: 256m
+spec:
+  rules:
+    - host: demo.verapdf.org
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: release-name-verapdf
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - demo.verapdf.org
+      secretName: release-name-verapdf-ingress-tls

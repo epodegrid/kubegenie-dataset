@@ -1,0 +1,199 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-cga-proxy-envoy
+  labels:
+    helm.sh/chart: cga-proxy-0.2.8
+    app.kubernetes.io/name: cga-proxy
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: envoy
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: listener
+      protocol: TCP
+      name: listener
+  selector:
+    app.kubernetes.io/name: cga-proxy
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: envoy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-cga-proxy-orchestrator
+  labels:
+    helm.sh/chart: cga-proxy-0.2.8
+    app.kubernetes.io/name: cga-proxy
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: orchestrator
+spec:
+  type: ClusterIP
+  ports:
+    - port: 50051
+      targetPort: grpc
+      protocol: TCP
+      name: grpc
+  selector:
+    app.kubernetes.io/name: cga-proxy
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: orchestrator
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-cga-proxy-envoy
+  labels:
+    helm.sh/chart: cga-proxy-0.2.8
+    app.kubernetes.io/name: cga-proxy
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: envoy
+spec:
+  revisionHistoryLimit: 10
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cga-proxy
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: envoy
+  template:
+    metadata:
+      annotations: null
+      labels:
+        app.kubernetes.io/name: cga-proxy
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/component: envoy
+    spec:
+      securityContext: {}
+      priorityClassName: null
+      containers:
+        - name: envoy
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: fydeinc/envoyproxy-centos:1.13.8.1@sha256:9d97c0e3c3f9f72e20c30d145dbd71bf1456e45a833ffe41aafe2b7b10eb2a02
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: FYDE_PROXY_HOST
+              value: release-name-cga-proxy-orchestrator
+            - name: FYDE_PROXY_PORT
+              value: "50051"
+          ports:
+            - name: listener
+              containerPort: 8000
+              protocol: TCP
+          readinessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            successThreshold: 1
+            tcpSocket:
+              port: listener
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      nodeSelector: {}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/component: envoy
+              topologyKey: kubernetes.io/hostname
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: envoy
+                topologyKey: failure-domain.beta.kubernetes.io/zone
+      tolerations: []
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-cga-proxy-orchestrator
+  labels:
+    helm.sh/chart: cga-proxy-0.2.8
+    app.kubernetes.io/name: cga-proxy
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: orchestrator
+spec:
+  revisionHistoryLimit: 10
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cga-proxy
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: orchestrator
+  template:
+    metadata:
+      annotations:
+        checksum/config: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
+      labels:
+        app.kubernetes.io/name: cga-proxy
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/component: orchestrator
+    spec:
+      securityContext: {}
+      priorityClassName: null
+      containers:
+        - name: orchestrator
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: fydeinc/fydeproxy:1.3.11@sha256:31e5d0267905e8d1cf8636af3d3bf6baeaa28bd9217c80018258cceee1bc7ab5
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: FYDE_GRPC_LISTENER
+              value: '[::]:50051'
+            - name: FYDE_ENROLLMENT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-cga-proxy-orchestrator
+                  key: enrollmentToken
+            - name: FYDE_PROXY_PROMETHEUS
+              value: "9010"
+            - name: FYDE_ENVOY_PROMETHEUS
+              value: "9000"
+            - name: FYDE_ENVOY_LISTENER_PORT
+              value: "8000"
+          ports:
+            - name: grpc
+              containerPort: 50051
+              protocol: TCP
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            tcpSocket:
+              port: grpc
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      nodeSelector: {}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/component: orchestrator
+              topologyKey: kubernetes.io/hostname
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: orchestrator
+                topologyKey: failure-domain.beta.kubernetes.io/zone
+      tolerations: []

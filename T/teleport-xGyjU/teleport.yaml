@@ -1,0 +1,215 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: teleport
+  labels:
+    app: teleport
+    fullname: teleport
+    chart: teleport-1.0.4
+    release: release-name
+    heritage: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: teleport
+  labels:
+    app: teleport
+    fullname: teleport
+    chart: teleport-1.0.4
+    release: release-name
+    heritage: Helm
+data:
+  teleport.yaml: |-
+    teleport:
+      log:
+        output: stderr
+        severity: DEBUG
+      data_dir: /var/lib/teleport
+      storage:
+        type: dir
+
+    auth_service:
+      enabled: true
+      authentication:
+        type: local
+        second_factor: off
+      public_addr: teleport.example.com:3025
+      cluster_name: teleport.example.com
+      tokens:
+        - trusted_cluster:insert-join-token
+
+    ssh_service:
+      enabled: true
+      public_addr: teleport.example.com:3022
+      commands:
+      - name: hostname
+        command: [/bin/hostname]
+        period: 5m0s
+      - name: uptime
+        command: [/usr/bin/uptime, -p]
+        period: 5m0s
+
+    proxy_service:
+      enabled: true
+      public_addr: teleport.example.com:3080
+      ssh_public_addr: teleport.example.com:3023
+      web_listen_addr: 0.0.0.0:3080
+      listen_addr: 0.0.0.0:3023
+      # kubernetes section configures
+      # kubernetes proxy protocol support
+      kubernetes:
+        enabled: true
+        listen_addr: 0.0.0.0:3026
+        # public_addr is used to set values
+        # setup in kubeconfig after tsh login
+        # public_addr: [kubeproxy.example.com:443]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: teleport
+  labels:
+    app: teleport
+    fullname: teleport
+    chart: teleport-1.0.4
+    release: release-name
+    heritage: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - users
+      - groups
+      - serviceaccounts
+    verbs:
+      - impersonate
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: teleport
+  labels:
+    app: teleport
+    fullname: teleport
+    chart: teleport-1.0.4
+    release: release-name
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: teleport
+subjects:
+  - kind: ServiceAccount
+    name: teleport
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: teleport
+  labels:
+    app: teleport
+    fullname: teleport
+    chart: teleport-1.0.4
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: authssh
+      port: 3025
+      protocol: TCP
+      targetPort: 3025
+    - name: proxykube
+      port: 3026
+      protocol: TCP
+      targetPort: 3026
+    - name: proxyssh
+      port: 3023
+      protocol: TCP
+      targetPort: 3023
+    - name: proxytunnel
+      port: 3024
+      protocol: TCP
+      targetPort: 3024
+    - name: proxyweb
+      port: 3080
+      protocol: TCP
+      targetPort: 3080
+  selector:
+    app: teleport
+    release: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: teleport
+  labels:
+    app: teleport
+    fullname: teleport
+    chart: teleport-1.0.4
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: teleport
+  template:
+    metadata:
+      labels:
+        app: teleport
+        release: release-name
+        heritage: Helm
+      annotations:
+        checksum/config: c2f86ae6b2a000439f9a898a7f08129737ee0bbf8f79ced71fda9bac95dfbccb
+    spec:
+      automountServiceAccountToken: true
+      priorityClassName: high-priority-teleport
+      containers:
+        - name: teleport
+          image: quay.io/gravitational/teleport:4.2.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --insecure-no-tls
+          env: null
+          ports:
+            - name: authssh
+              containerPort: 3025
+            - name: nodessh
+              containerPort: 3022
+            - name: proxykube
+              containerPort: 3026
+            - name: proxyssh
+              containerPort: 3023
+            - name: proxytunnel
+              containerPort: 3024
+            - name: proxyweb
+              containerPort: 3080
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - mountPath: /etc/teleport
+              name: teleport-config
+              readOnly: true
+            - mountPath: /var/lib/teleport
+              name: teleport-storage
+      volumes:
+        - name: teleport-config
+          configMap:
+            name: teleport
+        - name: teleport-storage
+          emptyDir: {}
+      serviceAccountName: teleport
+---
+apiVersion: scheduling.k8s.io/v1beta1
+kind: PriorityClass
+metadata:
+  name: high-priority-teleport
+value: 1000000
+globalDefault: false
+description: This priority class should be used for Teleport pods only.

@@ -1,0 +1,228 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    helm.sh/chart: cosmo-dashboard-0.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: cosmo-dashboard
+    app.kubernetes.io/version: v0.4.0
+    app.kubernetes.io/managed-by: Helm
+  name: cosmo-dashboard
+  namespace: eYKYsTyloz
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    helm.sh/chart: cosmo-dashboard-0.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: cosmo-dashboard
+    app.kubernetes.io/version: v0.4.0
+    app.kubernetes.io/managed-by: Helm
+  name: cosmo-dashboard
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+      - secrets
+    verbs:
+      - create
+      - delete
+      - patch
+      - update
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - roles
+      - rolebindings
+    verbs:
+      - create
+      - delete
+      - patch
+      - update
+      - get
+      - list
+      - watch
+      - bind
+  - apiGroups:
+      - workspace.cosmo-workspace.github.io
+    resources:
+      - workspaces
+      - users
+    verbs:
+      - create
+      - delete
+      - patch
+      - update
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - workspace.cosmo-workspace.github.io
+    resources:
+      - workspaces/status
+      - users/status
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - cosmo.cosmo-workspace.github.io
+    resources:
+      - instances
+      - templates
+    verbs:
+      - create
+      - delete
+      - patch
+      - update
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - cosmo.cosmo-workspace.github.io
+    resources:
+      - instances/status
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    helm.sh/chart: cosmo-dashboard-0.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: cosmo-dashboard
+    app.kubernetes.io/version: v0.4.0
+    app.kubernetes.io/managed-by: Helm
+  name: cosmo-dashboard-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cosmo-dashboard
+subjects:
+  - kind: ServiceAccount
+    name: cosmo-dashboard
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    helm.sh/chart: cosmo-dashboard-0.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: cosmo-dashboard
+    app.kubernetes.io/version: v0.4.0
+    app.kubernetes.io/managed-by: Helm
+  name: cosmo-dashboard
+  namespace: eYKYsTyloz
+spec:
+  ports:
+    - name: https
+      port: 8443
+      protocol: TCP
+      targetPort: 8443
+  selector:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: cosmo-dashboard
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    helm.sh/chart: cosmo-dashboard-0.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: cosmo-dashboard
+    app.kubernetes.io/version: v0.4.0
+    app.kubernetes.io/managed-by: Helm
+  name: cosmo-dashboard
+  namespace: eYKYsTyloz
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/name: cosmo-dashboard
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/name: cosmo-dashboard
+    spec:
+      containers:
+        - args:
+            - --port=8443
+            - --maxage-minutes=180
+            - --zap-log-level=info
+            - --tls-key=/app/cert/tls.key
+            - --tls-cert=/app/cert/tls.crt
+          command:
+            - /app/dashboard
+          image: ghcr.io/cosmo-workspace/cosmo-dashboard:v0.4.0
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          name: dashboard
+          ports:
+            - containerPort: 8443
+              name: https
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 100m
+              memory: 20Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - mountPath: /app/cert
+              name: cert
+              readOnly: true
+      securityContext: {}
+      serviceAccountName: cosmo-dashboard
+      terminationGracePeriodSeconds: 10
+      volumes:
+        - name: cert
+          secret:
+            defaultMode: 420
+            secretName: dashboard-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    helm.sh/chart: cosmo-dashboard-0.4.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: cosmo-dashboard
+    app.kubernetes.io/version: v0.4.0
+    app.kubernetes.io/managed-by: Helm
+  name: cosmo-dashboard-cert
+  namespace: default
+spec:
+  dnsNames:
+    - cosmo-dashboard.default.svc
+    - cosmo-dashboard.default.svc.cluster.local
+  issuerRef:
+    kind: ClusterIssuer
+    name: cosmo-selfsigned-clusterissuer
+  secretName: dashboard-server-cert

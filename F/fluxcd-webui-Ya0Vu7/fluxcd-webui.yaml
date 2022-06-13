@@ -1,0 +1,175 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-fluxcd-webui
+  labels:
+    helm.sh/chart: fluxcd-webui-0.0.2
+    app.kubernetes.io/name: fluxcd-webui
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.1.1
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-fluxcd-webui
+  labels:
+    helm.sh/chart: fluxcd-webui-0.0.2
+    app.kubernetes.io/name: fluxcd-webui
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.1.1
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - source.toolkit.fluxcd.io
+      - kustomize.toolkit.fluxcd.io
+      - helm.toolkit.fluxcd.io
+    resources:
+      - gitrepositories
+      - helmrepositories
+      - helmcharts
+      - buckets
+      - kustomizations
+      - helmreleases
+    verbs:
+      - get
+      - list
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+      - events
+    verbs:
+      - list
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-fluxcd-webui
+  labels:
+    helm.sh/chart: fluxcd-webui-0.0.2
+    app.kubernetes.io/name: fluxcd-webui
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.1.1
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-fluxcd-webui
+subjects:
+  - kind: ServiceAccount
+    name: release-name-fluxcd-webui
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-fluxcd-webui
+  labels:
+    helm.sh/chart: fluxcd-webui-0.0.2
+    app.kubernetes.io/name: fluxcd-webui
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.1.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: fluxcd-webui
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-fluxcd-webui
+  labels:
+    helm.sh/chart: fluxcd-webui-0.0.2
+    app.kubernetes.io/name: fluxcd-webui
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.1.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fluxcd-webui
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fluxcd-webui
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-fluxcd-webui
+      securityContext: {}
+      initContainers:
+        - name: init-myservice
+          image: busybox:1.28
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              DOMAIN="default.svc.cluster.local"
+              CLUSTER="kubernetes"
+              SERVICE_ACCOUNT="release-name-fluxcd-webui"
+              SECRET_TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+              SECRET_CACERT=$(cat /var/run/secrets/kubernetes.io/serviceaccount/ca.crt | base64 | tr -d \\n)
+              cat <<EOF > /config/config
+              apiVersion: v1
+              clusters:
+              - cluster:
+                  certificate-authority-data: ${SECRET_CACERT}
+                  server: https://${CLUSTER}.${DOMAIN}
+                name: ${CLUSTER}
+              contexts:
+              - context:
+                  cluster: ${CLUSTER}
+                  user: ${SERVICE_ACCOUNT}
+                name: ${CLUSTER}
+              current-context: ${CLUSTER}
+              kind: Config
+              preferences: {}
+              users:
+              - name: ${SERVICE_ACCOUNT}
+                user:
+                  as-user-extra: {}
+                  token: ${SECRET_TOKEN}
+              EOF
+          volumeMounts:
+            - name: config
+              mountPath: /config
+      containers:
+        - name: fluxcd-webui
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: adrianberger/fluxcd-webui:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9000
+              protocol: TCP
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: config
+              mountPath: /root/.kube
+      volumes:
+        - name: config
+          emptyDir: {}

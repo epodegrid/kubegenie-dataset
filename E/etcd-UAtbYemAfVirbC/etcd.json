@@ -1,0 +1,176 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolume",
+    "metadata": {
+      "name": "release-etcd-data-0",
+      "namespace": "default",
+      "labels": {
+        "app": "release-etcd",
+        "chart": "etcd-6.0.0",
+        "release": "release",
+        "heritage": "Helm",
+        "name": "release-etcd"
+      }
+    },
+    "spec": {
+      "capacity": {
+        "storage": "1Gi"
+      },
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "persistentVolumeReclaimPolicy": null,
+      "storageClassName": "release-etcd-data",
+      "hostPath": {
+        "path": "/dockerdata-nfs/release/k8s-etcd-0"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "k8s-etcd",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release",
+        "chart": "etcd-6.0.0",
+        "app": "etcd"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "etcd-server",
+          "port": 2380
+        },
+        {
+          "name": "etcd-client",
+          "port": 2379
+        }
+      ],
+      "clusterIP": "None",
+      "selector": {
+        "app": "etcd",
+        "release": "release"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-etcd",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release",
+        "chart": "etcd-6.0.0",
+        "app": "etcd"
+      }
+    },
+    "spec": {
+      "serviceName": "k8s-etcd",
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "heritage": "Helm",
+            "release": "release",
+            "chart": "etcd-6.0.0",
+            "app": "etcd"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "release-etcd",
+              "image": "k8s.gcr.io/etcd-amd64:3.2.24",
+              "imagePullPolicy": "Always",
+              "ports": [
+                {
+                  "containerPort": 2380,
+                  "name": "etcd-server"
+                },
+                {
+                  "containerPort": 2379,
+                  "name": "etcd-client"
+                }
+              ],
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": 2379
+                },
+                "initialDelaySeconds": 90,
+                "periodSeconds": 30,
+                "timeoutSeconds": 5
+              },
+              "resources": null,
+              "env": [
+                {
+                  "name": "INITIAL_CLUSTER_SIZE",
+                  "value": "1"
+                },
+                {
+                  "name": "SET_NAME",
+                  "value": "release-etcd"
+                },
+                {
+                  "name": "SERVICE_NAME",
+                  "value": "k8s-etcd"
+                }
+              ],
+              "lifecycle": {
+                "preStop": {
+                  "exec": {
+                    "command": [
+                      "/bin/sh",
+                      "-ec",
+                      "EPS=\"\"\nfor i in $(seq 0 $((${INITIAL_CLUSTER_SIZE} - 1))); do\n    EPS=\"${EPS}${EPS:+,}http://${SET_NAME}-${i}.${SERVICE_NAME}:2379\"\ndone\n\nHOSTNAME=$(hostname)\n\nmember_hash() {\n    etcdctl member list | grep http://${HOSTNAME}.${SERVICE_NAME}:2380 | cut -d':' -f1 | cut -d'[' -f1\n}\n\nSET_ID=${HOSTNAME##*[^0-9]}\n\nif [ \"${SET_ID}\" -ge ${INITIAL_CLUSTER_SIZE} ]; then\n    echo \"Removing ${HOSTNAME} from etcd cluster\"\n    ETCDCTL_ENDPOINT=${EPS} etcdctl member remove $(member_hash)\n    if [ $? -eq 0 ]; then\n        # Remove everything otherwise the cluster will no longer scale-up\n        rm -rf /var/run/etcd/*\n    fi\nfi\n"
+                    ]
+                  }
+                }
+              },
+              "command": [
+                "/bin/sh",
+                "-ec",
+                "HOSTNAME=$(hostname)\n\n# store member id into PVC for later member replacement\ncollect_member() {\n    while ! etcdctl member list &>/dev/null; do sleep 1; done\n    etcdctl member list | grep http://${HOSTNAME}.${SERVICE_NAME}:2380 | cut -d':' -f1 | cut -d'[' -f1 > /var/run/etcd/member_id\n    exit 0\n}\n\neps() {\n    EPS=\"\"\n    for i in $(seq 0 $((${INITIAL_CLUSTER_SIZE} - 1))); do\n        EPS=\"${EPS}${EPS:+,}http://${SET_NAME}-${i}.${SERVICE_NAME}:2379\"\n    done\n    echo ${EPS}\n}\n\nmember_hash() {\n    etcdctl member list | grep http://${HOSTNAME}.${SERVICE_NAME}:2380 | cut -d':' -f1 | cut -d'[' -f1\n}\n\n# we should wait for other pods to be up before trying to join\n# otherwise we got \"no such host\" errors when trying to resolve other members\nfor i in $(seq 0 $((${INITIAL_CLUSTER_SIZE} - 1))); do\n    while true; do\n        echo \"Waiting for ${SET_NAME}-${i}.${SERVICE_NAME} to come up\"\n        ping -W 1 -c 1 ${SET_NAME}-${i}.${SERVICE_NAME} > /dev/null && break\n        sleep 1s\n    done\ndone\n\n# re-joining after failure?\nif [[ -e /var/run/etcd/default.etcd && -f /var/run/etcd/member_id ]]; then\n    echo \"Re-joining etcd member\"\n    member_id=$(cat /var/run/etcd/member_id)\n\n    # re-join member\n    ETCDCTL_ENDPOINT=$(eps) etcdctl member update ${member_id} http://${HOSTNAME}.${SERVICE_NAME}:2380 | true\n    exec etcd --name ${HOSTNAME} \\\n        --listen-peer-urls http://0.0.0.0:2380 \\\n        --listen-client-urls http://0.0.0.0:2379\\\n        --advertise-client-urls http://${HOSTNAME}.${SERVICE_NAME}:2379 \\\n        --data-dir /var/run/etcd/default.etcd\nfi\n\n# etcd-SET_ID\nSET_ID=${HOSTNAME##*[^0-9]}\n\n# adding a new member to existing cluster (assuming all initial pods are available)\nif [ \"${SET_ID}\" -ge ${INITIAL_CLUSTER_SIZE} ]; then\n    export ETCDCTL_ENDPOINT=$(eps)\n\n    # member already added?\n    MEMBER_HASH=$(member_hash)\n    if [ -n \"${MEMBER_HASH}\" ]; then\n        # the member hash exists but for some reason etcd failed\n        # as the datadir has not be created, we can remove the member\n        # and retrieve new hash\n        etcdctl member remove ${MEMBER_HASH}\n    fi\n\n    echo \"Adding new member\"\n    etcdctl member add ${HOSTNAME} http://${HOSTNAME}.${SERVICE_NAME}:2380 | grep \"^ETCD_\" > /var/run/etcd/new_member_envs\n\n    if [ $? -ne 0 ]; then\n        echo \"Exiting\"\n        rm -f /var/run/etcd/new_member_envs\n        exit 1\n    fi\n\n    cat /var/run/etcd/new_member_envs\n    source /var/run/etcd/new_member_envs\n\n    collect_member &\n\n    exec etcd --name ${HOSTNAME} \\\n        --listen-peer-urls http://0.0.0.0:2380 \\\n        --listen-client-urls http://0.0.0.0:2379 \\\n        --advertise-client-urls http://${HOSTNAME}.${SERVICE_NAME}:2379 \\\n        --data-dir /var/run/etcd/default.etcd \\\n        --initial-advertise-peer-urls http://${HOSTNAME}.${SERVICE_NAME}:2380 \\\n        --initial-cluster ${ETCD_INITIAL_CLUSTER} \\\n        --initial-cluster-state ${ETCD_INITIAL_CLUSTER_STATE}\nfi\n\nPEERS=\"\"\nfor i in $(seq 0 $((${INITIAL_CLUSTER_SIZE} - 1))); do\n    PEERS=\"${PEERS}${PEERS:+,}${SET_NAME}-${i}=http://${SET_NAME}-${i}.${SERVICE_NAME}:2380\"\ndone\n\ncollect_member &\n\n# join member\nexec etcd --name ${HOSTNAME} \\\n    --initial-advertise-peer-urls http://${HOSTNAME}.${SERVICE_NAME}:2380 \\\n    --listen-peer-urls http://0.0.0.0:2380 \\\n    --listen-client-urls http://0.0.0.0:2379 \\\n    --advertise-client-urls http://${HOSTNAME}.${SERVICE_NAME}:2379 \\\n    --initial-cluster-token etcd-cluster-1 \\\n    --initial-cluster ${PEERS} \\\n    --initial-cluster-state new \\\n    --data-dir /var/run/etcd/default.etcd\n"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "release-etcd-data",
+                  "mountPath": "/var/run/etcd"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "release-etcd-data",
+            "labels": {
+              "name": "release-etcd",
+              "chart": "etcd-6.0.0",
+              "release": "release",
+              "heritage": "Helm"
+            }
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "storageClassName": "release-etcd-data",
+            "resources": {
+              "requests": {
+                "storage": "1Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  null
+]

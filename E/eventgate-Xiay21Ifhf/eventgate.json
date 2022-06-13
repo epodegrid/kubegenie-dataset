@@ -1,0 +1,222 @@
+[
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "NetworkPolicy",
+    "metadata": {
+      "name": "eventgate-release-name",
+      "labels": {
+        "chart": "eventgate",
+        "app": "eventgate",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "podSelector": {
+        "matchLabels": {
+          "chart": "eventgate",
+          "app": "eventgate",
+          "release": "release-name"
+        }
+      },
+      "policyTypes": [
+        "Ingress"
+      ],
+      "ingress": [
+        {
+          "ports": [
+            {
+              "port": 8192,
+              "protocol": "TCP"
+            },
+            {
+              "port": 9102,
+              "protocol": "TCP"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "eventgate-release-name-config",
+      "labels": {
+        "chart": "eventgate",
+        "app": "eventgate",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "config.yaml": "# service-runner EventGate app config.yaml.\n\n# Number of worker processes to spawn.\n# Set to 0 to run everything in a single process without clustering.\n# Use 'ncpu' to run as many workers as there are CPU units\n# NOTE: If main_app.num_workers is set to 0, it will evaluate to false in\n# a template conditional.  The user may want to set num_workers to 0, so\n# we need to check it in a different way.\n# See: https://github.com/helm/helm/issues/3164#issuecomment-709537506\nnum_workers: 1\n\n# Log error messages and gracefully restart a worker if v8 reports that it\n# uses more heap (note: not RSS) than this many mb.\nworker_heap_limit_mb: 200\n\n# Logger info\nlogging:\n  level:  info\n  streams:\n    - type: stdout\n      named_levels: true\n# Statsd metrics reporter\nmetrics:\n  name: eventgate\n  type: prometheus\n  port: 9102\n\nservices:\n  - name: eventgate\n    # We want service-runner to start eventgate.\n    # Since eventgate is also a library, it exports the\n    # service-runner app as 'app'.\n    module: eventgate\n    entrypoint: app\n    conf:\n      port: 8192\n      # Default cors to false.\n      cors: false\n      user_agent: eventgate-release-name\n\n      eventgate_factory_module: '/srv/service/eventgate-wikimedia.js'\n\n      # If a validation error is encountered, a validation error event\n      # will be produced to this stream.\n      # This should be set in release specific values files.\n      # In production, this should be prefixed with service name,\n      # e.g. eventgate-analytics, eventgate-main\n      error_stream: eventgate.error.validation\n\n      # eventgate app settings\n      dt_field: meta.dt\n      id_field: meta.id\n      kafka:\n        conf:\n          broker.address.family: v4\n          compression.codec: snappy\n          log.connection.close: false\n          message.max.bytes: 4194304\n          metadata.broker.list:\n          - kafka.default.svc.cluster.local:31092\n          ssl.ca.location: /etc/eventgate/puppetca.crt.pem\n          ssl.cipher.suites: ECDHE-ECDSA-AES256-GCM-SHA384\n          ssl.curves.list: P-256\n          ssl.sigalgs.list: ECDSA+SHA256\n          statistics.interval.ms: 30000\n        guaranteed:\n          conf:\n            producer.poll.interval.ms: 10\n            queue.buffering.max.ms: 0\n        hasty:\n          conf:\n            producer.poll.interval.ms: 100\n            queue.buffering.max.ms: 1000\n        topic_conf: {}\n      max_body_size: 10mb\n      schema_base_uris:\n      - file:///srv/service/schemas/event/primary/jsonschema/\n      schema_precache_uris:\n      - /error/0.0.3\n      - /test/event/0.0.3\n      schema_uri_field: $schema\n      stream_config_uri: /etc/eventgate/stream-config.yaml\n      stream_field: meta.stream\n      test_events:\n      - $schema: /test/event/1.0.0\n        meta:\n          stream: eventgate.test.event\n      topic_prefix: datacenter1.",
+      "puppetca.crt.pem": "snakeoil"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "eventgate-release-name-http-service",
+      "labels": {
+        "chart": "eventgate",
+        "app": "eventgate",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "NodePort",
+      "selector": {
+        "chart": "eventgate",
+        "app": "eventgate",
+        "routing_tag": "release-name"
+      },
+      "ports": [
+        {
+          "name": "eventgate-http",
+          "protocol": "TCP",
+          "port": 8192
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "eventgate-release-name",
+      "labels": {
+        "chart": "eventgate",
+        "app": "eventgate",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "chart": "eventgate",
+          "app": "eventgate",
+          "release": "release-name"
+        }
+      },
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "chart": "eventgate",
+            "app": "eventgate",
+            "release": "release-name",
+            "routing_tag": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "2bee848d11fe82f82b359595fa3e81a754577bda7c0578b43c1c60e5c3eb706a",
+            "prometheus.io/port": "9102",
+            "prometheus.io/scrape": "true"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "eventgate",
+              "image": "docker-registry.wikimedia.org/wikimedia/eventgate-wikimedia:latest",
+              "command": [
+                "nodejs"
+              ],
+              "args": [
+                "/srv/service/node_modules/.bin/eventgate",
+                "-c",
+                "/etc/eventgate/config.yaml"
+              ],
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "containerPort": 8192
+                }
+              ],
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": 8192
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/v1/_test/events",
+                  "port": 8192
+                },
+                "initialDelaySeconds": 2
+              },
+              "env": [
+                {
+                  "name": "SERVICE_IDENTIFIER",
+                  "value": "eventgate"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "eventgate-config-volume",
+                  "mountPath": "/etc/eventgate"
+                }
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "200m",
+                  "memory": "150Mi"
+                },
+                "limits": {
+                  "cpu": "2000m",
+                  "memory": "300Mi"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "eventgate-config-volume",
+              "configMap": {
+                "name": "eventgate-release-name-config"
+              }
+            },
+            {
+              "name": "metrics-exporter-config-volume",
+              "configMap": {
+                "name": "eventgate-release-name-metrics-exporter-config"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "eventgate-service-checker",
+      "annotations": {
+        "helm.sh/hook": "test",
+        "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "eventgate-service-checker",
+          "image": "docker-registry.wikimedia.org/service-checker",
+          "imagePullPolicy": "IfNotPresent",
+          "args": [
+            "-t",
+            "5",
+            "$(EVENTGATE_RELEASE_NAME_SERVICE_HOST)",
+            "http://eventgate-release-name:8192"
+          ]
+        }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "restartPolicy": "Never"
+    }
+  }
+]

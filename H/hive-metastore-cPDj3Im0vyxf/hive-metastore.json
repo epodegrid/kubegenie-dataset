@@ -1,0 +1,122 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "hive-metastore-config",
+      "labels": {
+        "helm.sh/chart": "hive-metastore-0.2.2",
+        "app.kubernetes.io/version": "3.0.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "metastore-site.xml": "<configuration>\n<property>\n<name>javax.jdo.option.ConnectionURL</name>\n<value>jdbc:postgresql://pg:5432/metastore_db</value>\n</property>\n<property>\n<name>javax.jdo.option.ConnectionDriverName</name>\n<value>org.postgresql.Driver</value>\n</property>\n<property>\n<name>javax.jdo.option.ConnectionUserName</name>\n<value>hive_metastore</value>\n</property>\n<property>\n<name> javax.jdo.option.ConnectionPassword</name>\n<value>hive_metastore</value>\n</property>\n<property>\n<name>metastore.expression.proxy</name>\n<value>org.apache.hadoop.hive.metastore.DefaultPartitionExpressionProxy</value>\n</property>\n<property>\n<name>metastore.task.threads.always</name>\n<value>org.apache.hadoop.hive.metastore.events.EventCleanerTask,org.apache.hadoop.hive.metastore.MaterializationsCacheCleanerTask</value>\n</property>\n<property>\n<name>datanucleus.autoCreateSchema</name>\n<value>false</value>\n</property>\n<property>\n<name>hive.metastore.uris</name>\n<value>thrift://localhost:9083</value>\n</property>\n<property>\n<name>hive.metastore.warehouse.dir</name>\n<value>file:///tmp/</value>\n</property>\n<property>\n<name>datanucleus.schema.autoCreateAlltrue</name>\n<value>true</value>\n</property>\n<property>\n<name>hive.metastore.event.db.notification.api.authfalse</name>\n<value>false</value>\n</property>\n<property>\n<name>hadoop.proxyuser.hive.hosts</name>\n<value>HS2_HOST</value>\n</property>\n<property>\n<name>hadoop.proxyuser.hive.groups*</name>\n<value>*</value>\n</property>\n<property>\n<name>datanucleus.autoStartMechanism</name>\n<value>SchemaTable</value>\n</property>\n</configuration>\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "hive-metastore",
+      "labels": {
+        "helm.sh/chart": "hive-metastore-0.2.2",
+        "app.kubernetes.io/version": "3.0.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "thrift",
+          "port": 9083,
+          "protocol": "TCP",
+          "targetPort": 9083
+        }
+      ],
+      "selector": {
+        "app": "hive-metastore"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "hive-metastore",
+      "labels": {
+        "helm.sh/chart": "hive-metastore-0.2.2",
+        "app.kubernetes.io/version": "3.0.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "hive-metastore"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "helm.sh/chart": "hive-metastore-0.2.2",
+            "app.kubernetes.io/version": "3.0.0",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app": "hive-metastore"
+          }
+        },
+        "spec": {
+          "volumes": [
+            {
+              "name": "hive-metastore-config",
+              "configMap": {
+                "name": "hive-metastore-config"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "hive-metastore",
+              "image": "datappeal/hive-metastore:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/opt/hive-metastore/bin/entrypoint.sh"
+              ],
+              "ports": [
+                {
+                  "name": "tcp",
+                  "containerPort": 9083,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": 9083
+                }
+              },
+              "readinessProbe": {
+                "tcpSocket": {
+                  "port": 9083
+                }
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/opt/hive-metastore/conf/metastore-site.xml",
+                  "subPath": "metastore-site.xml",
+                  "name": "hive-metastore-config"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+]

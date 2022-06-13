@@ -1,0 +1,107 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-todo
+  labels:
+    helm.sh/chart: todo-0.1.0
+    app.kubernetes.io/name: todo
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 941c0d3
+    app.kubernetes.io/managed-by: Helm
+data:
+  TZ: America/Los_Angeles
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-todo
+  labels:
+    helm.sh/chart: todo-0.1.0
+    app.kubernetes.io/name: todo
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 941c0d3
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: todo
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-todo
+  labels:
+    helm.sh/chart: todo-0.1.0
+    app.kubernetes.io/name: todo
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 941c0d3
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: todo
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: todo
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      dnsPolicy: ClusterFirst
+      containers:
+        - name: release-name-todo
+          image: ghcr.io/nicholaswilde/todo:941c0d3-ls1
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: release-name-todo
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          volumeMounts: null
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            failureThreshold: 5
+            timeoutSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            failureThreshold: 5
+            timeoutSeconds: 10
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: release-name-todo
+  labels:
+    helm.sh/chart: todo-0.1.0
+    app.kubernetes.io/name: todo
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 941c0d3
+    app.kubernetes.io/managed-by: Helm
+spec:
+  rules:
+    - host: todo.192.168.1.203.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: release-name-todo
+                port:
+                  number: 8000

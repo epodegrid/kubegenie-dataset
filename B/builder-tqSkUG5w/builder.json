@@ -1,0 +1,270 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "drycc-builder",
+      "labels": {
+        "heritage": "drycc"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "drycc-builder",
+      "labels": {
+        "heritage": "drycc"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "ssh",
+          "port": 2222,
+          "targetPort": 2223
+        }
+      ],
+      "selector": {
+        "app": "drycc-builder"
+      },
+      "type": "ClusterIP"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "drycc-builder",
+      "labels": {
+        "heritage": "drycc"
+      },
+      "annotations": {
+        "component.drycc.cc/version": "1.3.0"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "rollingUpdate": {
+          "maxSurge": 1,
+          "maxUnavailable": 0
+        },
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app": "drycc-builder"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "drycc-builder"
+          }
+        },
+        "spec": {
+          "serviceAccount": "drycc-builder",
+          "initContainers": [
+            {
+              "name": "drycc-builder-init",
+              "image": "docker.io/drycc/python-dev:latest",
+              "imagePullPolicy": "Always",
+              "command": [
+                "netcat",
+                "-v",
+                "-a",
+                "$(DRYCC_MINIO_SERVICE_HOST):$(DRYCC_MINIO_SERVICE_PORT)"
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "drycc-builder",
+              "image": "docker.io/drycc/builder:1.3.0",
+              "imagePullPolicy": "Always",
+              "ports": [
+                {
+                  "containerPort": 2223,
+                  "name": "ssh"
+                },
+                {
+                  "containerPort": 8092,
+                  "name": "healthsrv"
+                }
+              ],
+              "env": [
+                {
+                  "name": "DRYCC_REGISTRY_PROXY_HOST",
+                  "value": "127.0.0.1"
+                },
+                {
+                  "name": "DRYCC_REGISTRY_PROXY_PORT",
+                  "value": ""
+                },
+                {
+                  "name": "HEALTH_SERVER_PORT",
+                  "value": "8092"
+                },
+                {
+                  "name": "EXTERNAL_PORT",
+                  "value": "2223"
+                },
+                {
+                  "name": "BUILDER_STORAGE",
+                  "value": ""
+                },
+                {
+                  "name": "DRYCC_REGISTRY_LOCATION",
+                  "value": ""
+                },
+                {
+                  "name": "TTL_SECONDS_AFTER_FINISHED",
+                  "value": ""
+                },
+                {
+                  "name": "GIT_LOCK_TIMEOUT",
+                  "value": "30"
+                },
+                {
+                  "name": "IMAGEBUILDER_IMAGE_PULL_POLICY",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "name": "imagebuilder-config",
+                      "key": "image_pull_policy"
+                    }
+                  }
+                },
+                {
+                  "name": "DOCKERIMAGE",
+                  "value": "1"
+                },
+                {
+                  "name": "DRYCC_DEBUG",
+                  "value": "false"
+                },
+                {
+                  "name": "POD_NAMESPACE",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.namespace"
+                    }
+                  }
+                },
+                {
+                  "name": "DRYCC_BUILDER_KEY",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "builder-key-auth",
+                      "key": "builder-key"
+                    }
+                  }
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": 8092
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 1
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/readiness",
+                  "port": 8092
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 1
+              },
+              "volumeMounts": [
+                {
+                  "name": "builder-key-auth",
+                  "mountPath": "/var/run/secrets/api/auth",
+                  "readOnly": true
+                },
+                {
+                  "name": "builder-ssh-private-keys",
+                  "mountPath": "/var/run/secrets/drycc/builder/ssh",
+                  "readOnly": true
+                },
+                {
+                  "name": "objectstore-creds",
+                  "mountPath": "/var/run/secrets/drycc/objectstore/creds",
+                  "readOnly": true
+                },
+                {
+                  "name": "imagebuilder-config",
+                  "mountPath": "/etc/imagebuilder",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "builder-key-auth",
+              "secret": {
+                "secretName": "builder-key-auth"
+              }
+            },
+            {
+              "name": "builder-ssh-private-keys",
+              "secret": {
+                "secretName": "builder-ssh-private-keys"
+              }
+            },
+            {
+              "name": "objectstore-creds",
+              "secret": {
+                "secretName": "objectstorage-keyfile"
+              }
+            },
+            {
+              "name": "imagebuilder-config",
+              "configMap": {
+                "name": "imagebuilder-config"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "builder-key-auth",
+      "labels": {
+        "heritage": "drycc"
+      },
+      "annotations": {
+        "helm.sh/hook": "pre-install"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "builder-key": "MnU5SkFsZkpEZ04yWHdrUXFvVG5mcm51MFFPdFY5bU1UUkV2NHhJZTVoNTJQamJpbVVHQzl6NmJKVWFPODFOOQ=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "builder-ssh-private-keys",
+      "labels": {
+        "heritage": "drycc"
+      },
+      "annotations": {
+        "helm.sh/hook": "pre-install"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "ssh-host-rsa-key": "LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlKS0FJQkFBS0NBZ0VBdlZtZ2R3Y3RwdHBDMm5ycHFQRHhFdWtFUXFmTWVsaGZwS09xWEp2cTVTek1LL3JaCkx0dHFlTnp3cXRvV25Idlgzb3dyZlZ3YUhJQ3Ara3UydXhERWpyL2xJT1VHM2FwN2ZJVU5pVk01aGVxaWdPd0cKM0kvdFFYSVNWbmtKWWtSS1Z4ekpEeklKMTNodUcwVmhxWjEyNzN4MjJuUnY5SkhqRE9BOWxGZUNTUVdYYnZiZgplV25wdjMyREI4MkRaOGhOK3lQVDhvellmZk15WC9aQk0wc21YQjNPQ2JvWWJBMGQweCtuWmVGNFpnNHNnZ01NCmdtaUxrZy9aakpkTFJvRlloVlpvMDFrMzVUZG1EcmR0Y2lvUHpKU0dwTlAwZEl6Z25mbmhnZ2E4Zi9nTzBHUSsKVk9mbTRKWkUyNURkUlFQMTRjcGIrZEFVT3A5ZnJGaWVlblZDbHdlVjlsaVNsRmptaFVUcER2alltRmI5WnkyVQpoNFRPd0FTME5oby9FdS80SVpWRlhNUXhPeFliNi85K3MwMEx3ZS9MQ3U5anl3VTBZYkZZUnVkaHpyRjNCWmhuCmVZdkY2RWJ2TStvVGdGQncrY2h3RjBMNUZVQVdKQjBKTEEwWkk2T1h6bVpLeFU5WTlUNHd0Q01LTVZVYVlCU1oKcTVneFRjdEF5N2w1T0o1bUVPT1VYUTlOQWdEbWVncGFHemNGdStYdjF3NFh3enRkcTlneWcwUUlnVlpsRFRhbgpZc0NkeExEN21UK1NQMEFqNUwwYUdwUnA5OEFJQ0ZaNXBOY3M5Qzdackpoc1NIVS8xNHhHSzhQWGZZOXhKNkFRCjJ1LzNrcDlBenlRenhML1o0ODlsSGZZZ2phdVVpTzY3MHpUeTc2S0cvdG5jTno4SnMxcExUd0RRZCtzQ0F3RUEKQVFLQ0FnQXIvek5sOU9rS3FCUjRwNjY3YnFEVmdBZFpaWndCb1o4M3BqL2puT2NMc1VrUHZ3M1A4WFBmK1phQwpYSUo4Z2RvNi85N3JGZ2VMTCtwUEdtQ3ZQc290VVRGd1gwY2xJb1BtL3hPU0lTQndtWUNBN0ZiNzBRV1QrMmwvClpraGo2UEpOSTRja1hNQWtyUHNJb3lwNk92aHoxVHZZcnMyRXlwRXpZTGR1VEpjZFdJdERZV0d6MklSVDFsb24KNmZ6cWxJUnFJbjBSRXVFTEF3TmxnTmJOa0Z5dGNzOTVPeUNKbXRLZlIrK2hvSzVWS0YzM0o3WTBadzVuTmYrYQp4MXphV1J1MGY4dURzR3RvZTJMZmNJZWh5MXc0Y1JxSUdpZm5IUVRrTURmUityYTZGVzE3eG84bE0yMVdLaFI5CjREOUoxZzNBRlVFaDN0T1VlNHZEaENQdTJHaE1RUFkvN2ZRR2hUSHpxclp5cVc3K3ViVTRDcHV6d0NQY2l0dVgKcGFWVTJvQWJpSkhIR1dNOVFXT1c3V2UzeGVoMEVWODc0b2dFS29icktOL24zNEdkZTBJSHpKWnM3M0E5VjFIOQpvVkhmVFRGWm9EZm5HbThvV0w4Q3RiTXVwT3dLMU9FVzhHdk8yT3p5Q1l2dlFkaDB2RlRTS0JqMGpodEF5aElHCkQydU9kNnlWbUdqQ1lsZVJLdmVGd1RXZFozUlduTEFxb3RMTW01ZWw2a1lzdjRlNVF6QVRGbEVudm9SU213eUgKSkU4KzkwKzk1bUhFQjlraDFURnl5WVYzYU1MVWFOMXlWcDZkVnprVEVROTJXclRRc3RqNjNCaitJOVpDZGhJOQpSV09ZakYwSXFBOFkrTlRYeDJNUmhBQVZIcU1vWThJUDJwbWQvRG5SSk1uN3oxT1pBUUtDQVFFQTdueWJpOGgrCk8xQS9YYU1rQ2Q1VUdzUmw5eXBRNGRaTFhhelN2b1I1RzlXUEZ2cEczaFFZdFB2enN5dllickNBUTYzdmQxU3YKR0l5VEp0bWdSYmxZMGVFdUhTTzFNL0xWZzRUbGJ4NjJDRlVteFZoc25aUnROM1R5dHlBaXNiKzgvMUNGMS81dwo1VjlQUjJxOHkyZ0RJVkhjbzhpODgxNUY0L0JOaU1rVkF1Y211bG9ScDJZZTYyWnc0VDJKUGRLNEU1ejJqalNXCklvU0lHT3pNQzlRbHdPZjFZTmhXQitwVHJBaDZmK01LYTNVMGwwcEJTWFdmSmZST09rd096TW1heVlpSFlMNS8KaFQzMXVCZVhkcmNqMVlETUNBUXdwMGs4ZTByVkpvclZyNFJHN1BvQjIxQ3o1Tk9xRWw0ZUtZK3dGd0dzQ3gzWQp2U3lVOHdsUHhKaEd5d0tDQVFFQXkwRkljRlF5NEM5T29rL1l4NHRncXZteXZiY1ovanBZQng1Nlp3SnhmQmlFCnc1bXpNcXFCVVhGVW03SHJQN2tIaXRiaUF6Q05NRkdqWDV2QlZtTHB1SmQ0c0o2V3VFejVmSjQwRUpWdFRGV0sKT2lQWmFMTmFYaXp2c0M4SVIzZUgyRk82Q2d5WUhlelNjQjNYWHdrRmNGZ3NWL05adG9OTUluRTlJL09lOG1SRAp0czRlVE1VQkNFOEFtN1Q0UEFMVlJXWlNiY1pGUTlBcnQ0bW1MWkpyWjVyNml5bkxrU2ozVVRnMTd4NXc1NGhXCm5BaVFDVTNqT0pXa3o1VVBUL0xVVXUyUjBQcjdlWHRheEJGbnJvS3NDaER4VkZZeGJuYzVmUjJIQWtrQ3N5eVQKbGhtWGtTRytpZGxtVHBaeFdjcElnYnFucUxuSlpTZFZiczNKMGk5UFlRS0NBUUIvRTRTcWlpM0JHelI0aDVxSAphNkZ6RmQyalF6Z1A3bWtBUkR1VGF2RkJoSjBYU0VzRXdMNmRpWGRFcklOS0QrQjRyN0RlN0EvVXkrc0pFNE5VClE3dnhNY1Nwb0VKSXFRZGVhaXo2OWVsWExWQlliWktLc1BFMVVLcVlLNVp4RWxMNTFJVk5IM1kyc24rQzlYd2UKQXBGUWF0ZGZxbklNVjlwejU3TFl4UlRlRkI5Tnd2cVBNVm9lWXRxWkdub0xxRUdQcWQ2eXpaQ0dXZ3BQQmJhQQpRdzNPNllxVmpSRGliTmtpM08yeFFXQm0rL0FIQVhraVZIdDE5T1RPS1lMbFdqT1JXWitSVEZDVXhmd3RtTnlMClZIRFNyaXVKeGZuSzJicFJsQUZaNVRhUnJMRkNTc0U4aEpjbXdpWm9YU0JEVXg0b1ZDckJUYWtVdkRHdUF2TXYKTlZqYkFvSUJBUUNuOXVUejNzREVQcFBPMGdra3JXdFBIMVcwTFhIUGcwdG5acXBrSWNMQ2VFaU9rNTlnaVVLZwptUFVBVFFGSkFaRFlEVWRzdDF5Vng0RW82ei9VTVoxUEsrMVNsMXVhSmhJdUIxYWpOYmpDMGhXT2dqMlJwbFZSCmFmVVJOV3kwRW5VeU1jNlZxMTZ4ckJrakNhWUhKUjlYZmFYM2NHUjh6UGZIcHFpTjR5OUF3OWFwWkovcGRRdXIKWUEzeW5wUmNrMExIUFExMUpkbnJka1lLUURnUmhPUTVFL3Rqc1VCR1R3SkNIaCtENFRZUVA3ekM2TmlPdDh6RAozL1g0alFmQVc3MVdZbmlUcURUVWFUblN1VWRqRVIwMm5GV3lDaUNEVndjcys0K3NOY1dEWjV6MjkyTW5UaWwxCkpUREVWTktMRHZ6b0orV1JLeWJnN3FaTkVNWnRhU2RCQW9JQkFFdG16Zm04MWxuU21RMUhpemtoMXNyOUh1cW8KUnBLdVlzb2w4U2dDcG1jRkFLMUFoeHBUdVpRSndDNmlxV09oSFY2M2RhS3JZc1ZlUklaN1NhL3hhQjNRazcweAo2cW5BdTZtRXhONHNTamxyOWpBWUo4YjJIL2V2MmFySS9TL1k4ZXBrMlVMNnBVMWkwckNJMldJSzRXVTJwNllkClpoZDBQMmdmS1VaYmNPeDZjR2xvL282OXg0U2pmWnNXWm9mWVMxRWpGSDA3OTFrdytnd0lUU3pkT20rUGgrYS8KTk55R3ZmaExDVXF4TjAreDR6YkJTVFBVZU9pOEMxUmpOd1lFK1Awd0FucXl5d3lmYzRjbnQ1SWlWVEtzcTc1bgpZQ2NFR1ZrcU5LYVZscTJlSlJReTJjd2lhd1NieEtwbWRuamVCdVREZEQ0TWUvVERObnQzc0hTVDFkRT0KLS0tLS1FTkQgUlNBIFBSSVZBVEUgS0VZLS0tLS0K",
+      "ssh-host-ecdsa-key": "LS0tLS1CRUdJTiBFQyBQUklWQVRFIEtFWS0tLS0tCk1IY0NBUUVFSUZNTXlRWFUzeTJRcUdadFVtRSs4eDBtRjRqZEJ0dVFJdDNDQjd1ZlNHWjdvQW9HQ0NxR1NNNDkKQXdFSG9VUURRZ0FFelc4V3M4eittbFl2a3hlcms4VEZtRWp5aXFoNkk1MWxOYTR2WVhYbW01NjVNVk9tZTI1YQpyWXlZcEdaMVpIenRNT0d0SThiRjljTk13dEhlbk1mOVBBPT0KLS0tLS1FTkQgRUMgUFJJVkFURSBLRVktLS0tLQo="
+    }
+  }
+]

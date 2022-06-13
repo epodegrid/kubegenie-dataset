@@ -1,0 +1,663 @@
+[
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "NetworkPolicy",
+    "metadata": {
+      "name": "default-deny-ingress",
+      "namespace": "default"
+    },
+    "spec": {
+      "podSelector": {
+        "matchLabels": {}
+      },
+      "policyTypes": [
+        "Ingress",
+        "Egress"
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-provider",
+      "namespace": "FAx4XS4T",
+      "labels": {
+        "helm.sh/chart": "provider-0.172.0",
+        "app.kubernetes.io/name": "provider",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.16.4-rc2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "automountServiceAccountToken": true
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-provider-keys",
+      "namespace": "FAx4XS4T"
+    },
+    "type": "Opaque",
+    "data": {
+      "key.txt": null,
+      "key-pass.txt": null
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-provider-bidscripts",
+      "namespace": "FAx4XS4T"
+    },
+    "data": {
+      "dummy": "dummy\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-provider-boot",
+      "namespace": "FAx4XS4T"
+    },
+    "data": {
+      "run.sh": "#!/bin/bash\n\nif $AKASH_DEBUG == \"true\"; then sleep 5000; fi\n\nset -x\n\n##\n# Import key\n##\ncat \"$AKASH_BOOT_KEYS/key-pass.txt\" | { cat ; echo ; } | /bin/akash --home=\"$AKASH_HOME\" keys import --keyring-backend=\"$AKASH_KEYRING_BACKEND\"  \"$AKASH_FROM\" \"$AKASH_BOOT_KEYS/key.txt\"\n\n##\n# Check the Akash Node is working\n##\napt update && apt -yqq install curl jq bc netcat\nsolo_ip=$(echo $AKASH_NODE | cut -d\":\" -f2 | cut -d \"/\" -f3) ; port=$(echo $AKASH_NODE | cut -d\":\" -f3-)\nif [[ $AKASH_NODE != \"http://akash-node-1:26657\" ]]; then\n  nc -z -v -w5 $solo_ip $port\nfi\nuntil [[ $(curl -s $AKASH_NODE/status | jq -r .result.sync_info.catching_up) == \"false\" ]]; do sleep 15; echo \"Akash node not ready. Retrying\";  done\n\n# Check Akash RPC node isn't running behind too much and abort if it does.\nDATE_AKASH=$(akash status | jq -r '.SyncInfo.latest_block_time')\nTS_AKASH=$(date +%s --date \"$DATE_AKASH\")\nTS=$(date +%s)\nDIFF=$(echo \"$TS - $TS_AKASH\" | bc)\nif [[ \"$DIFF\" -gt 30 ]]; then\n  echo \"Akash RPC $AKASH_NODE is running $DIFF seconds behind.\"\n  echo \"ACTION: Make sure your system time in synchronized and/or check your Akash RPC node.\"\n  exit 1\nelif [[ \"$DIFF\" -lt -30 ]]; then\n  echo \"Akash RPC $AKASH_NODE is running $DIFF seconds ahead.\"\n  echo \"ACTION: Make sure your system time in synchronized and/or check your Akash RPC node.\"\n  exit 1\nelse\n  echo \"Last block Akash RPC $AKASH_NODE seen was $DIFF seconds ago => OK\"\nfi\n\n##\n# Create Provider\n##\n\ncat <<EOT > provider.yaml\nhost: https://provider.:8443\nattributes:\nEOT\n\n# Figure the provider address in case the user passes `--from=<key_name>` instead of `--from=<akash1...>` address.\nPROVIDER_ADDRESS=\"$(/bin/akash keys show $AKASH_FROM -a)\"\nif [[ -z \"$PROVIDER_ADDRESS\" ]]; then\n  echo \"PROVIDER_ADDRESS variable is empty. Something went wrong\"\n  exit 1\nfi\n\n/bin/akash query provider get $PROVIDER_ADDRESS -o json\nif [[ $? -ne 0 ]]; then\n  echo \"Could not find provider: $PROVIDER_ADDRES on the blockchain when querying Akash RPC node: $AKASH_NODE\"\n  echo \"Attempting to create a new provider ...\"\n  /bin/akash tx provider create provider.yaml >deploy.log 2>&1\n  DEPLOY=$(cat deploy.log)\nfi\n\nif [[ $DEPLOY == *\"incorrect account sequence\"* ]]; then\n  echo \"Provider has issue talking to the node, check NODE is synced.\"\n  exit 1\nfi\n\nif [[ $DEPLOY == *\"already exists\"* ]]; then\n  echo \"Provider already exists, continue...\"\nelif [[ $DEPLOY == *\"Error\"* ]]; then\n  echo \"Error creating provider : $DEPLOY\"\n  exit 1\nfi\n\necho \"Checking whether provider.yaml needs to be updated on the chain ...\"\nREMOTE_PROVIDER=\"$(akash query provider get $PROVIDER_ADDRESS -o json | jq | sha1sum | awk '{print $1}')\"\nLOCAL_PROVIDER=\"$(/bin/akash tx provider update provider.yaml --offline --generate-only --from $PROVIDER_ADDRESS | jq -r '.body.messages[]' | jq -r 'del(.\"@type\")' | sha1sum | awk '{print $1}')\"\nif [[ \"$REMOTE_PROVIDER\" != \"$LOCAL_PROVIDER\" ]]; then\n  echo \"Updating provider in the blockchain ...\"\n  /bin/akash tx provider update provider.yaml >deploy.log 2>&1\n  DEPLOY=$(cat deploy.log)\n\n  if [[ $DEPLOY == *\"insufficient fees\"* ]]; then\n    echo \"Insufficient fees!  Change the fee settings.\"\n    exit 1\n  fi\n\n  if [[ $DEPLOY == *\"out of gas in location\"* ]]; then\n    echo \"Out of gas!  Change gas/fee settings.\"\n    exit 1\n  fi\n\n  if [[ $DEPLOY == *\"incorrect account sequence\"* ]]; then\n    echo \"Provider has issue talking to the node, check NODE is synced.\"\n    exit 1\n  fi\n\n  if [[ $DEPLOY == *\"Error\"* ]]; then\n    echo \"Error creating provider : $DEPLOY\"\n    exit 1\n  fi\nfi\n\nCERT_PATH=\"${AKASH_HOME}/${PROVIDER_ADDRESS}.pem\"\n# 0 = yes; otherwise do not (re-)generate new provider certificate, unless\nGEN_NEW_CERT=1\nLAST_CERT_STATUS=\"$(akash query cert list --owner $PROVIDER_ADDRESS --state valid -o json | jq -r '.certificates[-1].certificate.state')\"\n# Check whether the last broadcasted certificate is valid\nif [[ \"valid\" != \"$LAST_CERT_STATUS\" ]]; then\n  echo \"No valid certificate found for provider: $PROVIDER_ADDRESS\"\n  GEN_NEW_CERT=0\n\n  echo \"It might as well be that the current certificate was expired, thus, it should be safe to delete it locally\"\n  # It's also a good idea to delete it as otherwise, we'd have to add `--overwrite` to `akash tx cert generate server` command later.\n  if [[ -f \"${CERT_PATH}\" ]]; then\n    rm -vf \"${CERT_PATH}\"\n  fi\nfi\n\n# Check whether the local certificate matches the one on the blockchain\nif [[ -f \"${CERT_PATH}\" ]]; then\n  LOCAL_CERT_SN=\"$(cat \"${CERT_PATH}\" | openssl x509 -serial -noout)\"\n  REMOTE_CERT_SN=\"$(akash query cert list --owner $PROVIDER_ADDRESS --state valid | jq -r '.certificates[-1].certificate.cert' | openssl base64 -A -d | openssl x509 -serial -noout)\"\nelse\n  echo \"${CERT_PATH} file is missing.\"\n  GEN_NEW_CERT=0\nfi\nif [[ -z \"$LOCAL_CERT_SN\" ]]; then\n  echo \"LOCAL_CERT_SN variable is empty. Most likely ${CERT_PATH} file is empty or malformed.\"\n  GEN_NEW_CERT=0\nfi\nif [[ -z \"$REMOTE_CERT_SN\" ]]; then\n  echo \"REMOTE_CERT_SN variable is empty. Most likely the cert hasn't been broadcasted to the blockchain yet.\"\n  GEN_NEW_CERT=0\nelif [[ \"$LOCAL_CERT_SN\" != \"$REMOTE_CERT_SN\" ]]; then\n  echo \"Local certificate SN does not match the one on the blockchain\"\n  GEN_NEW_CERT=0\nfi\n\nif [[ $GEN_NEW_CERT ]]; then\n  echo \"Generating new provider certificate\"\n  /bin/akash tx cert generate server provider.\n  echo \"Publishing new provider certificate\"\n  /bin/akash tx cert publish server\nfi\n\n##\n# Run daemon\n##\n/bin/akash provider run --cluster-k8s\n"
+    }
+  },
+  {
+    "apiVersion": "apiextensions.k8s.io/v1",
+    "kind": "CustomResourceDefinition",
+    "metadata": {
+      "name": "manifests.akash.network",
+      "annotations": {
+        "helm.sh/resource-policy": "keep"
+      }
+    },
+    "spec": {
+      "group": "akash.network",
+      "scope": "Namespaced",
+      "names": {
+        "plural": "manifests",
+        "singular": "manifest",
+        "kind": "Manifest",
+        "shortNames": [
+          "mani"
+        ]
+      },
+      "versions": [
+        {
+          "name": "v2beta1",
+          "served": true,
+          "storage": true,
+          "schema": {
+            "openAPIV3Schema": {
+              "type": "object",
+              "properties": {
+                "spec": {
+                  "type": "object",
+                  "properties": {
+                    "lease_id": {
+                      "type": "object",
+                      "properties": {
+                        "owner": {
+                          "type": "string"
+                        },
+                        "dseq": {
+                          "type": "string",
+                          "format": "uint64"
+                        },
+                        "gseq": {
+                          "type": "integer"
+                        },
+                        "oseq": {
+                          "type": "integer"
+                        },
+                        "provider": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "group": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "services": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string"
+                              },
+                              "image": {
+                                "type": "string"
+                              },
+                              "args": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "env": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "unit": {
+                                "type": "object",
+                                "properties": {
+                                  "cpu": {
+                                    "type": "number",
+                                    "format": "uint32"
+                                  },
+                                  "memory": {
+                                    "type": "string",
+                                    "format": "uint64"
+                                  },
+                                  "storage": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "size": {
+                                          "type": "string",
+                                          "format": "uint64"
+                                        },
+                                        "name": {
+                                          "type": "string"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              "count": {
+                                "type": "number",
+                                "format": "uint64"
+                              },
+                              "expose": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "port": {
+                                      "type": "integer",
+                                      "format": "uint16"
+                                    },
+                                    "external_port": {
+                                      "type": "integer",
+                                      "format": "uint16"
+                                    },
+                                    "proto": {
+                                      "type": "string"
+                                    },
+                                    "service": {
+                                      "type": "string"
+                                    },
+                                    "global": {
+                                      "type": "boolean"
+                                    },
+                                    "http_options": {
+                                      "type": "object",
+                                      "properties": {
+                                        "max_body_size": {
+                                          "type": "integer"
+                                        },
+                                        "read_timeout": {
+                                          "type": "integer"
+                                        },
+                                        "send_timeout": {
+                                          "type": "integer"
+                                        },
+                                        "next_tries": {
+                                          "type": "integer"
+                                        },
+                                        "next_timeout": {
+                                          "type": "integer"
+                                        },
+                                        "next_cases": {
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string"
+                                          }
+                                        }
+                                      }
+                                    },
+                                    "hosts": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string"
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              "params": {
+                                "type": "object",
+                                "nullable": true,
+                                "properties": {
+                                  "storage": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "name": {
+                                          "type": "string"
+                                        },
+                                        "readOnly": {
+                                          "type": "boolean"
+                                        },
+                                        "mount": {
+                                          "type": "string"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apiextensions.k8s.io/v1",
+    "kind": "CustomResourceDefinition",
+    "metadata": {
+      "name": "providerhosts.akash.network",
+      "annotations": {
+        "helm.sh/resource-policy": "keep"
+      }
+    },
+    "spec": {
+      "group": "akash.network",
+      "scope": "Namespaced",
+      "names": {
+        "plural": "providerhosts",
+        "singular": "providerhost",
+        "kind": "ProviderHost",
+        "shortNames": [
+          "ph"
+        ]
+      },
+      "versions": [
+        {
+          "name": "v2beta1",
+          "served": true,
+          "storage": true,
+          "schema": {
+            "openAPIV3Schema": {
+              "type": "object",
+              "properties": {
+                "spec": {
+                  "type": "object",
+                  "properties": {
+                    "service_name": {
+                      "type": "string"
+                    },
+                    "external_port": {
+                      "type": "integer"
+                    },
+                    "hostname": {
+                      "type": "string"
+                    },
+                    "owner": {
+                      "type": "string"
+                    },
+                    "provider": {
+                      "type": "string"
+                    },
+                    "dseq": {
+                      "type": "integer"
+                    },
+                    "gseq": {
+                      "type": "integer"
+                    },
+                    "oseq": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "release-name-provider-admin",
+      "namespace": "default"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-provider",
+        "namespace": "default"
+      }
+    ],
+    "roleRef": {
+      "kind": "ClusterRole",
+      "name": "cluster-admin",
+      "apiGroup": "rbac.authorization.k8s.io"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-provider",
+      "namespace": "FAx4XS4T",
+      "labels": {
+        "akash.network": "true",
+        "app.kubernetes.io/name": "provider",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "operator",
+        "helm.sh/chart": "provider-0.172.0",
+        "app.kubernetes.io/version": "0.16.4-rc2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "api",
+          "protocol": "TCP",
+          "port": 8443,
+          "targetPort": "api"
+        }
+      ],
+      "selector": {
+        "app": "release-name-provider",
+        "app.kubernetes.io/name": "provider",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-provider",
+      "namespace": "FAx4XS4T",
+      "labels": {
+        "app": "release-name-provider",
+        "helm.sh/chart": "provider-0.172.0",
+        "app.kubernetes.io/name": "provider",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.16.4-rc2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "release-name-provider",
+          "app.kubernetes.io/name": "provider",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/cm-boot": "507ae039d5c5f00ef9e993947b8469d02a3162cb0ed297071ffc474a245f1e40",
+            "checksum/cm-bidscripts": "7bb873d893b66963340eb19a7d2f581c73126a04bb27e9926170d9e9ebb76701"
+          },
+          "labels": {
+            "app": "release-name-provider",
+            "app.kubernetes.io/name": "provider",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-provider",
+          "securityContext": {},
+          "containers": [
+            {
+              "name": "provider",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true,
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "image": "ghcr.io/ovrclk/akash:0.16.4-rc2",
+              "command": [
+                "/bin/bash",
+                "/boot/run.sh"
+              ],
+              "imagePullPolicy": "IfNotPresent",
+              "resources": {
+                "limits": {
+                  "cpu": "500m",
+                  "memory": "512Mi"
+                },
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "128Mi"
+                }
+              },
+              "env": [
+                {
+                  "name": "AKASH_DEBUG",
+                  "value": "false"
+                },
+                {
+                  "name": "AKASH_BOOT_KEYS",
+                  "value": "/boot-keys"
+                },
+                {
+                  "name": "AKASH_HOME",
+                  "value": "/root/.akash"
+                },
+                {
+                  "name": "AKASH_FROM",
+                  "value": ""
+                },
+                {
+                  "name": "AKASH_NODE",
+                  "value": "http://akash.c29r3.xyz:80/rpc"
+                },
+                {
+                  "name": "AKASH_CHAIN_ID",
+                  "value": "akashnet-2"
+                },
+                {
+                  "name": "AKASH_KEYRING_BACKEND",
+                  "value": "test"
+                },
+                {
+                  "name": "AKASH_TRUST_NODE",
+                  "value": "true"
+                },
+                {
+                  "name": "AKASH_BROADCAST_MODE",
+                  "value": "block"
+                },
+                {
+                  "name": "AKASH_VERSION",
+                  "value": "0.16.4-rc2"
+                },
+                {
+                  "name": "AKASH_CLUSTER_WAIT_READY_DURATION",
+                  "value": "30s"
+                },
+                {
+                  "name": "AKASH_DEPLOYMENT_INGRESS_DOMAIN",
+                  "value": "ingress."
+                },
+                {
+                  "name": "DEPLOYMENT_NETWORK_POLICIES_ENABLED",
+                  "value": "false"
+                },
+                {
+                  "name": "AKASH_YES",
+                  "value": "true"
+                },
+                {
+                  "name": "AKASH_GAS_PRICES",
+                  "value": "0.025uakt"
+                },
+                {
+                  "name": "AKASH_GAS",
+                  "value": "auto"
+                },
+                {
+                  "name": "AKASH_GAS_ADJUSTMENT",
+                  "value": "1.25"
+                },
+                {
+                  "name": "AKASH_DEPLOYMENT_INGRESS_STATIC_HOSTS",
+                  "value": "true"
+                },
+                {
+                  "name": "AKASH_DEPLOYMENT_BLOCKED_HOSTNAMES",
+                  "value": ""
+                },
+                {
+                  "name": "AKASH_CLUSTER_NODE_PORT_QUANTITY",
+                  "value": "2500"
+                },
+                {
+                  "name": "AKASH_CLUSTER_PUBLIC_HOSTNAME",
+                  "value": "provider."
+                },
+                {
+                  "name": "AKASH_BID_PRICE_STRATEGY",
+                  "value": "scale"
+                },
+                {
+                  "name": "AKASH_BID_PRICE_CPU_SCALE",
+                  "value": "0.004"
+                },
+                {
+                  "name": "AKASH_BID_PRICE_MEMORY_SCALE",
+                  "value": "0.0016"
+                },
+                {
+                  "name": "AKASH_BID_PRICE_ENDPOINT_SCALE",
+                  "value": ""
+                },
+                {
+                  "name": "AKASH_BID_PRICE_STORAGE_SCALE",
+                  "value": "0.00016,beta2=0.00016"
+                },
+                {
+                  "name": "AKASH_OVERCOMMIT_PCT_CPU",
+                  "value": "0"
+                },
+                {
+                  "name": "AKASH_OVERCOMMIT_PCT_MEM",
+                  "value": "0"
+                },
+                {
+                  "name": "AKASH_OVERCOMMIT_PCT_STORAGE",
+                  "value": "0"
+                },
+                {
+                  "name": "AKASH_LOG_LEVEL",
+                  "value": "info"
+                },
+                {
+                  "name": "AKASH_CLUSTER_K8S",
+                  "value": "true"
+                },
+                {
+                  "name": "KUBE_CONFIG",
+                  "value": "/root/.akash/.kube/config"
+                },
+                {
+                  "name": "AKASH_DEPLOYMENT_RUNTIME_CLASS",
+                  "value": "none"
+                },
+                {
+                  "name": "AKASH_WITHDRAWAL_PERIOD",
+                  "value": "1h"
+                },
+                {
+                  "name": "AKASH_MINIMUM_BALANCE",
+                  "value": "10000000"
+                },
+                {
+                  "name": "AKASH_BID_DEPOSIT",
+                  "value": "5000000uakt"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "api",
+                  "containerPort": 8443,
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "boot",
+                  "mountPath": "/boot",
+                  "readOnly": true
+                },
+                {
+                  "name": "bidscripts",
+                  "mountPath": "/bidscripts",
+                  "readOnly": true
+                },
+                {
+                  "name": "keys",
+                  "mountPath": "/boot-keys",
+                  "readOnly": true
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "boot",
+              "configMap": {
+                "name": "release-name-provider-boot"
+              }
+            },
+            {
+              "name": "bidscripts",
+              "configMap": {
+                "name": "release-name-provider-bidscripts",
+                "defaultMode": 484
+              }
+            },
+            {
+              "name": "keys",
+              "secret": {
+                "secretName": "release-name-provider-keys"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

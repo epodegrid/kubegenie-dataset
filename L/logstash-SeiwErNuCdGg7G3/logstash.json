@@ -1,0 +1,301 @@
+[
+  {
+    "apiVersion": "policy/v1beta1",
+    "kind": "PodDisruptionBudget",
+    "metadata": {
+      "name": "release-name-logstash",
+      "labels": {
+        "app": "logstash",
+        "chart": "logstash-2.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "logstash",
+          "release": "release-name"
+        }
+      },
+      "maxUnavailable": 1
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-logstash",
+      "labels": {
+        "app": "logstash",
+        "chart": "logstash-2.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-logstash-files",
+      "labels": {
+        "app": "logstash",
+        "chart": "logstash-2.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": null,
+    "binaryData": null
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-logstash-patterns",
+      "labels": {
+        "app": "logstash",
+        "chart": "logstash-2.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": null
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-logstash-pipeline",
+      "labels": {
+        "app": "logstash",
+        "chart": "logstash-2.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "input_main.conf": "input {\n  # udp {\n  #   port => 1514\n  #   type => syslog\n  # }\n  # tcp {\n  #   port => 1514\n  #   type => syslog\n  # }\n  # beats {\n  #   port => 5044\n  # }\n  # http {\n  #   port => 8080\n  # }\n  # kafka {\n  #   ## ref: https://www.elastic.co/guide/en/logstash/current/plugins-inputs-kafka.html\n  #   bootstrap_servers => \"kafka-input:9092\"\n  #   codec => json { charset => \"UTF-8\" }\n  #   consumer_threads => 1\n  #   topics => [\"source\"]\n  #   type => \"example\"\n  # }\n}",
+      "output_main.conf": "output {\n  # stdout { codec => rubydebug }\n  elasticsearch {\n    hosts => [\"${ELASTICSEARCH_HOST}:${ELASTICSEARCH_PORT}\"]\n    manage_template => false\n    index => \"logstash-%{+YYYY.MM.dd}\"\n  }\n  # kafka {\n  #   ## ref: https://www.elastic.co/guide/en/logstash/current/plugins-outputs-kafka.html\n  #   bootstrap_servers => \"kafka-output:9092\"\n  #   codec => json { charset => \"UTF-8\" }\n  #   compression_type => \"lz4\"\n  #   topic_id => \"destination\"\n  # }\n}"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-logstash",
+      "labels": {
+        "app": "logstash",
+        "chart": "logstash-2.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "beats",
+          "port": 5044,
+          "protocol": "TCP",
+          "targetPort": "beats"
+        }
+      ],
+      "selector": {
+        "app": "logstash",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta2",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-logstash",
+      "labels": {
+        "app": "logstash",
+        "chart": "logstash-2.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "serviceName": "release-name-logstash",
+      "replicas": 1,
+      "podManagementPolicy": "OrderedReady",
+      "selector": {
+        "matchLabels": {
+          "app": "logstash",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "logstash",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/patterns": "e0a4f028b62f142c1d099f9010317ca192353639da43dec5aa08057bdd30c3f0",
+            "checksum/templates": "b172c6e78cefe3567443e23710d483907187f3f64f1c7041a9c24bb6a900707c",
+            "checksum/pipeline": "b8f425508324cd072329850af7bca43d231b8cc4fb0b047b956bb399138d0792"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "runAsUser": 1000,
+            "fsGroup": 1000
+          },
+          "initContainers": null,
+          "containers": [
+            {
+              "name": "logstash",
+              "image": "docker.elastic.co/logstash/logstash-oss:7.1.0",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "monitor",
+                  "containerPort": 9600,
+                  "protocol": "TCP"
+                },
+                {
+                  "containerPort": 5044,
+                  "name": "beats",
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "monitor"
+                },
+                "initialDelaySeconds": 20
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "monitor"
+                },
+                "initialDelaySeconds": 20
+              },
+              "env": [
+                {
+                  "name": "HTTP_HOST",
+                  "value": "0.0.0.0"
+                },
+                {
+                  "name": "HTTP_PORT",
+                  "value": "9600"
+                },
+                {
+                  "name": "ELASTICSEARCH_HOST",
+                  "value": "elasticsearch-client.default.svc.cluster.local"
+                },
+                {
+                  "name": "ELASTICSEARCH_PORT",
+                  "value": "9200"
+                },
+                {
+                  "name": "LS_JAVA_OPTS",
+                  "value": "-Xmx2g -Xms2g"
+                },
+                {
+                  "name": "CONFIG_RELOAD_AUTOMATIC",
+                  "value": "true"
+                },
+                {
+                  "name": "PATH_CONFIG",
+                  "value": "/usr/share/logstash/pipeline"
+                },
+                {
+                  "name": "PATH_DATA",
+                  "value": "/usr/share/logstash/data"
+                },
+                {
+                  "name": "QUEUE_CHECKPOINT_WRITES",
+                  "value": "1"
+                },
+                {
+                  "name": "QUEUE_DRAIN",
+                  "value": "true"
+                },
+                {
+                  "name": "QUEUE_MAX_BYTES",
+                  "value": "1gb"
+                },
+                {
+                  "name": "QUEUE_TYPE",
+                  "value": "persisted"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/usr/share/logstash/data",
+                  "name": "data"
+                },
+                {
+                  "mountPath": "/usr/share/logstash/patterns",
+                  "name": "patterns"
+                },
+                {
+                  "mountPath": "/usr/share/logstash/files",
+                  "name": "files"
+                },
+                {
+                  "mountPath": "/usr/share/logstash/pipeline",
+                  "name": "pipeline"
+                }
+              ]
+            }
+          ],
+          "serviceAccountName": "release-name-logstash",
+          "terminationGracePeriodSeconds": 30,
+          "volumes": [
+            {
+              "name": "patterns",
+              "configMap": {
+                "name": "release-name-logstash-patterns"
+              }
+            },
+            {
+              "name": "files",
+              "configMap": {
+                "name": "release-name-logstash-files"
+              }
+            },
+            {
+              "name": "pipeline",
+              "configMap": {
+                "name": "release-name-logstash-pipeline"
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "2Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+]

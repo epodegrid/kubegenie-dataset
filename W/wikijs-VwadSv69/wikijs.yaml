@@ -1,0 +1,170 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: wikijs-secret
+  labels:
+    helm.sh/chart: wikijs-1.0.0
+    app-name: wikijs
+    component: wiki-server
+    managed-by: chynten
+    created-by: chynten
+    version: canary-2.5.243
+type: Opaque
+data:
+  wikijs-password: d2lraWpzQDMyMQ==
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wikijs-config
+  labels:
+    helm.sh/chart: wikijs-1.0.0
+    app-name: wikijs
+    component: wiki-server
+    managed-by: chynten
+    created-by: chynten
+    version: canary-2.5.243
+data:
+  config.yaml: |-
+    port: 3000
+    db:
+      type: postgres
+      host: postgres-svc
+      port: 5432
+      user: wikijs
+      db: wikijs
+      ssl: false
+      sslOptions:
+        auto: true
+      schema: public
+    ssl:
+      enabled: false
+    pool:
+      # min: 2
+      # max: 10
+    bindIP: 0.0.0.0
+    logLevel: info
+    offline: false
+    ha: false
+    dataPath: ./data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: wikijs-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 15G
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wikijs-svc
+  labels:
+    helm.sh/chart: wikijs-1.0.0
+    app-name: wikijs
+    component: wiki-server
+    managed-by: chynten
+    created-by: chynten
+    version: canary-2.5.243
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      protocol: TCP
+      port: 3000
+      targetPort: 3000
+  selector:
+    app-name: wikijs
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wikijs-deployment
+  labels:
+    helm.sh/chart: wikijs-1.0.0
+    app-name: wikijs
+    component: wiki-server
+    managed-by: chynten
+    created-by: chynten
+    version: canary-2.5.243
+spec:
+  replicas: 1
+  revisionHistoryLimit: null
+  selector:
+    matchLabels:
+      app-name: wikijs
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app-name: wikijs
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: wikijs
+          image: requarks/wiki:canary-2.5.243
+          imagePullPolicy: IfNotPresent
+          resources: null
+          env:
+            - name: DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: wikijs-secret
+                  key: wikijs-password
+            - name: DB_TYPE
+              value: postgres
+            - name: DB_HOST
+              value: postgres-svc
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              value: wikijs
+            - name: DB_NAME
+              value: wikijs
+          volumeMounts:
+            - name: data
+              mountPath: /wiki/data
+              subPath: wikijs
+      securityContext: null
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: wikijs-pvc
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: wikijs-ingress
+  labels:
+    helm.sh/chart: wikijs-1.0.0
+    app-name: wikijs
+    component: wiki-server
+    managed-by: chynten
+    created-by: chynten
+    version: canary-2.5.243
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 50m
+    nginx.org/client-max-body-size: 50m
+spec:
+  tls:
+    - hosts:
+        - wiki.example.com
+      secretName: wikijs-letsencrypt-certificate
+  rules:
+    - host: wiki.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: wikijs-svc
+                port:
+                  number: 3000

@@ -1,0 +1,173 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "drycc-rabbitmq",
+      "labels": {
+        "app": "drycc-rabbitmq",
+        "heritage": "drycc"
+      }
+    },
+    "secrets": [
+      {
+        "name": "drycc-rabbitmq"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "drycc-rabbitmq",
+      "labels": {
+        "heritage": "drycc"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "selector": {
+        "app": "drycc-rabbitmq"
+      },
+      "ports": [
+        {
+          "port": 5672
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "drycc-rabbitmq",
+      "labels": {
+        "heritage": "drycc"
+      },
+      "annotations": {
+        "component.drycc.cc/version": "1.0.0"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "serviceName": "drycc-rabbitmq",
+      "selector": {
+        "matchLabels": {
+          "app": "drycc-rabbitmq"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "drycc-rabbitmq"
+          }
+        },
+        "spec": {
+          "serviceAccount": "drycc-rabbitmq",
+          "containers": [
+            {
+              "name": "drycc-rabbitmq",
+              "image": "docker.io/drycc/rabbitmq:1.0.0",
+              "imagePullPolicy": "Always",
+              "ports": [
+                {
+                  "containerPort": 5672
+                }
+              ],
+              "env": [
+                {
+                  "name": "RABBITMQ_DEFAULT_USER",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "rabbitmq-creds",
+                      "key": "username"
+                    }
+                  }
+                },
+                {
+                  "name": "RABBITMQ_DEFAULT_PASS",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "rabbitmq-creds",
+                      "key": "password"
+                    }
+                  }
+                },
+                {
+                  "name": "RABBITMQ_DEFAULT_VHOST",
+                  "value": "drycc"
+                }
+              ],
+              "lifecycle": {
+                "preStop": {
+                  "exec": {
+                    "command": [
+                      "bash",
+                      "-ec",
+                      "rabbitmqctl stop_app"
+                    ]
+                  }
+                }
+              },
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/bash",
+                    "-ec",
+                    "rabbitmq-diagnostics -q check_running"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 10
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/bash",
+                    "-ec",
+                    "rabbitmq-diagnostics -q check_running"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 10,
+                "periodSeconds": 5
+              },
+              "volumeMounts": [
+                {
+                  "name": "rabbitmq-creds",
+                  "mountPath": "/var/run/secrets/drycc/rabbitmq/creds"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "rabbitmq-creds",
+              "secret": {
+                "secretName": "rabbitmq-creds"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "rabbitmq-creds",
+      "labels": {
+        "app": "drycc-rabbitmq",
+        "heritage": "drycc"
+      },
+      "annotations": {
+        "helm.sh/hook": "pre-install"
+      }
+    },
+    "data": {
+      "username": "NXdTS3o5QnFISEIySTBmU1hid042SzQxWDh3MkNLWDY=",
+      "password": "aTZGeVlFWEpHRDlPdzNlNWc0ZG5ORFRGR2IydzRXOHo="
+    }
+  }
+]

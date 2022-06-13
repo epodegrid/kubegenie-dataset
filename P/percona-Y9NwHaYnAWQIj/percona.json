@@ -1,0 +1,169 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-percona",
+      "labels": {
+        "app": "release-name-percona",
+        "chart": "percona-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "mysql-root-password": "UGVMOE1kYkFScA==",
+      "mysql-password": "YjIzRzVhbmJnQw=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-percona",
+      "labels": {
+        "app": "release-name-percona",
+        "chart": "percona-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "mysql",
+          "port": 3306,
+          "targetPort": "mysql"
+        }
+      ],
+      "selector": {
+        "app": "release-name-percona"
+      }
+    }
+  },
+  {
+    "apiVersion": "extensions/v1beta1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-percona",
+      "labels": {
+        "app": "release-name-percona",
+        "chart": "percona-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "release-name-percona"
+          }
+        },
+        "spec": {
+          "initContainers": [
+            {
+              "name": "remove-lost-found",
+              "image": "busybox:1.25.0",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "rm",
+                "-fr",
+                "/var/lib/mysql/lost+found"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/var/lib/mysql"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "release-name-percona",
+              "image": "percona:5.7.17",
+              "imagePullPolicy": "IfNotPresent",
+              "resources": {
+                "requests": {
+                  "cpu": "100m",
+                  "memory": "256Mi"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "env": [
+                {
+                  "name": "MYSQL_ROOT_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-percona",
+                      "key": "mysql-root-password"
+                    }
+                  }
+                },
+                {
+                  "name": "MYSQL_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-percona",
+                      "key": "mysql-password"
+                    }
+                  }
+                },
+                {
+                  "name": "MYSQL_USER",
+                  "value": ""
+                },
+                {
+                  "name": "MYSQL_DATABASE",
+                  "value": ""
+                }
+              ],
+              "ports": [
+                {
+                  "name": "mysql",
+                  "containerPort": 3306
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "mysqladmin",
+                    "ping"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "timeoutSeconds": 5
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "mysqladmin",
+                    "ping"
+                  ]
+                },
+                "initialDelaySeconds": 5,
+                "timeoutSeconds": 1
+              },
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/var/lib/mysql"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "data",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  }
+]

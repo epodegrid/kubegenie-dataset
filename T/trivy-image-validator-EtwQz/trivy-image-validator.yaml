@@ -1,0 +1,143 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    kubernetes.io/metadata.name: validation
+  name: validation
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-trivy-image-validator-trivy-validation
+  labels:
+    app: trivy-validation
+    helm.sh/chart: trivy-image-validator-1.0.2
+    app.kubernetes.io/name: trivy-image-validator
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.16.0
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: release-name-trivy-image-validator-trivy-cache
+  namespace: validation
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-trivy-image-validator-trivy-validation
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - namespaces
+    verbs:
+      - get
+      - watch
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-trivy-image-validator-trivy-validation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-trivy-image-validator-trivy-validation
+subjects:
+  - kind: ServiceAccount
+    name: release-name-trivy-image-validator-trivy-validation
+    namespace: validation
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trivy-image-validator
+  namespace: validation
+spec:
+  selector:
+    app.kubernetes.io/name: trivy-image-validator
+    app.kubernetes.io/instance: release-name
+  ports:
+    - port: 443
+      targetPort: 5000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-trivy-image-validator-trivy-validation
+  labels:
+    app: trivy-validation
+    helm.sh/chart: trivy-image-validator-1.0.2
+    app.kubernetes.io/name: trivy-image-validator
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.16.0
+    app.kubernetes.io/managed-by: Helm
+  namespace: validation
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trivy-validation
+      app.kubernetes.io/name: trivy-image-validator
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app: trivy-validation
+        app.kubernetes.io/name: trivy-image-validator
+        app.kubernetes.io/instance: release-name
+    spec:
+      securityContext:
+        fsGroup: 10001
+      containers:
+        - name: trivy-image-validator
+          image: devopstales/trivy-image-validator:1.0.0
+          imagePullPolicy: Always
+          volumeMounts:
+            - name: cache
+              mountPath: /home/kube-trivy-admission/.cache/trivy
+      volumes:
+        - name: cache
+          persistentVolumeClaim:
+            claimName: release-name-trivy-image-validator-trivy-cache
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: trivy-image-validating-webhook-cfg
+  annotations:
+    helm.sh/hook: post-install,post-upgrade,post-delete
+webhooks:
+  - name: trivy-image-validator.devopstales.intra
+    sideEffects: None
+    admissionReviewVersions:
+      - v1beta1
+      - v1
+    clientConfig:
+      service:
+        name: trivy-image-validator
+        namespace: validation
+        path: /validate
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUV6RENDQXJRQ0NRQ2w3a3Z2eFRQK3ZEQU5CZ2txaGtpRzl3MEJBUXNGQURBbk1TVXdJd1lEVlFRRERCeEIKWkcxcGMzTnBiMjRnUTI5dWRISnZiR3hsY2lCWFpXSm9iMjlyTUNBWERUSXhNRGN5TlRBNE16ZzBPRm9ZRHpJeApNakV3TnpBeE1EZ3pPRFE0V2pBbk1TVXdJd1lEVlFRRERCeEJaRzFwYzNOcGIyNGdRMjl1ZEhKdmJHeGxjaUJYClpXSm9iMjlyTUlJQ0lqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FnOEFNSUlDQ2dLQ0FnRUFwc2dlQmF4cU1LZ3UKTWR2ZC9vVGczYUlCbk50QjZQczFwZWJxYTA3dFZDaFUrb2o5dkN5OXR6WW5FRmRZRm9uNjVjZndMc2Rvd0pzMAo2U0VkT21EbCsvbXN0WGtsdmxPS0R1RytrdHFjOWREMjJEeGxsM2pHMS80aG5ta0RwN0VuakIzZFg5Qk1mSW03CnJlVFZDTUdMeWJNdkpKaDBzVmdjVDJkcnVCZVlrUHF5UmpEZ3djcGc3amV3bzR2Z2VqdGJBV2M0eGZqWCsrMzEKeVN1ZFRUUmF3NDArUlJSZzg1RGgrTi8rS2tIRy9SalpDdUp2N3p0ZXBYeVkrQkkyTzNxWXlHdmJ4VjNiK3ZzLwpXMVFlWTUyTGlzVjVEK3duVUlrOGlwaXlzNkVlOGh2UnpBejhEbEljVjUwY0dtYXh6SHFwOTZzUm5ESkk4MnRUCjdyY0lqbEhEZU95bWxoRTRGa1Q2WVFnM1lIaHpVTmlQRGY5bm5rRm5UbU5qeFo2VVhma3lDNDltSHQrMXc5RXIKRUd2MnVFL1NPMXN5Qk5YMDFlSnd0SEs5YzZseU5IaFpwdGF6M01xeStSSW5reUMwVGRjS2U1V3dTRkxRN01HNgpmWDgzTFJRcHhudTA3eFJTUE9lTkoyL0hVNkJiazFybGN6d2tMdkNJMWlMMXpTNElKV0pRQXoxSGsvcTRRUThHClIxbnVrVENUWlUzYVJrV3N5NFhzTmN3am5tdG9JVmsrekphRXBBQUVLdUtKc0xFMjB5YW1mSUs5Q2gwKzh6TXoKemhTZG00UFlONFd0TUhoWjk0b3VuUFNVbDVsSnhTQmtJUUpBQW1yamJCdDJGR0x2VlIxcUVuSmFWcDBldDEyQwpJOEJQekpaVDlmZ09vY3h6eVladnF5cEdHZDNRUHMwQ0F3RUFBVEFOQmdrcWhraUc5dzBCQVFzRkFBT0NBZ0VBCmpsR3BGVENwNW5RcHJqRXQySmpMbmo2UldaaHg1OXdMeVloZHkzem9rMytpb0xyUm01Ry9sckR3U3ZXZVJGZHMKYis5bTNiVlZZMGxxZXNTS2V6eDFkQW9KS3Z3NEZFVWJpU0hwNnY5S2N6SDJZMlIvYVR2U0ZFK3d1VTBiVnV2OApWRVhRc2czemh2RUZLY1hTcUFyUGhLdFhheUNMY1FxZDc5dHM3dFhoMWYwcERCVnZESVRxU1lkazZzTlYzZ1haCnZMYUdzK0ZjU1Q4NlptUGZsSzJRQ1l6cmpTY1BTdkdUUWYzWmpxUzM1dnEvcm4wTDJOWVdpMGtsNFQwVDJXVEcKcThTQk9hRE55MWFQbjhIbVQ0YXc4c2VhYjg2dVRIQVh5WlVEcUlXakw1VFNXcFdvM1JsVkJzWVBybnV6UkdrNQp1YzFJWE9Jd3R3c1lnSDFZNUVBMXA3SThUaFpvQjl4L214NFptMmNCaWR0RUtBbWVUalU3NUhjMFNsUmRYRGlVCjVMWTVsKzN0c1NIWUxwbXE1MFg4d1Y2QXRtNndmZ0RYUlowL08vZERvazdncmM5NGhRL2twdWJjZ1l4R0pDZ2QKUTFDTUI0UXAvZFBmOVFyaG9vRHpYRlU2aVd3OVlQcjQvVW14WFJPK1oxTUsxSGhpMXVEcDZaeTcraGl3MVRvRQpKc0c5ekZUT3lXVEEybjF4WUF6SEtvZUNrNW8wK05YSzFpMTFObTRQTlU5cFl4OVN1cVVBQVlmdUhIOWpxWHFQCkg2aTQvRzRnZ2FBRUVBMm03eGVxRWVGd2NIOWMwYVAwcjIxTzNwcS9COHRXZkpmajVrV0ZIcUpraUovZTNTUmkKdTlTWElKQTBVVXYwOHZUS1R5TEtZWDIvQ1lLSWJjS1NucytESlRicVEvMD0KLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
+    rules:
+      - apiGroups:
+          - apps
+          - ""
+        resources:
+          - pods
+        apiVersions:
+          - '*'
+        operations:
+          - CREATE
+    namespaceSelector:
+      matchLabels:
+        trivy-image-validator: enabled

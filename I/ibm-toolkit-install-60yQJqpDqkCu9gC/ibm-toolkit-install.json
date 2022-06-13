@@ -1,0 +1,135 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-ibm-toolkit-install",
+      "namespace": "60yQJqpDqkCu9gC",
+      "labels": {
+        "helm.sh/chart": "ibm-toolkit-install-0.3.0",
+        "app.kubernetes.io/name": "ibm-toolkit-install",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v0.15",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "ibm-toolkit-install",
+      "namespace": "60yQJqpDqkCu9gC",
+      "labels": {
+        "helm.sh/chart": "ibm-toolkit-install-0.3.0",
+        "app.kubernetes.io/name": "ibm-toolkit-install",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v0.15",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "tools_namespace": "tools"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "release-name-ibm-toolkit-install",
+      "labels": {
+        "helm.sh/chart": "ibm-toolkit-install-0.3.0",
+        "app.kubernetes.io/name": "ibm-toolkit-install",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v0.15",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "cluster-admin"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-ibm-toolkit-install",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+      "name": "ibm-toolkit-install",
+      "namespace": "60yQJqpDqkCu9gC",
+      "labels": {
+        "helm.sh/chart": "ibm-toolkit-install-0.3.0",
+        "app.kubernetes.io/name": "ibm-toolkit-install",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v0.15",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "template": {
+        "metadata": {
+          "labels": {
+            "run": "ibm-toolkit-install"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-ibm-toolkit-install",
+          "volumes": [
+            {
+              "name": "source",
+              "emptyDir": {}
+            }
+          ],
+          "containers": [
+            {
+              "image": "quay.io/ibmgaragecloud/cli-tools:v0.15",
+              "name": "toolkit",
+              "env": [
+                {
+                  "name": "REPO_URL",
+                  "value": "https://github.com/cloud-native-toolkit/ibm-garage-iteration-zero.git"
+                },
+                {
+                  "name": "REPO_BRANCH",
+                  "value": "master"
+                },
+                {
+                  "name": "REPO_PATH",
+                  "value": "terraform/stages-ocp4"
+                }
+              ],
+              "envFrom": [
+                {
+                  "configMapRef": {
+                    "name": "ibm-toolkit-install",
+                    "optional": true
+                  },
+                  "prefix": "TF_VAR_"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/source",
+                  "name": "source"
+                }
+              ],
+              "command": [
+                "/bin/bash",
+                "-c",
+                "set -ex\nif [[ -n \"$REPO_BRANCH\" ]]; then\n  git clone -b $REPO_BRANCH --depth=1 $REPO_URL /source\nelse\n  git clone --depth=1 $REPO_URL /source\nfi\n\ncd /source\n\nif [[ -n \"$REPO_PATH\" ]]; then\n  cd $REPO_PATH\nfi\n\nexport TF_VAR_server_url=$(oc whoami --show-server)\nset +x\nexport TF_VAR_login_token=$(oc whoami -t)\n\necho \"Installing from $REPO_URL/$REPO_PATH#$REPO_BRANCH\"\n\nSTARTTIME=$(date +%s)\n\nterraform init\nterraform apply -auto-approve\n\nDURATION=$(($(date +%s) - $STARTTIME))\necho -e \"\\033[0;92m Toolkit install took: $(($DURATION / 60))m$(($DURATION % 60))s \\033[0m\"\n"
+              ]
+            }
+          ],
+          "restartPolicy": "Never"
+        }
+      }
+    }
+  }
+]

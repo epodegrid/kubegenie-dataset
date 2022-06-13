@@ -1,0 +1,148 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-homer-conf"
+    },
+    "data": {
+      "config.yml": "title: Homer\nicon: fas fa-home\nheader: true\nfooter: false\nmessage:\n    style: is-warning\n    title: Optional message!\n    content: Lorem ipsum dolor sit amet, consectetur adipiscing elit.\nlinks:\n  - name: \"Github\"\n    icon: \"fas fa-skull-crossbones\"\n    url: \"https://github.com/bastienwirtz/homer\"\n    target: \"_self\"\n\ncolumns: auto\nconnectivityCheck: false\ntheme: default\n\ncolors:\n  light:\n    highlight-primary: rgba(51,103,214,0.8)\n    highlight-secondary: rgba(66,133,244,0.8)\n    highlight-hover: rgba(90,149,245,0.8)\n    background: rgba(245, 245, 245,0.8)\n    card-background: rgba(255,255,255,0.8)\n    text: rgba(54,54,54,0.8)\n    text-header: rgba(66,66,66,0.8)\n    text-title: rgba(48,48,48,0.8)\n    text-subtitle: rgba(66,66,66,0.8)\n    card-shadow: rgba(0, 0, 0, 0.1)\n    link-hover: rgba(54,54,54,0.8)\n    background-image: \n  dark:\n    highlight-primary: \\#3367d6\n    highlight-secondary: \\#4285f4\n    highlight-hover: \\#5a95f5\n    background: \\#131313\n    card-background: \\#2b2b2b\n    text: \\#eaeaea\n    text-header: \\#ffffff\n    text-title: \\#fafafa\n    text-subtitle: \\#f5f5f5\n    card-shadow: rgba(0, 0, 0, 0.4)\n    link-hover: \\#ffdd57\n    background-image: \nservices:\n  - name: Applications\n    icon: fas fa-globe-europe\n    items:\n      - name: buildsociety\n        icon: fas fa-sitemap\n        url: https://buildsociety.cloud\n        target: _self\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-homer-service",
+      "labels": {
+        "app.kubernetes.io/name": "homer",
+        "helm.sh/chart": "homer-0.0.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "20.07.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 8080,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "homer",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-homer",
+      "annotations": {
+        "configmap.reloader.stakater.com/reload": "release-name-homer-conf"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "homer",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "homer",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "homer",
+              "image": "b4bz/homer:20.07.2",
+              "imagePullPolicy": "Always",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8080,
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "release-name-homer-conf",
+                  "mountPath": "/www/config.yml",
+                  "subPath": "config.yml"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "release-name-homer-conf",
+              "configMap": {
+                "name": "release-name-homer-conf"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1beta1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "release-name-homer-external",
+      "labels": {
+        "app.kubernetes.io/name": "homer",
+        "helm.sh/chart": "homer-0.0.1",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "20.07.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "cert-manager.io/cluster-issuer": "letsencrypt-prod",
+        "kubernetes.io/ingress.class": "nginx"
+      }
+    },
+    "spec": {
+      "tls": [
+        {
+          "hosts": [
+            "homer.internal"
+          ],
+          "secretName": "homer-tls"
+        }
+      ],
+      "rules": [
+        {
+          "host": "homer.internal",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "backend": {
+                  "serviceName": "release-name-homer",
+                  "servicePort": 8080
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

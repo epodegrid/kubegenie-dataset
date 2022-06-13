@@ -1,0 +1,244 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: release-name-telegraf-operator
+  namespace: default
+  labels:
+    helm.sh/chart: telegraf-operator-1.3.7
+    app.kubernetes.io/name: telegraf-operator
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.3.7
+    app.kubernetes.io/managed-by: Helm
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: telegraf-operator
+      app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-telegraf-operator
+  namespace: 69d0NPTl0Yf6
+  labels:
+    helm.sh/chart: telegraf-operator-1.3.7
+    app.kubernetes.io/name: telegraf-operator
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.3.7
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: telegraf-operator-classes
+  namespace: 69d0NPTl0Yf6
+stringData:
+  infra: |
+    [[outputs.influxdb]]
+      urls = ["http://influxdb.influxdb:8086"]
+    [global_tags]
+      env = "ci"
+      hostname = "$HOSTNAME"
+      nodename = "$NODENAME"
+      type = "infra"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    helm.sh/chart: telegraf-operator-1.3.7
+    app.kubernetes.io/name: telegraf-operator
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.3.7
+    app.kubernetes.io/managed-by: Helm
+  name: release-name-telegraf-operator
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - '*'
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - get
+      - list
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    helm.sh/chart: telegraf-operator-1.3.7
+    app.kubernetes.io/name: telegraf-operator
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.3.7
+    app.kubernetes.io/managed-by: Helm
+  name: release-name-telegraf-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-telegraf-operator
+subjects:
+  - kind: ServiceAccount
+    name: release-name-telegraf-operator
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-telegraf-operator
+  namespace: 69d0NPTl0Yf6
+  labels:
+    helm.sh/chart: telegraf-operator-1.3.7
+    app.kubernetes.io/name: telegraf-operator
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.3.7
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: https
+      port: 443
+      protocol: TCP
+      targetPort: 9443
+  selector:
+    app.kubernetes.io/name: telegraf-operator
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-telegraf-operator
+  namespace: 69d0NPTl0Yf6
+  labels:
+    helm.sh/chart: telegraf-operator-1.3.7
+    app.kubernetes.io/name: telegraf-operator
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.3.7
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: telegraf-operator
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: telegraf-operator
+        app.kubernetes.io/instance: release-name
+      annotations:
+        checksum/config: d06f97b3c784866673303a58de8015107ec6ff9b70be3667cac8a98b50f9f5fd
+    spec:
+      containers:
+        - name: telegraf-operator
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          image: quay.io/influxdb/telegraf-operator:v1.3.7
+          imagePullPolicy: IfNotPresent
+          args:
+            - --telegraf-default-class=infra
+            - --telegraf-classes-directory=/etc/telegraf-operator
+            - --enable-default-internal-plugin
+            - --telegraf-image=docker.io/library/telegraf:1.22
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - name: https
+              containerPort: 9443
+              protocol: TCP
+          volumeMounts:
+            - mountPath: /etc/certs
+              name: certs
+              readOnly: true
+            - mountPath: /etc/telegraf-operator
+              name: classes
+              readOnly: true
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+      serviceAccountName: release-name-telegraf-operator
+      securityContext: {}
+      volumes:
+        - name: certs
+          secret:
+            secretName: telegraf-operator-tls
+        - name: classes
+          secret:
+            secretName: telegraf-operator-classes
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: /release-name-telegraf-operator
+  labels:
+    helm.sh/chart: telegraf-operator-1.3.7
+    app.kubernetes.io/name: telegraf-operator
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.3.7
+    app.kubernetes.io/managed-by: Helm
+  name: release-name-telegraf-operator
+webhooks:
+  - clientConfig:
+      service:
+        name: release-name-telegraf-operator
+        namespace: default
+        path: /mutate-v1-pod
+      caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURLakNDQWhLZ0F3SUJBZ0lSQUpwVUZQZzVLSnkxY2ovRmpoa1VRTWd3RFFZSktvWklodmNOQVFFTEJRQXcKSHpFZE1Cc0dBMVVFQXhNVWRHVnNaV2R5WVdZdGIzQmxjbUYwYjNJdFkyRXdIaGNOTWpJd05qRXlNVFF5TnpNegpXaGNOTWpNd05qRXlNVFF5TnpNeldqQWZNUjB3R3dZRFZRUURFeFIwWld4bFozSmhaaTF2Y0dWeVlYUnZjaTFqCllUQ0NBU0l3RFFZSktvWklodmNOQVFFQkJRQURnZ0VQQURDQ0FRb0NnZ0VCQU5VSS90VlNRVS9FRllLVnovdXAKbjNVQjhuWWdhOVBjZmJ4S0U5ei9RcVF4RCtTUVBoOWpXWk1MNHNtTWRWNFVmWGlLdXk4OWNNc3NXbWVaOTBzOApIMTliVDBUVUZRQVQrY0lFWVB4SDc5a3ZUSnNqZzlPaThFUkVmNktZN1lRcmM1MU1BajFlOFFtQUh0bEptZ3FmCnp5eGk1amd2Nmh2R2EwNS9TM0xOcGpjRXcyWWJuaFJkcDhTVXZKRitBSUdaaFdUZktiTXBPV2FNUVhITlgvbUIKaGZReFVOUXZhVlBlVUpXc08zUFV6NlBkd0lwaEhlRnRDVCtOa2NNN3VzWnRyUGRCM2VVUkZFVjRvN3IvcXF1QwpFQ1ZBZ215YkVWUjFsZWhrNlJjck1aZzNhTFZmZ3ZEK2xINGxaN0lDUHJCUFVGaGZjVHkwNmJqRWFmdnFzbkJ2Ci9jc0NBd0VBQWFOaE1GOHdEZ1lEVlIwUEFRSC9CQVFEQWdLa01CMEdBMVVkSlFRV01CUUdDQ3NHQVFVRkJ3TUIKQmdnckJnRUZCUWNEQWpBUEJnTlZIUk1CQWY4RUJUQURBUUgvTUIwR0ExVWREZ1FXQkJSVjRGY3h3bEVDNVVjRQpxSlUrR3Y5RjZuR0FmekFOQmdrcWhraUc5dzBCQVFzRkFBT0NBUUVBS1dRMzNyeksvOTVwN2ZsYkNBSk5wZmM1ClM1NDRQL3dRQWgyNGxlRXR0eTlZaW84MFMxdlIyVkJvRWdmdU94Wm5qVktGd0dISEFiNDQ3MXZiSEltWmJ2cDkKQUhqc0c4d0hPcElBMGM4WVp2Sm5IN1pGa2hYbWVaeVdEVSsyYTdpR29tMFFZUEZDOFdnMzVCUlYzME1QNjI4YwpyaE9SQmdyUW9rajc1d2VPM21TMnd0c2ZvYjY1YnQ3STNjNitxbnJidWVwY1luaUpYUGdIa0Znd29KeDB4TjUrClFxQWx6RFAxQmd1SVN1ZWFGd3FKRkRaYWxybGNabHNXYzJGWnZ1RjBITVNZT0tOQUVIQkpSYXlTdzVmYlJtQ0QKMXBNdm5vTEhXRWdPYnEyRHFBYkxrLzdubzZUdWNaM3UyQlFiTEk1ODJHQVlWdzJmNENHUkJPQ0YyNmJzUlE9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+    failurePolicy: Ignore
+    sideEffects: None
+    admissionReviewVersions:
+      - v1
+    name: telegraf.influxdata.com
+    rules:
+      - apiGroups:
+          - '*'
+        apiVersions:
+          - '*'
+        operations:
+          - CREATE
+          - DELETE
+        resources:
+          - pods
+---
+apiVersion: v1
+kind: Secret
+type: kubernetes.io/tls
+metadata:
+  name: telegraf-operator-tls
+  labels:
+    helm.sh/chart: telegraf-operator-1.3.7
+    app.kubernetes.io/name: telegraf-operator
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v1.3.7
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+data:
+  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURsRENDQW55Z0F3SUJBZ0lSQU1SQ3pPc2d5dlVNdG5DSVoreE5WNWN3RFFZSktvWklodmNOQVFFTEJRQXcKSHpFZE1Cc0dBMVVFQXhNVWRHVnNaV2R5WVdZdGIzQmxjbUYwYjNJdFkyRXdIaGNOTWpJd05qRXlNVFF5TnpNegpXaGNOTWpNd05qRXlNVFF5TnpNeldqQXBNU2N3SlFZRFZRUURFeDV5Wld4bFlYTmxMVzVoYldVdGRHVnNaV2R5CllXWXRiM0JsY21GMGIzSXdnZ0VpTUEwR0NTcUdTSWIzRFFFQkFRVUFBNElCRHdBd2dnRUtBb0lCQVFDOUIzcTUKaVI4RnFQWFgyM2tLN1hLYklpRlhrRUhMdlM1YUtWWHR1TnIyZDVmYVVsVWxlSERPNHc3RFZjMU5ldit2SHNVagpqMC9zOGp1UCtudWQ5NzJ0bTlWUjh5ZW9FR0d2V3hEREEveXRsSnVNSEdsdUJONFY0akFTVktnNUFqTWdzSEE2CklOMzE0NVI5Tlo5cDN1czJqanhibUVoeVBERFFOK2dPemwvWTRIckc0OHczNGoraWd6YlMzd1pPSmR6ZlN1R3AKL3drWkpUOUx2dXJTRmNZTDROOXpzYms1UmFzYmlBOGZHd0lOeUFTUGp0WVQvU1d2SkJiM1JUcG96QmlnWGVDNApMQzdIdkFjdmVSUmZLR3hTNVdBcTFjaDlEc0h1MnFaTEVZdnE2czRSdjhGdkUwN2tud2dUWnJpYlplMHlGS0lwCm1KRHBRUWJIV2c4SnJmemZBZ01CQUFHamdjQXdnYjB3RGdZRFZSMFBBUUgvQkFRREFnV2dNQjBHQTFVZEpRUVcKTUJRR0NDc0dBUVVGQndNQkJnZ3JCZ0VGQlFjREFqQU1CZ05WSFJNQkFmOEVBakFBTUI4R0ExVWRJd1FZTUJhQQpGRlhnVnpIQ1VRTGxSd1NvbFQ0YS8wWHFjWUIvTUYwR0ExVWRFUVJXTUZTQ0puSmxiR1ZoYzJVdGJtRnRaUzEwClpXeGxaM0poWmkxdmNHVnlZWFJ2Y2k1a1pXWmhkV3gwZ2lweVpXeGxZWE5sTFc1aGJXVXRkR1ZzWldkeVlXWXQKYjNCbGNtRjBiM0l1WkdWbVlYVnNkQzV6ZG1Nd0RRWUpLb1pJaHZjTkFRRUxCUUFEZ2dFQkFCaTE0ZEJsOSt0egpGMzFMVE9rQW14OEpXbjQ3TTFKcXp6VVZMWUp0UEtJSCtWZGg5MlIwZ3JBaS9sSE51TkVkUWdFNitmRXJZRWRUClhNR0E3VVZUZk9vNkpZTHVwaWJ2dWY0U2xTTUF6L0VVcU15UkluV3g0WmI1elJXT2xkYnprYWhKNmZFQ1NVYlAKSVIrbUwxN0dLSWZsMitIalhlaVh0dE9Od3cyc3VaNlgzQWN4dVRsby9kWitVcnpaVUpBUFhtNjJBSDRiZ05MSApWMExtWVIyWVVuVnVISGREWGwxNTZTZmpGS1JiOFF6VG5Db3JuMHJsaDlUMWZuZFlrU0lkQ3B0Q01ObnA0YitCCkdLTWpLalo2eW1NSGVqVUJhMVpLblZQU1g1UFhZcWJUMXVxcE1VZmNHVGR4K2R5Z015dHdnVlFoTDZla1FhWGQKVXNpMEFVdlF4YzA9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
+  tls.key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFb3dJQkFBS0NBUUVBdlFkNnVZa2ZCYWoxMTl0NUN1MXlteUloVjVCQnk3MHVXaWxWN2JqYTluZVgybEpWCkpYaHd6dU1PdzFYTlRYci9yeDdGSTQ5UDdQSTdqL3A3bmZlOXJadlZVZk1ucUJCaHIxc1F3d1A4clpTYmpCeHAKYmdUZUZlSXdFbFNvT1FJeklMQndPaURkOWVPVWZUV2ZhZDdyTm80OFc1aEljand3MERmb0RzNWYyT0I2eHVQTQpOK0kvb29NMjB0OEdUaVhjMzByaHFmOEpHU1UvUzc3cTBoWEdDK0RmYzdHNU9VV3JHNGdQSHhzQ0RjZ0VqNDdXCkUvMGxyeVFXOTBVNmFNd1lvRjNndUN3dXg3d0hMM2tVWHloc1V1VmdLdFhJZlE3Qjd0cW1TeEdMNnVyT0ViL0IKYnhOTzVKOElFMmE0bTJYdE1oU2lLWmlRNlVFR3gxb1BDYTM4M3dJREFRQUJBb0lCQUN1cklxcmlCb3lrTDhjaQpLS0Job213OFFqK2NUOWJsYVdQaTBMc09UV2RLMFlYYUoxbDByWHJkOFhjbXh6cnpBMFpOY1hWNWtobEhESU9DCmRqUlVHem1VR24vSUVJMCsyNUpMRTJBNTk1R1NGeTBURXpnYlg4TG1jZnlLR2lLeFkyWlYzRmRSYUhWNWtjQXIKTnh5YUp2Ui9mMm9aa0FMejdNTHRaMnFrT25nN1hlYnVNeVBOaW03RXpvQXg4V1pqWFpkenV1S0o4UWtqOC9MYgpGaHB0QjBOWE5md3ZKVU5sRkVtTWJSaUZmTUtWSGpzY1pic0NrL3pYbmdvSG1TVXJnK2tnVncreWUwVld3YnBtCjJPZ1UvdG16T05OQ2xQU04wUVVMYUMvNUwyNUJYbHJsaWVyclhSdU1YRlppVElwSWpEc2VBYXN1VXorcXprMi8KK3U0eDVtRUNnWUVBMHVHS1AvZmhKTmJESUxwQ2Y0VDFFaFA4alNNaVpOL3kzUzNKMUR5d2NjdGtLVTJJZWE2cQpTQS9IcjF2UEQzKzQvTHQ1dHI4VlhVbXFzcUp0VzBFNC9HOWlsN3VscXJNVUxSaDF2ZW1FWWRJKzcwdmJuT3luCnF3cktKcXF2Y1hSejE2TFlnYmJqWFhPcnE3NDVNMTA2OHdDM2p2R2Fpb3dBWmdjQzNacURZMzBDZ1lFQTVYa1EKVk5LZ1dTYUhxQ3Z5bVhLYXRhVHZNZjZRQkkxQU91aWIvd1ZZMndzRGF6Z2lEZXYyWEtUTVhsT1dRZEtLcDRNQwp4MnBvZ29udnRJVG5nbW5ZbnZ6RFI2SVNJZ01yNUZuVHUrNUZLcWJDOExwQzMrVUpETEo3QU9OaS9pSUt6YVVECmNHakMrMmJxYjBxM3BuRWxoaUxhRFZCNTlaL24vZ0xhNzNQMFdJc0NnWUFRTzhaOXVDSS95THlLcDJ2NUR3NGkKanlGUTZCUjh1WFNqckNPdVQrR3hVTnZzQmdqc2ZSS2txM3BPdUgyUER1RDVxNkRwL1hteWpib3pPQ2U4NzU5bwpaMWFxb1lwV1FxVFo5OWtRZm9wdlVWVUE3TkVDR29HcHZCSGx1aHY1V3VLVUJmZ3V2QnB5bGpYdjZadlRwV2lsClRqZlRMQ3dlWURxam9BU0xkSnFLclFLQmdBVEQ4OXZmRitkaURuVW1uSDRsVENNempxZ2FJa0dGOFd5SHdoMlUKcmRpMnJOYUFMdXpkRnB1cjdIYVZBOHpRSTRNQkRJQzVxL3Z5QTJGYlZUZDNIVUdIL0VJemttN1VaQWYwK1ptdwpoQTB6czE2dWI0OFl3WXhhOUlUN00rWVZMT1pDWkFUa21CQUNmaUhiaWw3UmdMYjlhRXZZZlAvbDF6cUdNcWZBClg3V3JBb0dCQUt1MU55bjZER0MvNGx6WGsrSjU1dFp5cmw0b3dBdXFZeWdvMWdmNGFDQ2NLWXR0QkgzRTRCazAKUktLakVVYXN3aDJ2WUo5emdxcldlZ1dQcUdid2FadnVyUVduS1dzbUJQNVhlak01Qmw5VXlvRXBVZmVHeEFzbApsQzBzN3hDTGJ1UURva2pjblZuczc3REVUU1hFRnJ4OTQ2T0FBSVM0ZHhZUHJMWnM1UHJzCi0tLS0tRU5EIFJTQSBQUklWQVRFIEtFWS0tLS0tCg==

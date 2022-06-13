@@ -1,0 +1,202 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spgwu
+  labels:
+    release: release-name
+    app: spgwu
+data:
+  dp_config.cfg: |
+    if [ ! -d "/dev/hugepages" ]; then
+        MEMORY="--no-huge -m $((MEM_LIMIT-1024))"
+    fi
+    CORES="-c $(taskset -p $$ | awk '{print $NF}')"
+    EAL_ARGS="${CORES} ${MEMORY} "
+    S1U_DEVNAME=s1u-net
+    SGI_DEVNAME=sgi-net
+
+    S1U_IP=$(ip -4 addr show dev ${S1U_DEVNAME} | grep -oP '(?<=inet\s)\d+(\.\d+){3}')
+    SGI_IP=$(ip -4 addr show dev ${SGI_DEVNAME} | grep -oP '(?<=inet\s)\d+(\.\d+){3}')
+    S1U_MAC=$(ip addr show dev ${S1U_DEVNAME} | awk '$1=="link/ether"{print $2}')
+    SGI_MAC=$(ip addr show dev ${SGI_DEVNAME} | awk '$1=="link/ether"{print $2}')
+
+    S1U="--s1u_ip ${S1U_IP} --s1u_mac ${S1U_MAC} --ul_iface ${S1U_DEVNAME}"
+    SGI="--sgi_ip ${SGI_IP} --sgi_mac ${SGI_MAC} --dl_iface ${SGI_DEVNAME} --sgi_gw_ip 192.168.250.250 --sgi_mask 255.255.255.0"
+    MISC="--log 1"
+    SPGW_CFG="--spgw_cfg 03"
+
+    APP_ARGS="${S1U} ${SGI} ${MISC} ${SPGW_CFG}"
+  cdr.cfg: |
+    CDR_PATH=./cdr
+    MASTER_CDR=./cdr/master.csv
+  interface.cfg: |
+    [0]
+    zmq_protocol = tcp
+    dp_comm_ip = DP_ADDR
+    dp_comm_port = 20
+    cp_nb_ip = spgwc-headless
+    cp_nb_port = 21
+    cp_comm_ip = spgwc-headless
+    cp_comm_port = 21
+    zmq_dp_ip=127.0.0.1
+    zmq_cp_ip=127.0.0.1
+  run.sh: |
+    #!/bin/bash
+    #
+    # Copyright 2019-present Open Networking Foundation
+    # Copyright 2019 Intel Corporation
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    # http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+
+    set -ex
+
+    mkdir -p /opt/dp/config
+    cd /opt/dp/config
+    cp /etc/dp/config/{cdr.cfg,dp_config.cfg,interface.cfg} .
+
+    sed -i "s/DP_ADDR/$POD_IP/g" interface.cfg
+
+    source dp_config.cfg
+    ngic_dataplane $EAL_ARGS -- $APP_ARGS
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spgwu
+  labels:
+    release: release-name
+    app: spgwu
+spec:
+  selector:
+    release: release-name
+    app: spgwu
+  ports:
+    - name: dp-comm
+      port: 20
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spgwu-headless
+  labels:
+    release: release-name
+    app: spgwu
+spec:
+  clusterIP: None
+  selector:
+    release: release-name
+    app: spgwu
+  ports:
+    - name: dp-comm
+      port: 20
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: spgwu
+  serviceName: spgwu-headless
+  labels:
+    release: release-name
+    app: spgwu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      release: release-name
+      app: spgwu
+  template:
+    metadata:
+      labels:
+        release: release-name
+        app: spgwu
+      annotations:
+        k8s.v1.cni.cncf.io/networks: '[ { "name": "s1u-net", "interface": "s1u-net", "ips": "192.168.251.3/24" }, { "name": "sgi-net", "interface": "sgi-net", "ips": "192.168.250.3/24" } ]'
+    spec:
+      containers:
+        - name: spgwu
+          image: docker.io/omecproject/ngic-dp:central-cp-multi-upfs-latest-debug
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            capabilities:
+              drop:
+                "": NET_RAW
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          stdin: true
+          tty: true
+          env:
+            - name: MEM_LIMIT
+              valueFrom:
+                resourceFieldRef:
+                  containerName: spgwu
+                  resource: limits.memory
+                  divisor: 1Mi
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: DP_NAME
+              value: onf-menlo
+          command:
+            - bash
+            - -xc
+          args:
+            - ip a; /opt/dp/scripts/run.sh;
+          volumeMounts:
+            - name: dp-script
+              mountPath: /opt/dp/scripts/run.sh
+              subPath: run.sh
+            - name: dp-config
+              mountPath: /etc/dp/config
+          resources:
+            requests:
+              cpu: 4
+              memory: 8Gi
+              intel.com/sriov_vfio_s1u_net: 1
+              intel.com/sriov_vfio_sgi_net: 1
+            limits:
+              cpu: 4
+              memory: 8Gi
+              intel.com/sriov_vfio_s1u_net: 1
+              intel.com/sriov_vfio_sgi_net: 1
+      volumes:
+        - name: dp-script
+          configMap:
+            name: spgwu
+            defaultMode: 493
+        - name: dp-config
+          configMap:
+            name: spgwu
+            defaultMode: 420
+---
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: s1u-net
+  annotations:
+    k8s.v1.cni.cncf.io/resourceName: intel.com/sriov_vfio_s1u_net
+spec:
+  config: '{ "type": "vfioveth", "ipam": { "type": "static" } }'
+---
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: sgi-net
+  annotations:
+    k8s.v1.cni.cncf.io/resourceName: intel.com/sriov_vfio_sgi_net
+spec:
+  config: '{ "type": "vfioveth", "ipam": { "type": "static" } }'

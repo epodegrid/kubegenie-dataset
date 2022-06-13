@@ -1,0 +1,241 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-confluence
+  labels:
+    helm.sh/chart: confluence-1.4.1
+    app.kubernetes.io/name: confluence
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 7.13.7
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-confluence-jvm-config
+  labels:
+    helm.sh/chart: confluence-1.4.1
+    app.kubernetes.io/name: confluence
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 7.13.7
+    app.kubernetes.io/managed-by: Helm
+data:
+  additional_jvm_args: -Dconfluence.cluster.hazelcast.listenPort=5701 -Dsynchrony.btf.disabled=true -Dsynchrony.by.default.enable.collab.editing.if.manually.managed=true -Dconfluence.clusterNodeName.useHostname=true -Datlassian.logging.cloud.enabled=false -XX:ActiveProcessorCount=2
+  max_heap: 1g
+  min_heap: 1g
+  reserved_code_cache: 256m
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-confluence
+  labels:
+    helm.sh/chart: confluence-1.4.1
+    app.kubernetes.io/name: confluence
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 7.13.7
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: 5701
+      targetPort: hazelcast
+      protocol: TCP
+      name: hazelcast
+  selector:
+    app.kubernetes.io/name: confluence
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-confluence
+  labels:
+    helm.sh/chart: confluence-1.4.1
+    app.kubernetes.io/name: confluence
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 7.13.7
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  serviceName: release-name-confluence
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: confluence
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config-jvm: 873a6b6675a7c36f5c0968e4f02c30c3f6ac00161b59f674a95dea18bbcdb233
+      labels:
+        app.kubernetes.io/name: confluence
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-confluence
+      terminationGracePeriodSeconds: 25
+      securityContext:
+        fsGroup: 2002
+      hostAliases: null
+      initContainers:
+        - name: nfs-permission-fixer
+          image: alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: shared-home
+              mountPath: /shared-home
+          command:
+            - sh
+            - -c
+            - (chgrp 2002 /shared-home; chmod g+w /shared-home)
+      containers:
+        - name: confluence
+          image: atlassian/confluence:7.13.7
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8090
+              protocol: TCP
+            - name: hazelcast
+              containerPort: 5701
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              port: 8090
+              path: /status
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: "2"
+              memory: 2G
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: local-home
+              mountPath: /var/atlassian/application-data/confluence
+            - name: local-home
+              mountPath: /opt/atlassian/confluence/logs
+              subPath: logs
+            - name: shared-home
+              mountPath: /var/atlassian/application-data/shared-home
+          env:
+            - name: ATL_TOMCAT_SCHEME
+              value: https
+            - name: ATL_TOMCAT_SECURE
+              value: "true"
+            - name: ATL_TOMCAT_ACCESS_LOG
+              value: "true"
+            - name: UMASK
+              value: "0022"
+            - name: SET_PERMISSIONS
+              value: "true"
+            - name: ATL_PRODUCT_HOME_SHARED
+              value: /var/atlassian/application-data/shared-home
+            - name: JVM_SUPPORT_RECOMMENDED_ARGS
+              valueFrom:
+                configMapKeyRef:
+                  key: additional_jvm_args
+                  name: release-name-confluence-jvm-config
+            - name: JVM_MINIMUM_MEMORY
+              valueFrom:
+                configMapKeyRef:
+                  key: min_heap
+                  name: release-name-confluence-jvm-config
+            - name: JVM_MAXIMUM_MEMORY
+              valueFrom:
+                configMapKeyRef:
+                  key: max_heap
+                  name: release-name-confluence-jvm-config
+            - name: JVM_RESERVED_CODE_CACHE_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  key: reserved_code_cache
+                  name: release-name-confluence-jvm-config
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - sh
+                  - -c
+                  - /shutdown-wait.sh
+      volumes:
+        - name: local-home
+          emptyDir: {}
+        - name: shared-home
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-confluence-application-status-test
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+  labels:
+    helm.sh/chart: confluence-1.4.1
+    app.kubernetes.io/name: confluence
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 7.13.7
+    app.kubernetes.io/managed-by: Helm
+spec:
+  containers:
+    - name: test
+      image: alpine
+      env:
+        - name: STATUS_URL
+          value: http://release-name-confluence:80/status
+      command:
+        - /bin/sh
+        - -ec
+        - |
+          apk add -q jq curl
+          STATUS=$(curl -s "$STATUS_URL")
+          echo "Verifying application state is RUNNING or FIRST_RUN: $STATUS"
+          echo $STATUS | jq -e '.state|test("RUNNING|FIRST_RUN")'
+  restartPolicy: Never
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-confluence-shared-home-permissions-test
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+  labels:
+    helm.sh/chart: confluence-1.4.1
+    app.kubernetes.io/name: confluence
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 7.13.7
+    app.kubernetes.io/managed-by: Helm
+spec:
+  containers:
+    - name: test
+      image: debian:stable-slim
+      imagePullPolicy: IfNotPresent
+      securityContext:
+        runAsUser: 2002
+        runAsGroup: 2002
+      volumeMounts:
+        - name: shared-home
+          mountPath: /shared-home
+      command:
+        - /bin/sh
+        - -ec
+        - |
+          ls -ld /shared-home
+          echo "Creating temporary file in shared home as user $(id -u):$(id -g)"
+          touch /shared-home/permissions-test
+          ls -l /shared-home/permissions-test
+          rm /shared-home/permissions-test
+  volumes:
+    - name: shared-home
+      emptyDir: {}
+  restartPolicy: Never

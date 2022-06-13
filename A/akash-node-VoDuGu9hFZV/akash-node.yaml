@@ -1,0 +1,174 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: akash-node
+  namespace: VoDuGu9hFZV
+  labels:
+    helm.sh/chart: akash-node-0.133.0
+    app.kubernetes.io/name: akash-node
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.16.4-rc2
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: akash-node-config
+  namespace: VoDuGu9hFZV
+  labels:
+    helm.sh/chart: akash-node-0.133.0
+    app.kubernetes.io/name: akash-node
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.16.4-rc2
+    app.kubernetes.io/managed-by: Helm
+data:
+  node.sh: |
+    #!/bin/bash
+    set -x
+
+    if [ ! -d "$AKASH_HOME/data" ]
+    then
+      /bin/akash init --chain-id "$AKASH_CHAIN_ID" "$AKASH_MONIKER"
+    fi
+
+    apt update && apt -y --no-install-recommends install ca-certificates curl jq > /dev/null 2>&1
+    curl -s "$AKASH_NET/genesis.json" > "$AKASH_HOME/config/genesis.json"
+
+    mkdir -p $AKASH_HOME/data
+    cd $AKASH_HOME/data
+
+    if [ "$AKASH_STATESYNC_ENABLE" == true ]; then
+      echo "state-sync is enabled, figure the right trust height & derive its hash"
+
+      SNAP_RPC1="https://akash-rpc.polkachu.com:443"
+      SNAP_RPC2="https://akash-rpc.polkachu.com:443"
+
+      LATEST_HEIGHT=$(curl -s $SNAP_RPC1/block | jq -r .result.block.header.height)
+      HEIGHT_OFFSET=2000
+      BLOCK_HEIGHT=$((LATEST_HEIGHT - HEIGHT_OFFSET))
+      TRUST_HASH=$(curl -s "$SNAP_RPC1/block?height=$BLOCK_HEIGHT" | jq -r .result.block_id.hash)
+
+      echo "TRUST HEIGHT: $BLOCK_HEIGHT"
+      echo "TRUST HASH: $TRUST_HASH"
+
+      export AKASH_STATESYNC_TRUST_HEIGHT=$BLOCK_HEIGHT
+      export AKASH_STATESYNC_TRUST_HASH=$TRUST_HASH
+
+    else
+
+      apt -y --no-install-recommends install aria2  > /dev/null 2>&1
+      SNAPSHOT_URL=$(curl https://cosmos-snapshots.s3.filebase.com/akash/pruned/snapshot.json | jq -r .latest)
+      echo "Using latest blockchain snapshot, $SNAPSHOT_URL"
+      aria2c --out=snapshot.tar.gz --summary-interval 15 --check-certificate=false --max-tries=99 --retry-wait=5 --always-resume=true --max-file-not-found=99 --conditional-get=true -s 16 -x 16 -k 1M -j 1 $SNAPSHOT_URL
+      tar -zxvf snapshot.tar.gz
+      rm -f snapshot.tar.gz
+    fi
+
+    /bin/akash start
+    if $AKASH_DEBUG == "true"; then sleep 5000; fi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: akash-node-1
+  namespace: VoDuGu9hFZV
+spec:
+  type: ClusterIP
+  ports:
+    - port: 1317
+      name: akashd-api
+    - port: 9090
+      name: akashd-grpc
+    - port: 26656
+      name: akashd-p2p
+    - port: 26657
+      name: akashd-rpc
+  selector:
+    akash.network/node: "1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: akash-node-1
+  namespace: VoDuGu9hFZV
+  labels:
+    app: akash-node
+    akash.network/node: "1"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: akash-node
+      akash.network/node: "1"
+  template:
+    metadata:
+      labels:
+        app: akash-node
+        akash.network/node: "1"
+    spec:
+      serviceAccountName: akash-node
+      securityContext: {}
+      containers:
+        - name: akash-node
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: ghcr.io/ovrclk/akash:0.16.4-rc2
+          command:
+            - /bin/bash
+            - /config/node.sh
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AKASH_MONIKER
+              value: mynode-1
+            - name: AKASH_NET
+              value: https://raw.githubusercontent.com/ovrclk/net/master/mainnet
+            - name: AKASH_HOME
+              value: /root/.akash
+            - name: AKASH_CHAIN_ID
+              value: akashnet-2
+            - name: AKASH_KEYRING_BACKEND
+              value: test
+            - name: AKASH_P2P_PERSISTENT_PEERS
+              value: 111c2e50ced021f70fbba5d72ff0f53d40fc3192@216.128.134.150:26656,15d1d26388ff693813a7c3c3ddc2b2e7382eb72e@202.61.197.65:26656,1c03b13f5f24f59ecc3cfe5d5fc36dabee3a5d78@144.202.77.146:26656,2cd51b5dbbac8cfed8c7261d8baab0d0bacb3b98@216.128.135.14:26656
+            - name: AKASH_P2P_LADDR
+              value: tcp://0.0.0.0:26656
+            - name: AKASH_RPC_LADDR
+              value: tcp://0.0.0.0:26657
+            - name: AKASH_RPC_PPROF_LADDR
+              value: 0.0.0.0:6060
+            - name: AKASH_GRPC_ADDRESS
+              value: 0.0.0.0:9090
+            - name: AKASH_P2P_ADDR_BOOK_STRICT
+              value: "false"
+            - name: AKASH_ROSETTA_ENABLE
+              value: "false"
+            - name: AKASH_P2P_SEED_MODE
+              value: "true"
+            - name: AKASH_DEBUG
+              value: "false"
+            - name: AKASH_MINIMUM_GAS_PRICES
+              value: 0.025uakt
+          ports:
+            - containerPort: 1317
+              name: akashd-api
+            - containerPort: 9090
+              name: akashd-grpc
+            - containerPort: 26656
+              name: akashd-p2p
+            - containerPort: 26657
+              name: akashd-rpc
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: config
+          configMap:
+            name: akash-node-config

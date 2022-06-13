@@ -1,0 +1,117 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-hetzner-dyndns
+type: Opaque
+data:
+  apiToken: ""
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-hetzner-dyndns-terraform-files
+data:
+  base.tf: |
+    terraform {
+      required_providers {
+        hetznerdns = {
+          source = "timohirt/hetznerdns"
+          version = "2.1.0"
+        }
+        http = {
+          source = "hashicorp/http"
+          version = "2.1.0"
+        }
+      }
+      required_version = ">= 0.13"
+    }
+
+    variable "hetznerdns_token" {}
+
+    provider "hetznerdns" {
+      apitoken = var.hetznerdns_token
+    }
+
+    provider "http" {}
+
+    data "http" "ifconfig_ip" {
+      url = "https://ifconfig.me/ip"
+    }
+  example_com.tf: |
+    data "hetznerdns_zone" "example_com" {
+        name = "example.com"
+    }
+    resource "hetznerdns_record" "example_com_at_root" {
+        zone_id = data.hetznerdns_zone.example_com.id
+        name    = "@"
+        value   = data.http.ifconfig_ip.body
+        type    = "A"
+    }
+    resource "hetznerdns_record" "example_com_www" {
+        zone_id = data.hetznerdns_zone.example_com.id
+        name    = "www"
+        value   = data.http.ifconfig_ip.body
+        type    = "A"
+    }
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-hetzner-dyndns
+  annotations: null
+spec:
+  storageClassName: local-path
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: release-name-hetzner-dyndns
+spec:
+  schedule: '*/15  * * * *'
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hetzner-dyndns
+        app.kubernetes.io/instance: release-name
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          containers:
+            - name: terraform-plan
+              image: zenika/terraform-azure-cli:release-6.1_terraform-1.0.6_azcli-2.28.1
+              imagePullPolicy: IfNotPresent
+              workingDir: /terraform-dir
+              command:
+                - bash
+              args:
+                - -c
+                - |
+                  cd /terraform-dir && rm -rf *.tf && cp /terraform-templates/*.tf . && /terraform init && /terraform apply -auto-approve
+              volumeMounts:
+                - mountPath: /terraform-dir
+                  name: release-name-hetzner-dyndns-volume
+                - mountPath: /terraform-templates
+                  name: release-name-hetzner-dyndns-terraform-files
+              env:
+                - name: TF_VAR_hetznerdns_token
+                  valueFrom:
+                    secretKeyRef:
+                      name: release-name-hetzner-dyndns
+                      key: apiToken
+                      optional: false
+          volumes:
+            - name: release-name-hetzner-dyndns-volume
+              persistentVolumeClaim:
+                claimName: release-name-hetzner-dyndns
+            - configMap:
+                name: release-name-hetzner-dyndns-terraform-files
+              name: release-name-hetzner-dyndns-terraform-files
+          restartPolicy: Never

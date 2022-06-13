@@ -1,0 +1,303 @@
+[
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-freeradius-config",
+      "labels": {
+        "helm.sh/chart": "freeradius-6.0.3",
+        "app.kubernetes.io/name": "freeradius",
+        "app.kubernetes.io/instance": "release-name",
+        "helm-revision": "1",
+        "app.kubernetes.io/version": "3.0.25",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "999Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-freeradius-accounting",
+      "labels": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "freeradius",
+        "app.kubernetes.io/version": "3.0.25",
+        "helm-revision": "1",
+        "helm.sh/chart": "freeradius-6.0.3"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 1813,
+          "targetPort": 1813,
+          "protocol": "UDP",
+          "name": "accounting"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "freeradius",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-freeradius",
+      "labels": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "freeradius",
+        "app.kubernetes.io/version": "3.0.25",
+        "helm-revision": "1",
+        "helm.sh/chart": "freeradius-6.0.3"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ipFamilyPolicy": "SingleStack",
+      "ports": [
+        {
+          "port": 1812,
+          "targetPort": 1812,
+          "protocol": "UDP",
+          "name": "main"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "freeradius",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-freeradius",
+      "labels": {
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "freeradius",
+        "app.kubernetes.io/version": "3.0.25",
+        "helm-revision": "1",
+        "helm.sh/chart": "freeradius-6.0.3"
+      }
+    },
+    "spec": {
+      "revisionHistoryLimit": 3,
+      "replicas": 1,
+      "strategy": {
+        "type": "Recreate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "freeradius",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": null,
+          "labels": {
+            "app.kubernetes.io/name": "freeradius",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "securityContext": {
+            "fsGroup": 568,
+            "fsGroupChangePolicy": "OnRootMismatch",
+            "runAsGroup": 0,
+            "runAsUser": 0,
+            "supplementalGroups": [
+              568
+            ]
+          },
+          "dnsPolicy": "ClusterFirst",
+          "dnsConfig": {
+            "options": [
+              {
+                "name": "ndots",
+                "value": "1"
+              }
+            ]
+          },
+          "enableServiceLinks": false,
+          "terminationGracePeriodSeconds": 10,
+          "initContainers": [
+            {
+              "name": "autopermissions",
+              "image": "ghcr.io/truecharts/alpine:v3.15.2@sha256:29ed3480a0ee43f7af681fed5d4fc215516abf1c41eade6938b26d8c9c2c7583",
+              "securityContext": {
+                "runAsUser": 10516,
+                "privileged": true,
+                "allowPrivilegeEscalation": false
+              },
+              "resources": {
+                "limits": {
+                  "cpu": "4000m",
+                  "memory": "8Gi"
+                },
+                "requests": {
+                  "cpu": "10m",
+                  "memory": "50Mi"
+                }
+              },
+              "command": [
+                "/bin/sh",
+                "-c",
+                "/bin/bash <<'EOF'\necho \"Automatically correcting permissions...\"\necho \"increasing inotify limits...\"\n( sysctl -w fs.inotify.max_user_watches=524288 || echo \"error setting inotify\") && ( sysctl -w fs.inotify.max_user_instances=512 || echo \"error setting inotify\")\nEOF\n"
+              ],
+              "volumeMounts": null
+            }
+          ],
+          "containers": [
+            {
+              "name": "release-name-freeradius",
+              "image": "tccr.io/truecharts/freeradius:v3.0.25@sha256:071d2533ecfe74993de840359c939cf6fd25d4ea34322bf6211055e0e5e9d96f",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "privileged": false,
+                "readOnlyRootFilesystem": true,
+                "runAsNonRoot": false,
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "env": [
+                {
+                  "name": "PUID",
+                  "value": "568"
+                },
+                {
+                  "name": "USER_ID",
+                  "value": "568"
+                },
+                {
+                  "name": "UID",
+                  "value": "568"
+                },
+                {
+                  "name": "UMASK",
+                  "value": "2"
+                },
+                {
+                  "name": "UMASK_SET",
+                  "value": "2"
+                },
+                {
+                  "name": "PGID",
+                  "value": "568"
+                },
+                {
+                  "name": "GROUP_ID",
+                  "value": "568"
+                },
+                {
+                  "name": "GID",
+                  "value": "568"
+                },
+                {
+                  "name": "NVIDIA_VISIBLE_DEVICES",
+                  "value": "void"
+                },
+                {
+                  "name": "TZ",
+                  "value": "UTC"
+                }
+              ],
+              "envFrom": null,
+              "ports": [
+                {
+                  "name": "accounting",
+                  "containerPort": 1813,
+                  "protocol": "UDP"
+                },
+                {
+                  "name": "main",
+                  "containerPort": 1812,
+                  "protocol": "UDP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/etc/raddb",
+                  "name": "config"
+                },
+                {
+                  "mountPath": "/shared",
+                  "name": "shared"
+                },
+                {
+                  "mountPath": "/tmp",
+                  "name": "temp"
+                },
+                {
+                  "mountPath": "/var/logs",
+                  "name": "varlogs"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": "4000m",
+                  "memory": "8Gi"
+                },
+                "requests": {
+                  "cpu": "10m",
+                  "memory": "50Mi"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-freeradius-config"
+              }
+            },
+            {
+              "name": "shared",
+              "emptyDir": {}
+            },
+            {
+              "name": "temp",
+              "emptyDir": {
+                "medium": "Memory"
+              }
+            },
+            {
+              "name": "varlogs",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  }
+]

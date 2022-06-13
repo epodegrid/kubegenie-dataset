@@ -1,0 +1,224 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "name": "release-name-mongodb-backup",
+      "labels": {
+        "helm.sh/chart": "mongodb-0.3.0",
+        "app.kubernetes.io/name": "mongodb",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.16.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "storageClassName": "standard",
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "8Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-mongodb",
+      "labels": {
+        "helm.sh/chart": "mongodb-0.3.0",
+        "app.kubernetes.io/name": "mongodb",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.16.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "app.kubernetes.io/name": "mongodb",
+        "app.kubernetes.io/instance": "release-name"
+      },
+      "ports": [
+        {
+          "port": 27017,
+          "name": "mongo"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-mongodb",
+      "labels": {
+        "helm.sh/chart": "mongodb-0.3.0",
+        "app.kubernetes.io/name": "mongodb",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.16.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "mongodb",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "serviceName": "release-name-mongodb",
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "mongodb",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "mongo",
+              "image": "mongo:4.4.13",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "mongod"
+              ],
+              "args": [
+                "--bind_ip=0.0.0.0",
+                "--dbpath=/data/db"
+              ],
+              "ports": [
+                {
+                  "containerPort": 27017,
+                  "name": "mongo"
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "mongo",
+                    "--eval",
+                    "db.adminCommand('ping')"
+                  ]
+                },
+                "initialDelaySeconds": 10,
+                "periodSeconds": 10
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "mongo",
+                    "--eval",
+                    "db.adminCommand('ping')"
+                  ]
+                },
+                "initialDelaySeconds": 10,
+                "periodSeconds": 10
+              },
+              "volumeMounts": [
+                {
+                  "name": "storage",
+                  "mountPath": "/data/db"
+                },
+                {
+                  "name": "backup",
+                  "mountPath": "/backup"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "backup",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-mongodb-backup"
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "storage"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "storageClassName": "standard",
+            "resources": {
+              "requests": {
+                "storage": "8Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "release-name-mongodb-backup",
+      "labels": {
+        "helm.sh/chart": "mongodb-0.3.0",
+        "app.kubernetes.io/name": "mongodb",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.16.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "schedule": "0 3 * * *",
+      "concurrencyPolicy": "Forbid",
+      "jobTemplate": {
+        "spec": {
+          "backoffLimit": 5,
+          "parallelism": 1,
+          "completions": 1,
+          "template": {
+            "spec": {
+              "restartPolicy": "OnFailure",
+              "containers": [
+                {
+                  "name": "release-name-mongodb-backup",
+                  "image": "mongo:4.4.13",
+                  "imagePullPolicy": "IfNotPresent",
+                  "command": [
+                    "mongodump"
+                  ],
+                  "args": [
+                    "--uri",
+                    "mongodb://release-name-mongodb:27017",
+                    "--out",
+                    "/backup"
+                  ],
+                  "volumeMounts": [
+                    {
+                      "name": "backup",
+                      "mountPath": "/backup"
+                    }
+                  ]
+                }
+              ],
+              "volumes": [
+                {
+                  "name": "backup",
+                  "persistentVolumeClaim": {
+                    "claimName": "release-name-mongodb-backup"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+]

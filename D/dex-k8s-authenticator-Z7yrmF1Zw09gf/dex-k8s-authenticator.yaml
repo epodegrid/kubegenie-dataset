@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-dex-k8s-authenticator
+  labels:
+    app: release-name-dex-k8s-authenticator
+    env: dev
+    chart: dex-k8s-authenticator-1.2.0
+    release: release-name
+    heritage: Helm
+data:
+  config.yaml: |-
+    listen: http://0.0.0.0:5555
+    web_path_prefix: /
+    debug: false
+    clusters:
+    - client_id: my-cluster
+      client_secret: pUBnBOY80SnXgjibTYM9ZWNzY2xreNGQok
+      description: Example Cluster Long Description...
+      issuer: https://dex.example.com
+      k8s_ca_uri: https://url-to-your-ca.crt
+      k8s_master_uri: https://my-cluster.example.com
+      name: my-cluster
+      redirect_uri: https://login.example.com/callback/my-cluster
+      short_description: My Cluster
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-dex-k8s-authenticator
+  labels:
+    app: dex-k8s-authenticator
+    env: dev
+    chart: dex-k8s-authenticator-1.2.0
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5555
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: dex-k8s-authenticator
+    release: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-dex-k8s-authenticator
+  labels:
+    app: dex-k8s-authenticator
+    env: dev
+    chart: dex-k8s-authenticator-1.2.0
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dex-k8s-authenticator
+      env: dev
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: dex-k8s-authenticator
+        env: dev
+        release: release-name
+      annotations:
+        checksum/config: e30c9deae9e043811b255d71652cdfbd7b153f6536db411c334b91be99528680
+    spec:
+      containers:
+        - name: dex-k8s-authenticator
+          image: mintel/dex-k8s-authenticator:1.2.0
+          imagePullPolicy: Always
+          args:
+            - --config
+            - config.yaml
+          ports:
+            - name: http
+              containerPort: 5555
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          volumeMounts:
+            - name: config
+              subPath: config.yaml
+              mountPath: /app/config.yaml
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-dex-k8s-authenticator

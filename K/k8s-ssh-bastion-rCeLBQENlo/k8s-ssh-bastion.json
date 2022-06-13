@@ -1,0 +1,193 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name"
+    },
+    "data": {}
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-etc-ssh-origin"
+    },
+    "data": {
+      "banner": "Welcome to k8s-ssh-bastion\nimage: 0.3.0\nchart: 0.3.5\n",
+      "sshd_config": "Include /etc/ssh/sshd_config.d/*.conf\n\nPort 1022\n\n#LoginGraceTime 2m\n#PermitRootLogin prohibit-password\n#StrictModes yes\n#MaxAuthTries 6\n#MaxSessions 10\n\nPubkeyAuthentication yes\nAuthorizedKeysFile     .ssh/authorized_keys\n\nPasswordAuthentication no\nPermitEmptyPasswords no\n\n# Change to yes to enable challenge-response passwords (beware issues with\n# some PAM modules and threads)\nKbdInteractiveAuthentication no\n\n# Set this to 'yes' to enable PAM authentication, account processing,\n# and session processing. If this is enabled, PAM authentication will\n# be allowed through the KbdInteractiveAuthentication and\n# PasswordAuthentication.  Depending on your PAM configuration,\n# PAM authentication via KbdInteractiveAuthentication may bypass\n# the setting of \"PermitRootLogin without-password\".\n# If you just want the PAM account and session checks to run without\n# PAM authentication, then enable this but set PasswordAuthentication\n# and KbdInteractiveAuthentication to 'no'.\nUsePAM yes\n\nAllowAgentForwarding yes\nAllowTcpForwarding yes\nGatewayPorts no\nX11Forwarding no\n#PermitTTY yes\nPrintMotd no\n#PrintLastLog yes\nTCPKeepAlive yes\n#PermitUserEnvironment no\n#Compression delayed\n#ClientAliveInterval 0\n#ClientAliveCountMax 3\n#UseDNS no\nPidFile /run/sshd.pid\n#MaxStartups 10:30:100\n#PermitTunnel no\n#ChrootDirectory none\n#VersionAddendum none\n\nBanner /etc/ssh/banner\n\n# Allow client to pass locale environment variables\nAcceptEnv LANG LC_*\n\n# override default of no subsystems\nSubsystem       sftp    /usr/lib/openssh/sftp-server\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "name": "release-name-etc-ssh"
+    },
+    "spec": {
+      "storageClassName": "efs",
+      "accessModes": [
+        "ReadWriteMany"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "1Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name",
+      "annotations": {},
+      "labels": {
+        "app": "release-name",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    },
+    "spec": {
+      "type": "NodePort",
+      "externalTrafficPolicy": "Local",
+      "ports": [
+        {
+          "port": 22,
+          "targetPort": "ssh",
+          "protocol": "TCP",
+          "nodePort": 30022,
+          "name": "ssh"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name"
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/users": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+          },
+          "labels": {
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "bastion",
+              "image": "ghcr.io/nefelim4ag/k8s-ssh-bastion:0.3.0",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/bin/bash",
+                "-ec",
+                "for file in /etc/ssh_origin/*; do\n  NAME=$(basename $file)\n  install -Dm0600 /etc/ssh_origin/$NAME /etc/ssh/$NAME\ndone\n\ncd /etc/ssh\nfor key_type in dsa rsa ecdsa ed25519; do\n  lengh=4096\n  [ $key_type == \"dsa\" ] && lengh=1024\n  [ $key_type == \"ecdsa\" ] && lengh=256\n  test -f ssh_host_${key_type}_key || \\\n    ssh-keygen -q -N \"\" -t ${key_type} -b $lengh -f ./ssh_host_${key_type}_key\ndone\n\nUSER_UID=1000\nfor i in /etc/users/*; do\n  useradd -rm -d /home/${i##*/} -s /bin/bash -g root -u $((USER_UID++)) ${i##*/}\n  mkdir -p /home/${i##*/}/.ssh\n  install -Dm0600 $i /home/${i##*/}/.ssh/authorized_keys\n  chmod 700 /home/${i##*/}/.ssh\n  chown -R ${i##*/}:nogroup /home/${i##*/}\ndone\n\nmkdir -p /run/sshd\n\n/usr/sbin/sshd -D -e -E /proc/1/fd/1\n"
+              ],
+              "lifecycle": {
+                "preStop": {
+                  "exec": {
+                    "command": [
+                      "sh",
+                      "-c",
+                      "sleep 15; kill 1"
+                    ]
+                  }
+                }
+              },
+              "ports": [
+                {
+                  "name": "ssh",
+                  "containerPort": 1022,
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config-volume",
+                  "mountPath": "/etc/users"
+                },
+                {
+                  "name": "sshd-configs-persistent",
+                  "mountPath": "/etc/ssh"
+                },
+                {
+                  "name": "sshd-configs-origin",
+                  "mountPath": "/etc/ssh_origin"
+                }
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "10m",
+                  "memory": "32Mi"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "hostNetwork": false,
+          "terminationGracePeriodSeconds": 30,
+          "affinity": {},
+          "imagePullSecrets": [],
+          "topologySpreadConstraints": [
+            {
+              "labelSelector": {
+                "matchLabels": {
+                  "app.kubernetes.io/instance": "release-name"
+                }
+              },
+              "maxSkew": 1,
+              "topologyKey": "topology.kubernetes.io/zone",
+              "whenUnsatisfiable": "ScheduleAnyway"
+            },
+            {
+              "labelSelector": {
+                "matchLabels": {
+                  "app.kubernetes.io/instance": "release-name"
+                }
+              },
+              "maxSkew": 1,
+              "topologyKey": "kubernetes.io/hostname",
+              "whenUnsatisfiable": "ScheduleAnyway"
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "release-name"
+              }
+            },
+            {
+              "name": "sshd-configs-persistent",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-etc-ssh"
+              }
+            },
+            {
+              "name": "sshd-configs-origin",
+              "configMap": {
+                "name": "release-name-etc-ssh-origin"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

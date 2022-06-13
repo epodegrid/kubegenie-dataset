@@ -1,0 +1,141 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolume",
+    "metadata": {
+      "name": "jenkins-pv",
+      "labels": {
+        "type": "local"
+      }
+    },
+    "spec": {
+      "storageClassName": "manual",
+      "capacity": {
+        "storage": "5Gi"
+      },
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "hostPath": {
+        "path": "/home/kube/myjen-volume"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "name": "jenkins-pv-claim",
+      "namespace": "default"
+    },
+    "spec": {
+      "storageClassName": "manual",
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "5Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "jenkins"
+    },
+    "spec": {
+      "type": "NodePort",
+      "ports": [
+        {
+          "port": 8080,
+          "targetPort": 8080,
+          "nodePort": 30000
+        }
+      ],
+      "selector": {
+        "app": "jenkins"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "jenkins-jnlp"
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 50000,
+          "targetPort": 50000
+        }
+      ],
+      "selector": {
+        "app": "jenkins"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "jenkins"
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "jenkins"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "jenkins"
+          }
+        },
+        "spec": {
+          "nodeName": "kubemaster.example.com",
+          "securityContext": {
+            "fsGroup": 1000,
+            "runAsUser": 0
+          },
+          "volumes": [
+            {
+              "name": "mypd",
+              "persistentVolumeClaim": {
+                "claimName": "jenkins-pv-claim"
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "jenkins",
+              "image": "jenkins/jenkins:lts",
+              "ports": [
+                {
+                  "name": "http-port",
+                  "containerPort": 8080
+                },
+                {
+                  "name": "jnlp-port",
+                  "containerPort": 50000
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "mypd",
+                  "mountPath": "/var/jenkins_home"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+]

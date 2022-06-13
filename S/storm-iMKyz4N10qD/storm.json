@@ -1,0 +1,957 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-storm-config",
+      "labels": {
+        "chart": "storm-1.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "storm.yaml": "storm.zookeeper.servers:\n  - \"release-name-zookeeper\"\nstorm.zookeeper.port: 2181\nnimbus.seeds:\n- release-name-storm-nimbus-0.release-name-storm-nimbus\nnimbus.thrift.port: 6627\nstorm.log4j2.conf.dir: /log4j2\nstorm.local.dir: /data\nstorm.log.dir: /logs\nnimbus.childopts: -Xmx1024m -ea\nsupervisor.childopts: -Xmx256m -ea\nui.childopts: -Xmx768m -ea\nworker.childopts: -Xmx%HEAP-MEM%m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=artifacts/heapdump\nworker.heap.memory.mb: 768\nstorm.metricstore.rocksdb.location: /storm_rocks\nsupervisor.slots.ports:\n  - 6700\n  - 6701\n  - 6702\n  - 6703\nui.header.buffer.bytes: 8192\nsupervisor.memory.capacity.mb: 1024\n#By convention 1 cpu core should be about 100, but this can be adjusted if needed\n# using 100 makes it simple to set the desired value to the capacity measurement\n# for single threaded bolts\nsupervisor.cpu.capacity: 200\ntopology.fall.back.on.java.serialization: true\ntopology.disable.loadaware.messaging: true"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-storm-logging",
+      "labels": {
+        "chart": "storm-1.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "namespace": "iMKyz4N10qD"
+    },
+    "data": {
+      "cluster.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!--\n Licensed to the Apache Software Foundation (ASF) under one or more\n contributor license agreements.  See the NOTICE file distributed with\n this work for additional information regarding copyright ownership.\n The ASF licenses this file to You under the Apache License, Version 2.0\n (the \"License\"); you may not use this file except in compliance with\n the License.  You may obtain a copy of the License at\n\n     http://www.apache.org/licenses/LICENSE-2.0\n\n Unless required by applicable law or agreed to in writing, software\n distributed under the License is distributed on an \"AS IS\" BASIS,\n WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n See the License for the specific language governing permissions and\n limitations under the License.\n-->\n\n<configuration monitorInterval=\"60\" shutdownHook=\"disable\">\n<properties>\n    <property name=\"pattern\">%d{yyyy-MM-dd HH:mm:ss.SSS} %c{1.} %t [%p] %.-5000msg%n</property>\n</properties>\n<appenders>\n    <Console name=\"STDOUT\" target=\"SYSTEM_OUT\">\n        <PatternLayout>\n            <pattern>${pattern}</pattern>\n        </PatternLayout>\n    </Console>\n    <Console name=\"STDERR\" target=\"SYSTEM_ERR\">\n        <PatternLayout>\n            <pattern>${pattern}</pattern>\n        </PatternLayout>\n    </Console>\n    <RollingFile name=\"A1\" immediateFlush=\"false\"\n                 fileName=\"${sys:storm.log.dir}/${sys:logfile.name}\"\n                 filePattern=\"${sys:storm.log.dir}/${sys:logfile.name}.%i.gz\">\n        <PatternLayout>\n            <pattern>${pattern}</pattern>\n        </PatternLayout>\n        <Policies>\n            <SizeBasedTriggeringPolicy size=\"100 MB\"/> <!-- Or every 100 MB -->\n        </Policies>\n        <DefaultRolloverStrategy max=\"9\"/>\n    </RollingFile>\n    <RollingFile name=\"WEB-ACCESS\" immediateFlush=\"false\"\n                 fileName=\"${sys:storm.log.dir}/access-web-${sys:daemon.name}.log\"\n                 filePattern=\"${sys:storm.log.dir}/access-web-${sys:daemon.name}.log.%i.gz\">\n        <PatternLayout>\n            <pattern>${pattern}</pattern>\n        </PatternLayout>\n        <Policies>\n            <SizeBasedTriggeringPolicy size=\"100 MB\"/> <!-- Or every 100 MB -->\n        </Policies>\n        <DefaultRolloverStrategy max=\"9\"/>\n    </RollingFile>\n    <RollingFile name=\"THRIFT-ACCESS\" immediateFlush=\"false\"\n                 fileName=\"${sys:storm.log.dir}/access-${sys:logfile.name}\"\n                 filePattern=\"${sys:storm.log.dir}/access-${sys:logfile.name}.%i.gz\">\n    <PatternLayout>\n        <pattern>${pattern}</pattern>\n    </PatternLayout>\n        <Policies>\n            <SizeBasedTriggeringPolicy size=\"100 MB\"/> <!-- Or every 100 MB -->\n        </Policies>\n        <DefaultRolloverStrategy max=\"9\"/>\n    </RollingFile>\n    <RollingFile name=\"METRICS\"\n                 fileName=\"${sys:storm.log.dir}/${sys:logfile.name}.metrics\"\n                 filePattern=\"${sys:storm.log.dir}/${sys:logfile.name}.metrics.%i.gz\">\n        <PatternLayout>\n            <pattern>${patternMetrics}</pattern>\n        </PatternLayout>\n        <Policies>\n            <SizeBasedTriggeringPolicy size=\"2 MB\"/>\n        </Policies>\n        <DefaultRolloverStrategy max=\"9\"/>\n    </RollingFile>\n    <Syslog name=\"syslog\" format=\"RFC5424\" charset=\"UTF-8\" host=\"localhost\" port=\"514\"\n            protocol=\"UDP\" appName=\"[${sys:daemon.name}]\" mdcId=\"mdc\" includeMDC=\"true\"\n            facility=\"LOCAL5\" enterpriseNumber=\"18060\" newLine=\"true\" exceptionPattern=\"%rEx{full}\"\n            messageId=\"[${sys:user.name}:S0]\" id=\"storm\" immediateFlush=\"true\" immediateFail=\"true\"/>\n</appenders>\n<loggers>\n\n    <Logger name=\"org.apache.storm.logging.filters.AccessLoggingFilter\" level=\"info\" additivity=\"false\">\n        <AppenderRef ref=\"WEB-ACCESS\"/>\n        <AppenderRef ref=\"STDOUT\"/>\n    </Logger>\n    <Logger name=\"org.apache.storm.logging.ThriftAccessLogger\" level=\"info\" additivity=\"false\">\n        <AppenderRef ref=\"THRIFT-ACCESS\"/>\n        <AppenderRef ref=\"STDOUT\"/>\n    </Logger>\n    <Logger name=\"org.apache.storm.metric.LoggingClusterMetricsConsumer\" level=\"info\" additivity=\"false\">\n        <appender-ref ref=\"METRICS\"/>\n    </Logger>\n    <root level=\"info\"> <!-- We log everything -->\n        <appender-ref ref=\"STDERR\"/>\n        <appender-ref ref=\"STDOUT\"/>\n    </root>\n</loggers>\n</configuration>",
+      "worker.xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!--\n Licensed to the Apache Software Foundation (ASF) under one or more\n contributor license agreements.  See the NOTICE file distributed with\n this work for additional information regarding copyright ownership.\n The ASF licenses this file to You under the Apache License, Version 2.0\n (the \"License\"); you may not use this file except in compliance with\n the License.  You may obtain a copy of the License at\n\n     http://www.apache.org/licenses/LICENSE-2.0\n\n Unless required by applicable law or agreed to in writing, software\n distributed under the License is distributed on an \"AS IS\" BASIS,\n WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n See the License for the specific language governing permissions and\n limitations under the License.\n-->\n\n<configuration monitorInterval=\"60\" shutdownHook=\"disable\">\n<properties>\n    <property name=\"pattern\">%d{yyyy-MM-dd HH:mm:ss.SSS} %c{1.} %t [%p] %.-5000msg%n</property>\n    <property name=\"patternNoTime\">%msg%n</property>\n    <property name=\"patternMetrics\">%d %-8r %m%n</property>\n</properties>\n<appenders>\n    <RollingFile name=\"A1\"\n\t\tfileName=\"${sys:workers.artifacts}/${sys:storm.id}/${sys:worker.port}/${sys:logfile.name}\"\n\t\tfilePattern=\"${sys:workers.artifacts}/${sys:storm.id}/${sys:worker.port}/${sys:logfile.name}.%i.gz\">\n        <PatternLayout>\n            <pattern>${pattern}</pattern>\n        </PatternLayout>\n        <Policies>\n            <SizeBasedTriggeringPolicy size=\"100 MB\"/> <!-- Or every 100 MB -->\n        </Policies>\n        <DefaultRolloverStrategy max=\"9\"/>\n    </RollingFile>\n    <Console name=\"STDOUT\" target=\"SYSTEM_OUT\">\n        <PatternLayout>\n            <pattern>${pattern}</pattern>\n        </PatternLayout>\n    </Console>\n    <Console name=\"STDERR\" target=\"SYSTEM_ERR\">\n        <PatternLayout>\n            <pattern>${pattern}</pattern>\n        </PatternLayout>\n    </Console>\n    <RollingFile name=\"METRICS\"\n\t\tfileName=\"${sys:workers.artifacts}/${sys:storm.id}/${sys:worker.port}/${sys:logfile.name}.metrics\"\n\t\tfilePattern=\"${sys:workers.artifacts}/${sys:storm.id}/${sys:worker.port}/${sys:logfile.name}.metrics.%i.gz\">\n        <PatternLayout>\n            <pattern>${patternMetrics}</pattern>\n        </PatternLayout>\n        <Policies>\n            <SizeBasedTriggeringPolicy size=\"2 MB\"/>\n        </Policies>\n        <DefaultRolloverStrategy max=\"9\"/>\n    </RollingFile>\n    <Syslog name=\"syslog\" format=\"RFC5424\" charset=\"UTF-8\" host=\"localhost\" port=\"514\"\n        protocol=\"UDP\" appName=\"[${sys:storm.id}:${sys:worker.port}]\" mdcId=\"mdc\" includeMDC=\"true\"\n        facility=\"LOCAL5\" enterpriseNumber=\"18060\" newLine=\"true\" exceptionPattern=\"%rEx{full}\"\n        messageId=\"[${sys:user.name}:${sys:logging.sensitivity}]\" id=\"storm\" immediateFail=\"true\" immediateFlush=\"true\"/>\n</appenders>\n<loggers>\n    <root level=\"info\"> <!-- We log everything -->\n        <appender-ref ref=\"STDOUT\"/>\n    </root>\n    <Logger name=\"org.apache.storm.metric.LoggingMetricsConsumer\" level=\"info\" additivity=\"false\">\n        <appender-ref ref=\"METRICS\"/>\n    </Logger>\n    <Logger name=\"STDERR\" level=\"INFO\">\n        <appender-ref ref=\"STDERR\"/>\n    </Logger>\n    <Logger name=\"STDOUT\" level=\"INFO\">\n        <appender-ref ref=\"STDOUT\"/>\n    </Logger>\n</loggers>\n</configuration>"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-zookeeper-headless",
+      "namespace": "iMKyz4N10qD",
+      "labels": {
+        "app.kubernetes.io/name": "zookeeper",
+        "helm.sh/chart": "zookeeper-6.5.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "zookeeper"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "publishNotReadyAddresses": true,
+      "ports": [
+        {
+          "name": "tcp-client",
+          "port": 2181,
+          "targetPort": "client"
+        },
+        {
+          "name": "follower",
+          "port": 2888,
+          "targetPort": "follower"
+        },
+        {
+          "name": "tcp-election",
+          "port": 3888,
+          "targetPort": "election"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "zookeeper",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "zookeeper"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-zookeeper",
+      "namespace": "iMKyz4N10qD",
+      "labels": {
+        "app.kubernetes.io/name": "zookeeper",
+        "helm.sh/chart": "zookeeper-6.5.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "zookeeper"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "tcp-client",
+          "port": 2181,
+          "targetPort": "client"
+        },
+        {
+          "name": "follower",
+          "port": 2888,
+          "targetPort": "follower"
+        },
+        {
+          "name": "tcp-election",
+          "port": 3888,
+          "targetPort": "election"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "zookeeper",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/component": "zookeeper"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-storm-nimbus",
+      "labels": {
+        "chart": "storm-1.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "namespace": "iMKyz4N10qD"
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 6627,
+          "name": "nimbus"
+        }
+      ],
+      "selector": {
+        "app": "storm-nimbus",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-storm-nimbus-headless",
+      "labels": {
+        "chart": "storm-1.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "namespace": "iMKyz4N10qD"
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "ports": [
+        {
+          "port": 6627,
+          "name": "nimbus"
+        }
+      ],
+      "selector": {
+        "app": "storm-nimbus",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-storm-supervisor",
+      "labels": {
+        "chart": "storm-1.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "namespace": "iMKyz4N10qD"
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 6700,
+          "name": "slot-0"
+        },
+        {
+          "port": 6701,
+          "name": "slot-1"
+        },
+        {
+          "port": 6702,
+          "name": "slot-2"
+        },
+        {
+          "port": 6703,
+          "name": "slot-3"
+        }
+      ],
+      "selector": {
+        "app": "storm-supervisor",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-storm-supervisor-headless",
+      "labels": {
+        "chart": "storm-1.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "namespace": "iMKyz4N10qD"
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "ports": [
+        {
+          "port": 6700,
+          "name": "slot-0"
+        },
+        {
+          "port": 6701,
+          "name": "slot-1"
+        },
+        {
+          "port": 6702,
+          "name": "slot-2"
+        },
+        {
+          "port": 6703,
+          "name": "slot-3"
+        }
+      ],
+      "selector": {
+        "app": "storm-supervisor",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-storm-ui",
+      "labels": {
+        "chart": "storm-1.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "namespace": "iMKyz4N10qD"
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "protocol": "TCP",
+          "port": 8080,
+          "name": "ui"
+        }
+      ],
+      "selector": {
+        "app": "storm-ui",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-storm-supervisor",
+      "labels": {
+        "app": "storm-supervisor",
+        "chart": "storm-1.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "namespace": "iMKyz4N10qD"
+    },
+    "spec": {
+      "replicas": 2,
+      "selector": {
+        "matchLabels": {
+          "app": "storm-supervisor",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "storm-supervisor",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "initContainers": [
+            {
+              "command": [
+                "sh",
+                "-c",
+                "until storm list; do echo waiting for release-name-storm-nimbus; sleep 10; done"
+              ],
+              "image": "storm:2.3.0",
+              "imagePullPolicy": "IfNotPresent",
+              "name": "init-release-name-storm-nimbus",
+              "volumeMounts": [
+                {
+                  "name": "storm-configmap",
+                  "mountPath": "/conf"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "command": [
+                "storm",
+                "supervisor",
+                "-c",
+                "storm.local.hostname=$(SUPERVISOR_IP)"
+              ],
+              "env": [
+                {
+                  "name": "SUPERVISOR_IP",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "status.podIP"
+                    }
+                  }
+                }
+              ],
+              "image": "storm:2.3.0",
+              "imagePullPolicy": "IfNotPresent",
+              "name": "supervisor",
+              "ports": [
+                {
+                  "containerPort": 6700,
+                  "name": "slot-0"
+                },
+                {
+                  "containerPort": 6701,
+                  "name": "slot-1"
+                },
+                {
+                  "containerPort": 6702,
+                  "name": "slot-2"
+                },
+                {
+                  "containerPort": 6703,
+                  "name": "slot-3"
+                }
+              ],
+              "resources": {
+                "limits": {
+                  "cpu": 2,
+                  "memory": "1024Mi"
+                },
+                "requests": {
+                  "cpu": 1,
+                  "memory": "512Mi"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "storm-configmap",
+                  "mountPath": "/conf"
+                },
+                {
+                  "name": "storm-logging-config",
+                  "mountPath": "/log4j2"
+                },
+                {
+                  "name": "data",
+                  "mountPath": "/data"
+                },
+                {
+                  "name": "data-log",
+                  "mountPath": "/logs"
+                }
+              ]
+            }
+          ],
+          "securityContext": {
+            "runAsUser": 1000,
+            "fsGroup": 2000
+          },
+          "volumes": [
+            {
+              "name": "storm-configmap",
+              "configMap": {
+                "name": "release-name-storm-config"
+              }
+            },
+            {
+              "name": "storm-logging-config",
+              "configMap": {
+                "name": "release-name-storm-logging"
+              }
+            },
+            {
+              "name": "data",
+              "emptyDir": {}
+            },
+            {
+              "name": "data-log",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-storm-ui",
+      "labels": {
+        "app": "storm-ui",
+        "chart": "storm-1.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "namespace": "iMKyz4N10qD"
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "storm-ui",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config": "6c9b24c54c62f146dafa3ab672d5d80199b250f71d6f8f3d298ef843cdd03091"
+          },
+          "labels": {
+            "app": "storm-ui",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "runAsUser": 1000,
+            "fsGroup": 2000
+          },
+          "initContainers": [
+            {
+              "name": "init-release-name-storm-nimbus",
+              "image": "storm:2.3.0",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "sh",
+                "-c",
+                "until storm list; do echo waiting for release-name-storm-nimbus; sleep 10; done"
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/conf",
+                  "name": "storm-configmap"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "ui",
+              "image": "storm:2.3.0",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "storm",
+                "ui"
+              ],
+              "ports": [
+                {
+                  "containerPort": 8080
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/conf",
+                  "name": "storm-configmap"
+                },
+                {
+                  "mountPath": "/log4j2",
+                  "name": "storm-logging-config"
+                },
+                {
+                  "mountPath": "/logs",
+                  "name": "logs"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "storm-configmap",
+              "configMap": {
+                "name": "release-name-storm-config"
+              }
+            },
+            {
+              "name": "storm-logging-config",
+              "configMap": {
+                "name": "release-name-storm-logging"
+              }
+            },
+            {
+              "name": "logs",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-zookeeper",
+      "namespace": "iMKyz4N10qD",
+      "labels": {
+        "app.kubernetes.io/name": "zookeeper",
+        "helm.sh/chart": "zookeeper-6.5.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/component": "zookeeper",
+        "role": "zookeeper"
+      }
+    },
+    "spec": {
+      "serviceName": "release-name-zookeeper-headless",
+      "replicas": 1,
+      "podManagementPolicy": "Parallel",
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "zookeeper",
+          "app.kubernetes.io/instance": "release-name",
+          "app.kubernetes.io/component": "zookeeper"
+        }
+      },
+      "template": {
+        "metadata": {
+          "name": "release-name-zookeeper",
+          "labels": {
+            "app.kubernetes.io/name": "zookeeper",
+            "helm.sh/chart": "zookeeper-6.5.4",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/component": "zookeeper"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "affinity": {
+            "podAffinity": null,
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app.kubernetes.io/name": "zookeeper",
+                        "app.kubernetes.io/instance": "release-name",
+                        "app.kubernetes.io/component": "zookeeper"
+                      }
+                    },
+                    "namespaces": [
+                      "default"
+                    ],
+                    "topologyKey": "kubernetes.io/hostname"
+                  },
+                  "weight": 1
+                }
+              ]
+            },
+            "nodeAffinity": null
+          },
+          "containers": [
+            {
+              "name": "zookeeper",
+              "image": "docker.io/bitnami/zookeeper:3.7.0-debian-10-r0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 10137,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "command": [
+                "bash",
+                "-ec",
+                "# Execute entrypoint as usual after obtaining ZOO_SERVER_ID\n# check ZOO_SERVER_ID in persistent volume via myid\n# if not present, set based on POD hostname\nif [[ -f \"/bitnami/zookeeper/data/myid\" ]]; then\n  export ZOO_SERVER_ID=\"$(cat /bitnami/zookeeper/data/myid)\"\nelse\n  HOSTNAME=`hostname -s`\n  if [[ $HOSTNAME =~ (.*)-([0-9]+)$ ]]; then\n    ORD=${BASH_REMATCH[2]}\n    export ZOO_SERVER_ID=$((ORD + 1 ))\n  else\n    echo \"Failed to get index from hostname $HOST\"\n    exit 1\n  fi\nfi\nexec /entrypoint.sh /run.sh\n"
+              ],
+              "resources": {
+                "requests": {
+                  "cpu": "250m",
+                  "memory": "256Mi"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "env": [
+                {
+                  "name": "ZOO_DATA_LOG_DIR",
+                  "value": ""
+                },
+                {
+                  "name": "ZOO_PORT_NUMBER",
+                  "value": "2181"
+                },
+                {
+                  "name": "ZOO_TICK_TIME",
+                  "value": "2000"
+                },
+                {
+                  "name": "ZOO_INIT_LIMIT",
+                  "value": "10"
+                },
+                {
+                  "name": "ZOO_SYNC_LIMIT",
+                  "value": "5"
+                },
+                {
+                  "name": "ZOO_MAX_CLIENT_CNXNS",
+                  "value": "60"
+                },
+                {
+                  "name": "ZOO_4LW_COMMANDS_WHITELIST",
+                  "value": "srvr, mntr, ruok"
+                },
+                {
+                  "name": "ZOO_LISTEN_ALLIPS_ENABLED",
+                  "value": "no"
+                },
+                {
+                  "name": "ZOO_AUTOPURGE_INTERVAL",
+                  "value": "0"
+                },
+                {
+                  "name": "ZOO_AUTOPURGE_RETAIN_COUNT",
+                  "value": "3"
+                },
+                {
+                  "name": "ZOO_MAX_SESSION_TIMEOUT",
+                  "value": "40000"
+                },
+                {
+                  "name": "ZOO_SERVERS",
+                  "value": "release-name-zookeeper-0.release-name-zookeeper-headless.default.svc.cluster.local:2888:3888::1"
+                },
+                {
+                  "name": "ZOO_ENABLE_AUTH",
+                  "value": "no"
+                },
+                {
+                  "name": "ZOO_HEAP_SIZE",
+                  "value": "1024"
+                },
+                {
+                  "name": "ZOO_LOG_LEVEL",
+                  "value": "ERROR"
+                },
+                {
+                  "name": "ALLOW_ANONYMOUS_LOGIN",
+                  "value": "yes"
+                },
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "apiVersion": "v1",
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "name": "client",
+                  "containerPort": 2181
+                },
+                {
+                  "name": "follower",
+                  "containerPort": 2888
+                },
+                {
+                  "name": "election",
+                  "containerPort": 3888
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/bash",
+                    "-c",
+                    "echo \"ruok\" | timeout 2 nc -w 2 localhost 2181 | grep imok"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/bash",
+                    "-c",
+                    "echo \"ruok\" | timeout 2 nc -w 2 localhost 2181 | grep imok"
+                  ]
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/bitnami/zookeeper"
+                }
+              ]
+            }
+          ],
+          "volumes": null
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data",
+            "annotations": null
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "8Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-storm-nimbus",
+      "labels": {
+        "app": "storm-nimbus",
+        "chart": "storm-1.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "namespace": "iMKyz4N10qD"
+    },
+    "spec": {
+      "podManagementPolicy": "Parallel",
+      "serviceName": "release-name-storm-nimbus",
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "storm-nimbus",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config": "6c9b24c54c62f146dafa3ab672d5d80199b250f71d6f8f3d298ef843cdd03091"
+          },
+          "labels": {
+            "app": "storm-nimbus",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "initContainers": [
+            {
+              "name": "init-zookeeper",
+              "image": "bitnami/zookeeper:3.7.0-debian-10-r0",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "sh",
+                "-c",
+                "until zkCli.sh -server release-name-zookeeper:2181 ls /; do echo waiting for [release-name-zookeeper]; sleep 10; done"
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "nimbus",
+              "image": "storm:2.3.0",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "storm",
+                "nimbus",
+                "-c",
+                "storm.local.hostname=$(STORM_LOCAL_HOSTNAME).release-name-storm-nimbus"
+              ],
+              "ports": [
+                {
+                  "containerPort": 6627
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "env": [
+                {
+                  "name": "STORM_DATA_DIR",
+                  "value": "/data"
+                },
+                {
+                  "name": "STORM_LOG_DIR",
+                  "value": "/logs"
+                },
+                {
+                  "name": "STORM_LOCAL_HOSTNAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/conf",
+                  "name": "storm-configmap"
+                },
+                {
+                  "mountPath": "/log4j2",
+                  "name": "storm-logging-config"
+                },
+                {
+                  "name": "data",
+                  "mountPath": "/data"
+                },
+                {
+                  "name": "data-log",
+                  "mountPath": "/logs"
+                },
+                {
+                  "name": "storm-metrics",
+                  "mountPath": "/storm_rocks"
+                }
+              ]
+            }
+          ],
+          "securityContext": {
+            "runAsUser": 1000,
+            "fsGroup": 2000
+          },
+          "volumes": [
+            {
+              "name": "storm-configmap",
+              "configMap": {
+                "name": "release-name-storm-config"
+              }
+            },
+            {
+              "name": "storm-logging-config",
+              "configMap": {
+                "name": "release-name-storm-logging"
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data",
+            "annotations": null
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "1Gi"
+              }
+            }
+          }
+        },
+        {
+          "metadata": {
+            "name": "data-log",
+            "annotations": null
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "1Gi"
+              }
+            }
+          }
+        },
+        {
+          "metadata": {
+            "name": "storm-metrics",
+            "annotations": null
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "200Mi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+]

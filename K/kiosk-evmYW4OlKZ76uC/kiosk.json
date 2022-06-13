@@ -1,0 +1,277 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "serviceaccount",
+      "namespace": "evmYW4OlKZ76uC",
+      "labels": {
+        "app": "release-name-kiosk",
+        "chart": "kiosk-0.2.11",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "name": "kiosk-edit"
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          "tenancy.kiosk.sh"
+        ],
+        "resources": [
+          "spaces"
+        ],
+        "verbs": [
+          "create",
+          "update",
+          "delete"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "name": "kiosk-namespace-delete",
+      "labels": {
+        "rbac.kiosk.sh/aggregate-to-space-admin": "true"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "namespaces"
+        ],
+        "verbs": [
+          "delete"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "name": "kiosk-space-admin"
+    },
+    "aggregationRule": {
+      "clusterRoleSelectors": [
+        {
+          "matchLabels": {
+            "rbac.authorization.k8s.io/aggregate-to-admin": "true"
+          }
+        },
+        {
+          "matchLabels": {
+            "rbac.kiosk.sh/aggregate-to-space-admin": "true"
+          }
+        }
+      ]
+    },
+    "rules": []
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "release-name-kiosk",
+      "labels": {
+        "app": "release-name-kiosk",
+        "chart": "kiosk-0.2.11",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "serviceaccount",
+        "namespace": "default"
+      }
+    ],
+    "roleRef": {
+      "kind": "ClusterRole",
+      "name": "cluster-admin",
+      "apiGroup": "rbac.authorization.k8s.io"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "kiosk-apiservice",
+      "namespace": "evmYW4OlKZ76uC",
+      "labels": {
+        "app": "release-name-kiosk",
+        "chart": "kiosk-0.2.11",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "apiservice",
+          "port": 443,
+          "protocol": "TCP",
+          "targetPort": 8443
+        }
+      ],
+      "selector": {
+        "app": "release-name-kiosk",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "kiosk",
+      "namespace": "evmYW4OlKZ76uC",
+      "labels": {
+        "app": "release-name-kiosk",
+        "chart": "kiosk-0.2.11",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "webhook",
+          "port": 443,
+          "targetPort": 9443,
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app": "release-name-kiosk",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-kiosk",
+      "namespace": "evmYW4OlKZ76uC",
+      "labels": {
+        "app": "release-name-kiosk",
+        "chart": "kiosk-0.2.11",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "release-name-kiosk",
+          "release": "release-name"
+        }
+      },
+      "replicas": 1,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "release-name-kiosk",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "terminationGracePeriodSeconds": 10,
+          "serviceAccountName": "serviceaccount",
+          "containers": [
+            {
+              "ports": [
+                {
+                  "name": "webhook",
+                  "containerPort": 9443,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "apiservice",
+                  "containerPort": 8443,
+                  "protocol": "TCP"
+                }
+              ],
+              "command": [
+                "/kiosk"
+              ],
+              "args": null,
+              "image": "kiosksh/kiosk:0.2.11",
+              "name": "kiosk",
+              "env": null,
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": 8443,
+                  "scheme": "HTTPS"
+                },
+                "failureThreshold": 10,
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/healthz",
+                  "port": 8443,
+                  "scheme": "HTTPS"
+                },
+                "failureThreshold": 10,
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10
+              },
+              "resources": {
+                "limits": {
+                  "cpu": "1",
+                  "memory": "512Mi"
+                },
+                "requests": {
+                  "cpu": "50m",
+                  "memory": "128Mi"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apiregistration.k8s.io/v1",
+    "kind": "APIService",
+    "metadata": {
+      "name": "v1alpha1.tenancy.kiosk.sh"
+    },
+    "spec": {
+      "version": "v1alpha1",
+      "versionPriority": 1000,
+      "group": "tenancy.kiosk.sh",
+      "groupPriorityMinimum": 10000,
+      "service": {
+        "name": "kiosk-apiservice",
+        "namespace": "default"
+      }
+    }
+  },
+  {
+    "apiVersion": "admissionregistration.k8s.io/v1",
+    "kind": "ValidatingWebhookConfiguration",
+    "metadata": {
+      "name": "kiosk"
+    }
+  }
+]

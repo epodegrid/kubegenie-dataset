@@ -1,0 +1,96 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: release-name-prometheus-stackdriver-exporter
+  labels:
+    helm.sh/chart: prometheus-stackdriver-exporter-3.0.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: prometheus-stackdriver-exporter
+    app.kubernetes.io/name: prometheus-stackdriver-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.12.0
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 9255
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: prometheus-stackdriver-exporter
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-prometheus-stackdriver-exporter
+  labels:
+    helm.sh/chart: prometheus-stackdriver-exporter-3.0.0
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: prometheus-stackdriver-exporter
+    app.kubernetes.io/name: prometheus-stackdriver-exporter
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.12.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus-stackdriver-exporter
+      app.kubernetes.io/instance: release-name
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: prometheus-stackdriver-exporter-3.0.0
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: metrics
+        app.kubernetes.io/part-of: prometheus-stackdriver-exporter
+        app.kubernetes.io/name: prometheus-stackdriver-exporter
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/version: 0.12.0
+    spec:
+      serviceAccount: default
+      restartPolicy: Always
+      volumes: null
+      containers:
+        - name: prometheus-stackdriver-exporter
+          image: prometheuscommunity/stackdriver-exporter:v0.12.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - stackdriver_exporter
+          volumeMounts: null
+          args:
+            - --google.project-id=FALSE
+            - --monitoring.metrics-interval=5m
+            - --monitoring.metrics-offset=0s
+            - --monitoring.metrics-type-prefixes=compute.googleapis.com/instance/cpu
+            - --stackdriver.backoff-jitter=1s
+            - --stackdriver.http-timeout=10s
+            - --stackdriver.max-backoff=5s
+            - --stackdriver.max-retries=0
+            - --stackdriver.retry-statuses=503
+            - --web.listen-address=:9255
+            - --web.telemetry-path=/metrics
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            - containerPort: 9255
+              name: http
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            timeoutSeconds: 10

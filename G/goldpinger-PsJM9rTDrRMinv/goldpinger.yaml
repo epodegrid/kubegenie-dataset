@@ -1,0 +1,122 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-goldpinger
+  labels:
+    helm.sh/chart: goldpinger-5.2.0
+    app.kubernetes.io/name: goldpinger
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.5.1
+    app.kubernetes.io/managed-by: Helm
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-goldpinger-clusterrole
+  labels:
+    helm.sh/chart: goldpinger-5.2.0
+    app.kubernetes.io/name: goldpinger
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.5.1
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - list
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-goldpinger-clusterrolebinding
+  labels:
+    helm.sh/chart: goldpinger-5.2.0
+    app.kubernetes.io/name: goldpinger
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.5.1
+    app.kubernetes.io/managed-by: Helm
+subjects:
+  - kind: ServiceAccount
+    name: release-name-goldpinger
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: release-name-goldpinger-clusterrole
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-goldpinger
+  labels:
+    helm.sh/chart: goldpinger-5.2.0
+    app.kubernetes.io/name: goldpinger
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.5.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: goldpinger
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: release-name-goldpinger
+  labels:
+    helm.sh/chart: goldpinger-5.2.0
+    app.kubernetes.io/name: goldpinger
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 3.5.1
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: goldpinger
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: goldpinger
+        app.kubernetes.io/instance: release-name
+    spec:
+      priorityClassName: null
+      serviceAccountName: release-name-goldpinger
+      containers:
+        - name: goldpinger-daemon
+          image: bloomberg/goldpinger:v3.5.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: HOST
+              value: 0.0.0.0
+            - name: PORT
+              value: "80"
+            - name: LABEL_SELECTOR
+              value: app.kubernetes.io/name=goldpinger
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault

@@ -1,0 +1,199 @@
+[
+  {
+    "kind": "Secret",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-snowplow",
+      "labels": {
+        "app.kubernetes.io/name": "snowplow",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "helm.sh/chart": "snowplow-0.0.1"
+      }
+    },
+    "data": {
+      "credentials.json": null
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-snowplow",
+      "labels": {
+        "app.kubernetes.io/name": "snowplow",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "helm.sh/chart": "snowplow-0.0.1"
+      }
+    },
+    "data": {
+      "application.conf": "collector {\n  interface = 0.0.0.0\n  port = 8080\n\n  p3p {\n    policyRef = /w3c/p3p.xml\n    CP = NOI DSP COR NID PSA OUR IND COM NAV STA\n  }\n\n  crossDomain {\n    enabled = false\n    domains = [ \"*\" ]\n    secure = true\n  }\n\n  prometheusMetrics {\n    enabled = false\n    durationBucketsInSeconds = [0.1, 3, 10]\n  }\n\n  cors {\n    accessControlMaxAge = 5 seconds\n  }\n\n  paths {\n    \"/com.acme/track\" = \"/com.snowplowanalytics.snowplow/tp2\"\n    \"/com.acme/redirect\" = \"/r/tp2\"\n    \"/com.acme/iglu\" = \"/com.snowplowanalytics.iglu/v1\"\n  }\n\n  cookie {\n    enabled = true\n    expiration = 365 days\n    name = _sp_cookie\n    domain = example.com\n    secure = false\n    httpOnly = false\n  }\n\n  doNotTrackCookie {\n    enabled = false\n    name = dnt_cookie\n    value = true\n  }\n  cookieBounce {\n    enabled = false\n    name = n3pc\n    fallbackNetworkUserId = 00000000-0000-4000-A000-000000000000\n    forwardedProtocolHeader = X-Forwarded-Proto\n  }\n\n  redirectMacro {\n    enabled = false\n    placeholder = \"[TOKEN]\"\n  }\n\n  rootResponse {\n    enabled = false\n    statusCode = 302\n    headers = {\n        Location = \"https://127.0.0.1\"\n        X-Custom = something\n    }\n    body = \"302, redirecting\"\n  }\n\n  streams {\n    good = good\n    bad = bad\n\n    useIpAddressAsPartitionKey = false\n\n    sink {\n      enabled = google-pub-sub\n      region = \"none\"\n      customEndpoint = \"none\"\n      threadPoolSize = 10\n      googleProjectId = \"default\"\n      backoffPolicy {\n        minBackoff = 1000\n        maxBackoff = 5000\n        totalBackoff = 10000\n        multiplier = 2\n      }\n    }\n\n    buffer {\n      byteLimit = 1\n      recordLimit = 1\n      timeLimit = 1\n    }\n  }\n}\n\nakka {\n  loglevel = DEBUG\n  loggers = [\"akka.event.slf4j.Slf4jLogger\"]\n\n  http.server {\n    remote-address-header = on\n    raw-request-uri-header = on\n\n    parsing {\n      max-uri-length = 32768\n      uri-parsing-mode = relaxed\n    }\n  }\n}\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-snowplow",
+      "labels": {
+        "app.kubernetes.io/name": "snowplow",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "helm.sh/chart": "snowplow-0.0.1"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "http",
+          "port": 8080,
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "snowplow",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-snowplow",
+      "labels": {
+        "app.kubernetes.io/name": "snowplow",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "helm.sh/chart": "snowplow-0.0.1"
+      }
+    },
+    "spec": {
+      "replicas": 5,
+      "revisionHistoryLimit": 0,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "snowplow",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "snowplow",
+            "app.kubernetes.io/instance": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "6841909d51994fd2e2dee678c7428df18c2117d60faca2bb745e9af25519a1b"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "snowplow",
+              "image": "snowplow/scala-stream-collector-pubsub:2.2.0",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "--config=/snowplow/config/application.conf"
+              ],
+              "env": [
+                {
+                  "name": "GOOGLE_APPLICATION_CREDENTIALS",
+                  "value": "/snowplow/config/credentials.json"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8080,
+                  "protocol": "TCP"
+                }
+              ],
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": 8080
+                },
+                "initialDelaySeconds": 0,
+                "periodSeconds": 10,
+                "timeoutSeconds": 1,
+                "successThreshold": 1,
+                "failureThreshold": 3
+              },
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": 8080
+                },
+                "initialDelaySeconds": 0,
+                "periodSeconds": 10,
+                "timeoutSeconds": 1,
+                "successThreshold": 1,
+                "failureThreshold": 3
+              },
+              "volumeMounts": [
+                {
+                  "name": "secret-key",
+                  "mountPath": "/snowplow/config/credentials.json",
+                  "subPath": "credentials.json"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/snowplow/config/application.conf",
+                  "subPath": "application.conf"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "secret-key",
+              "secret": {
+                "secretName": "release-name-snowplow"
+              }
+            },
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-snowplow"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1beta1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "release-name-snowplow",
+      "labels": {
+        "app.kubernetes.io/name": "snowplow",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm",
+        "helm.sh/chart": "snowplow-0.0.1"
+      }
+    },
+    "spec": {
+      "rules": [
+        {
+          "host": "example.local",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "backend": {
+                  "serviceName": "release-name-snowplow",
+                  "servicePort": "http"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

@@ -1,0 +1,283 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: skywalking
+    chart: skywalking-6.6.0
+    component: skywalking-oap
+    heritage: Helm
+    release: release-name
+  name: release-name-skywalking-skywalking-oap
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: release-name-skywalking
+  labels:
+    app: skywalking
+    chart: skywalking-6.6.0
+    release: release-name
+    heritage: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - watch
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-skywalking
+  labels:
+    app: skywalking
+    chart: skywalking-6.6.0
+    release: release-name
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-skywalking
+subjects:
+  - kind: ServiceAccount
+    name: release-name-skywalking-skywalking-oap
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-skywalking-skywalking-oap
+  labels:
+    app: skywalking
+    chart: skywalking-6.6.0
+    component: skywalking-oap
+    heritage: Helm
+    release: release-name
+spec:
+  type: ClusterIP
+  ports:
+    - port: 12800
+      name: rest
+    - port: 11800
+      name: grpc
+  selector:
+    app: skywalking
+    component: skywalking-oap
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: skywalking
+    chart: skywalking-6.6.0
+    component: skywalking-ui
+    heritage: Helm
+    release: release-name
+  name: release-name-skywalking-skywalking-ui
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    app: skywalking
+    component: skywalking-ui
+    release: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: skywalking
+    chart: skywalking-6.6.0
+    component: skywalking-oap
+    heritage: Helm
+    release: release-name
+  name: release-name-skywalking-skywalking-oap
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: skywalking
+      component: skywalking-oap
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: skywalking
+        component: skywalking-oap
+        release: release-name
+    spec:
+      serviceAccountName: release-name-skywalking-skywalking-oap
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 1
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: skywalking
+                    release: release-name
+                    component: skywalking-oap
+      initContainers:
+        - name: mysqlcheck
+          imagePullPolicy: IfNotPresent
+          image: registry.cn-shanghai.aliyuncs.com/c7n/mysql-client:10.2.15-r0
+          env:
+            - name: MYSQL_HOST
+              value: mysql
+            - name: MYSQL_PORT
+              value: "3306"
+            - name: MYSQL_USER
+              value: root
+            - name: MYSQL_PASS
+              value: password
+          args:
+            - -c
+            - $(while ! mysqlcheck --host="${MYSQL_HOST}" --port="${MYSQL_PORT}" --user="${MYSQL_USER}" --password="${MYSQL_PASS}" information_schema; do sleep 3; done)
+          command:
+            - /bin/sh
+      containers:
+        - name: skywalking-oap
+          image: registry.cn-shanghai.aliyuncs.com/c7n/skywalking-oap-server:6.6.0-es7
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            tcpSocket:
+              port: 12800
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            tcpSocket:
+              port: 12800
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          ports:
+            - containerPort: 11800
+              name: grpc
+            - containerPort: 12800
+              name: rest
+          env:
+            - name: JAVA_OPTS
+              value: -Xmx2g -Xms2g -Dmode=no-init
+            - name: SW_CLUSTER
+              value: kubernetes
+            - name: SW_CLUSTER_K8S_NAMESPACE
+              value: default
+            - name: SW_CLUSTER_K8S_LABEL
+              value: app=skywalking,release=release-name,component=skywalking-oap
+            - name: SKYWALKING_COLLECTOR_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: SW_STORAGE
+              value: mysql
+            - name: SW_JDBC_URL
+              value: jdbc:mysql://mysql:3306/skywalking?serverTimezone=Asia/Shanghai
+            - name: SW_DATA_SOURCE_USER
+              value: root
+            - name: SW_DATA_SOURCE_PASSWORD
+              value: password
+            - name: TZ
+              value: Asia/Shanghai
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-skywalking-skywalking-ui
+  labels:
+    app: skywalking
+    chart: skywalking-6.6.0
+    component: skywalking-ui
+    heritage: Helm
+    release: release-name
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: skywalking
+      component: skywalking-ui
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: skywalking
+        component: skywalking-ui
+        release: release-name
+    spec:
+      containers:
+        - name: skywalking-ui
+          image: registry.cn-shanghai.aliyuncs.com/c7n/skywalking-ui:6.6.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: page
+          env:
+            - name: SW_OAP_ADDRESS
+              value: release-name-skywalking-skywalking-oap:12800
+            - name: TZ
+              value: Asia/Shanghai
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-mysql-init
+  labels:
+    app: skywalking
+    chart: skywalking-6.6.0
+    component: release-name-skywalking-job
+    heritage: Helm
+    release: release-name
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  template:
+    metadata:
+      name: release-name-mysql-init
+      labels:
+        app: skywalking
+        component: release-name-skywalking-job
+        release: release-name
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: mysqlcheck
+          imagePullPolicy: IfNotPresent
+          image: registry.cn-shanghai.aliyuncs.com/c7n/mysql-client:10.2.15-r0
+          env:
+            - name: MYSQL_HOST
+              value: mysql
+            - name: MYSQL_PORT
+              value: "3306"
+            - name: MYSQL_USER
+              value: root
+            - name: MYSQL_PASS
+              value: password
+          args:
+            - -c
+            - $(while ! mysqlcheck --host="${MYSQL_HOST}" --port="${MYSQL_PORT}" --user="${MYSQL_USER}" --password="${MYSQL_PASS}" information_schema; do sleep 3; done)
+          command:
+            - /bin/sh
+      containers:
+        - name: skywalking-oap
+          image: registry.cn-shanghai.aliyuncs.com/c7n/skywalking-oap-server:6.6.0-es7
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: JAVA_OPTS
+              value: -Xmx2g -Xms2g -Dmode=init
+            - name: SW_STORAGE
+              value: mysql
+            - name: SW_JDBC_URL
+              value: jdbc:mysql://mysql:3306/skywalking?serverTimezone=Asia/Shanghai
+            - name: SW_DATA_SOURCE_USER
+              value: root
+            - name: SW_DATA_SOURCE_PASSWORD
+              value: password
+            - name: TZ
+              value: Asia/Shanghai

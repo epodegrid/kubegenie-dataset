@@ -1,0 +1,159 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-webhooks
+  labels:
+    helm.sh/chart: webhooks-0.1.5
+    app.kubernetes.io/name: webhooks
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.8.0
+    app.kubernetes.io/managed-by: Helm
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: release-name-webhooks
+  labels:
+    helm.sh/chart: webhooks-0.1.5
+    app.kubernetes.io/name: webhooks
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.8.0
+    app.kubernetes.io/managed-by: Helm
+data:
+  hooks.yaml: ""
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-webhooks
+rules: null
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-webhooks
+subjects:
+  - kind: ServiceAccount
+    name: release-name-webhooks
+roleRef:
+  kind: Role
+  name: release-name-webhooks
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-webhooks
+  labels:
+    helm.sh/chart: webhooks-0.1.5
+    app.kubernetes.io/name: webhooks
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.8.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: webhooks
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-webhooks
+  labels:
+    helm.sh/chart: webhooks-0.1.5
+    app.kubernetes.io/name: webhooks
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.8.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: webhooks
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config: 23ed10b6552c2f82be56d31d5eab8d678c27500b78db89d07ce08da8c9d52050
+      labels:
+        app.kubernetes.io/name: webhooks
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-webhooks
+      securityContext: {}
+      containers:
+        - name: webhooks
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: ghcr.io/thecatlady/webhook:2.8.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              cd /config
+              #### BEGIN STARTUP
+              #### STARTING WEBHOOKS
+              TINI_SUBREAPER=true /sbin/tini -- /usr/local/bin/webhook -verbose -hotreload -template -hooks=hooks.yaml
+          env: null
+          ports:
+            - name: http
+              containerPort: 9000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: configs
+              mountPath: /config/hooks.yaml
+              subPath: hooks.yaml
+      volumes:
+        - name: configs
+          configMap:
+            name: release-name-webhooks
+            defaultMode: 493
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-webhooks-test-connection
+  labels:
+    helm.sh/chart: webhooks-0.1.5
+    app.kubernetes.io/name: webhooks
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.8.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-webhooks:9000
+  restartPolicy: Never

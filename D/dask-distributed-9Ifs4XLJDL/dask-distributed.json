@@ -1,0 +1,250 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-jupyter-config",
+      "labels": {
+        "app": "dask-distributed",
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "dask-distributed-2.0.2",
+        "component": "release-name-jupyter-notebook"
+      }
+    },
+    "data": {
+      "jupyter_notebook_config.py": "c = get_config()\nc.NotebookApp.password = 'sha1:aae8550c0a44:9507d45e087d5ee481a5ce9f4f16f37a0867318c'\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-jupyter",
+      "labels": {
+        "app": "dask-distributed",
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "dask-distributed-2.0.2",
+        "component": "release-name-jupyter-notebook"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": 8888
+        }
+      ],
+      "selector": {
+        "app": "dask-distributed",
+        "release": "release-name",
+        "component": "release-name-jupyter-notebook"
+      },
+      "type": "LoadBalancer"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-scheduler",
+      "labels": {
+        "app": "dask-distributed",
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "dask-distributed-2.0.2",
+        "component": "release-name-dask-scheduler"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "release-name-scheduler",
+          "port": 8786,
+          "targetPort": 8786
+        },
+        {
+          "name": "release-name-webui",
+          "port": 80,
+          "targetPort": 8787
+        }
+      ],
+      "selector": {
+        "app": "dask-distributed",
+        "release": "release-name",
+        "component": "release-name-dask-scheduler"
+      },
+      "type": "LoadBalancer"
+    }
+  },
+  {
+    "apiVersion": "extensions/v1beta1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-jupyter",
+      "labels": {
+        "app": "dask-distributed",
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "dask-distributed-2.0.2",
+        "component": "release-name-jupyter-notebook"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "dask-distributed",
+            "release": "release-name",
+            "component": "release-name-jupyter-notebook"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "release-name-jupyter",
+              "image": "jupyter/base-notebook:11be019e4079",
+              "ports": [
+                {
+                  "containerPort": 8888
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "config-volume",
+                  "mountPath": "/home/jovyan/.jupyter"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config-volume",
+              "configMap": {
+                "name": "release-name-jupyter-config"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "extensions/v1beta1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-scheduler",
+      "labels": {
+        "app": "dask-distributed",
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "dask-distributed-2.0.2",
+        "component": "release-name-dask-scheduler"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "dask-distributed",
+            "release": "release-name",
+            "component": "release-name-dask-scheduler"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "release-name-scheduler",
+              "image": "daskdev/dask:latest",
+              "command": [
+                "dask-scheduler",
+                "--port",
+                "8786",
+                "--bokeh-port",
+                "8787"
+              ],
+              "ports": [
+                {
+                  "containerPort": 8786
+                },
+                {
+                  "containerPort": 8787
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "extensions/v1beta1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-worker",
+      "labels": {
+        "app": "dask-distributed",
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "dask-distributed-2.0.2",
+        "component": "release-name-dask-worker"
+      }
+    },
+    "spec": {
+      "replicas": 3,
+      "strategy": {
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "dask-distributed",
+            "release": "release-name",
+            "component": "release-name-dask-worker"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "release-name-worker",
+              "image": "daskdev/dask:latest",
+              "command": [
+                "dask-worker",
+                "release-name-scheduler:8786"
+              ],
+              "ports": [
+                {
+                  "containerPort": 8081
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

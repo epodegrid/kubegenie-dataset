@@ -1,0 +1,284 @@
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: cloudflow-operator
+  labels:
+    app.kubernetes.io/version: 2.3.1
+    cloudflow.lightbend.com/release-version: 2.3.1
+    cloudflow.lightbend.com/build-number: 2.3.1
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cloudflow-operator
+  labels:
+    app.kubernetes.io/version: 2.3.1
+    cloudflow.lightbend.com/release-version: 2.3.1
+    cloudflow.lightbend.com/build-number: 2.3.1
+rules:
+  - apiGroups:
+      - metrics.k8s.io
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+  - apiGroups:
+      - cloudflow.lightbend.com
+    resources:
+      - cloudflowapplications
+      - cloudflowapplications/status
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - delete
+      - patch
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+    verbs:
+      - get
+      - create
+      - delete
+      - list
+      - watch
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - services
+      - services/status
+    verbs:
+      - list
+      - watch
+      - get
+      - create
+      - delete
+      - patch
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - delete
+      - update
+  - apiGroups:
+      - apiextensions.k8s.io
+    resources:
+      - customresourcedefinitions
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - watch
+      - list
+      - get
+      - create
+      - delete
+      - patch
+      - update
+  - apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - roles
+      - rolebindings
+    verbs:
+      - get
+      - create
+      - delete
+      - patch
+      - update
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - deployments/scale
+      - deployments/status
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - delete
+      - patch
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - events
+      - configmaps
+    verbs:
+      - watch
+      - get
+      - list
+      - create
+      - delete
+      - patch
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - ingresses
+    verbs:
+      - get
+      - list
+      - create
+      - delete
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - extensions
+    resources:
+      - deployments
+    verbs:
+      - get
+  - apiGroups:
+      - flink.k8s.io
+    resources:
+      - flinkapplications
+    verbs:
+      - get
+      - list
+      - create
+      - delete
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - sparkoperator.k8s.io
+    resources:
+      - sparkapplications
+    verbs:
+      - get
+      - list
+      - create
+      - delete
+      - patch
+      - update
+      - watch
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: cloudflow-operator-bindings
+  labels:
+    app.kubernetes.io/version: 2.3.1
+    cloudflow.lightbend.com/release-version: 2.3.1
+    cloudflow.lightbend.com/build-number: 2.3.1
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cloudflow-operator
+subjects:
+  - kind: ServiceAccount
+    name: cloudflow-operator
+    namespace: default
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: cloudflow-operator
+  labels:
+    app: cloudflow-operator
+    app.kubernetes.io/version: 2.3.1
+    cloudflow.lightbend.com/release-version: 2.3.1
+    cloudflow.lightbend.com/build-number: 2.3.1
+spec:
+  selector:
+    matchLabels:
+      app: cloudflow-operator
+  template:
+    metadata:
+      labels:
+        app: cloudflow-operator
+        app.kubernetes.io/version: 2.3.1
+        cloudflow.lightbend.com/release-version: 2.3.1
+        cloudflow.lightbend.com/build-number: 2.3.1
+    spec:
+      serviceAccountName: cloudflow-operator
+      automountServiceAccountToken: true
+      containers:
+        - name: cloudflow-operator
+          image: lightbend/cloudflow-operator:2.3.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5001
+              name: http
+          resources:
+            requests:
+              memory: 256M
+              cpu: 0.10000000000000001
+            limits:
+              memory: 1G
+              cpu: 0.5
+          env:
+            - name: JAVA_OPTS
+              value: -XX:MaxRAMPercentage=90.0 -XX:+UseContainerSupport
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: ""
+            - name: AKKA_RUNNER_REQUESTS_MEMORY
+              value: 128M
+            - name: AKKA_RUNNER_REQUESTS_CPU
+              value: "0.5"
+            - name: AKKA_RUNNER_LIMITS_MEMORY
+              value: 2048M
+            - name: SPARK_EXECUTOR_REQUESTS_MEMORY
+              value: 2G
+            - name: SPARK_EXECUTOR_REQUESTS_CPU
+              value: "1"
+            - name: SPARK_DRIVER_REQUESTS_MEMORY
+              value: 512M
+            - name: SPARK_DRIVER_REQUESTS_CPU
+              value: "0.5"
+            - name: RELEASE_VERSION
+              value: 2.3.1
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: LOGLEVEL_ROOT
+              value: INFO
+            - name: LOGLEVEL_AKKA
+              value: INFO
+            - name: LOGLEVEL_SKUBER
+              value: WARN
+          readinessProbe:
+            httpGet:
+              path: /checks/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /checks/healthy
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3

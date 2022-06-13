@@ -1,0 +1,151 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-bamboo-agent",
+      "labels": {
+        "helm.sh/chart": "bamboo-agent-1.4.0",
+        "app.kubernetes.io/name": "bamboo-agent",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "8.2.3",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-bamboo-agent-jvm-config",
+      "labels": {
+        "helm.sh/chart": "bamboo-agent-1.4.0",
+        "app.kubernetes.io/name": "bamboo-agent",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "8.2.3",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "max_heap": "512m",
+      "min_heap": "256m"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-bamboo-agent",
+      "labels": {
+        "helm.sh/chart": "bamboo-agent-1.4.0",
+        "app.kubernetes.io/name": "bamboo-agent",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "8.2.3",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "bamboo-agent",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "annotations": {
+            "checksum/config-jvm": "9a8901dfdd424cfa92f82e48d30ccb9f7e47c4706d522bee21f6522b09b2574a"
+          },
+          "labels": {
+            "app.kubernetes.io/name": "bamboo-agent",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-bamboo-agent",
+          "terminationGracePeriodSeconds": 30,
+          "securityContext": {
+            "fsGroup": 2005
+          },
+          "initContainers": null,
+          "containers": [
+            {
+              "name": "bamboo-agent",
+              "image": "atlassian/bamboo-agent-base:8.2.3",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "BAMBOO_SERVER",
+                  "value": null
+                },
+                {
+                  "name": "WRAPPER_JAVA_INITMEMORY",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "key": "min_heap",
+                      "name": "release-name-bamboo-agent-jvm-config"
+                    }
+                  }
+                },
+                {
+                  "name": "WRAPPER_JAVA_MAXMEMORY",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "key": "max_heap",
+                      "name": "release-name-bamboo-agent-jvm-config"
+                    }
+                  }
+                }
+              ],
+              "startupProbe": {
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "/probe-startup.sh"
+                  ]
+                },
+                "initialDelaySeconds": 1,
+                "periodSeconds": 1,
+                "failureThreshold": 120
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "/probe-readiness.sh"
+                  ]
+                },
+                "initialDelaySeconds": 1,
+                "periodSeconds": 5,
+                "failureThreshold": 30
+              },
+              "resources": {
+                "requests": {
+                  "cpu": "1",
+                  "memory": "2G"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "lifecycle": {
+                "preStop": {
+                  "exec": {
+                    "command": [
+                      "sh",
+                      "-c",
+                      "/shutdown-wait.sh"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,109 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-acmesa
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-acmecm
+data:
+  Ali_Key: null
+  Ali_Secret: null
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: release-name-cafiles
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 512Mi
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: Role
+metadata:
+  name: release-name-acmerole
+rules:
+  - apiGroups:
+      - v1
+      - ""
+    resources:
+      - secret
+      - secrets
+    verbs:
+      - create
+      - list
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: RoleBinding
+metadata:
+  name: release-name-acmerolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-acmerole
+subjects:
+  - kind: ServiceAccount
+    name: release-name-acmesa
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-init
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      name: init
+      labels:
+        app: init
+    spec:
+      serviceAccountName: release-name-acmesa
+      volumes:
+        - name: config
+          emptyDir: {}
+        - name: cafiles
+          persistentVolumeClaim:
+            claimName: release-name-cafiles
+      initContainers:
+        - name: acme
+          image: neilpang/acme.sh:3.0.2
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TZ
+              value: Asia/Shanghai
+          envFrom:
+            - configMapRef:
+                name: release-name-acmecm
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: cafiles
+              mountPath: /ali_dns
+            - name: cafiles
+              mountPath: /acme.sh
+              subPath: cafile
+          args:
+            - --issue
+            - --dns
+            - dns_ali
+            - -d
+            - ""
+            - -m
+            - ""
+            - --debug
+      containers:
+        - name: write
+          image: bitnami/kubectl:1.21.5
+          command:
+            - sh
+            - -c
+            - kubectl create secret tls  --cert=/cafile/fullchain.cer --key=/cafile/.key
+          volumeMounts:
+            - name: cafiles
+              mountPath: /cafile
+              subPath: cafile/
+      restartPolicy: Never

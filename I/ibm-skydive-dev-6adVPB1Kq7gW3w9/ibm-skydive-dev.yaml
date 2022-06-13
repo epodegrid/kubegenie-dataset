@@ -1,0 +1,429 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: skydive-service-account
+  namespace: 6adVPB1Kq7gW3w9
+  labels:
+    app: release-name-ibm-skydive-dev
+    chart: ibm-skydive-dev
+    release: release-name
+    heritage: Helm
+imagePullSecrets:
+  - name: sa-default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: skydive-default-view
+  labels:
+    app: release-name-ibm-skydive-dev
+    chart: ibm-skydive-dev
+    release: release-name
+    heritage: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: skydive-service-account
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-ibm-skydive-dev-internal-service
+  labels:
+    app: release-name-ibm-skydive-dev
+    chart: ibm-skydive-dev-1.1.2
+    release: release-name
+    heritage: Helm
+spec:
+  ports:
+    - port: 12379
+      name: etcd
+    - port: 9200
+      name: elasticsearch
+  selector:
+    app: release-name-ibm-skydive-dev
+    tier: analyzer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-ibm-skydive-dev-service
+  labels:
+    app: release-name-ibm-skydive-dev
+    chart: ibm-skydive-dev-1.1.2
+    release: release-name
+    heritage: Helm
+spec:
+  type: NodePort
+  ports:
+    - port: 8082
+      name: skydive
+  selector:
+    app: release-name-ibm-skydive-dev
+    tier: analyzer
+---
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: release-name-ibm-skydive-dev-agent
+  labels:
+    app: release-name-ibm-skydive-dev
+    chart: ibm-skydive-dev
+    release: release-name
+    heritage: Helm
+spec:
+  template:
+    metadata:
+      annotations:
+        productName: ibm-skydive-dev
+        productID: 8e6bdbcba44f46939c3d1c54447386b2
+        productVersion: 1.1.2
+      labels:
+        app: release-name-ibm-skydive-dev
+        chart: ibm-skydive-dev
+        release: release-name
+        heritage: Helm
+        tier: agent
+    spec:
+      hostNetwork: true
+      hostPID: true
+      hostIPC: true
+      securityContext:
+        runAsNonRoot: false
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: beta.kubernetes.io/arch
+                    operator: In
+                    values:
+                      - amd64
+                      - ppc64le
+                      - s390x
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 2
+              preference:
+                matchExpressions:
+                  - key: beta.kubernetes.io/arch
+                    operator: In
+                    values:
+                      - amd64
+            - weight: 2
+              preference:
+                matchExpressions:
+                  - key: beta.kubernetes.io/arch
+                    operator: In
+                    values:
+                      - ppc64le
+            - weight: 2
+              preference:
+                matchExpressions:
+                  - key: beta.kubernetes.io/arch
+                    operator: In
+                    values:
+                      - s390x
+      tolerations:
+        - operator: Exists
+      dnsPolicy: ClusterFirstWithHostNet
+      containers:
+        - name: skydive-agent
+          image: ibmcom/skydive:0.22.0
+          imagePullPolicy: IfNotPresent
+          terminationMessagePolicy: FallbackToLogsOnError
+          args:
+            - agent
+            - --listen=0.0.0.0:8081
+          ports:
+            - containerPort: 8081
+          readinessProbe:
+            httpGet:
+              port: 8081
+              path: /api/status
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              port: 8081
+              path: /api/status
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 10
+          resources:
+            limits:
+              cpu: 2000m
+              memory: 8192Mi
+            requests:
+              cpu: 100m
+              memory: 512Mi
+          env:
+            - name: SKYDIVE_ANALYZERS
+              value: release-name-ibm-skydive-dev-service:8082
+            - name: SKYDIVE_FLOW_PROTOCOL
+              value: websocket
+            - name: SKYDIVE_FLOW_DEFAULT_LAYER_KEY_MODE
+              value: L3
+            - name: SKYDIVE_AGENT_TOPOLOGY_PROBES
+              value: ovsdb docker runc
+            - name: SKYDIVE_AGENT_TOPOLOGY_RUNC_RUN_PATH
+              value: /var/run/runc /var/run/runc-ctrs /var/run/containerd/runc
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            runAsNonRoot: false
+            runAsUser: 11710
+            capabilities:
+              drop:
+                "": NET_RAW
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: docker
+              mountPath: /var/run/docker.sock
+            - name: run
+              mountPath: /host/run
+            - name: ovsdb
+              mountPath: /var/run/openvswitch/db.sock
+            - name: runc
+              mountPath: /var/run/runc
+            - name: runc-ctrs
+              mountPath: /var/run/runc-ctrs
+            - name: containerd-runc
+              mountPath: /var/run/containerd/runc
+            - name: data-kubelet
+              mountPath: /var/data/kubelet
+            - name: lib-kubelet
+              mountPath: /var/lib/kubelet
+      volumes:
+        - name: docker
+          hostPath:
+            path: /var/run/docker.sock
+        - name: run
+          hostPath:
+            path: /var/run/netns
+        - name: ovsdb
+          hostPath:
+            path: /var/run/openvswitch/db.sock
+        - name: runc
+          hostPath:
+            path: /var/run/runc
+        - name: runc-ctrs
+          hostPath:
+            path: /var/run/runc-ctrs
+        - name: containerd-runc
+          hostPath:
+            path: /var/run/containerd/runc
+        - name: data-kubelet
+          hostPath:
+            path: /var/data/kubelet
+        - name: lib-kubelet
+          hostPath:
+            path: /var/lib/kubelet
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: release-name-ibm-skydive-dev-analyzer
+  labels:
+    app: release-name-ibm-skydive-dev
+    chart: ibm-skydive-dev
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  template:
+    metadata:
+      annotations:
+        productName: ibm-skydive-dev
+        productID: 8e6bdbcba44f46939c3d1c54447386b2
+        productVersion: 1.1.2
+      labels:
+        app: release-name-ibm-skydive-dev
+        chart: ibm-skydive-dev
+        release: release-name
+        heritage: Helm
+        tier: analyzer
+    spec:
+      serviceAccountName: skydive-service-account
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      hostPID: true
+      hostIPC: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: beta.kubernetes.io/arch
+                    operator: In
+                    values:
+                      - amd64
+                      - ppc64le
+                      - s390x
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 2
+              preference:
+                matchExpressions:
+                  - key: beta.kubernetes.io/arch
+                    operator: In
+                    values:
+                      - amd64
+            - weight: 2
+              preference:
+                matchExpressions:
+                  - key: beta.kubernetes.io/arch
+                    operator: In
+                    values:
+                      - ppc64le
+            - weight: 2
+              preference:
+                matchExpressions:
+                  - key: beta.kubernetes.io/arch
+                    operator: In
+                    values:
+                      - s390x
+      containers:
+        - name: skydive-analyzer
+          image: ibmcom/skydive:0.22.0
+          imagePullPolicy: IfNotPresent
+          terminationMessagePolicy: FallbackToLogsOnError
+          args:
+            - analyzer
+            - --listen=0.0.0.0:8082
+          ports:
+            - containerPort: 8082
+            - containerPort: 8082
+              protocol: UDP
+            - containerPort: 12379
+          securityContext:
+            privileged: false
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            runAsNonRoot: false
+            runAsUser: 10260
+            capabilities:
+              drop:
+                "": NET_RAW
+            seccompProfile:
+              type: RuntimeDefault
+          readinessProbe:
+            httpGet:
+              port: 8082
+              path: /api/status
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              port: 8082
+              path: /api/status
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 10
+          env:
+            - name: SKYDIVE_UI
+              value: '{"theme":"light","k8s_enabled":"true","topology": {"favorites":{"infrastructure":"G.V().Has(\"Manager\",NE(\"k8s\"))","kubernetes":"G.V().Has(\"Manager\",\"k8s\")"},"default_filter":"infrastructure"}}'
+            - name: SKYDIVE_ANALYZER_TOPOLOGY_PROBES
+              value: k8s
+            - name: SKYDIVE_EMBEDDED
+              value: "true"
+            - name: SKYDIVE_FLOW_PROTOCOL
+              value: websocket
+            - name: SKYDIVE_ANALYZER_TOPOLOGY_FABRIC
+              value: TOR1->*[Type=host]/eth0
+          resources:
+            limits:
+              cpu: 2000m
+              memory: 8192Mi
+            requests:
+              cpu: 100m
+              memory: 512Mi
+          volumeMounts:
+            - name: ssl
+              mountPath: /etc/ssl/certs
+      volumes:
+        - name: ssl
+          hostPath:
+            path: /etc/ssl/certs
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-ibm-skydive-dev-connection-test
+  annotations:
+    helm.sh/hook: test-success
+    helm.sh/hook-delete-policy: hook-succeeded
+  labels:
+    app: release-name-ibm-skydive-dev
+    chart: ibm-skydive-dev-1.1.2
+    release: release-name
+    heritage: Helm
+spec:
+  hostNetwork: false
+  hostPID: true
+  hostIPC: true
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: beta.kubernetes.io/arch
+                operator: In
+                values:
+                  - amd64
+                  - ppc64le
+                  - s390x
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 2
+          preference:
+            matchExpressions:
+              - key: beta.kubernetes.io/arch
+                operator: In
+                values:
+                  - amd64
+        - weight: 2
+          preference:
+            matchExpressions:
+              - key: beta.kubernetes.io/arch
+                operator: In
+                values:
+                  - ppc64le
+        - weight: 2
+          preference:
+            matchExpressions:
+              - key: beta.kubernetes.io/arch
+                operator: In
+                values:
+                  - s390x
+  containers:
+    - name: skydive-connection-test
+      image: ibmcom/skydive:0.22.0
+      args:
+        - client
+      ports:
+        - containerPort: 8082
+        - containerPort: 8082
+          protocol: UDP
+        - containerPort: 12379
+      securityContext:
+        privileged: false
+        readOnlyRootFilesystem: false
+        allowPrivilegeEscalation: false
+        runAsNonRoot: false
+        capabilities:
+          add:
+            - all
+      env:
+        - name: SKYDIVE_ANALYZERS
+          value: release-name-ibm-skydive-dev-service:8082
+  restartPolicy: Never

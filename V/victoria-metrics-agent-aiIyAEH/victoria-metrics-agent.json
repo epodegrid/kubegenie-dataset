@@ -1,0 +1,296 @@
+[
+  {
+    "apiVersion": "policy/v1beta1",
+    "kind": "PodSecurityPolicy",
+    "metadata": {
+      "name": "release-name-victoria-metrics-agent",
+      "namespace": "default",
+      "labels": {
+        "helm.sh/chart": "victoria-metrics-agent-0.8.6",
+        "app.kubernetes.io/name": "victoria-metrics-agent",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.77.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "seccomp.security.alpha.kubernetes.io/allowedProfileNames": "docker/default",
+        "seccomp.security.alpha.kubernetes.io/defaultProfileName": "docker/default"
+      }
+    },
+    "spec": {
+      "privileged": false,
+      "allowPrivilegeEscalation": false,
+      "requiredDropCapabilities": [
+        "ALL"
+      ],
+      "volumes": [
+        "configMap",
+        "emptyDir",
+        "projected",
+        "secret",
+        "downwardAPI",
+        "persistentVolumeClaim"
+      ],
+      "hostNetwork": false,
+      "hostIPC": false,
+      "hostPID": false,
+      "runAsUser": {
+        "rule": "RunAsAny"
+      },
+      "seLinux": {
+        "rule": "RunAsAny"
+      },
+      "supplementalGroups": {
+        "rule": "RunAsAny"
+      },
+      "fsGroup": {
+        "rule": "RunAsAny"
+      },
+      "readOnlyRootFilesystem": false,
+      "rule": "MustRunAsNonRoot"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-victoria-metrics-agent",
+      "namespace": "aiIyAEH",
+      "labels": {
+        "helm.sh/chart": "victoria-metrics-agent-0.8.6",
+        "app.kubernetes.io/name": "victoria-metrics-agent",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.77.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-victoria-metrics-agent-config",
+      "namespace": "aiIyAEH",
+      "labels": {
+        "helm.sh/chart": "victoria-metrics-agent-0.8.6",
+        "app.kubernetes.io/name": "victoria-metrics-agent",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.77.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "scrape.yml": "\nglobal:\n  scrape_interval: 10s\n\nscrape_configs:\n- job_name: vmagent\n  static_configs:\n  - targets:\n    - localhost:8429\n- bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token\n  job_name: kubernetes-apiservers\n  kubernetes_sd_configs:\n  - role: endpoints\n  relabel_configs:\n  - action: keep\n    regex: default;kubernetes;https\n    source_labels:\n    - __meta_kubernetes_namespace\n    - __meta_kubernetes_service_name\n    - __meta_kubernetes_endpoint_port_name\n  scheme: https\n  tls_config:\n    ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n    insecure_skip_verify: true\n- bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token\n  job_name: kubernetes-nodes\n  kubernetes_sd_configs:\n  - role: node\n  relabel_configs:\n  - action: labelmap\n    regex: __meta_kubernetes_node_label_(.+)\n  - replacement: kubernetes.default.svc:443\n    target_label: __address__\n  - regex: (.+)\n    replacement: /api/v1/nodes/$1/proxy/metrics\n    source_labels:\n    - __meta_kubernetes_node_name\n    target_label: __metrics_path__\n  scheme: https\n  tls_config:\n    ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n    insecure_skip_verify: true\n- bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token\n  job_name: kubernetes-nodes-cadvisor\n  kubernetes_sd_configs:\n  - role: node\n  relabel_configs:\n  - action: labelmap\n    regex: __meta_kubernetes_node_label_(.+)\n  - replacement: kubernetes.default.svc:443\n    target_label: __address__\n  - regex: (.+)\n    replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor\n    source_labels:\n    - __meta_kubernetes_node_name\n    target_label: __metrics_path__\n  scheme: https\n  tls_config:\n    ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n    insecure_skip_verify: true\n- job_name: kubernetes-service-endpoints\n  kubernetes_sd_configs:\n  - role: endpoints\n  relabel_configs:\n  - action: drop\n    regex: true\n    source_labels:\n    - __meta_kubernetes_pod_container_init\n  - action: keep_if_equal\n    source_labels:\n    - __meta_kubernetes_service_annotation_prometheus_io_port\n    - __meta_kubernetes_pod_container_port_number\n  - action: keep\n    regex: true\n    source_labels:\n    - __meta_kubernetes_service_annotation_prometheus_io_scrape\n  - action: replace\n    regex: (https?)\n    source_labels:\n    - __meta_kubernetes_service_annotation_prometheus_io_scheme\n    target_label: __scheme__\n  - action: replace\n    regex: (.+)\n    source_labels:\n    - __meta_kubernetes_service_annotation_prometheus_io_path\n    target_label: __metrics_path__\n  - action: replace\n    regex: ([^:]+)(?::\\d+)?;(\\d+)\n    replacement: $1:$2\n    source_labels:\n    - __address__\n    - __meta_kubernetes_service_annotation_prometheus_io_port\n    target_label: __address__\n  - action: labelmap\n    regex: __meta_kubernetes_service_label_(.+)\n  - source_labels:\n    - __meta_kubernetes_pod_name\n    target_label: pod\n  - source_labels:\n    - __meta_kubernetes_pod_container_name\n    target_label: container\n  - source_labels:\n    - __meta_kubernetes_namespace\n    target_label: namespace\n  - source_labels:\n    - __meta_kubernetes_service_name\n    target_label: service\n  - replacement: ${1}\n    source_labels:\n    - __meta_kubernetes_service_name\n    target_label: job\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_pod_node_name\n    target_label: node\n- job_name: kubernetes-service-endpoints-slow\n  kubernetes_sd_configs:\n  - role: endpoints\n  relabel_configs:\n  - action: drop\n    regex: true\n    source_labels:\n    - __meta_kubernetes_pod_container_init\n  - action: keep_if_equal\n    source_labels:\n    - __meta_kubernetes_service_annotation_prometheus_io_port\n    - __meta_kubernetes_pod_container_port_number\n  - action: keep\n    regex: true\n    source_labels:\n    - __meta_kubernetes_service_annotation_prometheus_io_scrape_slow\n  - action: replace\n    regex: (https?)\n    source_labels:\n    - __meta_kubernetes_service_annotation_prometheus_io_scheme\n    target_label: __scheme__\n  - action: replace\n    regex: (.+)\n    source_labels:\n    - __meta_kubernetes_service_annotation_prometheus_io_path\n    target_label: __metrics_path__\n  - action: replace\n    regex: ([^:]+)(?::\\d+)?;(\\d+)\n    replacement: $1:$2\n    source_labels:\n    - __address__\n    - __meta_kubernetes_service_annotation_prometheus_io_port\n    target_label: __address__\n  - action: labelmap\n    regex: __meta_kubernetes_service_label_(.+)\n  - source_labels:\n    - __meta_kubernetes_pod_name\n    target_label: pod\n  - source_labels:\n    - __meta_kubernetes_pod_container_name\n    target_label: container\n  - source_labels:\n    - __meta_kubernetes_namespace\n    target_label: namespace\n  - source_labels:\n    - __meta_kubernetes_service_name\n    target_label: service\n  - replacement: ${1}\n    source_labels:\n    - __meta_kubernetes_service_name\n    target_label: job\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_pod_node_name\n    target_label: node\n  scrape_interval: 5m\n  scrape_timeout: 30s\n- job_name: kubernetes-services\n  kubernetes_sd_configs:\n  - role: service\n  metrics_path: /probe\n  params:\n    module:\n    - http_2xx\n  relabel_configs:\n  - action: keep\n    regex: true\n    source_labels:\n    - __meta_kubernetes_service_annotation_prometheus_io_probe\n  - source_labels:\n    - __address__\n    target_label: __param_target\n  - replacement: blackbox\n    target_label: __address__\n  - source_labels:\n    - __param_target\n    target_label: instance\n  - action: labelmap\n    regex: __meta_kubernetes_service_label_(.+)\n  - source_labels:\n    - __meta_kubernetes_namespace\n    target_label: namespace\n  - source_labels:\n    - __meta_kubernetes_service_name\n    target_label: service\n- job_name: kubernetes-pods\n  kubernetes_sd_configs:\n  - role: pod\n  relabel_configs:\n  - action: drop\n    regex: true\n    source_labels:\n    - __meta_kubernetes_pod_container_init\n  - action: keep_if_equal\n    source_labels:\n    - __meta_kubernetes_pod_annotation_prometheus_io_port\n    - __meta_kubernetes_pod_container_port_number\n  - action: keep\n    regex: true\n    source_labels:\n    - __meta_kubernetes_pod_annotation_prometheus_io_scrape\n  - action: replace\n    regex: (.+)\n    source_labels:\n    - __meta_kubernetes_pod_annotation_prometheus_io_path\n    target_label: __metrics_path__\n  - action: replace\n    regex: ([^:]+)(?::\\d+)?;(\\d+)\n    replacement: $1:$2\n    source_labels:\n    - __address__\n    - __meta_kubernetes_pod_annotation_prometheus_io_port\n    target_label: __address__\n  - action: labelmap\n    regex: __meta_kubernetes_pod_label_(.+)\n  - source_labels:\n    - __meta_kubernetes_pod_name\n    target_label: pod\n  - source_labels:\n    - __meta_kubernetes_pod_container_name\n    target_label: container\n  - source_labels:\n    - __meta_kubernetes_namespace\n    target_label: namespace\n  - source_labels:\n    - __meta_kubernetes_service_name\n    target_label: service\n  - replacement: ${1}\n    source_labels:\n    - __meta_kubernetes_service_name\n    target_label: job\n  - action: replace\n    source_labels:\n    - __meta_kubernetes_pod_node_name\n    target_label: node\n"
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRole",
+    "metadata": {
+      "name": "release-name-victoria-metrics-agent-clusterrole",
+      "namespace": "default",
+      "labels": {
+        "helm.sh/chart": "victoria-metrics-agent-0.8.6",
+        "app.kubernetes.io/name": "victoria-metrics-agent",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.77.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "nodes",
+          "nodes/proxy",
+          "nodes/metrics",
+          "services",
+          "endpoints",
+          "pods"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch"
+        ]
+      },
+      {
+        "apiGroups": [
+          "extensions",
+          "networking.k8s.io"
+        ],
+        "resources": [
+          "ingresses"
+        ],
+        "verbs": [
+          "get",
+          "list",
+          "watch"
+        ]
+      },
+      {
+        "nonResourceURLs": [
+          "/metrics"
+        ],
+        "verbs": [
+          "get"
+        ]
+      },
+      {
+        "apiGroups": [
+          "extensions"
+        ],
+        "resources": [
+          "podsecuritypolicies"
+        ],
+        "verbs": [
+          "use"
+        ],
+        "resourceNames": [
+          "release-name-victoria-metrics-agent"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "ClusterRoleBinding",
+    "metadata": {
+      "name": "release-name-victoria-metrics-agent-clusterrolebinding",
+      "namespace": "default",
+      "labels": {
+        "helm.sh/chart": "victoria-metrics-agent-0.8.6",
+        "app.kubernetes.io/name": "victoria-metrics-agent",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.77.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "release-name-victoria-metrics-agent-clusterrole"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-victoria-metrics-agent",
+        "namespace": "default"
+      }
+    ]
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-victoria-metrics-agent",
+      "namespace": "aiIyAEH",
+      "labels": {
+        "helm.sh/chart": "victoria-metrics-agent-0.8.6",
+        "app.kubernetes.io/name": "victoria-metrics-agent",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "v1.77.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "victoria-metrics-agent",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "victoria-metrics-agent",
+            "app.kubernetes.io/instance": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "e86aa5bb9b8a70787e5cb8481942353263f5cdbccb0bf6bb55b866fbecaba585"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-victoria-metrics-agent",
+          "securityContext": {},
+          "containers": [
+            {
+              "name": "victoria-metrics-agent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "victoriametrics/vmagent:v1.77.2",
+              "workingDir": "/",
+              "args": [
+                "-promscrape.config=/config/scrape.yml",
+                "-remoteWrite.tmpDataPath=/tmpData",
+                "-envflag.enable=true",
+                "-envflag.prefix=VM_",
+                "-loggerFormat=json"
+              ],
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8429
+                }
+              ],
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "http"
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 15
+              },
+              "livenessProbe": {
+                "tcpSocket": {
+                  "port": "http"
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 15,
+                "timeoutSeconds": 5
+              },
+              "volumeMounts": [
+                {
+                  "name": "tmpdata",
+                  "mountPath": "/tmpData"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/config"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "tmpdata",
+              "emptyDir": {}
+            },
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-victoria-metrics-agent-config"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,191 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tks-contract
+  labels:
+    helm.sh/chart: tks-contract-0.1.0
+    app.kubernetes.io/service: tks
+    app.kubernetes.io/name: tks-contract
+    app.kubernetes.io/version: 0.1.0
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tks-contract
+  namespace: tks
+  labels:
+    helm.sh/chart: tks-contract-0.1.0
+    app.kubernetes.io/service: tks
+    app.kubernetes.io/name: tks-contract
+    app.kubernetes.io/version: 0.1.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 9110
+      targetPort: 9110
+      protocol: TCP
+  selector:
+    app.kubernetes.io/service: tks
+    app.kubernetes.io/name: tks-contract
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tks-contract
+  namespace: tks
+  labels:
+    helm.sh/chart: tks-contract-0.1.0
+    app.kubernetes.io/service: tks
+    app.kubernetes.io/name: tks-contract
+    app.kubernetes.io/version: 0.1.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/service: tks
+      app.kubernetes.io/name: tks-contract
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/service: tks
+        app.kubernetes.io/name: tks-contract
+    spec:
+      serviceAccountName: tks-contract
+      securityContext: {}
+      containers:
+        - name: tks-contract
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: docker.io/sktcloud/tks-contract:latest
+          imagePullPolicy: Always
+          ports:
+            - name: tks-contract
+              containerPort: 9110
+              protocol: TCP
+          command:
+            - /app/server
+          env:
+            - name: LOG_LEVEL
+              value: DEBUG
+          args:
+            - -port
+            - "9110"
+            - -dbhost
+            - postgresql.decapod-db.svc
+            - -dbport
+            - "5432"
+            - -dbuser
+            - tksuser
+            - -dbpassword
+            - tkspassword
+            - -info-address
+            - tks-info.tks.svc
+            - -info-port
+            - "9110"
+            - -argo-address
+            - argo-workflows-operator-server.argo.svc
+            - -argo-port
+            - "2746"
+            - -revision
+            - main
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tks-contract
+  namespace: tks
+  labels:
+    helm.sh/chart: tks-contract-0.1.0
+    app.kubernetes.io/service: tks
+    app.kubernetes.io/name: tks-contract
+    app.kubernetes.io/version: 0.1.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: pre-install
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  template:
+    metadata:
+      name: tks-contract
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: pre-install-job
+          image: bitnami/postgresql:11.12.0-debian-10-r44
+          env:
+            - name: DB_ADMIN_USER
+              value: postgres
+            - name: PGPASSWORD
+              value: tacopassword
+            - name: DB_NAME
+              value: tks
+            - name: DB_USER
+              value: tksuser
+            - name: DB_PASSWORD
+              value: tkspassword
+            - name: DB_URL
+              value: postgresql.decapod-db.svc
+            - name: DB_PORT
+              value: "5432"
+          command:
+            - /bin/bash
+            - -c
+            - -x
+            - |
+              # check if ${DB_NAME} database already exists.
+              psql -h ${DB_URL} -p ${DB_PORT} -U ${DB_ADMIN_USER} -lqt | cut -d \| -f 1 | grep -qw ${DB_NAME}
+              if [[ $? -ne 0 ]]; then
+                psql -h ${DB_URL} -p ${DB_PORT} -U ${DB_ADMIN_USER} -c "CREATE DATABASE ${DB_NAME};"
+              fi
+
+              # check if ${DB_USER} user already exists.
+              psql -h ${DB_URL} -p ${DB_PORT} -U ${DB_ADMIN_USER} -tc '\du' | cut -d \| -f 1 | grep -qw ${DB_USER}
+              if [[ $? -ne 0 ]]; then
+                psql -h ${DB_URL} -p ${DB_PORT} -U ${DB_ADMIN_USER} -c "create user ${DB_USER} SUPERUSER password '${DB_PASSWORD}';"
+              fi
+
+              # check if contracts table in tks database already exists.
+              psql -h ${DB_URL} -p ${DB_PORT} -U ${DB_ADMIN_USER} -d ${DB_NAME} -tc '\dt' | cut -d \| -f 2 | grep -qw contracts
+              if [[ $? -ne 0 ]]; then
+                echo """
+                  \c ${DB_NAME};
+                  CREATE TABLE contracts
+                  (
+                      contractor_name character varying(50) COLLATE pg_catalog."default",
+                      id uuid primary key,
+                      available_services character varying(50)[] COLLATE pg_catalog."default",
+                      updated_at timestamp with time zone,
+                      created_at timestamp with time zone
+                  );
+                  CREATE UNIQUE INDEX idx_contractor_name ON contracts(contractor_name);
+                  ALTER TABLE contracts CLUSTER ON idx_contractor_name;
+                  INSERT INTO contracts(
+                    contractor_name, id, available_services, updated_at, created_at)
+                    VALUES ('tester', 'edcaa975-dde4-4c4d-94f7-36bc38fe7064', ARRAY['lma'], '2021-05-01'::timestamp, '2021-05-01'::timestamp);
+
+                  CREATE TABLE resource_quota
+                  (
+                      id uuid primary key,
+                      cpu bigint,
+                      memory bigint,
+                      block bigint,
+                      block_ssd bigint,
+                      fs bigint,
+                      fs_ssd bigint,
+                      contract_id uuid,
+                      updated_at timestamp with time zone,
+                      created_at timestamp with time zone
+                  );
+                """ | psql -h ${DB_URL} -p ${DB_PORT} -U ${DB_ADMIN_USER}
+              fi

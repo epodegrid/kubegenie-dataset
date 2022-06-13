@@ -1,0 +1,261 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "wordpress-secret",
+      "labels": {
+        "helm.sh/chart": "wordpress-0.5",
+        "app-name": "wordpress",
+        "component": "blog-server",
+        "hostNetwork": "false",
+        "internal-service": "true",
+        "managed-by": "chynten",
+        "created-by": "chynten",
+        "version": "5.9.3-php8.1-apache"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "WORDPRESS_DB_PASSWORD": "d29yZHByZXNz"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "name": "wordpress-pvc"
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "15G"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "wordpress-svc",
+      "labels": {
+        "helm.sh/chart": "wordpress-0.5",
+        "app-name": "wordpress",
+        "component": "blog-server",
+        "hostNetwork": "false",
+        "internal-service": "true",
+        "managed-by": "chynten",
+        "created-by": "chynten",
+        "version": "5.9.3-php8.1-apache"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "http",
+          "protocol": "TCP",
+          "port": 80,
+          "targetPort": 80
+        }
+      ],
+      "selector": {
+        "app-name": "wordpress"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "wordpress-deployment",
+      "labels": {
+        "helm.sh/chart": "wordpress-0.5",
+        "app-name": "wordpress",
+        "component": "blog-server",
+        "hostNetwork": "false",
+        "internal-service": "true",
+        "managed-by": "chynten",
+        "created-by": "chynten",
+        "version": "5.9.3-php8.1-apache"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "revisionHistoryLimit": 5,
+      "selector": {
+        "matchLabels": {
+          "app-name": "wordpress"
+        }
+      },
+      "strategy": {
+        "type": "Recreate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app-name": "wordpress"
+          }
+        },
+        "spec": {
+          "hostNetwork": false,
+          "restartPolicy": "Always",
+          "containers": [
+            {
+              "name": "wordpress",
+              "image": "wordpress:5.8.0-php8.0-apache",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "ports": [
+                {
+                  "containerPort": 80,
+                  "name": "http"
+                }
+              ],
+              "env": [
+                {
+                  "name": "WORDPRESS_DB_HOST",
+                  "value": "mysql-svc.internal.svc.cluster.local"
+                },
+                {
+                  "name": "WORDPRESS_DB_USER",
+                  "value": "wordpress"
+                },
+                {
+                  "name": "WORDPRESS_DB_NAME",
+                  "value": "wordpress"
+                },
+                {
+                  "name": "WORDPRESS_TABLE_PREFIX",
+                  "value": "wp_"
+                },
+                {
+                  "name": "WORDPRESS_DB_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "wordpress-secret",
+                      "key": "WORDPRESS_DB_PASSWORD"
+                    }
+                  }
+                }
+              ],
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "scheme": "HTTP",
+                  "port": 80
+                },
+                "failureThreshold": 5,
+                "periodSeconds": 10
+              },
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "scheme": "HTTP",
+                  "port": 80
+                },
+                "failureThreshold": 5,
+                "periodSeconds": 10
+              },
+              "startupProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "scheme": "HTTP",
+                  "port": 80
+                },
+                "failureThreshold": 30,
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10
+              },
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/var/www/html",
+                  "subPath": "wordpress"
+                }
+              ]
+            }
+          ],
+          "securityContext": {},
+          "volumes": [
+            {
+              "name": "data",
+              "persistentVolumeClaim": {
+                "claimName": "wordpress-pvc"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "wordpress-ingress",
+      "labels": {
+        "helm.sh/chart": "wordpress-0.5",
+        "app-name": "wordpress",
+        "component": "blog-server",
+        "hostNetwork": "false",
+        "internal-service": "true",
+        "managed-by": "chynten",
+        "created-by": "chynten",
+        "version": "5.9.3-php8.1-apache"
+      },
+      "annotations": {
+        "cert-manager.io/cluster-issuer": "letsencrypt",
+        "kubernetes.io/ingress.class": "nginx"
+      }
+    },
+    "spec": {
+      "tls": [
+        {
+          "hosts": [
+            "blog.example.com"
+          ],
+          "secretName": "wordpress-letsencrypt-certificate"
+        }
+      ],
+      "rules": [
+        {
+          "host": "blog.example.com",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "pathType": "Prefix",
+                "backend": {
+                  "service": {
+                    "name": "wordpress-svc",
+                    "port": {
+                      "number": 80
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

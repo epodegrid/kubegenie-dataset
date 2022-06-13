@@ -1,0 +1,654 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: release-name-default-deny
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: release-name-dns-egress
+spec:
+  podSelector:
+    matchLabels:
+      dns-policy: enabled
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: release-name-mongodb-from-topo
+spec:
+  podSelector:
+    matchLabels:
+      app: mongodb
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: toposervice
+      ports:
+        - port: 27017
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: release-name-mysql-from-server
+spec:
+  podSelector:
+    matchLabels:
+      app: mysql
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: server
+      ports:
+        - port: 3306
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: release-name-planner-to-rabbit-weather-topo
+spec:
+  podSelector:
+    matchLabels:
+      app: planner
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: rabbitmq
+      ports:
+        - port: 5672
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: weatherservice
+      ports:
+        - port: 9090
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: toposervice
+      ports:
+        - port: 8181
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: release-name-rabbitmq-from-planner-server
+spec:
+  podSelector:
+    matchLabels:
+      app: rabbitmq
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: planner
+        - podSelector:
+            matchLabels:
+              app: server
+      ports:
+        - port: 5672
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: release-name-server-to-mysql-rabbit
+spec:
+  podSelector:
+    matchLabels:
+      app: server
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mysql
+      ports:
+        - port: 3306
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: rabbitmq
+      ports:
+        - port: 5672
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: release-name-server-from-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: server
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: release-name-topo-to-mongodb
+spec:
+  podSelector:
+    matchLabels:
+      app: toposervice
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mongodb
+      ports:
+        - port: 27017
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: release-name-topo-from-planner-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: toposervice
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: planner
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8181
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: release-name-weather-from-planner
+spec:
+  podSelector:
+    matchLabels:
+      app: weatherservice
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: planner
+      ports:
+        - port: 9090
+          protocol: TCP
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: release-name-mongo-pv
+spec:
+  storageClassName: mongo
+  accessModes:
+    - ReadWriteOnce
+  capacity:
+    storage: 1Gi
+  hostPath:
+    path: /db/mongo
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: release-name-mysql-pv
+spec:
+  storageClassName: mysql
+  accessModes:
+    - ReadWriteOnce
+  capacity:
+    storage: 1Gi
+  hostPath:
+    path: /db/mysql
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: release-name-rabbit-pv
+spec:
+  storageClassName: rabbit
+  accessModes:
+    - ReadWriteOnce
+  capacity:
+    storage: 1Gi
+  hostPath:
+    path: /db/rabbitmq
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: release-name-mongo-pvc
+spec:
+  storageClassName: mongo
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: release-name-mysql-pvc
+spec:
+  storageClassName: mysql
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: release-name-rabbit-pvc
+spec:
+  storageClassName: rabbit
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-mongodb-service
+  labels:
+    app: mongodb
+spec:
+  ports:
+    - port: 27017
+      targetPort: 27017
+      protocol: TCP
+      name: mongodb-port-27017
+    - port: 27018
+      targetPort: 27018
+      protocol: TCP
+      name: mongodb-port-27018
+    - port: 27019
+      targetPort: 27019
+      protocol: TCP
+      name: mongodb-port-27019
+  selector:
+    app: mongodb
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-mysql-service
+  labels:
+    app: mysql
+spec:
+  ports:
+    - port: 3306
+      targetPort: 3306
+      protocol: TCP
+      name: mysql-port
+  selector:
+    app: mysql
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-rabbitmq-service
+  labels:
+    app: rabbitmq
+spec:
+  ports:
+    - port: 5672
+      targetPort: 5672
+      protocol: TCP
+      name: rabbitmq-port-5672
+    - port: 15672
+      targetPort: 15672
+      protocol: TCP
+      name: rabbitmq-port-15672
+  selector:
+    app: rabbitmq
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-server-service
+  labels:
+    app: server
+spec:
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: server-port
+  selector:
+    app: server
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-toposervice-service
+  labels:
+    app: toposervice
+spec:
+  ports:
+    - port: 8181
+      targetPort: 8181
+      protocol: TCP
+      name: topo-port
+  selector:
+    app: toposervice
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-weatherservice-service
+  labels:
+    app: weatherservice
+spec:
+  ports:
+    - port: 9090
+      targetPort: 9090
+      protocol: TCP
+      name: weatherservice-port
+  selector:
+    app: weatherservice
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-mongodb-deploy
+spec:
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mongodb
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: mongodb
+    spec:
+      containers:
+        - name: mongodb
+          image: mongo:5.0.6-focal
+          env:
+            - name: MONGO_INITDB_DATABASE
+              value: eoloplantsDB
+            - name: MONGO_INITDB_ROOT_USERNAME
+              value: root
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              value: password
+          ports:
+            - containerPort: 27017
+            - containerPort: 27018
+            - containerPort: 27019
+          volumeMounts:
+            - mountPath: /data/db
+              name: datadb
+      volumes:
+        - name: datadb
+          persistentVolumeClaim:
+            claimName: release-name-mongo-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-mysql-deploy
+spec:
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mysql
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0.28
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: password
+            - name: MYSQL_DATABASE
+              value: eoloplantsDB
+          ports:
+            - containerPort: 3306
+          volumeMounts:
+            - mountPath: /var/lib/mysql
+              name: datadb
+      volumes:
+        - name: datadb
+          persistentVolumeClaim:
+            claimName: release-name-mysql-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-planner-deploy
+spec:
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: planner
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: planner
+        dns-policy: enabled
+    spec:
+      securityContext:
+        runAsUser: 1001
+      restartPolicy: Always
+      containers:
+        - name: planner
+          image: huertaslopez/i.huertas.2021-v.martinp.2021-planner:2.0.0
+          env:
+            - name: TOPO_HOST
+              value: release-name-toposervice-service
+            - name: TOPO_PORT
+              value: "8181"
+            - name: GRPC_CLIENT_WEATHERSERVER_ADDRESS
+              value: static://release-name-weatherservice-service:9090
+            - name: SPRING_CLOUD_STREAM_RABBIT_BINDER_NODES
+              value: rabbitmq-service:5672
+            - name: SPRING_RABBITMQ_HOST
+              value: release-name-rabbitmq-service
+            - name: SPRING_RABBITMQ_PORT
+              value: "5672"
+            - name: SPRING_RABBITMQ_USERNAME
+              value: root
+            - name: SPRING_RABBITMQ_PASSWORD
+              value: password
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-rabbitmq-deploy
+spec:
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: rabbitmq
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:3.9-management
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              value: root
+            - name: RABBITMQ_DEFAULT_PASS
+              value: password
+          ports:
+            - containerPort: 5672
+            - containerPort: 15672
+          volumeMounts:
+            - mountPath: /var/lib/rabbitmq/mnesia
+              name: datarabbit
+      volumes:
+        - name: datarabbit
+          persistentVolumeClaim:
+            claimName: release-name-rabbit-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-server-deploy
+spec:
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: server
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: server
+        dns-policy: enabled
+    spec:
+      securityContext:
+        runAsUser: 1001
+      restartPolicy: Always
+      containers:
+        - name: server
+          image: codeurjc/server:v1.0
+          command:
+            - bash
+          args:
+            - -c
+            - ./wait-for-it.sh release-name-mysql-service:3306 -t 20 -- ./wait-for-it.sh release-name-rabbitmq-service:5672 -t 20 -- node src/server.js
+          env:
+            - name: MYSQL_HOST
+              value: release-name-mysql-service
+            - name: MYSQL_DB
+              value: eoloplantsDB
+            - name: MYSQL_USER
+              value: root
+            - name: MYSQL_PASS
+              value: password
+            - name: RABBITMQ_URL
+              value: amqp://root:password@release-name-rabbitmq-service
+          ports:
+            - containerPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-toposervice-deploy
+spec:
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: toposervice
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: toposervice
+        dns-policy: enabled
+    spec:
+      securityContext:
+        runAsUser: 1001
+      restartPolicy: Always
+      containers:
+        - name: toposervice
+          image: codeurjc/toposervice:v1.0
+          env:
+            - name: SPRING_DATA_MONGODB_HOST
+              value: release-name-mongodb-service
+            - name: SPRING_DATA_MONGODB_PORT
+              value: "27017"
+            - name: SPRING_DATA_MONGODB_DATABASE
+              value: eoloplantsDB
+            - name: SPRING_DATA_MONGODB_AUTHENTICATION-DATABASE
+              value: admin
+            - name: SPRING_DATA_MONGODB_USERNAME
+              value: root
+            - name: SPRING_DATA_MONGODB_PASSWORD
+              value: password
+          ports:
+            - containerPort: 8181
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-weatherservice-deploy
+spec:
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: weatherservice
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: weatherservice
+    spec:
+      securityContext:
+        runAsUser: 1001
+      restartPolicy: Always
+      containers:
+        - name: weatherservice
+          image: codeurjc/weatherservice:v1.0
+          env:
+            - name: GRPC_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: GRPC_PORT
+              value: "9090"
+          ports:
+            - containerPort: 9090

@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: drycc-logger
+  labels:
+    heritage: drycc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: drycc-logger
+  labels:
+    heritage: drycc
+    app: drycc-logger
+spec:
+  ports:
+    - port: 80
+      name: http
+      targetPort: http
+  selector:
+    app: drycc-logger
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: drycc-logger
+  labels:
+    heritage: drycc
+  annotations:
+    component.drycc.cc/version: 1.2.0
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: drycc-logger
+  template:
+    metadata:
+      labels:
+        app: drycc-logger
+    spec:
+      initContainers:
+        - name: drycc-logger-init
+          image: docker.io/drycc/python-dev:latest
+          imagePullPolicy: Always
+          command:
+            - netcat
+            - -v
+            - -a
+            - $(DRYCC_REDIS_ADDRS),$(DRYCC_NSQD_ADDRS)
+          env:
+            - name: DRYCC_REDIS_ADDRS
+              value: drycc-redis-0.drycc-redis.default.svc.cluster.local:6379
+            - name: DRYCC_NSQD_ADDRS
+              value: drycc-nsqd-0.drycc-nsqd.default.svc.cluster.local:4150
+      containers:
+        - name: drycc-logger
+          image: docker.io/drycc/logger:1.2.0
+          imagePullPolicy: Always
+          env:
+            - name: STORAGE_ADAPTER
+              value: redis
+            - name: DRYCC_REDIS_ADDRS
+              value: drycc-redis-0.drycc-redis.default.svc.cluster.local:6379
+            - name: DRYCC_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-creds
+                  key: password
+            - name: DRYCC_NSQD_ADDRS
+              value: drycc-nsqd-0.drycc-nsqd.default.svc.cluster.local:4150
+          ports:
+            - containerPort: 8088
+              name: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8088
+            initialDelaySeconds: 1
+            timeoutSeconds: 1
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8088
+            initialDelaySeconds: 1
+            timeoutSeconds: 1

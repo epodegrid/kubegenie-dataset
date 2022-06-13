@@ -1,0 +1,1235 @@
+[
+  {
+    "apiVersion": "policy/v1beta1",
+    "kind": "PodDisruptionBudget",
+    "metadata": {
+      "name": "release-name-zookeeper",
+      "labels": {
+        "app": "zookeeper",
+        "chart": "zookeeper-2.1.6",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "server"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "zookeeper",
+          "release": "release-name",
+          "component": "server"
+        }
+      },
+      "maxUnavailable": 1
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-pinot",
+      "labels": {
+        "helm.sh/chart": "pinot-0.2.4",
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "app.kubernetes.io/version": "0.2.4",
+        "app.kubernetes.io/managed-by": "Helm",
+        "heritage": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-zookeeper",
+      "labels": {
+        "app": "zookeeper",
+        "chart": "zookeeper-2.1.6",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "server"
+      }
+    },
+    "data": {
+      "ok": "#!/bin/sh\nzkServer.sh status\n",
+      "ready": "#!/bin/sh\necho ruok | nc 127.0.0.1 ${1:-2181}\n",
+      "run": "#!/bin/bash\n\nset -a\nROOT=$(echo /apache-zookeeper-*)\n\nZK_USER=${ZK_USER:-\"zookeeper\"}\nZK_LOG_LEVEL=${ZK_LOG_LEVEL:-\"INFO\"}\nZK_DATA_DIR=${ZK_DATA_DIR:-\"/data\"}\nZK_DATA_LOG_DIR=${ZK_DATA_LOG_DIR:-\"/data/log\"}\nZK_CONF_DIR=${ZK_CONF_DIR:-\"/conf\"}\nZK_CLIENT_PORT=${ZK_CLIENT_PORT:-2181}\nZK_SERVER_PORT=${ZK_SERVER_PORT:-2888}\nZK_ELECTION_PORT=${ZK_ELECTION_PORT:-3888}\nZK_TICK_TIME=${ZK_TICK_TIME:-2000}\nZK_INIT_LIMIT=${ZK_INIT_LIMIT:-10}\nZK_SYNC_LIMIT=${ZK_SYNC_LIMIT:-5}\nZK_HEAP_SIZE=${ZK_HEAP_SIZE:-2G}\nZK_MAX_CLIENT_CNXNS=${ZK_MAX_CLIENT_CNXNS:-60}\nZK_MIN_SESSION_TIMEOUT=${ZK_MIN_SESSION_TIMEOUT:- $((ZK_TICK_TIME*2))}\nZK_MAX_SESSION_TIMEOUT=${ZK_MAX_SESSION_TIMEOUT:- $((ZK_TICK_TIME*20))}\nZK_SNAP_RETAIN_COUNT=${ZK_SNAP_RETAIN_COUNT:-3}\nZK_PURGE_INTERVAL=${ZK_PURGE_INTERVAL:-0}\nID_FILE=\"$ZK_DATA_DIR/myid\"\nZK_CONFIG_FILE=\"$ZK_CONF_DIR/zoo.cfg\"\nLOG4J_PROPERTIES=\"$ZK_CONF_DIR/log4j.properties\"\nHOST=$(hostname)\nDOMAIN=`hostname -d`\nJVMFLAGS=\"-Xmx$ZK_HEAP_SIZE -Xms$ZK_HEAP_SIZE\"\n\nAPPJAR=$(echo $ROOT/*jar)\nCLASSPATH=\"${ROOT}/lib/*:${APPJAR}:${ZK_CONF_DIR}:\"\n\nif [[ $HOST =~ (.*)-([0-9]+)$ ]]; then\n    NAME=${BASH_REMATCH[1]}\n    ORD=${BASH_REMATCH[2]}\n    MY_ID=$((ORD+1))\nelse\n    echo \"Failed to extract ordinal from hostname $HOST\"\n    exit 1\nfi\n\nmkdir -p $ZK_DATA_DIR\nmkdir -p $ZK_DATA_LOG_DIR\necho $MY_ID >> $ID_FILE\n\necho \"clientPort=$ZK_CLIENT_PORT\" >> $ZK_CONFIG_FILE\necho \"dataDir=$ZK_DATA_DIR\" >> $ZK_CONFIG_FILE\necho \"dataLogDir=$ZK_DATA_LOG_DIR\" >> $ZK_CONFIG_FILE\necho \"tickTime=$ZK_TICK_TIME\" >> $ZK_CONFIG_FILE\necho \"initLimit=$ZK_INIT_LIMIT\" >> $ZK_CONFIG_FILE\necho \"syncLimit=$ZK_SYNC_LIMIT\" >> $ZK_CONFIG_FILE\necho \"maxClientCnxns=$ZK_MAX_CLIENT_CNXNS\" >> $ZK_CONFIG_FILE\necho \"minSessionTimeout=$ZK_MIN_SESSION_TIMEOUT\" >> $ZK_CONFIG_FILE\necho \"maxSessionTimeout=$ZK_MAX_SESSION_TIMEOUT\" >> $ZK_CONFIG_FILE\necho \"autopurge.snapRetainCount=$ZK_SNAP_RETAIN_COUNT\" >> $ZK_CONFIG_FILE\necho \"autopurge.purgeInterval=$ZK_PURGE_INTERVAL\" >> $ZK_CONFIG_FILE\necho \"4lw.commands.whitelist=*\" >> $ZK_CONFIG_FILE\n\nfor (( i=1; i<=$ZK_REPLICAS; i++ ))\ndo\n    echo \"server.$i=$NAME-$((i-1)).$DOMAIN:$ZK_SERVER_PORT:$ZK_ELECTION_PORT\" >> $ZK_CONFIG_FILE\ndone\n\nrm -f $LOG4J_PROPERTIES\n\necho \"zookeeper.root.logger=$ZK_LOG_LEVEL, CONSOLE\" >> $LOG4J_PROPERTIES\necho \"zookeeper.console.threshold=$ZK_LOG_LEVEL\" >> $LOG4J_PROPERTIES\necho \"zookeeper.log.threshold=$ZK_LOG_LEVEL\" >> $LOG4J_PROPERTIES\necho \"zookeeper.log.dir=$ZK_DATA_LOG_DIR\" >> $LOG4J_PROPERTIES\necho \"zookeeper.log.file=zookeeper.log\" >> $LOG4J_PROPERTIES\necho \"zookeeper.log.maxfilesize=256MB\" >> $LOG4J_PROPERTIES\necho \"zookeeper.log.maxbackupindex=10\" >> $LOG4J_PROPERTIES\necho \"zookeeper.tracelog.dir=$ZK_DATA_LOG_DIR\" >> $LOG4J_PROPERTIES\necho \"zookeeper.tracelog.file=zookeeper_trace.log\" >> $LOG4J_PROPERTIES\necho \"log4j.rootLogger=\\${zookeeper.root.logger}\" >> $LOG4J_PROPERTIES\necho \"log4j.appender.CONSOLE=org.apache.log4j.ConsoleAppender\" >> $LOG4J_PROPERTIES\necho \"log4j.appender.CONSOLE.Threshold=\\${zookeeper.console.threshold}\" >> $LOG4J_PROPERTIES\necho \"log4j.appender.CONSOLE.layout=org.apache.log4j.PatternLayout\" >> $LOG4J_PROPERTIES\necho \"log4j.appender.CONSOLE.layout.ConversionPattern=%d{ISO8601} [myid:%X{myid}] - %-5p [%t:%C{1}@%L] - %m%n\" >> $LOG4J_PROPERTIES\n\nif [ -n \"$JMXDISABLE\" ]\nthen\n    MAIN=org.apache.zookeeper.server.quorum.QuorumPeerMain\nelse\n    MAIN=\"-Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=$JMXPORT -Dcom.sun.management.jmxremote.authenticate=$JMXAUTH -Dcom.sun.management.jmxremote.ssl=$JMXSSL -Dzookeeper.jmx.log4j.disable=$JMXLOG4J org.apache.zookeeper.server.quorum.QuorumPeerMain\"\nfi\n\nset -x\nexec java -cp \"$CLASSPATH\" $JVMFLAGS $MAIN $ZK_CONFIG_FILE\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-pinot-broker-config"
+    },
+    "data": {
+      "pinot-broker.conf": "pinot.broker.client.queryPort=8099\npinot.broker.routing.table.builder.class=random\npinot.set.instance.id.to.hostname=true\npinot.broker.access.control.class=org.apache.pinot.broker.broker.BasicAuthAccessControlFactory\npinot.broker.access.control.principals=admin\npinot.broker.access.control.principals.admin.password=verysecure"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-pinot-controller-config"
+    },
+    "data": {
+      "pinot-controller.conf": "controller.helix.cluster.name=pinot-quickstart\ncontroller.port=9000\ncontroller.data.dir=/var/pinot/controller/data\ncontroller.zk.str=release-name-zookeeper:2181\npinot.set.instance.id.to.hostname=true\ncontroller.task.scheduler.enabled=true\ncontroller.admin.access.control.factory.class=org.apache.pinot.controller.api.access.BasicAuthAccessControlFactory\ncontroller.admin.access.control.principals=admin\ncontroller.admin.access.control.principals.admin.password=verysecret"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-pinot-minion-config"
+    },
+    "data": {
+      "pinot-minion.conf": "pinot.minion.port=9514\ndataDir=/var/pinot/minion/data\npinot.set.instance.id.to.hostname=true"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-pinot-server-config"
+    },
+    "data": {
+      "pinot-server.conf": "pinot.server.netty.port=8098\npinot.server.adminapi.port=8097\npinot.server.instance.dataDir=/var/pinot/server/data/index\npinot.server.instance.segmentTarDir=/var/pinot/server/data/segment\npinot.set.instance.id.to.hostname=true\npinot.server.instance.realtime.alloc.offheap=true\npinot.server.instance.currentDataTableVersion=2"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-zookeeper-headless",
+      "labels": {
+        "app": "zookeeper",
+        "chart": "zookeeper-2.1.6",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "client",
+          "port": 2181,
+          "targetPort": "client",
+          "protocol": "TCP"
+        },
+        {
+          "name": "election",
+          "port": 3888,
+          "targetPort": "election",
+          "protocol": "TCP"
+        },
+        {
+          "name": "server",
+          "port": 2888,
+          "targetPort": "server",
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app": "zookeeper",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-zookeeper",
+      "labels": {
+        "app": "zookeeper",
+        "chart": "zookeeper-2.1.6",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "client",
+          "port": 2181,
+          "protocol": "TCP",
+          "targetPort": "client"
+        }
+      ],
+      "selector": {
+        "app": "zookeeper",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-pinot-broker-headless",
+      "labels": {
+        "helm.sh/chart": "pinot-0.2.4",
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "app.kubernetes.io/version": "0.2.4",
+        "app.kubernetes.io/managed-by": "Helm",
+        "heritage": "Helm",
+        "component": "broker"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "broker",
+          "port": 8099
+        }
+      ],
+      "selector": {
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "component": "broker"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-pinot-broker",
+      "annotations": {
+        "type": "service"
+      },
+      "labels": {
+        "helm.sh/chart": "pinot-0.2.4",
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "app.kubernetes.io/version": "0.2.4",
+        "app.kubernetes.io/managed-by": "Helm",
+        "heritage": "Helm",
+        "component": "broker"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "broker",
+          "port": 8099
+        }
+      ],
+      "selector": {
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "component": "broker"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-pinot-controller-headless",
+      "labels": {
+        "helm.sh/chart": "pinot-0.2.4",
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "app.kubernetes.io/version": "0.2.4",
+        "app.kubernetes.io/managed-by": "Helm",
+        "heritage": "Helm",
+        "component": "controller"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "controller",
+          "port": 9000
+        }
+      ],
+      "selector": {
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "component": "controller"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-pinot-controller",
+      "annotations": {
+        "type": "service"
+      },
+      "labels": {
+        "helm.sh/chart": "pinot-0.2.4",
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "app.kubernetes.io/version": "0.2.4",
+        "app.kubernetes.io/managed-by": "Helm",
+        "heritage": "Helm",
+        "component": "controller"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "controller",
+          "port": 9000
+        }
+      ],
+      "selector": {
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "component": "controller"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-pinot-minion-headless",
+      "labels": {
+        "helm.sh/chart": "pinot-0.2.4",
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "app.kubernetes.io/version": "0.2.4",
+        "app.kubernetes.io/managed-by": "Helm",
+        "heritage": "Helm",
+        "component": "minion"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "minion",
+          "port": 9514
+        }
+      ],
+      "selector": {
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "component": "minion"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-pinot-minion",
+      "annotations": {
+        "type": "service"
+      },
+      "labels": {
+        "helm.sh/chart": "pinot-0.2.4",
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "app.kubernetes.io/version": "0.2.4",
+        "app.kubernetes.io/managed-by": "Helm",
+        "heritage": "Helm",
+        "component": "minion"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "minion",
+          "port": 9514
+        }
+      ],
+      "selector": {
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "component": "minion"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-pinot-server-headless",
+      "labels": {
+        "helm.sh/chart": "pinot-0.2.4",
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "app.kubernetes.io/version": "0.2.4",
+        "app.kubernetes.io/managed-by": "Helm",
+        "heritage": "Helm",
+        "component": "server"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "netty",
+          "port": 8098,
+          "protocol": "TCP"
+        },
+        {
+          "name": "admin",
+          "port": 80,
+          "targetPort": 8097,
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "component": "server"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-pinot-server",
+      "annotations": {
+        "type": "service"
+      },
+      "labels": {
+        "helm.sh/chart": "pinot-0.2.4",
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "app.kubernetes.io/version": "0.2.4",
+        "app.kubernetes.io/managed-by": "Helm",
+        "heritage": "Helm",
+        "component": "server"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "netty",
+          "port": 8098,
+          "protocol": "TCP"
+        },
+        {
+          "name": "admin",
+          "port": 80,
+          "targetPort": 8097,
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "component": "server"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-zookeeper",
+      "labels": {
+        "app": "zookeeper",
+        "chart": "zookeeper-2.1.6",
+        "release": "release-name",
+        "heritage": "Helm",
+        "component": "server"
+      }
+    },
+    "spec": {
+      "serviceName": "release-name-zookeeper-headless",
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "zookeeper",
+          "release": "release-name",
+          "component": "server"
+        }
+      },
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "zookeeper",
+            "release": "release-name",
+            "component": "server"
+          }
+        },
+        "spec": {
+          "terminationGracePeriodSeconds": 1800,
+          "securityContext": {
+            "fsGroup": 1000,
+            "runAsUser": 1000
+          },
+          "containers": [
+            {
+              "name": "zookeeper",
+              "image": "zookeeper:3.5.5",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/bin/bash",
+                "-xec",
+                "/config-scripts/run"
+              ],
+              "ports": [
+                {
+                  "name": "client",
+                  "containerPort": 2181,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "election",
+                  "containerPort": 3888,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "server",
+                  "containerPort": 2888,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "sh",
+                    "/config-scripts/ok"
+                  ]
+                },
+                "initialDelaySeconds": 20,
+                "periodSeconds": 30,
+                "timeoutSeconds": 5,
+                "failureThreshold": 2,
+                "successThreshold": 1
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "sh",
+                    "/config-scripts/ready"
+                  ]
+                },
+                "initialDelaySeconds": 20,
+                "periodSeconds": 30,
+                "timeoutSeconds": 5,
+                "failureThreshold": 2,
+                "successThreshold": 1
+              },
+              "env": [
+                {
+                  "name": "ZK_REPLICAS",
+                  "value": "1"
+                },
+                {
+                  "name": "JMXAUTH",
+                  "value": "false"
+                },
+                {
+                  "name": "JMXDISABLE",
+                  "value": "false"
+                },
+                {
+                  "name": "JMXPORT",
+                  "value": "1099"
+                },
+                {
+                  "name": "JMXSSL",
+                  "value": "false"
+                },
+                {
+                  "name": "ZK_HEAP_SIZE",
+                  "value": "256M"
+                },
+                {
+                  "name": "ZK_SYNC_LIMIT",
+                  "value": "10"
+                },
+                {
+                  "name": "ZK_TICK_TIME",
+                  "value": "2000"
+                },
+                {
+                  "name": "ZOO_AUTOPURGE_PURGEINTERVAL",
+                  "value": "0"
+                },
+                {
+                  "name": "ZOO_AUTOPURGE_SNAPRETAINCOUNT",
+                  "value": "3"
+                },
+                {
+                  "name": "ZOO_INIT_LIMIT",
+                  "value": "5"
+                },
+                {
+                  "name": "ZOO_MAX_CLIENT_CNXNS",
+                  "value": "60"
+                },
+                {
+                  "name": "ZOO_PORT",
+                  "value": "2181"
+                },
+                {
+                  "name": "ZOO_STANDALONE_ENABLED",
+                  "value": "false"
+                },
+                {
+                  "name": "ZOO_TICK_TIME",
+                  "value": "2000"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/data"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/config-scripts"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-zookeeper",
+                "defaultMode": 365
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "5Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-pinot-broker",
+      "labels": {
+        "helm.sh/chart": "pinot-0.2.4",
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "app.kubernetes.io/version": "0.2.4",
+        "app.kubernetes.io/managed-by": "Helm",
+        "heritage": "Helm",
+        "component": "broker"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "pinot",
+          "chart": "pinot-0.2.4",
+          "release": "release-name",
+          "component": "broker"
+        }
+      },
+      "serviceName": "release-name-pinot-broker-headless",
+      "replicas": 1,
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "podManagementPolicy": "Parallel",
+      "template": {
+        "metadata": {
+          "labels": {
+            "helm.sh/chart": "pinot-0.2.4",
+            "app": "pinot",
+            "chart": "pinot-0.2.4",
+            "release": "release-name",
+            "app.kubernetes.io/version": "0.2.4",
+            "app.kubernetes.io/managed-by": "Helm",
+            "heritage": "Helm",
+            "component": "broker"
+          },
+          "annotations": {}
+        },
+        "spec": {
+          "terminationGracePeriodSeconds": 30,
+          "serviceAccountName": "release-name-pinot",
+          "securityContext": {},
+          "nodeSelector": {},
+          "affinity": {},
+          "tolerations": [],
+          "containers": [
+            {
+              "name": "broker",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "apachepinot/pinot:latest-jdk11",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "StartBroker",
+                "-clusterName",
+                "pinot-quickstart",
+                "-zkAddress",
+                "release-name-zookeeper:2181",
+                "-configFileName",
+                "/var/pinot/broker/config/pinot-broker.conf"
+              ],
+              "env": [
+                {
+                  "name": "JAVA_OPTS",
+                  "value": "-Xms256M -Xmx1G -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Xlog:gc*:file=/opt/pinot/gc-pinot-broker.log -Dlog4j2.configurationFile=/opt/pinot/conf/log4j2.xml -Dplugins.dir=/opt/pinot/plugins"
+                }
+              ],
+              "envFrom": [],
+              "ports": [
+                {
+                  "containerPort": 8099,
+                  "protocol": "TCP",
+                  "name": "broker"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/var/pinot/broker/config"
+                }
+              ],
+              "livenessProbe": {
+                "initialDelaySeconds": 60,
+                "periodSeconds": 10,
+                "httpGet": {
+                  "path": "/health",
+                  "port": 8099
+                }
+              },
+              "readinessProbe": {
+                "initialDelaySeconds": 60,
+                "periodSeconds": 10,
+                "httpGet": {
+                  "path": "/health",
+                  "port": 8099
+                }
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "restartPolicy": "Always",
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-pinot-broker-config"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-pinot-controller",
+      "labels": {
+        "helm.sh/chart": "pinot-0.2.4",
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "app.kubernetes.io/version": "0.2.4",
+        "app.kubernetes.io/managed-by": "Helm",
+        "heritage": "Helm",
+        "component": "controller"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "pinot",
+          "chart": "pinot-0.2.4",
+          "release": "release-name",
+          "component": "controller"
+        }
+      },
+      "serviceName": "release-name-pinot-controller-headless",
+      "replicas": 1,
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "podManagementPolicy": "Parallel",
+      "template": {
+        "metadata": {
+          "labels": {
+            "helm.sh/chart": "pinot-0.2.4",
+            "app": "pinot",
+            "chart": "pinot-0.2.4",
+            "release": "release-name",
+            "app.kubernetes.io/version": "0.2.4",
+            "app.kubernetes.io/managed-by": "Helm",
+            "heritage": "Helm",
+            "component": "controller"
+          },
+          "annotations": {}
+        },
+        "spec": {
+          "terminationGracePeriodSeconds": 30,
+          "serviceAccountName": "release-name-pinot",
+          "securityContext": {},
+          "nodeSelector": {},
+          "affinity": {},
+          "tolerations": [],
+          "containers": [
+            {
+              "name": "controller",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "apachepinot/pinot:latest-jdk11",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "StartController",
+                "-configFileName",
+                "/var/pinot/controller/config/pinot-controller.conf"
+              ],
+              "env": [
+                {
+                  "name": "JAVA_OPTS",
+                  "value": "-Xms256M -Xmx1G -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Xlog:gc*:file=/opt/pinot/gc-pinot-controller.log -Dlog4j2.configurationFile=/opt/pinot/conf/log4j2.xml -Dplugins.dir=/opt/pinot/plugins"
+                }
+              ],
+              "envFrom": [],
+              "ports": [
+                {
+                  "containerPort": 9000,
+                  "protocol": "TCP",
+                  "name": "controller"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/var/pinot/controller/config"
+                },
+                {
+                  "name": "data",
+                  "mountPath": "/var/pinot/controller/data"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "restartPolicy": "Always",
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-pinot-controller-config"
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "1G"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-pinot-minion",
+      "labels": {
+        "helm.sh/chart": "pinot-0.2.4",
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "app.kubernetes.io/version": "0.2.4",
+        "app.kubernetes.io/managed-by": "Helm",
+        "heritage": "Helm",
+        "component": "minion"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "pinot",
+          "chart": "pinot-0.2.4",
+          "release": "release-name",
+          "component": "minion"
+        }
+      },
+      "serviceName": "release-name-pinot-minion-headless",
+      "replicas": 1,
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "podManagementPolicy": "Parallel",
+      "template": {
+        "metadata": {
+          "labels": {
+            "helm.sh/chart": "pinot-0.2.4",
+            "app": "pinot",
+            "chart": "pinot-0.2.4",
+            "release": "release-name",
+            "app.kubernetes.io/version": "0.2.4",
+            "app.kubernetes.io/managed-by": "Helm",
+            "heritage": "Helm",
+            "component": "minion"
+          },
+          "annotations": {}
+        },
+        "spec": {
+          "terminationGracePeriodSeconds": 30,
+          "serviceAccountName": "release-name-pinot",
+          "securityContext": {},
+          "nodeSelector": {},
+          "affinity": {},
+          "tolerations": [],
+          "containers": [
+            {
+              "name": "minion",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "apachepinot/pinot:latest-jdk11",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "StartMinion",
+                "-clusterName",
+                "pinot-quickstart",
+                "-zkAddress",
+                "release-name-zookeeper:2181",
+                "-configFileName",
+                "/var/pinot/minion/config/pinot-minion.conf"
+              ],
+              "env": [
+                {
+                  "name": "JAVA_OPTS",
+                  "value": "-Xms256M -Xmx1G -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Xlog:gc*:file=/opt/pinot/gc-pinot-minion.log -Dlog4j2.configurationFile=/opt/pinot/conf/log4j2.xml -Dplugins.dir=/opt/pinot/plugins"
+                }
+              ],
+              "envFrom": [],
+              "ports": [
+                {
+                  "containerPort": 9514,
+                  "protocol": "TCP",
+                  "name": "minion"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/var/pinot/minion/config"
+                },
+                {
+                  "name": "data",
+                  "mountPath": "/var/pinot/minion/data"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "restartPolicy": "Always",
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-pinot-minion-config"
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "4G"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-pinot-server",
+      "labels": {
+        "helm.sh/chart": "pinot-0.2.4",
+        "app": "pinot",
+        "chart": "pinot-0.2.4",
+        "release": "release-name",
+        "app.kubernetes.io/version": "0.2.4",
+        "app.kubernetes.io/managed-by": "Helm",
+        "heritage": "Helm",
+        "component": "server"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "pinot",
+          "chart": "pinot-0.2.4",
+          "release": "release-name",
+          "component": "server"
+        }
+      },
+      "serviceName": "release-name-pinot-server-headless",
+      "replicas": 1,
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "podManagementPolicy": "Parallel",
+      "template": {
+        "metadata": {
+          "labels": {
+            "helm.sh/chart": "pinot-0.2.4",
+            "app": "pinot",
+            "chart": "pinot-0.2.4",
+            "release": "release-name",
+            "app.kubernetes.io/version": "0.2.4",
+            "app.kubernetes.io/managed-by": "Helm",
+            "heritage": "Helm",
+            "component": "server"
+          },
+          "annotations": {}
+        },
+        "spec": {
+          "terminationGracePeriodSeconds": 30,
+          "serviceAccountName": "release-name-pinot",
+          "securityContext": {},
+          "nodeSelector": {},
+          "affinity": {},
+          "tolerations": [],
+          "containers": [
+            {
+              "name": "server",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "apachepinot/pinot:latest-jdk11",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "StartServer",
+                "-clusterName",
+                "pinot-quickstart",
+                "-zkAddress",
+                "release-name-zookeeper:2181",
+                "-configFileName",
+                "/var/pinot/server/config/pinot-server.conf"
+              ],
+              "env": [
+                {
+                  "name": "JAVA_OPTS",
+                  "value": "-Xms512M -Xmx1G -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Xlog:gc*:file=/opt/pinot/gc-pinot-server.log -Dlog4j2.configurationFile=/opt/pinot/conf/log4j2.xml -Dplugins.dir=/opt/pinot/plugins"
+                }
+              ],
+              "envFrom": [],
+              "ports": [
+                {
+                  "containerPort": 8098,
+                  "protocol": "TCP",
+                  "name": "netty"
+                },
+                {
+                  "containerPort": 8097,
+                  "protocol": "TCP",
+                  "name": "admin"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "config",
+                  "mountPath": "/var/pinot/server/config"
+                },
+                {
+                  "name": "data",
+                  "mountPath": "/var/pinot/server/data"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "restartPolicy": "Always",
+          "volumes": [
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-pinot-server-config"
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "4G"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "Ingress",
+    "metadata": {
+      "name": "release-name-pinot-controller-headless",
+      "annotations": {
+        "kubernetes.io/ingress.class": "nginx"
+      }
+    },
+    "spec": {
+      "tls": [
+        {
+          "hosts": [
+            "chart-example.local"
+          ]
+        }
+      ],
+      "rules": [
+        {
+          "host": "chart-example.local",
+          "http": {
+            "paths": [
+              {
+                "path": "/",
+                "pathType": "Prefix",
+                "backend": {
+                  "service": {
+                    "name": "release-name-pinot-controller-headless",
+                    "port": {
+                      "name": "controller"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  null,
+  null
+]

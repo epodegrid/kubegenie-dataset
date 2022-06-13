@@ -1,0 +1,922 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-presto-connectors
+  labels:
+    app: presto
+    chart: presto-0.2.29
+    release: release-name
+    heritage: Helm
+    component: connectors
+data:
+  memory.properties: connector.name=memory
+  tpcds.properties: |-
+    connector.name=tpcds
+    tpcds.splits-per-node=4
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-presto-coordinator
+  labels:
+    app: presto
+    chart: presto-0.2.29
+    release: release-name
+    heritage: Helm
+    component: coordinator
+data:
+  node.properties: |
+    node.environment=production
+    node.data-dir=/data/presto
+    plugin.dir=/usr/lib/presto/plugin
+  jvm.config: |
+    -server
+    -XX:MaxRAMPercentage=90
+    -XX:MinRAMPercentage=80
+    -XX:+UseG1GC
+    -XX:G1HeapRegionSize=32M
+    -XX:+UseGCOverheadLimit
+    -XX:+ExplicitGCInvokesConcurrent
+    -XX:+HeapDumpOnOutOfMemoryError
+    -XX:+ExitOnOutOfMemoryError
+    -Djdk.attach.allowAttachSelf=true
+
+    -Dcom.sun.management.jmxremote
+    -Dcom.sun.management.jmxremote.local.only=false
+    -Dcom.sun.management.jmxremote.authenticate=false
+    -Dcom.sun.management.jmxremote.ssl=false
+    -Dcom.sun.management.jmxremote.port=9080
+    -Dcom.sun.management.jmxremote.rmi.port=9081
+  config.properties: |
+    coordinator=true
+    node-scheduler.include-coordinator=false
+    http-server.http.port=8080
+    query.max-memory=4GB
+    query.max-memory-per-node=1GB
+    discovery-server.enabled=true
+    discovery.uri=http://localhost:8080
+
+    jmx.rmiregistry.port=9080
+    jmx.rmiserver.port=9081
+
+
+    http-server.log.max-history=5
+
+    log.max-history=5
+  log.properties: |
+    io.prestosql=INFO
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-presto-jmx-exporter
+  labels:
+    app: presto
+    chart: presto-0.2.29
+    release: release-name
+    heritage: Helm
+    component: exporter
+data:
+  config.yml: |-
+    jmxUrl: service:jmx:rmi:///jndi/rmi://localhost:9080/jmxrmi
+    lowercaseOutputLabelNames: true
+    lowercaseOutputName: true
+    rules:
+    - help: Number of HTTP requests made
+      labels:
+        client: $1
+        code: $2
+      name: presto_http_requests_total
+      pattern: io.airlift.http.client<type=HttpClient, name=For(.+)><>(\dxx)Response.TotalCount
+      type: COUNTER
+    - help: Bytes transferred for HTTP requests
+      labels:
+        client: $1
+        direction: $2
+      name: presto_http_bytes_total
+      pattern: io.airlift.http.client<type=HttpClient, name=For(.+)><>ConnectionStats.(Received|Sent)Bytes
+      type: COUNTER
+    - help: Number of open HTTP connections
+      labels:
+        client: $1
+      name: presto_http_open_connections
+      pattern: io.airlift.http.client<type=HttpClient, name=For(.+)><>ConnectionStats.OpenConnectionCount
+      type: GAUGE
+    - help: Maximum observed number of open HTTP connections
+      labels:
+        client: $1
+      name: presto_http_open_connections_max
+      pattern: io.airlift.http.client<type=HttpClient, name=For(.+)><>ConnectionStats.MaxOpenConnections
+      type: GAUGE
+    - help: Number of HTTP requests queued per destination
+      labels:
+        client: $1
+      name: presto_http_queued_requests_per_destination
+      pattern: io.airlift.http.client<type=HttpClient, name=For(.+)><>QueuedRequestsPerDestination.Count
+      type: GAUGE
+    - help: Maximum observed number of HTTP requests queued per destination
+      labels:
+        client: $1
+      name: presto_http_queued_requests_per_destination_max
+      pattern: io.airlift.http.client<type=HttpClient, name=For(.+)><>QueuedRequestsPerDestination.Max
+      type: GAUGE
+    - help: $2 threads in HTTP client thread pool
+      labels:
+        client: $1
+      name: presto_http_thread_pool_$2_threads
+      pattern: io.airlift.http.client<type=HttpClient, name=For(.+)><>ThreadPool.(Max|Min|Busy|Idle|)Threads
+      type: GAUGE
+    - help: Number of days until server certificate expiry
+      name: presto_http_server_certificate_expiry_days
+      pattern: io.airlift.http.server<name=HttpServer><>DaysUntilCertificateExpiration
+      type: GAUGE
+    - help: Bytes transferred for serving HTTP requests
+      labels:
+        direction: $1
+      name: presto_http_server_bytes_total
+      pattern: io.airlift.http.server<type=HttpServer><>HttpConnectionStats.(Received|Sent)Bytes
+      type: COUNTER
+    - help: Number of open connections on the HTTP server
+      name: presto_http_server_open_connections
+      pattern: io.airlift.http.server<name=HttpServer><>HttpConnectionStats.OpenConnectionCount
+      type: GAUGE
+    - help: Maximum observed number of open connections on the HTTP server
+      name: presto_http_server_open_connections_max
+      pattern: io.airlift.http.server<name=HttpServer><>HttpConnectionStats.MaxOpenConnections
+      type: GAUGE
+    - help: A metric with constant 1 value labelled with node information
+      labels:
+        $1: $2
+      name: presto_node_info
+      pattern: 'io.airlift.node<name=NodeInfo><>(Environment|ExternalAddress|InstanceId|InternalAddress|NodeId|StartTime):
+        (.+)'
+      type: GAUGE
+      value: 1
+    - help: Total number of JVM pauses
+      labels:
+        bucket: $1
+      name: presto_pauses_total
+      pattern: io.airlift.stats<name=PauseMeter><>(.+)Pauses
+      type: COUNTER
+    - help: Total time in seconds for which JVM was paused
+      name: presto_pause_seconds_total
+      pattern: io.airlift.stats<name=PauseMeter><>TotalPauseSeconds
+      type: COUNTER
+    - help: Total number of garbage collections
+      labels:
+        name: $1
+      name: jvm_gc_total
+      pattern: java.lang<name=(.+), type=GarbageCollector><>CollectionCount
+      type: COUNTER
+    - help: Total time in seconds spent on garbage collections
+      labels:
+        name: $1
+      name: jvm_gc_time_seconds_total
+      pattern: java.lang<name=(.+), type=GarbageCollector><>CollectionTime
+      type: COUNTER
+      valueFactor: 0.001
+    - help: Garbage collection duration in seconds
+      labels:
+        name: $1
+      name: jvm_gc_duration_seconds
+      pattern: java.lang<name=(.+), type=GarbageCollector><LastGcInfo>duration
+      type: GAUGE
+      valueFactor: 1e-06
+    - help: Garbage collection threads used
+      labels:
+        name: $1
+      name: jvm_gc_threads
+      pattern: java.lang<name=(.+), type=GarbageCollector><LastGcInfo>GcThreadCount
+      type: GAUGE
+    - help: $2 bytes in $1 memory
+      labels:
+        area: $1
+      name: jvm_memory_$2_bytes
+      pattern: java.lang<type=Memory><(Heap|NonHeap)MemoryUsage>(max|init|committed|used)
+      type: GAUGE
+    - help: Number of CPU cores available
+      name: jvm_os_processors
+      pattern: java.lang<type=OperatingSystem><>AvailableProcessors
+      type: GAUGE
+    - help: $1 in bytes
+      name: jvm_os_$1_bytes
+      pattern: java.lang<type=OperatingSystem><>(CommittedVirtualMemory|FreePhysicalMemory|TotalPhysicalMemory|FreeSwapSpace|TotalSwapSpace)Size
+      type: GAUGE
+    - help: $1 file descriptors
+      name: jvm_os_$1_file_descriptors
+      pattern: java.lang<type=OperatingSystem><>(Max|Open)FileDescriptorCount
+      type: GAUGE
+    - help: $1 cpu load
+      name: jvm_os_$1_cpu_load
+      pattern: java.lang<type=OperatingSystem><>(Process|System)CpuLoad
+      type: GAUGE
+    - help: $1 cpu time in seconds
+      name: jvm_os_$1_cpu_time_seconds
+      pattern: java.lang<type=OperatingSystem><>(Process|System)CpuTime
+      type: COUNTER
+    - help: System load average
+      name: jvm_os_system_load_avg
+      pattern: java.lang<type=OperatingSystem><>SystemLoadAverage
+      type: GAUGE
+    - help: A metric with constant 1 value labelled with OS information
+      labels:
+        $1: $2
+      name: jvm_os_info
+      pattern: 'java.lang<type=OperatingSystem><>(Arch|Name|Version): (.+)'
+      type: GAUGE
+      value: 1
+    - help: JVM uptime in seconds
+      name: jvm_runtime_uptime_seconds
+      pattern: java.lang<type=Runtime><>Uptime
+      type: COUNTER
+      valueFactor: 0.001
+    - help: JVM $1 thread count
+      name: jvm_threading_$1_threads
+      pattern: java.lang<type=Threading><>(Daemon|Peak|TotalStarted|)ThreadCount
+      type: GAUGE
+    - help: Number of buffers in NIO buffer pool
+      labels:
+        pool: $1
+      name: jvm_nio_buffer_pool_buffers
+      pattern: java.nio<name=(.+), type=BufferPool><>Count
+      type: GAUGE
+    - help: NIO buffer pool $2 in bytes
+      labels:
+        pool: $1
+      name: jvm_nio_buffer_pool_$2_bytes
+      pattern: java.nio<name=(.+), type=BufferPool><>(MemoryUsed|TotalCapacity)
+      type: GAUGE
+    - help: Number of workers required in cluster
+      name: presto_cluster_size_monitor_required_workers
+      pattern: presto.execution<name=ClusterSizeMonitor><>RequiredWorkers
+      type: GAUGE
+    - help: Total number of queries
+      labels:
+        state: $1
+      name: presto_query_manager_queries_total
+      pattern: presto.execution<name=QueryManager><>(Abandoned|Canceled|Completed|Failed|Started|Submitted)Queries.TotalCount
+      type: COUNTER
+    - help: Number of queries currently in the labelled state
+      labels:
+        state: $1
+      name: presto_query_manager_queries
+      pattern: presto.execution<name=QueryManager><>(Queued|Running)Queries
+      type: GAUGE
+    - help: Total CPU time consumed across all queries in seconds
+      name: presto_query_manager_consumed_cpu_time_seconds_total
+      pattern: presto.execution<name=QueryManager><>ConsumedCpuTimeSecs.TotalCount
+      type: COUNTER
+    - help: Total input bytes consumed across all queries in bytes
+      name: presto_query_manager_consumed_input_bytes_total
+      pattern: presto.execution<name=QueryManager><>ConsumedInputBytes.TotalCount
+      type: COUNTER
+    - help: Total number of input rows consumed across all queries
+      name: presto_query_manager_consumed_input_rows_total
+      pattern: presto.execution<name=QueryManager><>ConsumedInputRows.TotalCount
+      type: COUNTER
+    - help: $2 rate $1
+      name: presto_query_manager_$1_rate_$2
+      pattern: presto.execution<name=QueryManager><>(CpuInputByte|WallInputBytes)Rate.AllTime.(Avg|Min|Max)
+      type: GAUGE
+    - help: $1 rate for the labelled quantile
+      labels:
+        quantile: 0.$2
+      name: presto_query_manager_$1_rate
+      pattern: presto.execution<name=QueryManager><>(CpuInputByte|WallInputBytes)Rate.AllTime.P(\d+)
+      type: GAUGE
+    - help: $1 rate count
+      name: presto_query_manager_$1_rate_count
+      pattern: presto.execution<name=QueryManager><>(CpuInputByte|WallInputBytes)Rate.AllTime.Count
+      type: COUNTER
+    - help: $2 $1 time in seconds
+      name: presto_query_manager_$1_seconds_$2
+      pattern: presto.execution<name=QueryManager><>(Execution|Queued)Time.AllTime.(Avg|Min|Max)
+      type: GAUGE
+      valueFactor: 0.001
+    - help: $1 time in seconds for the labelled quantile
+      labels:
+        quantile: 0.$2
+      name: presto_query_manager_$1_seconds
+      pattern: presto.execution<name=QueryManager><>(Execution|Queued)Time.AllTime.P(\d+)
+      type: GAUGE
+      valueFactor: 0.001
+    - help: $1 time count
+      name: presto_query_manager_$1_seconds_count
+      pattern: presto.execution<name=QueryManager><>(Execution|Queued)Time.AllTime.Count
+      type: COUNTER
+      valueFactor: 0.001
+    - help: Total number of failures with the labelled type
+      labels:
+        type: $1
+      name: presto_query_manager_failures_total
+      pattern: presto.execution<name=QueryManager><>(External|InsufficientResources|Internal|UserError)Failures.TotalCount
+      type: COUNTER
+    - help: Total time spent in the labelled level of the MLFQ in seconds
+      labels:
+        level: $1
+      name: presto_multilevel_split_queue_level_time_seconds_total
+      pattern: presto.execution.executor<name=MultilevelSplitQueue><>Level(\d)Time
+      type: COUNTER
+      valueFactor: 1e-09
+    - help: Total number of times the labelled level was selected
+      labels:
+        level: $1
+      name: presto_multilevel_split_queue_level_selected_total
+      pattern: presto.execution.executor<name=MultilevelSplitQueue><>SelectedCountLevel(\d).TotalCount
+      type: COUNTER
+    - help: $2 $1 in seconds
+      name: presto_task_executor_$1_seconds_$2
+      pattern: presto.execution.executor<name=TaskExecutor><>(BlockedQuantaWallTime|SplitQueuedTime|SplitWallTime|UnblockedQuantaWallTime).AllTime.(Avg|Min|Max)
+      type: GAUGE
+      valueFactor: 1e-06
+    - help: $1 in seconds for the labelled quantile
+      labels:
+        quantile: 0.$2
+      name: presto_task_executor_$1_seconds
+      pattern: presto.execution.executor<name=TaskExecutor><>(BlockedQuantaWallTime|SplitQueuedTime|SplitWallTime|UnblockedQuantaWallTime).AllTime.P(\d+)
+      type: GAUGE
+      valueFactor: 1e-06
+    - help: $1 in seconds count
+      name: presto_task_executor_$1_seconds_count
+      pattern: presto.execution.executor<name=TaskExecutor><>(BlockedQuantaWallTime|SplitQueuedTime|SplitWallTime|UnblockedQuantaWallTime).AllTime.Count
+      type: COUNTER
+      valueFactor: 1e-06
+    - help: Number of splits in the labelled state
+      labels:
+        state: $1
+      name: presto_task_executor_splits
+      pattern: presto.execution.executor<name=TaskExecutor><>(Blocked|Intermediate|Running|Waiting)Splits
+      type: GAUGE
+    - help: Total number of splits
+      name: presto_task_executor_splits_total
+      pattern: presto.execution.executor<name=TaskExecutor><>TotalSplits
+      type: COUNTER
+    - help: $2 $1 in seconds
+      name: presto_task_executor_$1_seconds_$2
+      pattern: presto.execution.executor<name=TaskExecutor><>(IntermediateSplitCpu|IntermediateSplitScheduled|IntermediateSplitWait|IntermediateSplitWall|LeafSplitCpu|LeafSplitScheduled|LeafSplitWait|LeafSplitWall)Time.(Avg|Min|Max)
+      type: GAUGE
+      valueFactor: 1e-06
+    - help: $1 in seconds for the labelled quantile
+      labels:
+        quantile: 0.$2
+      name: presto_task_executor_$1_seconds
+      pattern: presto.execution.executor<name=TaskExecutor><>(IntermediateSplitCpu|IntermediateSplitScheduled|IntermediateSplitWait|IntermediateSplitWall|LeafSplitCpu|LeafSplitScheduled|LeafSplitWait|LeafSplitWall)Time.P(\d+)
+      type: GAUGE
+      valueFactor: 1e-06
+    - help: $1 in seconds count
+      name: presto_task_executor_$1_seconds_count
+      pattern: presto.execution.executor<name=TaskExecutor><>(IntermediateSplitCpu|IntermediateSplitScheduled|IntermediateSplitWait|IntermediateSplitWall|LeafSplitCpu|LeafSplitScheduled|LeafSplitWait|LeafSplitWall)Time.Count
+      type: COUNTER
+      valueFactor: 1e-06
+    - help: $2 for the labelled resource group name
+      labels:
+        group: $1
+      name: presto_resourcegroups_$2
+      pattern: presto.execution.resourcegroups<type=InternalResourceGroup, name=(.+)><>(HardConcurrencyLimit|MaxQueuedQueries|QueuedQueries|RunningQueries|WaitingQueuedQueries)
+      type: GAUGE
+    - help: Number of $1 nodes observed by the failure detector
+      name: presto_failuredetector_$1_nodes
+      pattern: presto.failuredetector<name=HeartbeatFailureDetector><>(Active|Failed|Total)Count
+      type: GAUGE
+    - help: Cluster $1 in bytes
+      name: presto_cluster_memory_manager_$1_bytes
+      pattern: presto.memory<name=ClusterMemoryManager><>Cluster(MemoryBytes|TotalMemoryReservation|UserMemoryReservation)
+      type: GAUGE
+    - help: Cluster total available CPU cores
+      name: presto_cluster_memory_manager_available_processors
+      pattern: presto.memory<name=ClusterMemoryManager><>TotalAvailableProcessors
+      type: GAUGE
+    - help: Total $1
+      name: presto_cluster_memory_manager_$1_total
+      pattern: presto.memory<name=ClusterMemoryManager><>(NumberOfLeakedQueries|QueriesKilledDueToOutOfMemory)
+      type: COUNTER
+    - help: $1 in the labelled cluster memory pool
+      labels:
+        pool: $1
+      name: presto_cluster_memory_pool_$2
+      pattern: presto.memory<type=ClusterMemoryPool, name=(.+)><>(AssignedQueries|BlockedNodes|Nodes)
+      type: GAUGE
+    - help: $1 distributed memory in the labelled cluster memory pool in bytes
+      labels:
+        pool: $1
+      name: presto_cluster_memory_pool_$2_distributed_bytes
+      pattern: presto.memory<type=ClusterMemoryPool, name=(.+)><>(Free|Reserved|ReservedRevocable|Total)DistributedBytes
+      type: GAUGE
+    - help: $1 memory in the labelled memory pool in bytes
+      labels:
+        pool: $1
+      name: presto_memory_pool_$2_bytes
+      pattern: presto.memory<type=MemoryPool, name=(.+)><>(Free|Max|Reserved|ReservedRevocable)Bytes
+      type: GAUGE
+    - help: Number of $1 nodes as seen by discovery service
+      name: presto_metadata_$1_nodes
+      pattern: presto.metadata<name=DiscoveryNodeManager><>(Active|Inactive|ShuttingDown)NodeCount
+      type: GAUGE
+    - help: $2 count of the CachingDirectoryLister for the labelled catalog
+      labels:
+        catalog: $1
+      name: presto_plugin_hive_caching_directory_lister_$2_count_total
+      pattern: presto.plugin.hive<type=CachingDirectoryLister, name=(.+)><>(Hit|Miss|Request)Count
+      type: COUNTER
+    - help: Total number of files observed with the labelled sizes for the labelled catalog
+      labels:
+        bucket: $2
+        catalog: $1
+      name: presto_plugin_hive_file_format_stats_count_total
+      pattern: presto.plugin.hive<type=FileFormatDataSourceStats, name=(.+)><>(0Bto100KB|100KBto1MB|1MBto10MB|10MBPlus).AllTime.Count
+      type: COUNTER
+    - help: $2 bytes read from the labelled catalog
+      labels:
+        catalog: $1
+      name: presto_plugin_hive_file_format_stats_read_bytes_$2
+      pattern: presto.plugin.hive<type=FileFormatDataSourceStats, name=(.+)><>ReadBytes.AllTime.(Avg|Min|Max)
+      type: GAUGE
+    - help: Bytes read from the labelled catalog for the labelled quantile
+      labels:
+        catalog: $1
+        quantile: 0.$2
+      name: presto_plugin_hive_file_format_stats_read_bytes_$2
+      pattern: presto.plugin.hive<type=FileFormatDataSourceStats, name=(.+)><>ReadBytes.AllTime.P(\d+)
+      type: GAUGE
+    - help: Total bytes read from the labelled catalog
+      labels:
+        catalog: $1
+      name: presto_plugin_hive_file_format_stats_read_bytes_sum
+      pattern: presto.plugin.hive<type=FileFormatDataSourceStats, name=(.+)><>ReadBytes.AllTime.Total
+      type: COUNTER
+    - help: $3 time taken by $2 in seconds for the labelled catalog
+      labels:
+        catalog: $1
+      name: presto_plugin_hive_namenode_$2_seconds_$3
+      pattern: presto.plugin.hive<type=NamenodeStats, name=(.+)><>(ListLocatedStatus|RemoteIteratorNext).Time.AllTime.(Avg|Min|Max)
+      type: GAUGE
+    - help: Time taken by $2 in seconds for the labelled quantile for the labelled catalog
+      labels:
+        catalog: $1
+        quantile: 0.$3
+      name: presto_plugin_hive_namenode_$2_seconds
+      pattern: presto.plugin.hive<type=NamenodeStats, name=(.+)><>(ListLocatedStatus|RemoteIteratorNext).Time.AllTime.P(\d+)
+      type: GAUGE
+    - help: Count of $2 for the labelled catalog
+      labels:
+        catalog: $1
+      name: presto_plugin_hive_namenode_$1_seconds_count
+      pattern: presto.plugin.hive<type=NamenodeStats, name=(.+)><>(ListLocatedStatus|RemoteIteratorNext).Time.AllTime.Count
+      type: COUNTER
+    - help: $3 rate for the labelled catalog and operation
+      labels:
+        catalog: $1
+        operation: $2
+      name: presto_plugin_hive_metastore_$2_rate
+      pattern: presto.plugin.hive.metastore.cache<type=CachingHiveMetastore, name=(.+)><>(.+)Stats.(Hit|Miss)Rate
+      type: GAUGE
+    - help: $3 rate for the labelled catalog and operation
+      labels:
+        catalog: $1
+        operation: $2
+      name: presto_plugin_hive_metastore_$2_rate
+      pattern: presto.plugin.hive.metastore.glue<type=GlueHiveMetastore, name=(.+)><>(.+)Stats.(Hit|Miss)Rate
+      type: GAUGE
+    - help: Total count of $3 for the labelled catalog
+      labels:
+        catalog: $2
+      name: presto_plugin_hive_s3_$3_count_total
+      pattern: presto.plugin.hive.s3<type=PrestoS3FileSystem, name=(.+), catalog=(.+)><>(.+).TotalCount
+      type: COUNTER
+    - help: $4 $3 in seconds for the labelled catalog
+      labels:
+        catalog: $2
+      name: presto_plugin_hive_s3_$3_seconds_$4
+      pattern: presto.plugin.hive.s3<type=PrestoS3FileSystem, name=(.+), catalog=(.+)><>(.+).AllTime.(Avg|Min|Max)
+      type: GAUGE
+      valueFactor: 0.001
+    - help: $3 in seconds for the labelled quantile and catalog
+      labels:
+        catalog: $2
+        quantile: 0.$4
+      name: presto_plugin_hive_s3_$3_seconds
+      pattern: presto.plugin.hive.s3<type=PrestoS3FileSystem, name=(.+), catalog=(.+)><>(.+).AllTime.P(\d+)
+      type: GAUGE
+      valueFactor: 0.001
+    - help: $3 in seconds count for the labelled catalog
+      labels:
+        catalog: $2
+      name: presto_plugin_hive_s3_$3_seconds_count
+      pattern: presto.plugin.hive.s3<type=PrestoS3FileSystem, name=(.+), catalog=(.+)><>(.+).AllTime.Count
+      type: COUNTER
+      valueFactor: 0.001
+    - help: Number of $1
+      name: presto_security_$1_count_total
+      pattern: presto.security<name=AccessControlManager><>(.+).TotalCount
+      type: COUNTER
+    - name: presto_sql_gen_$1_$2_$3_rate
+      pattern: presto.sql.gen<name=(.+)><>(.+).(Hit|Miss)Rate
+      type: GAUGE
+    - name: presto_sql_gen_$1_$2_request_count
+      pattern: presto.sql.gen<name=(.+)><>(.+).RequestCount
+      type: COUNTER
+    - labels:
+        rule: $3
+      name: presto_sql_planner_$2_$4
+      pattern: presto.sql.planner.(.+)<name=(.+), rule=(.+)><>(Failures|Hits)
+      type: COUNTER
+    - labels:
+        rule: $3
+      name: presto_sql_planner_$2_seconds_$4
+      pattern: presto.sql.planner.(.+)<name=(.+), rule=(.+)><>Time.(Avg|Min|Max)
+      type: GAUGE
+      valueFactor: 1e-06
+    - labels:
+        quantile: 0.$4
+        rule: $3
+      name: presto_sql_planner_$2_seconds
+      pattern: presto.sql.planner.(.+)<name=(.+), rule=(.+)><>Time.P(\d+)
+      type: GAUGE
+      valueFactor: 1e-06
+    - labels:
+        rule: $3
+      name: presto_sql_planner_$2_seconds_count
+      pattern: presto.sql.planner.(.+)<name=(.+), rule=(.+)><>Time.Count
+      type: COUNTER
+    startDelaySeconds: 30
+    whitelistObjectNames:
+    - io.airlift.http.client:*
+    - io.airlift.http.server:*
+    - io.airlift.node:*
+    - io.airlift.stats:*
+    - java.lang:*
+    - java.nio:*
+    - presto.execution:*
+    - presto.execution.executor:*
+    - presto.execution.resourcegroups:*
+    - presto.failuredetector:*
+    - presto.memory:*
+    - presto.metadata:*
+    - presto.plugin.hive:*
+    - presto.plugin.hive.metastore.cache:*
+    - presto.plugin.hive.metastore.glue:*
+    - presto.plugin.hive.s3:*
+    - presto.security:*
+    - presto.sql.gen:*
+    - presto.sql.planner.iterative:*
+    - presto.sql.planner.optimizations:*
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-presto-worker
+  labels:
+    app: presto
+    chart: presto-0.2.29
+    release: release-name
+    heritage: Helm
+    component: worker
+data:
+  node.properties: |
+    node.environment=production
+    node.data-dir=/data/presto
+    plugin.dir=/usr/lib/presto/plugin
+  jvm.config: |
+    -server
+    -XX:MaxRAMPercentage=90
+    -XX:MinRAMPercentage=80
+    -XX:+UseG1GC
+    -XX:G1HeapRegionSize=32M
+    -XX:+UseGCOverheadLimit
+    -XX:+ExplicitGCInvokesConcurrent
+    -XX:+HeapDumpOnOutOfMemoryError
+    -XX:+ExitOnOutOfMemoryError
+    -Djdk.attach.allowAttachSelf=true
+
+    -Dcom.sun.management.jmxremote
+    -Dcom.sun.management.jmxremote.local.only=false
+    -Dcom.sun.management.jmxremote.authenticate=false
+    -Dcom.sun.management.jmxremote.ssl=false
+    -Dcom.sun.management.jmxremote.port=9080
+    -Dcom.sun.management.jmxremote.rmi.port=9081
+  config.properties: |
+    coordinator=false
+    http-server.http.port=8080
+    query.max-memory=4GB
+    query.max-memory-per-node=1GB
+    discovery.uri=http://release-name-presto:8080
+
+    jmx.rmiregistry.port=9080
+    jmx.rmiserver.port=9081
+
+
+    http-server.log.max-history=5
+
+    log.max-history=5
+  log.properties: |
+    io.prestosql=INFO
+  health_check.sh: |
+    STATE_OUT=$(curl -q http://localhost:8080/v1/info/state)
+    EXPECTED="\"ACTIVE\""
+
+    if [ "$STATE_OUT" != "$EXPECTED" ]
+    then
+      exit 1
+    fi
+
+    exit 0
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-presto
+  labels:
+    app: presto
+    chart: presto-0.2.29
+    release: release-name
+    helm.sh/chart: presto-0.2.29
+    app.kubernetes.io/version: "347"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http-coord
+      protocol: TCP
+      name: http-coord
+  selector:
+    app: presto
+    release: release-name
+    component: coordinator
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-presto-jmx
+  labels:
+    app: presto
+    monitoring.service: jmx
+    release: release-name
+    chart: presto-0.2.29
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9999
+      targetPort: prom-exporter
+      protocol: TCP
+      name: exporter
+  selector:
+    app: presto
+    release: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-presto-coordinator
+  labels:
+    app: presto
+    chart: presto-0.2.29
+    release: release-name
+    heritage: Helm
+    component: coordinator
+    monitoring.jmx: enabled
+spec:
+  selector:
+    matchLabels:
+      app: presto
+      release: release-name
+      component: coordinator
+  template:
+    metadata:
+      labels:
+        app: presto
+        release: release-name
+        component: coordinator
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+      volumes:
+        - name: config-volume
+          configMap:
+            name: release-name-presto-coordinator
+        - name: connectors-config-volume
+          configMap:
+            name: release-name-presto-connectors
+        - name: config-jmx-exporter
+          configMap:
+            name: release-name-presto-jmx-exporter
+      containers:
+        - name: presto-coordinator
+          image: prestosql/presto:347
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - mountPath: /usr/lib/presto/etc
+              name: config-volume
+            - mountPath: /usr/lib/presto/etc/catalog
+              name: connectors-config-volume
+          ports:
+            - name: http-coord
+              containerPort: 8080
+              protocol: TCP
+            - name: jmx
+              containerPort: 9080
+              protocol: TCP
+          livenessProbe:
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            httpGet:
+              path: /ui/login.html
+              port: http-coord
+          readinessProbe:
+            httpGet:
+              path: /ui/login.html
+              port: http-coord
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+        - name: jmx-exporter
+          image: sscaling/jmx-prometheus-exporter:0.3.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9999
+              protocol: TCP
+              name: prom-exporter
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: prom-exporter
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 60
+            failureThreshold: 8
+            successThreshold: 1
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: prom-exporter
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 60
+            failureThreshold: 8
+            successThreshold: 1
+          env:
+            - name: SERVICE_PORT
+              value: "9999"
+          resources: {}
+          volumeMounts:
+            - name: config-jmx-exporter
+              mountPath: /opt/jmx_exporter/config.yml
+              subPath: config.yml
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-presto-worker
+  labels:
+    app: presto
+    chart: presto-0.2.29
+    release: release-name
+    heritage: Helm
+    component: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: presto
+      release: release-name
+      component: worker
+  template:
+    metadata:
+      labels:
+        app: presto
+        release: release-name
+        component: worker
+    spec:
+      volumes:
+        - name: config-volume
+          configMap:
+            name: release-name-presto-worker
+        - name: connectors-config-volume
+          configMap:
+            name: release-name-presto-connectors
+        - name: config-jmx-exporter
+          configMap:
+            name: release-name-presto-jmx-exporter
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: presto-worker
+          image: prestosql/presto:347
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - mountPath: /usr/lib/presto/etc
+              name: config-volume
+            - mountPath: /usr/lib/presto/etc/catalog
+              name: connectors-config-volume
+          ports:
+            - name: http-worker
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /v1/info/state
+              port: http-worker
+          livenessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - /usr/lib/presto/etc/health_check.sh
+            initialDelaySeconds: 30
+            periodSeconds: 5
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - sh
+                  - -c
+                  - 'curl -v  -H "X-Presto-User: admin" -X PUT -d ''"SHUTTING_DOWN"'' -H "Content-type: application/json" http://localhost:8080/v1/info/state && sleep 10'
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+        - name: jmx-exporter
+          image: sscaling/jmx-prometheus-exporter:0.3.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9999
+              protocol: TCP
+              name: prom-exporter
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: prom-exporter
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 60
+            failureThreshold: 8
+            successThreshold: 1
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: prom-exporter
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 60
+            failureThreshold: 8
+            successThreshold: 1
+          env:
+            - name: SERVICE_PORT
+              value: "9999"
+          resources: {}
+          volumeMounts:
+            - name: config-jmx-exporter
+              mountPath: /opt/jmx_exporter/config.yml
+              subPath: config.yml
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: release-name-presto
+  labels:
+    app: presto
+    chart: presto-0.2.29
+    release: release-name
+    helm.sh/chart: presto-0.2.29
+    app.kubernetes.io/version: "347"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  namespaceSelector:
+    matchNames:
+      - default
+  selector:
+    matchLabels:
+      app: presto
+      monitoring.service: jmx
+      release: release-name
+      chart: presto-0.2.29
+  endpoints:
+    - port: exporter
+      path: /metrics
+      interval: 10s
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-query-execution-name
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: release-name-query-execution-name
+      image: prestosql/presto:347
+      imagePullPolicy: IfNotPresent
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+      command:
+        - presto
+        - --execute
+        - SELECT 1
+        - --server
+        - http://release-name-presto:8080
+  restartPolicy: Never

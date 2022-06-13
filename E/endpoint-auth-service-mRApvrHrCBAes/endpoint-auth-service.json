@@ -1,0 +1,612 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-cs-endpoint-auth-service",
+      "labels": {
+        "helm.sh/chart": "endpoint-auth-service-0.0.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.1.0",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "cs-endpoint-auth-service"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "dbPassword": "cGFzcw=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "injector-endpoint-auth-service-secret",
+      "namespace": null,
+      "labels": {
+        "helm.sh/chart": "endpoint-auth-service-0.0.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.1.0",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "injector-endpoint-auth-service"
+      }
+    },
+    "type": "kubernetes.io/tls",
+    "data": {
+      "tls.crt": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCi4uLgotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==\n",
+      "tls.key": "LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQouLi4KLS0tLS1FTkQgUlNBIFBSSVZBVEUgS0VZLS0tLS0K\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-injector-endpoint-auth-service",
+      "labels": {
+        "sidecar.k8s.fiware.org": "injector-endpoint-auth-service",
+        "helm.sh/chart": "endpoint-auth-service-0.0.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.1.0",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "injector-endpoint-auth-service"
+      }
+    },
+    "data": {
+      "envoy-sidecar": "name: envoy-sidecar\nvolumes:\n  - name: envoy-configmap\n    configMap:\n      name: release-name-eas-endpoint-auth-service\n  - name: envoy-config-folder\n    emptyDir: {}\ninitContainers:\n  - name: init-iptables\n    imagePullPolicy: IfNotPresent\n    image: \"quay.io/fiware/init-iptables:0.1.0\"\n    securityContext:\n      privileged: true\n    env:\n      - name: ENVOY_USER_ID\n        value: \"1337\"\n      - name: ENVOY_PORT\n        value: \"15001\"\n  - name: init-config\n    imagePullPolicy: IfNotPresent\n    image: \"quay.io/fiware/envoy-resource-updater:0.1.0\"\n    env:\n      - name: RUN_AS_INIT\n        value: \"true\"\n    volumeMounts:\n      - name: envoy-configmap\n        mountPath: /configmap-folder/\n      - name: envoy-config-folder\n        mountPath: /proxy-config/\ncontainers:\n  - name: envoy-sidecar\n    imagePullPolicy: IfNotPresent\n    image: \"quay.io/fiware/envoy:0.1.0\"\n    args: [ \"-l trace\", \"-c /etc/envoy/envoy.yaml\" ]\n    securityContext:\n      runAsUser: 1337\n    volumeMounts:\n      - name: envoy-config-folder\n        mountPath: /etc/envoy/\n  - name: update-config\n    imagePullPolicy: IfNotPresent\n    image: \"quay.io/fiware/envoy-resource-updater:0.1.0\"\n    env:\n      - name: RUN_AS_INIT\n        value: \"false\"\n    volumeMounts:\n      - name: envoy-configmap\n        mountPath: /configmap-folder/\n      - name: envoy-config-folder\n        mountPath: /proxy-config/\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-eas-endpoint-auth-service",
+      "labels": {
+        "helm.sh/chart": "endpoint-auth-service-0.0.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.1.0",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "listener.yaml": "resources:\n  - \"@type\": type.googleapis.com/envoy.config.listener.v3.Listener\n    name: envoy_listener\n    address:\n      socket_address:\n        address: 0.0.0.0\n        port_value: 15001\n    traffic_direction: OUTBOUND\n    listener_filters:\n      - name: envoy.filters.listener.tls_inspector\n      - name: envoy.filters.listener.original_dst\n    filter_chains:\n      - name: https_chain\n        filter_chain_match:\n          transport_protocol: tls\n        filters:\n          - name: envoy.filters.network.tcp_proxy\n            typed_config:\n              \"@type\": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy\n              cluster: passthrough-https\n              stat_prefix: https_passthrough\n      - name: http_chain\n        filters:\n          - name: envoy.filters.network.http_connection_manager\n            typed_config:\n              \"@type\": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager\n              stat_prefix: ingress_http\n              codec_type: AUTO\n              route_config:\n                name: local_route\n                virtual_hosts:\n                  - name: allow_any\n                    domains:\n                      - \"*\"\n                    routes:\n                      - match:\n                          prefix: \"/\"\n                        route:\n                          cluster: passthrough\n              http_filters:\n                - name: envoy.filters.http.router\n",
+      "cluster.yaml": "resources:\n  - \"@type\": type.googleapis.com/envoy.config.cluster.v3.Cluster\n    name: passthrough-https\n    type: ORIGINAL_DST\n    connectTimeout: 10s\n    lbPolicy: CLUSTER_PROVIDED\n    transport_socket:\n      name: envoy.transport_sockets.tls\n      typed_config:\n        \"@type\": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext\n  - \"@type\": type.googleapis.com/envoy.config.cluster.v3.Cluster\n    name: ext-authz\n    type: STRICT_DNS\n    connect_timeout: 1s\n    lb_policy: ROUND_ROBIN\n    load_assignment:\n      cluster_name: ext-authz\n      endpoints:\n        - lb_endpoints:\n            - endpoint:\n                address:\n                  socket_address:\n                    protocol: TCP\n                    address: ishare-auth\n                    port_value: 8080\n  - \"@type\": type.googleapis.com/envoy.config.cluster.v3.Cluster\n    name: passthrough\n    type: ORIGINAL_DST\n    lbPolicy: CLUSTER_PROVIDED\n    connectTimeout: 10s\n    original_dst_lb_config:\n      use_http_header: true\n",
+      "envoy.yaml": "node:\n  cluster: passthrough\n  id: envoy-node\ndynamic_resources:\n  cds_config:\n    path: /etc/envoy/cluster.yaml\n  lds_config:\n    path: /etc/envoy/listener.yaml\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "name": "release-name-ishare-endpoint-auth-service",
+      "labels": {
+        "helm.sh/chart": "endpoint-auth-service-0.0.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.1.0",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "ishare-endpoint-auth-service"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "8G"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-cs-endpoint-auth-service",
+      "labels": {
+        "helm.sh/chart": "endpoint-auth-service-0.0.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.1.0",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "cs-endpoint-auth-service"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 8080,
+          "targetPort": 8080,
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "cs-endpoint-auth-service",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-ishare-endpoint-auth-service",
+      "labels": {
+        "helm.sh/chart": "endpoint-auth-service-0.0.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.1.0",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "ishare-endpoint-auth-service"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 8080,
+          "targetPort": 8080,
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "ishare-endpoint-auth-service",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-injector-endpoint-auth-service",
+      "labels": {
+        "helm.sh/chart": "endpoint-auth-service-0.0.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.1.0",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "injector-endpoint-auth-service"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 443,
+          "targetPort": 8443
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "injector-endpoint-auth-service",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-cs-endpoint-auth-service",
+      "labels": {
+        "helm.sh/chart": "endpoint-auth-service-0.0.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.1.0",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "cs-endpoint-auth-service"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "revisionHistoryLimit": 3,
+      "strategy": {
+        "rollingUpdate": {
+          "maxSurge": 1,
+          "maxUnavailable": 0
+        },
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "cs-endpoint-auth-service",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "helm.sh/chart": "endpoint-auth-service-0.0.4",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/version": "0.1.0",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/name": "cs-endpoint-auth-service"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "containers": [
+            {
+              "name": "config-service",
+              "imagePullPolicy": "IfNotPresent",
+              "image": "quay.io/fiware/endpoint-configuration-service:0.1.0",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8080,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "http-health",
+                  "containerPort": 9090,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "http-health"
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 30
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "http-health"
+                },
+                "initialDelaySeconds": 31,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 30
+              },
+              "env": [
+                {
+                  "name": "ENDPOINTS_ALL_PORT",
+                  "value": "9090"
+                },
+                {
+                  "name": "DATASOURCES_DEFAULT_URL",
+                  "value": "jdbc:h2:mem:devDb;LOCK_TIMEOUT=10000;DB_CLOSE_ON_EXIT=FALSE"
+                },
+                {
+                  "name": "DATASOURCES_DEFAULT_USERNAME",
+                  "value": "ecs"
+                },
+                {
+                  "name": "DATASOURCES_DEFAULT_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-cs-endpoint-auth-service",
+                      "key": "dbPassword"
+                    }
+                  }
+                },
+                {
+                  "name": "PROXY_LISTENER_YAML_PATH",
+                  "value": "/proxy-config/listener.yaml"
+                },
+                {
+                  "name": "PROXY_CLUSTER_YAML_PATH",
+                  "value": "/proxy-config/cluster.yaml"
+                },
+                {
+                  "name": "PROXY_EXTERNAL_AUTH_ADDRESS",
+                  "value": "release-name-ishare-endpoint-auth-service"
+                },
+                {
+                  "name": "PROXY_EXTERNAL_AUTH_PORT",
+                  "value": "8080"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "proxy-config",
+                  "mountPath": "/proxy-config"
+                }
+              ]
+            },
+            {
+              "name": "configmap-updater",
+              "imagePullPolicy": "IfNotPresent",
+              "image": "quay.io/fiware/envoy-configmap-updater:0.1.0",
+              "env": [
+                {
+                  "name": "PROXY_CONFIG_FOLDER",
+                  "value": "/proxy-config"
+                },
+                {
+                  "name": "PROXY_CONFIG_MAP",
+                  "value": "release-name-eas-endpoint-auth-service"
+                },
+                {
+                  "name": "PROXY_CONFIG_MAP_NAMESPACE",
+                  "value": "default"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "proxy-config",
+                  "mountPath": "/proxy-config"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "proxy-config",
+              "emptyDir": {}
+            },
+            {
+              "name": "mesh-config",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-ishare-endpoint-auth-service",
+      "labels": {
+        "helm.sh/chart": "endpoint-auth-service-0.0.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.1.0",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "ishare-endpoint-auth-service"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "revisionHistoryLimit": 3,
+      "strategy": {
+        "rollingUpdate": {
+          "maxSurge": 1,
+          "maxUnavailable": 0
+        },
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "ishare-endpoint-auth-service",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "helm.sh/chart": "endpoint-auth-service-0.0.4",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/version": "0.1.0",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/name": "ishare-endpoint-auth-service"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "containers": [
+            {
+              "name": "ishare-auth-provider",
+              "imagePullPolicy": "IfNotPresent",
+              "image": "quay.io/fiware/ishare-auth-provider:0.1.0",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8080,
+                  "protocol": "TCP"
+                }
+              ],
+              "env": [
+                {
+                  "name": "SERVER_PORT",
+                  "value": "8080"
+                },
+                {
+                  "name": "CONFIGURATION_SERVICE_URL",
+                  "value": "http://release-name-cs-endpoint-auth-service:8080"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "ishare-credentials",
+                  "mountPath": "/certs"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "ishare-credentials",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-ishare-endpoint-auth-service"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-injector-endpoint-auth-service",
+      "labels": {
+        "helm.sh/chart": "endpoint-auth-service-0.0.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.1.0",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "injector-endpoint-auth-service"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "revisionHistoryLimit": 3,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "injector-endpoint-auth-service",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "helm.sh/chart": "endpoint-auth-service-0.0.4",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/version": "0.1.0",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/name": "injector-endpoint-auth-service"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "containers": [
+            {
+              "name": "sidecar-injector",
+              "image": "tumblr/k8s-sidecar-injector:release-v0.5.0",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "TLS_CERT_FILE",
+                  "value": "/webhook/certs/tls.crt"
+                },
+                {
+                  "name": "TLS_KEY_FILE",
+                  "value": "/webhook/certs/tls.key"
+                },
+                {
+                  "name": "ANNOTATION_NAMESPACE",
+                  "value": "sidecar.k8s.fiware.org"
+                },
+                {
+                  "name": "CONFIGMAP_NAMESPACE",
+                  "value": "default"
+                },
+                {
+                  "name": "CONFIGMAP_LABELS",
+                  "value": "sidecar.k8s.fiware.org=injector-endpoint-auth-service"
+                },
+                {
+                  "name": "TLS_PORT",
+                  "value": "8443"
+                },
+                {
+                  "name": "LIFECYCLE_PORT",
+                  "value": "9000"
+                },
+                {
+                  "name": "LOG_LEVEL",
+                  "value": "2"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8443,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "http-health",
+                  "containerPort": 9000,
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "webhook-certs",
+                  "mountPath": "/webhook/certs",
+                  "readOnly": true
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "http-health"
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 30
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/health",
+                  "port": "http-health"
+                },
+                "initialDelaySeconds": 31,
+                "periodSeconds": 10,
+                "successThreshold": 1,
+                "timeoutSeconds": 30
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "webhook-certs",
+              "secret": {
+                "secretName": "injector-endpoint-auth-service-certificate"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "admissionregistration.k8s.io/v1beta1",
+    "kind": "MutatingWebhookConfiguration",
+    "metadata": {
+      "name": "release-name-injector-endpoint-auth-service",
+      "labels": {
+        "helm.sh/chart": "endpoint-auth-service-0.0.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.1.0",
+        "app.kubernetes.io/managed-by": "Helm",
+        "app.kubernetes.io/name": "injector-endpoint-auth-service"
+      }
+    },
+    "webhooks": [
+      {
+        "name": "injector-endpoint-auth-service.sfdc.internal",
+        "namespaceSelector": {
+          "matchExpressions": [
+            {
+              "key": "sidecar-injection",
+              "operator": "In",
+              "values": [
+                "enabled"
+              ]
+            }
+          ]
+        },
+        "clientConfig": {
+          "service": {
+            "name": "release-name-injector-endpoint-auth-service",
+            "namespace": "default",
+            "path": "/mutate"
+          },
+          "caBundle": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCi4uLgotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg=="
+        },
+        "rules": [
+          {
+            "apiGroups": [
+              ""
+            ],
+            "apiVersions": [
+              "v1"
+            ],
+            "operations": [
+              "CREATE"
+            ],
+            "resources": [
+              "pods"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]

@@ -1,0 +1,134 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: config-validator
+  namespace: CiKwslqbF1
+  annotations:
+    iam.gke.io/gcp-service-account: null
+  labels:
+    component: config-validator
+    chart: config-validator-0.2.0
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-deleter
+  namespace: CiKwslqbF1
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-deleter
+  namespace: CiKwslqbF1
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pod-deleter
+subjects:
+  - kind: ServiceAccount
+    name: config-validator
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-config-validator
+  labels:
+    component: config-validator
+    chart: config-validator-0.2.0
+spec:
+  type: ClusterIP
+  ports:
+    - port: 50052
+      targetPort: 50052
+      protocol: TCP
+  selector:
+    component: config-validator
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-config-validator
+spec:
+  selector:
+    matchLabels:
+      component: config-validator
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        component: config-validator
+        chart: config-validator-0.2.0
+    spec:
+      serviceAccountName: config-validator
+      initContainers:
+        - name: empty-dir-lib
+          image: gcr.io/cloud-builders/gsutil
+          command:
+            - /bin/mkdir
+          args:
+            - /policy-library/lib
+          volumeMounts:
+            - name: policy-library
+              mountPath: /policy-library/
+          securityContext:
+            runAsUser: 65533
+            runAsGroup: 65533
+        - name: empty-dir-policies
+          image: gcr.io/cloud-builders/gsutil
+          command:
+            - /bin/mkdir
+          args:
+            - /policy-library/policies
+          volumeMounts:
+            - name: policy-library
+              mountPath: /policy-library/
+          securityContext:
+            runAsUser: 65533
+            runAsGroup: 65533
+      containers:
+        - name: config-validator
+          image: gcr.io/forseti-containers/config-validator:5.72e+209
+          args:
+            - -policyPath
+            - /policy-library/policies
+            - -policyLibraryPath
+            - /policy-library/lib
+            - -port
+            - "50052"
+            - -alsologtostderr
+          ports:
+            - containerPort: 50052
+          env:
+            - name: GOGC
+              value: "1000"
+          volumeMounts:
+            - name: policy-library
+              mountPath: /policy-library/policies
+              subPath: policy-library/policies
+              readOnly: true
+            - name: policy-library
+              mountPath: /policy-library/lib
+              subPath: policy-library/lib
+              readOnly: true
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65533
+      volumes:
+        - name: policy-library
+          emptyDir:
+            medium: Memory
+---
+null
+---
+null
+---
+null

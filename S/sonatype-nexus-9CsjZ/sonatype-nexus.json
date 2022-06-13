@@ -1,0 +1,277 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "nexus-setup",
+      "labels": {
+        "app": "nexus-setup"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "data": {
+      "config-nexus.sh": "#!/bin/bash\n\nNS=$(cat /run/secrets/kubernetes.io/serviceaccount/namespace)\nNEXUS_USER=admin:admin123\nNEXUS_URL=https://$(oc -n ${NS} get route nexus -o custom-columns=ROUTE:.spec.host --no-headers)\n\nRED='\\033[0;31m'\nGREEN='\\033[0;32m'\nNC='\\033[0m' # No Color\n\necho \"waiting for nexus pod ready...\"\noc -n ${NS} wait pod -lapp=\"sonatype-nexus\" --for=condition=Ready --timeout=600s || exit $?\n\nwait_for_nexus_service() {\n    local i=0\n    HOST=${NEXUS_URL}/service/rest/v1/status\n    until [ $(curl -s -o /dev/null -w %{http_code} ${HOST}) = \"200\" ]\n    do\n        echo \"🧅 Waiting for 200 response from ${HOST}\"\n        sleep 10\n        HOST=${NEXUS_URL}/service/rest/v1/status\n        ((i=i+1))\n        if [ $i -gt 100 ]; then\n            echo -e \"${RED}Failed - nexus ${HOST} never ready.${NC}\"\n            exit 1\n        fi\n    done\n}\necho \"waiting for nexus api ready...\"\nwait_for_nexus_service\n\n# helm hosted via rest\necho \"🐺 creating [helm-charts helm-charts-stable helm-charts-incubator] helm hosted repo\"\nhelmList='[helm-charts helm-charts-stable helm-charts-incubator]'\nhelmList=`echo \"$helmList\" | sed -r 's/\\[|\\]//g'`\nfor repo in ${helmList}; do\n    curl -s -k -X POST \"${NEXUS_URL}/service/rest/beta/repositories/helm/hosted\" \\\n    --user \"${NEXUS_USER}\" \\\n    -H \"accept: application/json\" \\\n    -H \"Content-Type: application/json\" \\\n    -d \"{ \\\"name\\\": \\\"${repo}\\\", \\\"online\\\": true, \\\"storage\\\": { \\\"blobStoreName\\\": \\\"default\\\", \\\"strictContentTypeValidation\\\": true, \\\"writePolicy\\\": \\\"ALLOW\\\" }}\"\ndone\n\n# npm proxy\necho \"🐛 creating labs-npm npm proxy\"\ncurl -s -k -X POST \"${NEXUS_URL}/service/rest/beta/repositories/npm/proxy\" \\\n  --user \"${NEXUS_USER}\" \\\n  -H \"accept: application/json\" \\\n  -H \"Content-Type: application/json\" \\\n  -d \"{ \\\"name\\\": \\\"labs-npm\\\", \\\"online\\\": true, \\\"storage\\\": { \\\"blobStoreName\\\": \\\"default\\\", \\\"strictContentTypeValidation\\\": true}, \\\"proxy\\\": { \\\"remoteUrl\\\": \\\"https://registry.npmjs.org\\\", \\\"contentMaxAge\\\": 1440, \\\"metadataMaxAge\\\": 1440 }, \\\"httpClient\\\": { \\\"blocked\\\": false, \\\"autoBlock\\\": false, \\\"connection\\\": { \\\"retries\\\": 0, \\\"userAgentSuffix\\\": \\\"string\\\", \\\"timeout\\\": 60, \\\"enableCircularRedirects\\\": false, \\\"enableCookies\\\": false}}, \\\"negativeCache\\\": { \\\"enabled\\\": false, \\\"timeToLive\\\": 1440 } }\"\n\n\n# Red Hat GA Repository\necho \"🔥 creating red-hat-ga red hat ga proxy\"\ncurl -s -k -X POST \"${NEXUS_URL}/service/rest/v1/repositories/maven/proxy\" \\\n  --user \"${NEXUS_USER}\" \\\n  -H \"accept: application/json\" \\\n  -H \"Content-Type: application/json\" \\\n  -d \"{ \\\"name\\\": \\\"red-hat-ga\\\", \\\"online\\\": true, \\\"storage\\\": { \\\"blobStoreName\\\": \\\"default\\\", \\\"strictContentTypeValidation\\\": true }, \\\"cleanup\\\": { \\\"policyNames\\\": [ \\\"string\\\" ] }, \\\"proxy\\\": { \\\"remoteUrl\\\": \\\"https://maven.repository.redhat.com/ga\\\", \\\"contentMaxAge\\\": 1440, \\\"metadataMaxAge\\\": 1440 }, \\\"negativeCache\\\": { \\\"enabled\\\": true, \\\"timeToLive\\\": 1440 }, \\\"httpClient\\\": { \\\"blocked\\\": false, \\\"autoBlock\\\": true, \\\"connection\\\": { \\\"retries\\\": 0, \\\"userAgentSuffix\\\": \\\"string\\\", \\\"timeout\\\": 60, \\\"enableCircularRedirects\\\": false, \\\"enableCookies\\\": false, \\\"useTrustStore\\\": false }, \\\"authentication\\\": { \\\"type\\\": \\\"username\\\", \\\"username\\\": \\\"string\\\", \\\"password\\\": \\\"string\\\", \\\"ntlmHost\\\": \\\"string\\\", \\\"ntlmDomain\\\": \\\"string\\\", \\\"preemptive\\\": false } }, \\\"routingRule\\\": \\\"string\\\", \\\"maven\\\": { \\\"versionPolicy\\\": \\\"MIXED\\\", \\\"layoutPolicy\\\": \\\"STRICT\\\" }}\"\n\n# Red Hat Early Access Repository\necho \"🔥 creating red-hat-ea red hat early access proxy\"\ncurl -s -k -X POST \"${NEXUS_URL}/service/rest/v1/repositories/maven/proxy\" \\\n  --user \"${NEXUS_USER}\" \\\n  -H \"accept: application/json\" \\\n  -H \"Content-Type: application/json\" \\\n  -d \"{ \\\"name\\\": \\\"red-hat-ea\\\", \\\"online\\\": true, \\\"storage\\\": { \\\"blobStoreName\\\": \\\"default\\\", \\\"strictContentTypeValidation\\\": true }, \\\"cleanup\\\": { \\\"policyNames\\\": [ \\\"string\\\" ] }, \\\"proxy\\\": { \\\"remoteUrl\\\": \\\"https://maven.repository.redhat.com/earlyaccess/all\\\", \\\"contentMaxAge\\\": 1440, \\\"metadataMaxAge\\\": 1440 }, \\\"negativeCache\\\": { \\\"enabled\\\": true, \\\"timeToLive\\\": 1440 }, \\\"httpClient\\\": { \\\"blocked\\\": false, \\\"autoBlock\\\": true, \\\"connection\\\": { \\\"retries\\\": 0, \\\"userAgentSuffix\\\": \\\"string\\\", \\\"timeout\\\": 60, \\\"enableCircularRedirects\\\": false, \\\"enableCookies\\\": false, \\\"useTrustStore\\\": false }, \\\"authentication\\\": { \\\"type\\\": \\\"username\\\", \\\"username\\\": \\\"string\\\", \\\"password\\\": \\\"string\\\", \\\"ntlmHost\\\": \\\"string\\\", \\\"ntlmDomain\\\": \\\"string\\\", \\\"preemptive\\\": false } }, \\\"routingRule\\\": \\\"string\\\", \\\"maven\\\": { \\\"versionPolicy\\\": \\\"MIXED\\\", \\\"layoutPolicy\\\": \\\"STRICT\\\" }}\"\n\n# Optionally include RedHat Repositories in maven-public\n# Maven Public Group\necho \"🦄 Adding repos to Maven Group\"\ncurl -s -k -X PUT \"${NEXUS_URL}/service/rest/v1/repositories/maven/group/maven-public\" \\\n  --user \"${NEXUS_USER}\" \\\n  -H \"accept: application/json\" \\\n  -H \"Content-Type: application/json\" \\\n  -d \"{ \\\"name\\\": \\\"maven-public\\\", \\\"format\\\": \\\"maven2\\\", \\\"online\\\": true, \\\"storage\\\": { \\\"blobStoreName\\\": \\\"default\\\", \\\"strictContentTypeValidation\\\": true }, \\\"group\\\": { \\\"memberNames\\\": [\\\"red-hat-ea\\\", \\\"red-hat-ga\\\",\\\"maven-releases\\\", \\\"maven-snapshots\\\", \\\"maven-central\\\"]}, \\\"type\\\": \\\"group\\\"}\"\n\n# raw hosted via rest\necho \"🐺 creating labs-static raw hosted repo\"\ncurl -s -k -X POST \"${NEXUS_URL}/service/rest/beta/repositories/raw/hosted\" \\\n  --user \"${NEXUS_USER}\" \\\n  -H \"accept: application/json\" \\\n  -H \"Content-Type: application/json\" \\\n  -d \"{ \\\"name\\\": \\\"labs-static\\\", \\\"online\\\": true, \\\"storage\\\": { \\\"blobStoreName\\\": \\\"default\\\", \\\"strictContentTypeValidation\\\": true, \\\"writePolicy\\\": \\\"ALLOW\\\" }}\"\n\n# disable anonymous access by not running onboarding\noc -n ${NS} exec $(oc -n ${NS} get pods -o custom-columns=NAME:.metadata.name --no-headers -lapp=\"sonatype-nexus\") -- bash -c 'if ! grep -q \"nexus.onboarding.enabled\" /nexus-data/etc/nexus.properties; then echo \"nexus.onboarding.enabled=false\" >> /nexus-data/etc/nexus.properties; fi'\n\necho \"😇 restarting nexus...\"\noc -n ${NS} delete pod -lapp=\"sonatype-nexus\"\noc -n ${NS} wait pod -lapp=\"sonatype-nexus\" --for=condition=Ready --timeout=300s\n\necho -e \"${GREEN}Done!${NC}\""
+    },
+    "metadata": {
+      "name": "nexussetup",
+      "labels": {
+        "app": "nexus-setup"
+      }
+    }
+  },
+  {
+    "kind": "PersistentVolumeClaim",
+    "apiVersion": "v1",
+    "metadata": {
+      "name": "release-name-sonatype-nexus-data",
+      "labels": {
+        "app": "sonatype-nexus",
+        "fullname": "release-name-sonatype-nexus",
+        "chart": "sonatype-nexus-1.1.5",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "accessModes": [
+        "ReadWriteOnce"
+      ],
+      "resources": {
+        "requests": {
+          "storage": "8Gi"
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "creationTimestamp": null,
+      "name": "edit-0"
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "ClusterRole",
+      "name": "edit"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "nexus-setup"
+      }
+    ]
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "sonatype-nexus-service",
+      "labels": {
+        "app": "sonatype-nexus",
+        "fullname": "release-name-sonatype-nexus",
+        "chart": "sonatype-nexus-1.1.5",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "ports": [
+        {
+          "name": "nexus-service",
+          "port": 8081,
+          "targetPort": 8081
+        }
+      ],
+      "selector": {
+        "app": "sonatype-nexus",
+        "release": "release-name"
+      },
+      "type": "ClusterIP"
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-sonatype-nexus",
+      "labels": {
+        "app": "sonatype-nexus",
+        "fullname": "release-name-sonatype-nexus",
+        "chart": "sonatype-nexus-1.1.5",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app": "sonatype-nexus",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "sonatype-nexus",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "nexus",
+              "image": "registry.connect.redhat.com/sonatype/nexus-repository-manager:3.38.1-ubi-1",
+              "imagePullPolicy": "IfNotPresent",
+              "lifecycle": null,
+              "env": [
+                {
+                  "name": "install4jAddVmParams",
+                  "value": "-Xms1200M -Xmx1200M -XX:MaxDirectMemorySize=2G -XX:+UnlockExperimentalVMOptions -XX:+UseCGroupMemoryLimitForHeap"
+                },
+                {
+                  "name": "NEXUS_SECURITY_RANDOMPASSWORD",
+                  "value": "false"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "ports": [
+                {
+                  "containerPort": 5003,
+                  "name": "nexus-docker-g"
+                },
+                {
+                  "containerPort": 8081,
+                  "name": "nexus-http"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": 8081
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 30,
+                "failureThreshold": 6
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": 8081
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 30,
+                "failureThreshold": 6
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/nexus-data",
+                  "name": "release-name-sonatype-nexus-data"
+                },
+                {
+                  "mountPath": "/nexus-data/backup",
+                  "name": "release-name-sonatype-nexus-backup"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "release-name-sonatype-nexus-data",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-sonatype-nexus-data"
+              }
+            },
+            {
+              "name": "release-name-sonatype-nexus-backup",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+      "name": "nexus-setup",
+      "labels": {
+        "app": "nexus-setup"
+      }
+    },
+    "spec": {
+      "template": {
+        "metadata": {
+          "name": "nexus-setup-job"
+        },
+        "spec": {
+          "restartPolicy": "OnFailure",
+          "serviceAccountName": "nexus-setup",
+          "volumes": [
+            {
+              "configMap": {
+                "defaultMode": 420,
+                "name": "nexussetup"
+              },
+              "name": "nexussetup"
+            }
+          ],
+          "containers": [
+            {
+              "name": "nc",
+              "image": "quay.io/openshift/origin-jenkins-agent-base:latest",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "/bin/sh",
+                "-c",
+                "source /tmp/config-nexus.sh"
+              ],
+              "volumeMounts": [
+                {
+                  "mountPath": "/tmp/config-nexus.sh",
+                  "name": "nexussetup",
+                  "subPath": "config-nexus.sh"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  null,
+  {
+    "apiVersion": "route.openshift.io/v1",
+    "kind": "Route",
+    "metadata": {
+      "name": "nexus",
+      "labels": null,
+      "annotations": null
+    },
+    "spec": {
+      "host": null,
+      "port": {
+        "targetPort": "nexus-service"
+      },
+      "tls": {
+        "insecureEdgeTerminationPolicy": "Redirect",
+        "termination": "edge"
+      },
+      "to": {
+        "kind": "Service",
+        "name": "sonatype-nexus-service",
+        "weight": 100
+      },
+      "wildcardPolicy": "None"
+    }
+  }
+]

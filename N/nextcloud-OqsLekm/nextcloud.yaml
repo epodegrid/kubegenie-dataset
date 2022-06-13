@@ -1,0 +1,164 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nextcloud-config-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1G
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nextcloud-data-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 15G
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nextcloud-svc
+  labels:
+    helm.sh/chart: nextcloud-0.6
+    app-name: nextcloud
+    component: file-server
+    managed-by: chynten
+    created-by: chynten
+    version: 22.0.0-apache
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80
+  selector:
+    app-name: nextcloud
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nextcloud-deployment
+  labels:
+    helm.sh/chart: nextcloud-0.6
+    app-name: nextcloud
+    component: file-server
+    managed-by: chynten
+    created-by: chynten
+    version: 22.0.0-apache
+spec:
+  replicas: 1
+  revisionHistoryLimit: null
+  selector:
+    matchLabels:
+      app-name: nextcloud
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app-name: nextcloud
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: nextcloud
+          image: nextcloud:22.0.0-apache
+          imagePullPolicy: IfNotPresent
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: PUID
+              value: "10000"
+            - name: PGID
+              value: "10000"
+            - name: TZ
+              value: UTC
+            - name: NEXTCLOUD_DATA_DIR
+              value: /data
+          readinessProbe:
+            httpGet:
+              httpHeaders:
+                - name: Host
+                  value: 127.0.0.1
+              path: /status.php
+              port: 80
+              scheme: HTTP
+            periodSeconds: 60
+          livenessProbe:
+            httpGet:
+              httpHeaders:
+                - name: Host
+                  value: 127.0.0.1
+              path: /status.php
+              port: 80
+              scheme: HTTP
+            periodSeconds: 60
+          startupProbe:
+            httpGet:
+              httpHeaders:
+                - name: Host
+                  value: 127.0.0.1
+              path: /status.php
+              port: 80
+              scheme: HTTP
+            initialDelaySeconds: 30
+            failureThreshold: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data
+              subPath: data
+            - name: config
+              mountPath: /var/www/html
+              subPath: conf
+      securityContext:
+        fsGroup: 33
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: nextcloud-data-pvc
+        - name: config
+          persistentVolumeClaim:
+            claimName: nextcloud-config-pvc
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nextcloud-ingress
+  labels:
+    helm.sh/chart: nextcloud-0.6
+    app-name: nextcloud
+    component: file-server
+    managed-by: chynten
+    created-by: chynten
+    version: 22.0.0-apache
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 600m
+    nginx.org/client-max-body-size: 600m
+spec:
+  tls:
+    - hosts:
+        - files.example.com
+      secretName: nextcloud-letsencrypt-certificate
+  rules:
+    - host: files.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nextcloud-svc
+                port:
+                  number: 80

@@ -1,0 +1,170 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: l3-config
+data:
+  bootstrap.txt: |
+    redis.hostname:accelleran
+    redis.port:6379
+    instance.filter:enb_key
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: accelleran
+spec:
+  selector:
+    app: accelleran
+  clusterIP: None
+  ports:
+    - name: s1ap
+      port: 36412
+      protocol: SCTP
+    - name: nats
+      port: 4222
+      protocol: TCP
+    - name: redis
+      port: 6379
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: accelleran-external
+spec:
+  selector:
+    app: accelleran
+  type: NodePort
+  ports:
+    - name: s1ap-external
+      port: 36412
+      nodePort: 31412
+      protocol: SCTP
+    - name: nats-external
+      port: 4222
+      nodePort: 4222
+      protocol: TCP
+    - name: redis-external
+      port: 6379
+      nodePort: 6379
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: accelleran
+  labels:
+    app: accelleran
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: accelleran
+  serviceName: accelleran
+  template:
+    metadata:
+      labels:
+        app: accelleran
+    spec:
+      terminationGracePeriodSeconds: 1
+      initContainers:
+        - name: cu-init
+          image: ngick8stesting/c3po-mmeinit
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          command:
+            - sh
+            - -c
+          args:
+            - |
+              iptables -I OUTPUT -p icmp --icmp-type destination-unreachable -j DROP; if chroot /mnt/host-rootfs modinfo nf_conntrack_proto_sctp > /dev/null 2>&1; then \
+                  chroot /mnt/host-rootfs modprobe nf_conntrack_proto_sctp; \
+              fi; \
+          volumeMounts:
+            - name: host-rootfs
+              mountPath: /mnt/host-rootfs
+      containers:
+        - name: nats
+          image: node1:30500/accelleran/vran-nats:20190121
+          imagePullPolicy: IfNotPresent
+          stdin: true
+          tty: true
+          env:
+            - name: NATS_SERVICE_NAME
+              value: nats-cluster
+          command:
+            - sh
+            - -c
+          args:
+            - gnatsd -DV -c /etc/gnatsd.conf;
+          resources:
+            limits:
+              cpu: 3
+              memory: 1Gi
+          securityContext:
+            capabilities:
+              drop:
+                "": NET_RAW
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+        - name: redis
+          image: node1:30500/accelleran/vran-redis:20190121
+          imagePullPolicy: IfNotPresent
+          stdin: true
+          tty: true
+          command:
+            - sh
+            - -c
+          args:
+            - (sleep 5; redis-cli -h localhost -p 6379 set NATS_SERVICE_URL "nat://10.90.0.131:4222";) & /usr/local/bin/redis-server
+          resources:
+            limits:
+              cpu: 3
+              memory: 1Gi
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+                - IPC_LOCK
+        - name: bbu
+          image: node1:30500/accelleran/vran-l3-fdd:onf-dns
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MME_IP
+              value: 10.90.0.132
+          stdin: true
+          tty: true
+          command:
+            - sh
+            - -c
+          args:
+            - sqlite3 /mnt/app/datastore.db "update cellS1apConfig set enbSctpPort=36412;"; sqlite3 /mnt/app/datastoreRemRw.db "update FapServiceFapControlLteGateway set S1SigLinkPort=36412;"; sqlite3 /mnt/app/datastoreRemRw.db "update FapServiceCellConfigLteEpcPlmnList set PLMNID=371211;"; sqlite3 /mnt/app/datastore.db "insert into enbSctpSocketInterface ('interfaceName') values ('eth0');"; sqlite3 /mnt/app/datastore.db "update logging set severity=7 where id=25;"; sleep 10; /l3/l3start;
+          volumeMounts:
+            - name: bbu-config
+              mountPath: /mnt/app/bootstrap.txt
+              subPath: bootstrap.txt
+          resources:
+            limits:
+              cpu: 3
+              memory: 1Gi
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+                - IPC_LOCK
+                - SYS_NICE
+      volumes:
+        - name: bbu-config
+          configMap:
+            name: l3-config
+            items:
+              - key: bootstrap.txt
+                path: bootstrap.txt
+        - name: host-rootfs
+          hostPath:
+            path: /
+---
+null
+---
+null

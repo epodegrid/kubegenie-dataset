@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-fluentd
+  labels:
+    app: fluentd
+    chart: fluentd-0.1.0
+    release: release-name
+    heritage: Helm
+data: null
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-fluentd
+  labels:
+    app: fluentd
+    chart: fluentd-0.1.0
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: monitor-agent
+      port: 24220
+      targetPort: 24220
+      protocol: TCP
+  selector:
+    app: fluentd
+    release: release-name
+---
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  name: release-name-fluentd
+  labels:
+    app: fluentd
+    chart: fluentd-0.1.0
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fluentd
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: fluentd
+        release: release-name
+    spec:
+      containers:
+        - name: fluentd
+          image: bryanalves/fluentd:0.5
+          imagePullPolicy: IfNotPresent
+          command:
+            - fluentd
+            - -c
+            - /fluentd/etc/fluentd.conf
+            - -p
+            - /fluentd/plugins
+          env: null
+          livenessProbe:
+            httpGet:
+              path: /fluentd.pod.healthcheck?json=%7B%22log%22%3A+%22health+check%22%7D
+              port: 9880
+            initialDelaySeconds: 5
+            timeoutSeconds: 10
+          volumeMounts:
+            - name: scratch-data
+              mountPath: /fluentd/data
+            - name: fluentd-config
+              mountPath: /fluentd/etc
+          ports:
+            - name: monitor-agent
+              containerPort: 24220
+              protocol: TCP
+            - name: http-input
+              containerPort: 9880
+              protocol: TCP
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: scratch-data
+          emptyDir: {}
+        - name: fluentd-config
+          configMap:
+            name: release-name-fluentd

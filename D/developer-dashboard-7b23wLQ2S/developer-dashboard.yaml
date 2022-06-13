@@ -1,0 +1,147 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: developer-dashboard
+  annotations:
+    serviceaccounts.openshift.io/oauth-redirectreference.primary: '{"kind":"OAuthRedirectReference","apiVersion":"v1","reference":{"kind":"Route","name":"dashboard"}}'
+  labels:
+    app: developer-dashboard
+    app.kubernetes.io/name: developer-dashboard
+    helm.sh/chart: developer-dashboard-1.4.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: developer-dashboard-serviceAccount
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: developer-dashboard-agent
+  labels:
+    app: developer-dashboard
+    app.kubernetes.io/name: developer-dashboard
+    helm.sh/chart: developer-dashboard-1.4.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: developer-dashboard-role
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: developer-dashboard-agent
+  labels:
+    app: developer-dashboard
+    app.kubernetes.io/name: developer-dashboard
+    helm.sh/chart: developer-dashboard-1.4.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: developer-dashboard-roleBinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: developer-dashboard-agent
+subjects:
+  - kind: ServiceAccount
+    name: developer-dashboard
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-developer-dashboard
+  annotations:
+    service.alpha.openshift.io/serving-cert-secret-name: dashboard-tls
+  labels:
+    app: developer-dashboard
+    chart: developer-dashboard-1.4.1
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: developer-dashboard
+    release: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-developer-dashboard
+  annotations:
+    app.openshift.io/vcs-ref: vv1.4.4
+    app.openshift.io/vcs-uri: https://github.com/ibm-garage-cloud/developer-dashboard
+  labels:
+    app: developer-dashboard
+    chart: developer-dashboard-1.4.1
+    release: release-name
+    heritage: Helm
+    app.kubernetes.io/name: release-name-developer-dashboard
+    helm.sh/chart: developer-dashboard-1.4.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: release-name-developer-dashboard-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: developer-dashboard
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: developer-dashboard
+        release: release-name
+        app.kubernetes.io/name: developer-dashboard
+        helm.sh/chart: developer-dashboard-1.4.1
+        app.kubernetes.io/instance: developer-dashboard
+        app.kubernetes.io/component: developer-dashboard-pod
+    spec:
+      serviceAccountName: developer-dashboard
+      containers:
+        - name: developer-dashboard
+          image: quay.io/ibmgaragecloud/developer-dashboard:v1.4.4
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          envFrom:
+            - configMapRef:
+                name: ibmcloud-config
+                optional: true
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: release-name-developer-dashboard
+  labels:
+    app: developer-dashboard
+    chart: developer-dashboard-1.4.1
+    release: release-name
+    heritage: Helm
+spec:
+  rules:
+    - host: dashboard-default.
+      http:
+        paths:
+          - path: /
+            backend:
+              serviceName: release-name-developer-dashboard
+              servicePort: http

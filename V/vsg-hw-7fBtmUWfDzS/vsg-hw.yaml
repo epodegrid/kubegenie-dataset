@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vsg-hw
+data:
+  serviceConfig: |
+    name: vsg-hw
+    accessor:
+      username: "admin@opencord.org"
+      password: "letmein"
+      endpoint: xos-core:50051
+    logging:
+      version: 1
+      handlers:
+        console:
+          class: logging.StreamHandler
+        file:
+          class: logging.handlers.RotatingFileHandler
+          filename: /var/log/xos.log
+          maxBytes: 10485760
+          backupCount: 5
+        kafka:
+          class: kafkaloghandler.KafkaLogHandler
+          bootstrap_servers:
+            - "cord-kafka:9092"
+          topic: xos.log.vsg-hw
+      loggers:
+        '':
+          handlers:
+            - console
+            - file
+            - kafka
+          level: DEBUG
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-vsg-hw
+  labels:
+    app: vsg-hw
+    chart: vsg-hw-1.1.2
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vsg-hw
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: vsg-hw
+        release: release-name
+      annotations:
+        checksum/config: 1365c266d9c914d243dfac9170fe84420cb81846b73e01488131d7dcb71f7383
+    spec:
+      containers:
+        - name: vsg-hw
+          image: xosproject/vsg-hw-synchronizer:1.1.0
+          imagePullPolicy: Always
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: vsg-hw-config
+              mountPath: /opt/xos/synchronizers/vsg-hw/mounted_config.yaml
+              subPath: mounted_config.yaml
+            - name: certchain-volume
+              mountPath: /usr/local/share/ca-certificates/local_certs.crt
+              subPath: config/ca_cert_chain.pem
+      volumes:
+        - name: vsg-hw-config
+          configMap:
+            name: vsg-hw
+            items:
+              - key: serviceConfig
+                path: mounted_config.yaml
+        - name: certchain-volume
+          configMap:
+            name: ca-certificates
+            items:
+              - key: chain
+                path: config/ca_cert_chain.pem

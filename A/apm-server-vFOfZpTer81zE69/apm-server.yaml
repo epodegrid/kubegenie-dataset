@@ -1,0 +1,155 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-apm-server
+  labels:
+    helm.sh/chart: apm-server-0.1.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: apm-server
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 7.17.2
+data:
+  config.yml: |
+    apm-server:
+      host: 0.0.0.0:8200
+      max_header_size: 1048576
+      idle_timeout: 45s
+      read_timeout: 30s
+      write_timeout: 30s
+      shutdown_timeout: 5s
+      max_event_size: 307200
+      max_connections: 0
+      capture_personal_data: true
+      #---------------------------- APM Server - Agent Configuration ----------------------------
+      agent.config.cache.expiration: 30s
+      kibana:
+        enabled: false
+      #---------------------------- APM Server - ILM Index Lifecycle Management ----------------------------
+      ilm:
+        enabled: "auto"
+        setup:
+          enabled: true
+          overwrite: false
+          require_policy: true
+    #================================= General =================================
+    queue:
+      mem:
+        events: 4096
+        flush.min_events: 2048
+        flush.timeout: 1s
+    #================================ Outputs =================================
+    #----------------------------- Console output -----------------------------
+    output.console:
+      enabled: true
+      codec.json:
+        pretty: false
+        escape_html: false
+    #============================= Instrumentation =============================
+    instrumentation:
+      enabled: false
+    #================================= Paths ==================================
+    path.data: /usr/share/apm-server/data
+    path.logs: /usr/share/apm-server/logs
+    #================================= Logging =================================
+    logging.level: info
+    logging.to_syslog: false
+    logging.to_files: false
+    logging.json: true
+    logging.ecs: false
+    #=============================== HTTP Endpoint ===============================
+    http.enabled: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-apm-server
+  labels:
+    helm.sh/chart: apm-server-0.1.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: apm-server
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 7.17.2
+spec:
+  type: ClusterIP
+  ports:
+    - name: apm
+      targetPort: apm
+      port: 8200
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: apm-server
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-apm-server
+  labels:
+    helm.sh/chart: apm-server-0.1.1
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: apm-server
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 7.17.2
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: apm-server
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: apm-server
+        app.kubernetes.io/instance: release-name
+    spec:
+      containers:
+        - name: apm-server
+          image: docker.io/elastic/apm-server:7.17.2
+          imagePullPolicy: IfNotPresent
+          args:
+            - -c
+            - /etc/apm-server/config.yml
+          ports:
+            - name: apm
+              containerPort: 8200
+              protocol: TCP
+          readinessProbe:
+            failureThreshold: 2
+            httpGet:
+              path: /
+              port: apm
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 2
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 10652
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: config
+              mountPath: /etc/apm-server
+              readOnly: true
+            - name: data
+              mountPath: /usr/share/apm-server/data
+            - name: logs
+              mountPath: /usr/share/apm-server/logs
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-apm-server
+            defaultMode: 256
+        - name: data
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}
+      hostNetwork: false
+      securityContext:
+        fsGroup: 1000
+      serviceAccountName: default
+      terminationGracePeriodSeconds: 30

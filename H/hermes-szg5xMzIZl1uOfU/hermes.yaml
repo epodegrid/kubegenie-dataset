@@ -1,0 +1,1412 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-apicurio-registry
+  labels:
+    helm.sh/chart: apicurio-registry-0.1.3
+    app.kubernetes.io/name: apicurio-registry
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.1.0.Final
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-kafka
+  labels:
+    app.kubernetes.io/name: kafka
+    helm.sh/chart: kafka-14.9.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: kafka
+automountServiceAccountToken: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-hermes-consumers
+  labels:
+    component: consumers
+    helm.sh/chart: hermes-0.5.9
+    app.kubernetes.io/name: hermes
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.12.3
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-hermes-frontend
+  labels:
+    component: frontend
+    helm.sh/chart: hermes-0.5.9
+    app.kubernetes.io/name: hermes
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.12.3
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-hermes-management
+  labels:
+    component: management
+    helm.sh/chart: hermes-0.5.9
+    app.kubernetes.io/name: hermes
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.12.3
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-hermes-consumers-secret
+data:
+  consumers-secret.properties: ""
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-hermes-frontend-secret
+data:
+  frontend-secret.properties: ""
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-hermes-management-secret
+data:
+  management-secret.yaml: bnVsbA==
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-kafka-scripts
+  labels:
+    app.kubernetes.io/name: kafka
+    helm.sh/chart: kafka-14.9.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  setup.sh: |-
+    #!/bin/bash
+
+    ID="${MY_POD_NAME#"release-name-kafka-"}"
+    if [[ -f "/bitnami/kafka/data/meta.properties" ]]; then
+        export KAFKA_CFG_BROKER_ID="$(grep "broker.id" /bitnami/kafka/data/meta.properties | awk -F '=' '{print $2}')"
+    else
+        export KAFKA_CFG_BROKER_ID="$((ID + 0))"
+    fi
+
+    exec /entrypoint.sh /run.sh
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-hermes-consumers
+  labels:
+    component: consumers
+    helm.sh/chart: hermes-0.5.9
+    app.kubernetes.io/name: hermes
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.12.3
+    app.kubernetes.io/managed-by: Helm
+data:
+  consumers.properties: |-
+    zookeeper.connect.string=release-name-zookeeper:2181
+    zookeeper.root=/hermes
+    zookeeper.connection.timeout=5000
+    zookeeper.session.timeout=7000
+
+    kafka.broker.list=release-name-kafka:9092
+    kafka.zookeeper.connect.string=release-name-zookeeper:2181
+
+    schema.repository.serverUrl=http://release-name-apicurio-registry:80/apis/ccompat/v6/
+    schema.repository.subject.suffix.enabled=true
+    schema.repository.subject.namespace.enabled=true
+
+    metrics.graphite.reporter=false
+
+    consumer.workload.consumers.per.subscription=1
+  logback.xml: |-
+    <?xml version="1.0" encoding="UTF-8"?>
+    <configuration>
+
+        <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+                <Pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</Pattern>
+            </encoder>
+        </appender>
+
+        <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <file>/opt/consumers/storage/hermes-consumers.log</file>
+            <encoder>
+                <Pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</Pattern>
+            </encoder>
+            <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+                <maxHistory>1</maxHistory>
+                <fileNamePattern>hermes-consumers-%d{yyyy-MM-dd}.log</fileNamePattern>
+            </rollingPolicy>
+        </appender>
+
+        <logger name="org.apache.zookeeper" level="ERROR" />
+        <logger name="kafka" level="WARN"/>
+
+        <root level="INFO">
+            <appender-ref ref="STDOUT" />
+            <appender-ref ref="FILE" />
+        </root>
+
+    </configuration>
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-hermes-frontend
+  labels:
+    component: frontend
+    helm.sh/chart: hermes-0.5.9
+    app.kubernetes.io/name: hermes
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.12.3
+    app.kubernetes.io/managed-by: Helm
+data:
+  frontend.properties: |-
+    zookeeper.connect.string=release-name-zookeeper:2181
+    zookeeper.root=/hermes
+
+    kafka.broker.list=release-name-kafka:9092
+    kafka.zookeeper.connect.string=release-name-zookeeper:2181
+
+    kafka.topic.partitions=4
+    kafka.topic.replication.factor=1
+
+    schema.repository.serverUrl=http://release-name-apicurio-registry:80/apis/ccompat/v6/
+    schema.repository.subject.suffix.enabled=true
+    schema.repository.subject.namespace.enabled=true
+
+    metrics.graphite.reporter=false
+    frontend.message.preview.enabled=true
+  logback.xml: |-
+    <?xml version="1.0" encoding="UTF-8"?>
+    <configuration>
+
+        <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+                <Pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</Pattern>
+            </encoder>
+        </appender>
+
+        <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <file>/opt/frontend/storage/hermes-frontend.log</file>
+            <encoder>
+                <Pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</Pattern>
+            </encoder>
+            <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+                <maxHistory>1</maxHistory>
+                <fileNamePattern>hermes-frontend-%d{yyyy-MM-dd}.log</fileNamePattern>
+            </rollingPolicy>
+        </appender>
+
+        <logger name="org.apache.zookeeper" level="ERROR" />
+
+        <!--Selector spams ERROR level messages every 100ms on IOException-->
+        <logger name="org.apache.kafka.common.network.Selector" level="OFF"/>
+
+        <logger name="kafka" level="WARN"/>
+
+        <root level="INFO">
+            <appender-ref ref="STDOUT" />
+            <appender-ref ref="FILE" />
+        </root>
+
+    </configuration>
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-hermes-management
+  labels:
+    component: management
+    helm.sh/chart: hermes-0.5.9
+    app.kubernetes.io/name: hermes
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.12.3
+    app.kubernetes.io/managed-by: Helm
+data:
+  management.yaml: |-
+    application:
+      name: hermes-management
+
+    logging.config: /etc/hermes/logback.xml
+
+    zookeeper:
+      enabled: false
+
+    storage:
+      pathPrefix: /hermes
+      clusters:
+        -
+          datacenter: dc
+          clusterName: zk
+          connectionString: release-name-zookeeper:2181
+
+    kafka:
+      clusters:
+        -
+          datacenter: dc
+          clusterName: primary
+          connectionString: release-name-zookeeper:2181
+          connectionTimeout: 10000
+          bootstrapKafkaServer: release-name-kafka:9092
+          kafkaServerRequestTimeoutMillis: 10000
+
+    metrics:
+      graphiteHttpUri: graphite:8082
+      graphite:
+        enabled: true
+
+    server:
+      port: 8080
+
+    spring:
+      jersey:
+        type: filter
+
+    management:
+      endpoints:
+        web:
+          base-path: /
+      rest-template:
+        connect-timeout: 2000
+        read-timeout: 2000
+      server:
+        servlet:
+          context-path: /
+      health:
+        periodSeconds: 30
+        enabled: true
+      consumer-groups:
+        create-manually: true
+
+    audit.enabled: false
+
+    topicOwnerCache:
+      refreshRateInSeconds: 300 # 5 minutes
+
+    subscriptionOwnerCache:
+      refreshRateInSeconds: 300
+
+    schema:
+      repository:
+        type: schema_registry
+        serverUrl: http://release-name-apicurio-registry:80/apis/ccompat/v6/
+        subjectSuffixEnabled: true
+        subjectNamespaceEnabled: true
+        validationEnabled: true
+
+    console:
+      configurationLocation: console/config-local.json
+      configurationType: classpath_resource
+    topic: {"defaultSchemaIdAwareSerializationEnabled":true,"partitions":4,"replicationFactor":1}
+  logback.xml: |-
+    <?xml version="1.0" encoding="UTF-8"?>
+    <configuration>
+
+        <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+                <Pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</Pattern>
+            </encoder>
+        </appender>
+
+
+        <!-- Selector spams ERROR level messages every 100ms on IOException -->
+        <logger name="org.apache.kafka.common.network.Selector" level="OFF"/>
+        <logger name="org.apache.zookeeper" level="WARN" />
+        <logger name="org.apache.kafka" level="INFO" />
+        <logger name="kafka" level="INFO"/>
+
+        <root level="INFO">
+            <appender-ref ref="STDOUT" />
+        </root>
+
+    </configuration>
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-hermes-test-scripts
+data:
+  main-wrapper.sh: |-
+    #!/bin/sh
+    ($*) &
+    MAIN_PID=$!
+    echo $MAIN_PID > /var/run/sidecars/main.pid
+    wait $MAIN_PID
+  sidecar-wrapper.sh: |-
+    #!/bin/sh
+    ($*) &
+    MAIN_PID=$(until cat /var/run/sidecars/main.pid; do sleep 1; done)
+    tail --pid $MAIN_PID -f /dev/null
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-hermes-test-suites
+data:
+  main.bats: |
+    #!/usr/bin/env bats
+
+    : "${MANAGEMENT_URL:?required environment value not set}"
+    : "${FRONTEND_URL:?required environment value not set}"
+    : "${WIREMOCK_URL:?required environment value not set}"
+
+    GROUP=testgroup
+    TOPIC=testtopic
+    SCHEMA=$(cat << _END | sed -e 's/$/\\n/g' -e 's/"/\\"/g'
+    {
+      "namespace": "${GROUP}",
+      "name": "${TOPIC}",
+      "type": "record",
+      "doc": "This is a sample schema definition for some Hermes message",
+      "fields": [
+        {
+          "name": "id",
+          "type": "string",
+          "doc": "Message id"
+        },
+        {
+          "name": "content",
+          "type": "string",
+          "doc": "Message content"
+        },
+        {
+          "name": "tags",
+          "type": { "type": "array", "items": "string" },
+          "doc": "Message tags"
+        }
+      ]
+    }
+    _END
+    )
+
+    function curl_get() {
+      curl -f -k -v -X GET "$@"
+    }
+
+    function curl_delete() {
+      curl -f -k -v -X DELETE "$@"
+    }
+
+    function curl_post() {
+      curl -f -k -v -H "Content-type: application/json" -X POST "$@"
+    }
+
+    # timeout command has different syntax in Ubuntu and BusyBox
+    if [[ $(realpath $(which timeout)) =~ "busybox" ]]; then
+      function timeout() {
+        $(which timeout) -t "$@"
+      }
+    fi
+
+    function setup() {
+      # given a group
+      curl_get ${MANAGEMENT_URL%/}/groups/${GROUP} ||
+        curl_post -d "{\"groupName\": \"${GROUP}\"}" ${MANAGEMENT_URL%/}/groups
+
+      # and a topic
+      curl_get ${MANAGEMENT_URL%/}/topics/${GROUP}.${TOPIC} ||
+        cat  << _END | curl_post -d @- ${MANAGEMENT_URL%/}/topics/
+    {
+        "name": "${GROUP}.${TOPIC}",
+        "description": "This is a test topic",
+        "contentType": "AVRO",
+        "retentionTime": {
+            "duration": 1
+        },
+        "owner": {
+            "source": "Plaintext",
+            "id": "Test"
+        },
+        "schema":	"$SCHEMA"
+    }
+    _END
+      timeout 10 /bin/sh -c "until curl --output /dev/null --silent --fail ${WIREMOCK_URL%/}/__admin/; do sleep 1 && echo -n .; done;"
+
+      # and a subscriber
+      SUBSCRIBER_NAME=$(head /dev/urandom | tr -dc a-z | head -c 16)
+      SUBSCRIBER_URL=${WIREMOCK_URL%/}/${SUBSCRIBER_NAME}
+      cat << _END | curl_post -d @- ${WIREMOCK_URL%/}/__admin/mappings
+    {
+      "request": {
+        "method": "POST",
+        "url": "/${SUBSCRIBER_NAME}"
+      },
+      "response": {
+        "status": 202
+      }
+    }
+    _END
+      cat << _END | curl_post -d @- ${MANAGEMENT_URL%/}/topics/${GROUP}.${TOPIC}/subscriptions
+    {
+        "contentType": "JSON",
+        "description": "test",
+        "endpoint": "${SUBSCRIBER_URL%/}",
+        "name": "${SUBSCRIBER_NAME}",
+        "owner": { "id": "test", "source": "Plaintext" },
+        "topicName": "${GROUP}.${TOPIC}"
+    }
+    _END
+    }
+
+    function teardown() {
+      # afterwards remove the subscription
+      curl_delete ${MANAGEMENT_URL%/}/topics/${GROUP}.${TOPIC}/subscriptions/${SUBSCRIBER_NAME}
+      # the group and topic are left as an example
+    }
+
+    @test "message should be sent to subscriber" {
+      # when a message has been posted on the topic
+      cat << _END | curl_post -d @- ${FRONTEND_URL%/}/topics/${GROUP}.${TOPIC}
+    {
+      "id": "an id",
+      "content": "a content",
+      "tags": []
+    }
+    _END
+
+      # then the message is received by the subscriber
+      export -f curl_post
+      cat << _END | timeout 90 bash -c "until curl_post -d '$(cat)' ${WIREMOCK_URL%/}/__admin/requests/count | grep '\"count\" : 1'; do sleep 10; done"
+    {
+        "method": "POST",
+        "url": "/${SUBSCRIBER_NAME}"
+    }
+    _END
+
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-apicurio-registry
+  labels:
+    helm.sh/chart: apicurio-registry-0.1.3
+    app.kubernetes.io/name: apicurio-registry
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.1.0.Final
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: apicurio-registry
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-zookeeper-headless
+  namespace: szg5xMzIZl1uOfU
+  labels:
+    app.kubernetes.io/name: zookeeper
+    helm.sh/chart: zookeeper-7.5.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: zookeeper
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: tcp-client
+      port: 2181
+      targetPort: client
+    - name: follower
+      port: 2888
+      targetPort: follower
+    - name: tcp-election
+      port: 3888
+      targetPort: election
+  selector:
+    app.kubernetes.io/name: zookeeper
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: zookeeper
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-zookeeper
+  namespace: szg5xMzIZl1uOfU
+  labels:
+    app.kubernetes.io/name: zookeeper
+    helm.sh/chart: zookeeper-7.5.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: zookeeper
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-client
+      port: 2181
+      targetPort: client
+      nodePort: null
+    - name: follower
+      port: 2888
+      targetPort: follower
+    - name: tcp-election
+      port: 3888
+      targetPort: election
+  selector:
+    app.kubernetes.io/name: zookeeper
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: zookeeper
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-kafka-headless
+  labels:
+    app.kubernetes.io/name: kafka
+    helm.sh/chart: kafka-14.9.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: kafka
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: tcp-client
+      port: 9092
+      protocol: TCP
+      targetPort: kafka-client
+    - name: tcp-internal
+      port: 9093
+      protocol: TCP
+      targetPort: kafka-internal
+  selector:
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: kafka
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-kafka
+  labels:
+    app.kubernetes.io/name: kafka
+    helm.sh/chart: kafka-14.9.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: kafka
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-client
+      port: 9092
+      protocol: TCP
+      targetPort: kafka-client
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: kafka
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-hermes-frontend
+  labels:
+    component: frontend
+    helm.sh/chart: hermes-0.5.9
+    app.kubernetes.io/name: hermes
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.12.3
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-hermes-management
+  labels:
+    component: management
+    helm.sh/chart: hermes-0.5.9
+    app.kubernetes.io/name: hermes
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.12.3
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: management
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-apicurio-registry
+  labels:
+    helm.sh/chart: apicurio-registry-0.1.3
+    app.kubernetes.io/name: apicurio-registry
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.1.0.Final
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: apicurio-registry
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: apicurio-registry
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-apicurio-registry
+      securityContext: {}
+      containers:
+        - name: apicurio-registry
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: apicurio/apicurio-registry-kafkasql:2.1.0.Final
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: release-name-kafka:9092
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-hermes-consumers
+  labels:
+    component: consumers
+    helm.sh/chart: hermes-0.5.9
+    app.kubernetes.io/name: hermes
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.12.3
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: consumers
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config: ac0946f23c7f5c498cac85df2e2da41fdfd951e416511f8b1c349716ff5e6138
+      labels:
+        app.kubernetes.io/name: consumers
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-hermes-consumers
+      securityContext:
+        fsGroup: 2000
+      containers:
+        - name: hermes-consumers
+          securityContext:
+            runAsUser: 11072
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: allegro/hermes-consumers:hermes-1.12.3
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: config
+              mountPath: /etc/hermes
+            - name: storage
+              mountPath: /opt/consumers/storage
+          envFrom:
+            - configMapRef:
+                optional: true
+                name: release-name-hermes-consumers-env
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /status/health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /status/health
+              port: http
+            periodSeconds: 3
+            failureThreshold: 40
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: config
+          projected:
+            sources:
+              - configMap:
+                  name: release-name-hermes-consumers
+              - secret:
+                  name: release-name-hermes-consumers-secret
+        - name: storage
+          hostPath:
+            path: /opt/consumers/storage
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-hermes-frontend
+  labels:
+    component: frontend
+    helm.sh/chart: hermes-0.5.9
+    app.kubernetes.io/name: hermes
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.12.3
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config: c8090f161633c3898144a30975a40e78657a5efa47cec7f2902b20f63a8ac86e
+      labels:
+        app.kubernetes.io/name: frontend
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-hermes-frontend
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: hermes-frontend
+          securityContext:
+            runAsUser: 11740
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: allegro/hermes-frontend:hermes-1.12.3
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: config
+              mountPath: /etc/hermes
+            - name: storage
+              mountPath: /opt/frontend/storage
+          envFrom:
+            - configMapRef:
+                optional: true
+                name: release-name-hermes-frontend-env
+          env:
+            - name: HERMES_FRONTEND_OPTS
+              value: -Darchaius.configurationSource.additionalUrls=file:///etc/hermes/frontend.properties,file:///etc/hermes/frontend-secret.properties -Dlogback.configurationFile=/etc/hermes/logback.xml
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 3
+            failureThreshold: 40
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: config
+          projected:
+            sources:
+              - configMap:
+                  name: release-name-hermes-frontend
+              - secret:
+                  name: release-name-hermes-frontend-secret
+        - name: storage
+          hostPath:
+            path: /opt/frontend/storage
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-hermes-management
+  labels:
+    component: management
+    helm.sh/chart: hermes-0.5.9
+    app.kubernetes.io/name: hermes
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.12.3
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: management
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config: 2212b5318353f2d6ce8effd75dd12e3b771e27cc238c005acfb244a5d07b0395
+      labels:
+        app.kubernetes.io/name: management
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-hermes-management
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: hermes-management
+          securityContext:
+            runAsUser: 11376
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: allegro/hermes-management:hermes-1.12.3
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: config
+              mountPath: /etc/hermes
+          env:
+            - name: SERVER_USE_FORWARD_HEADERS
+              value: "true"
+            - name: SPRING_CONFIG_LOCATION
+              value: file:///etc/hermes/management.yaml,file:///etc/hermes/management-secret.yaml
+          envFrom:
+            - configMapRef:
+                optional: true
+                name: release-name-hermes-management-env
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 3
+            failureThreshold: 40
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: config
+          projected:
+            sources:
+              - configMap:
+                  name: release-name-hermes-management
+              - secret:
+                  name: release-name-hermes-management-secret
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-zookeeper
+  namespace: szg5xMzIZl1uOfU
+  labels:
+    app.kubernetes.io/name: zookeeper
+    helm.sh/chart: zookeeper-7.5.1
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: zookeeper
+    role: zookeeper
+spec:
+  serviceName: release-name-zookeeper-headless
+  replicas: 1
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: zookeeper
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: zookeeper
+  template:
+    metadata:
+      name: release-name-zookeeper
+      labels:
+        app.kubernetes.io/name: zookeeper
+        helm.sh/chart: zookeeper-7.5.1
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: zookeeper
+    spec:
+      serviceAccountName: default
+      securityContext:
+        fsGroup: 1001
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: zookeeper
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: zookeeper
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      containers:
+        - name: zookeeper
+          image: docker.io/bitnami/zookeeper:3.7.0-debian-10-r215
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 11895
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          command:
+            - bash
+            - -ec
+            - |
+              # Execute entrypoint as usual after obtaining ZOO_SERVER_ID
+              # check ZOO_SERVER_ID in persistent volume via myid
+              # if not present, set based on POD hostname
+              if [[ -f "/bitnami/zookeeper/data/myid" ]]; then
+                export ZOO_SERVER_ID="$(cat /bitnami/zookeeper/data/myid)"
+              else
+                HOSTNAME=`hostname -s`
+                if [[ $HOSTNAME =~ (.*)-([0-9]+)$ ]]; then
+                  ORD=${BASH_REMATCH[2]}
+                  export ZOO_SERVER_ID=$((ORD + 1 ))
+                else
+                  echo "Failed to get index from hostname $HOST"
+                  exit 1
+                fi
+              fi
+              exec /entrypoint.sh /run.sh
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: ZOO_DATA_LOG_DIR
+              value: ""
+            - name: ZOO_PORT_NUMBER
+              value: "2181"
+            - name: ZOO_TICK_TIME
+              value: "2000"
+            - name: ZOO_INIT_LIMIT
+              value: "10"
+            - name: ZOO_SYNC_LIMIT
+              value: "5"
+            - name: ZOO_PRE_ALLOC_SIZE
+              value: "65536"
+            - name: ZOO_SNAPCOUNT
+              value: "100000"
+            - name: ZOO_MAX_CLIENT_CNXNS
+              value: "60"
+            - name: ZOO_4LW_COMMANDS_WHITELIST
+              value: srvr, mntr, ruok
+            - name: ZOO_LISTEN_ALLIPS_ENABLED
+              value: "no"
+            - name: ZOO_AUTOPURGE_INTERVAL
+              value: "0"
+            - name: ZOO_AUTOPURGE_RETAIN_COUNT
+              value: "3"
+            - name: ZOO_MAX_SESSION_TIMEOUT
+              value: "40000"
+            - name: ZOO_SERVERS
+              value: release-name-zookeeper-0.release-name-zookeeper-headless.default.svc.cluster.local:2888:3888::1
+            - name: ZOO_ENABLE_AUTH
+              value: "no"
+            - name: ZOO_HEAP_SIZE
+              value: "1024"
+            - name: ZOO_LOG_LEVEL
+              value: ERROR
+            - name: ALLOW_ANONYMOUS_LOGIN
+              value: "yes"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+          ports:
+            - name: client
+              containerPort: 2181
+            - name: follower
+              containerPort: 2888
+            - name: election
+              containerPort: 3888
+          livenessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - echo "ruok" | timeout 2 nc -w 2 localhost 2181 | grep imok
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          readinessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - echo "ruok" | timeout 2 nc -w 2 localhost 2181 | grep imok
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/zookeeper
+      volumes: null
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        annotations: null
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-kafka
+  labels:
+    app.kubernetes.io/name: kafka
+    helm.sh/chart: kafka-14.9.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: kafka
+spec:
+  podManagementPolicy: Parallel
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: kafka
+  serviceName: release-name-kafka-headless
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafka
+        helm.sh/chart: kafka-14.9.0
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: kafka
+    spec:
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: kafka
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: kafka
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+        runAsUser: 1001
+      serviceAccountName: release-name-kafka
+      containers:
+        - name: kafka
+          image: docker.io/bitnami/kafka:2.8.1-debian-10-r73
+          imagePullPolicy: IfNotPresent
+          command:
+            - /scripts/setup.sh
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: MY_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: MY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: KAFKA_CFG_ZOOKEEPER_CONNECT
+              value: release-name-zookeeper
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: INTERNAL
+            - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
+              value: INTERNAL:PLAINTEXT,CLIENT:PLAINTEXT
+            - name: KAFKA_CFG_LISTENERS
+              value: INTERNAL://:9093,CLIENT://:9092
+            - name: KAFKA_CFG_ADVERTISED_LISTENERS
+              value: INTERNAL://$(MY_POD_NAME).release-name-kafka-headless.default.svc.cluster.local:9093,CLIENT://$(MY_POD_NAME).release-name-kafka-headless.default.svc.cluster.local:9092
+            - name: ALLOW_PLAINTEXT_LISTENER
+              value: "yes"
+            - name: KAFKA_VOLUME_DIR
+              value: /bitnami/kafka
+            - name: KAFKA_LOG_DIR
+              value: /opt/bitnami/kafka/logs
+            - name: KAFKA_CFG_DELETE_TOPIC_ENABLE
+              value: "false"
+            - name: KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE
+              value: "true"
+            - name: KAFKA_HEAP_OPTS
+              value: -Xmx1024m -Xms1024m
+            - name: KAFKA_CFG_LOG_FLUSH_INTERVAL_MESSAGES
+              value: "10000"
+            - name: KAFKA_CFG_LOG_FLUSH_INTERVAL_MS
+              value: "1000"
+            - name: KAFKA_CFG_LOG_RETENTION_BYTES
+              value: "1073741824"
+            - name: KAFKA_CFG_LOG_RETENTION_CHECK_INTERVALS_MS
+              value: "300000"
+            - name: KAFKA_CFG_LOG_RETENTION_HOURS
+              value: "168"
+            - name: KAFKA_CFG_MESSAGE_MAX_BYTES
+              value: "1000012"
+            - name: KAFKA_CFG_LOG_SEGMENT_BYTES
+              value: "1073741824"
+            - name: KAFKA_CFG_LOG_DIRS
+              value: /bitnami/kafka/data
+            - name: KAFKA_CFG_DEFAULT_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "1"
+            - name: KAFKA_CFG_NUM_IO_THREADS
+              value: "8"
+            - name: KAFKA_CFG_NUM_NETWORK_THREADS
+              value: "3"
+            - name: KAFKA_CFG_NUM_PARTITIONS
+              value: "1"
+            - name: KAFKA_CFG_NUM_RECOVERY_THREADS_PER_DATA_DIR
+              value: "1"
+            - name: KAFKA_CFG_SOCKET_RECEIVE_BUFFER_BYTES
+              value: "102400"
+            - name: KAFKA_CFG_SOCKET_REQUEST_MAX_BYTES
+              value: "104857600"
+            - name: KAFKA_CFG_SOCKET_SEND_BUFFER_BYTES
+              value: "102400"
+            - name: KAFKA_CFG_ZOOKEEPER_CONNECTION_TIMEOUT_MS
+              value: "6000"
+            - name: KAFKA_CFG_AUTHORIZER_CLASS_NAME
+              value: ""
+            - name: KAFKA_CFG_ALLOW_EVERYONE_IF_NO_ACL_FOUND
+              value: "true"
+            - name: KAFKA_CFG_SUPER_USERS
+              value: User:admin
+          ports:
+            - name: kafka-client
+              containerPort: 9092
+            - name: kafka-internal
+              containerPort: 9093
+          livenessProbe:
+            tcpSocket:
+              port: kafka-client
+            initialDelaySeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            periodSeconds: 10
+            successThreshold: 1
+          readinessProbe:
+            tcpSocket:
+              port: kafka-client
+            initialDelaySeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 6
+            periodSeconds: 10
+            successThreshold: 1
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/kafka
+            - name: logs
+              mountPath: /opt/bitnami/kafka/logs
+            - name: scripts
+              mountPath: /scripts/setup.sh
+              subPath: setup.sh
+      volumes:
+        - name: scripts
+          configMap:
+            name: release-name-kafka-scripts
+            defaultMode: 493
+        - name: logs
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-apicurio-registry-test-connection
+  labels:
+    helm.sh/chart: apicurio-registry-0.1.3
+    app.kubernetes.io/name: apicurio-registry
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 2.1.0.Final
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-apicurio-registry:80
+  restartPolicy: Never
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-hermes-test-job
+  annotations:
+    helm.sh/hook: test
+spec:
+  activeDeadlineSeconds: 240
+  backoffLimit: 0
+  template:
+    spec:
+      shareProcessNamespace: true
+      containers:
+        - name: test-job
+          image: touk/bats
+          command:
+            - /main-wrapper.sh
+            - /usr/sbin/bats
+          args:
+            - -t
+            - /suites
+          env:
+            - name: MANAGEMENT_URL
+              value: http://release-name-hermes-management:8080
+            - name: FRONTEND_URL
+              value: http://release-name-hermes-frontend:8080
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: WIREMOCK_URL
+              value: http://$(POD_IP):8080
+          volumeMounts:
+            - name: suites
+              mountPath: /suites
+            - name: scripts
+              mountPath: /main-wrapper.sh
+              subPath: main-wrapper.sh
+            - name: pids
+              mountPath: /var/run/sidecars
+        - name: test-wiremock
+          image: rodolpheche/wiremock
+          command:
+            - /sidecar-wrapper.sh
+            - /docker-entrypoint.sh
+          args:
+            - java
+            - -cp
+            - /var/wiremock/lib/*:/var/wiremock/extensions/*
+            - com.github.tomakehurst.wiremock.standalone.WireMockServerRunner
+            - --verbose
+          volumeMounts:
+            - name: scripts
+              mountPath: /sidecar-wrapper.sh
+              subPath: sidecar-wrapper.sh
+            - name: pids
+              mountPath: /var/run/sidecars
+      restartPolicy: Never
+      volumes:
+        - name: pids
+          emptyDir: {}
+        - name: suites
+          configMap:
+            name: release-name-hermes-test-suites
+        - name: scripts
+          configMap:
+            name: release-name-hermes-test-scripts
+            defaultMode: 484

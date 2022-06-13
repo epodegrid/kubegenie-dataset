@@ -1,0 +1,230 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-sdnc-ansible-server-db-secret
+  namespace: MPWht9l
+  labels:
+    app: sdnc-ansible-server
+    chart: sdnc-ansible-server-6.0.0
+    release: release
+    heritage: Helm
+type: Opaque
+stringData:
+  login: sdnc
+  password: sdnc
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-sdnc-ansible-server-rest-creds
+  namespace: MPWht9l
+  labels:
+    app: sdnc-ansible-server
+    chart: sdnc-ansible-server-6.0.0
+    release: release
+    heritage: Helm
+type: Opaque
+stringData:
+  login: sdnc
+  password: sdnc
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-sdnc-ansible-server
+  namespace: MPWht9l
+  labels:
+    app: sdnc-ansible-server
+    chart: sdnc-ansible-server-6.0.0
+    release: release
+    heritage: Helm
+data:
+  RestServer_config: |
+    # Copyright © 2017 AT&T, Amdocs, Bell Canada
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    #       http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+
+    # Host definition
+    ip:     0.0.0.0
+    port:   8000
+
+    # Security (controls use of TLS encrypton and RestServer authentication)
+    tls:    no
+    auth:   no
+
+    # TLS certificates (must be built on application host)
+    priv:   provide_privated_key.pem
+    pub:    provide_public_key.pem
+
+    # RestServer authentication
+    id:     ${REST_USER}
+    psswd:  ${REST_PASSWORD}
+
+    # Mysql
+    host:   mariadb-galera
+    user:   ${DB_USER}
+    passwd: ${DB_PASSWORD}
+    db:     ansible
+
+    # Playbooks
+    from_files:             yes
+    ansible_path:           /opt/onap/sdnc/Playbooks
+    ansible_inv:            Ansible_inventory
+    ansible_temp:           PlaybooksTemp
+    timeout_seconds:        60
+
+    # Blocking on GetResults
+    getresults_block:       yes
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sdnc-ansible-server
+  namespace: MPWht9l
+  labels:
+    app: sdnc-ansible-server
+    chart: sdnc-ansible-server-6.0.0
+    release: release
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: sdnc-ansible-server
+  selector:
+    app: sdnc-ansible-server
+    release: release
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-sdnc-ansible-server
+  namespace: MPWht9l
+  labels:
+    app.kubernetes.io/name: sdnc-ansible-server
+    helm.sh/chart: sdnc-ansible-server-6.0.0
+    app.kubernetes.io/instance: release
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sdnc-ansible-server
+      app.kubernetes.io/instance: release
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sdnc-ansible-server
+        helm.sh/chart: sdnc-ansible-server-6.0.0
+        app.kubernetes.io/instance: release
+        app.kubernetes.io/managed-by: Helm
+      name: sdnc-ansible-server
+    spec:
+      initContainers:
+        - command:
+            - sh
+          args:
+            - -c
+            - cd /config-input && for PFILE in `ls -1 .`; do envsubst <${PFILE} >/config/${PFILE}; done
+          env:
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: release-sdnc-ansible-server-db-secret
+                  key: login
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-sdnc-ansible-server-db-secret
+                  key: password
+            - name: REST_USER
+              valueFrom:
+                secretKeyRef:
+                  name: release-sdnc-ansible-server-rest-creds
+                  key: login
+            - name: REST_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-sdnc-ansible-server-rest-creds
+                  key: password
+          volumeMounts:
+            - mountPath: /config-input
+              name: config-input
+            - mountPath: /config
+              name: config
+          image: dibi/envsubst
+          imagePullPolicy: Always
+          name: sdnc-ansible-server-update-config
+        - command:
+            - /root/ready.py
+          args:
+            - --container-name
+            - sdnc
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+          image: oomk8s/readiness-check:2.0.2
+          imagePullPolicy: Always
+          name: sdnc-ansible-server-readiness
+      containers:
+        - name: sdnc-ansible-server
+          command:
+            - /bin/bash
+          args:
+            - -c
+            - cd /opt/onap/ccsdk && ./startAnsibleServer.sh
+          image: nexus3.onap.org:10001/onap/sdnc-ansible-server-image:1.8.2
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 180
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          volumeMounts:
+            - mountPath: /etc/localtime
+              name: localtime
+              readOnly: true
+            - mountPath: /opt/onap/sdnc/RestServer_config
+              name: config
+              subPath: RestServer_config
+          resources:
+            limits:
+              cpu: 1
+              memory: 1Gi
+            requests:
+              cpu: 0.5
+              memory: 500Mi
+      volumes:
+        - name: localtime
+          hostPath:
+            path: /etc/localtime
+        - name: config-input
+          configMap:
+            name: release-sdnc-ansible-server
+            defaultMode: 420
+        - name: config
+          emptyDir:
+            medium: Memory
+      imagePullSecrets:
+        - name: default-docker-registry-key

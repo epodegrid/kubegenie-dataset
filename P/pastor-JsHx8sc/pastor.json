@@ -1,0 +1,217 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-pastor-config",
+      "labels": {
+        "helm.sh/chart": "pastor-1.1.1",
+        "app.kubernetes.io/name": "pastor",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.5.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "ROCKET_ADDRESS": "0.0.0.0",
+      "ROCKET_PORT": "8000",
+      "ROCKET_STORAGE_DIR": "/data",
+      "ROCKET_DATABASE_DIR": "/data/db",
+      "ROCKET_TEMPLATE_DIR": "/templates"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "metadata": {
+      "creationTimestamp": null,
+      "name": "release-name-pastor-data",
+      "labels": {
+        "helm.sh/chart": "pastor-1.1.1",
+        "app.kubernetes.io/name": "pastor",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.5.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "resources": {
+        "requests": {
+          "storage": "50Gi"
+        }
+      },
+      "accessModes": [
+        "ReadWriteMany"
+      ]
+    },
+    "status": {}
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-pastor",
+      "labels": {
+        "helm.sh/chart": "pastor-1.1.1",
+        "app.kubernetes.io/name": "pastor",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.5.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "main",
+          "protocol": "TCP",
+          "name": "main"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "pastor",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-pastor",
+      "labels": {
+        "helm.sh/chart": "pastor-1.1.1",
+        "app.kubernetes.io/name": "pastor",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.5.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "pastor",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "pastor",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "securityContext": {},
+          "containers": [
+            {
+              "name": "pastor",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "cocainefarm/pastor:0.5.2",
+              "imagePullPolicy": "IfNotPresent",
+              "envFrom": [
+                {
+                  "configMapRef": {
+                    "name": "release-name-pastor-config"
+                  }
+                }
+              ],
+              "ports": [
+                {
+                  "name": "main",
+                  "containerPort": 8000,
+                  "protocol": "TCP"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "main"
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "main"
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10
+              },
+              "volumeMounts": [
+                {
+                  "name": "data",
+                  "mountPath": "/data"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                },
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "data",
+              "persistentVolumeClaim": {
+                "claimName": "release-name-pastor-data"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "release-name-pastor-test-connection",
+      "labels": {
+        "helm.sh/chart": "pastor-1.1.1",
+        "app.kubernetes.io/name": "pastor",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "0.5.2",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": {
+        "helm.sh/hook": "test-success"
+      }
+    },
+    "spec": {
+      "containers": [
+        {
+          "name": "wget",
+          "image": "busybox",
+          "command": [
+            "wget"
+          ],
+          "args": [
+            "release-name-pastor:80"
+          ]
+        }
+      ],
+      "restartPolicy": "Never"
+    }
+  }
+]

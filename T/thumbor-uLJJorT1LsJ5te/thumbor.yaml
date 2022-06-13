@@ -1,0 +1,317 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-redis
+  labels:
+    app: release-name-redis
+    chart: redis-0.4.5
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  redis-password: MGZ0VnkxclFtNg==
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-remotecv
+  labels:
+    chart: remotecv-0.1.1
+data:
+  log.level: info
+  redis.host: release-name-redis
+  redis.port: "6379"
+  redis.database: "0"
+  app.loader: remotecv.http_loader
+  app.store: remotecv.result_store.redis_store
+  app.timeout: "60"
+  sentry.url: ""
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-redis
+  labels:
+    app: release-name-redis
+    chart: redis-0.4.5
+    release: release-name
+    heritage: Helm
+  annotations:
+    volume.alpha.kubernetes.io/storage-class: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 8Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-redis
+  labels:
+    app: release-name-redis
+    chart: redis-0.4.5
+    release: release-name
+    heritage: Helm
+spec:
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+  selector:
+    app: release-name-redis
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-thumbor
+  labels:
+    chart: thumbor-0.3.0
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: thumbor
+  selector:
+    app: release-name-thumbor
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: release-name-redis
+  labels:
+    app: release-name-redis
+    chart: redis-0.4.5
+    release: release-name
+    heritage: Helm
+spec:
+  template:
+    metadata:
+      labels:
+        app: release-name-redis
+    spec:
+      containers:
+        - name: release-name-redis
+          image: bitnami/redis:3.2.6-r2
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+          ports:
+            - name: redis
+              containerPort: 6379
+          livenessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: redis-data
+              mountPath: /bitnami/redis
+      volumes:
+        - name: redis-data
+          persistentVolumeClaim:
+            claimName: release-name-redis
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: release-name-remotecv
+  labels:
+    chart: remotecv-0.1.1
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: release-name-remotecv
+      annotations:
+        checksum/config: 2de696b980c49d852df37cceab2bd6efd127239dfb6d4cec862f32a22e32aa1d
+    spec:
+      containers:
+        - name: remotecv
+          image: cloudposse/remotecv:latest
+          imagePullPolicy: Always
+          env:
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-remotecv
+                  key: log.level
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-remotecv
+                  key: redis.host
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-remotecv
+                  key: redis.port
+            - name: REDIS_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-remotecv
+                  key: redis.database
+            - name: LOADER
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-remotecv
+                  key: app.loader
+            - name: STORE
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-remotecv
+                  key: app.store
+            - name: TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-remotecv
+                  key: app.timeout
+            - name: SENTRY_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-remotecv
+                  key: sentry.url
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: release-name-thumbor
+  labels:
+    chart: thumbor-0.3.0
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: release-name-thumbor
+      annotations: null
+    spec:
+      volumes:
+        - name: storage
+          emptyDir: {}
+      containers:
+        - name: thumbor
+          image: cloudposse/thumbor:latest
+          imagePullPolicy: Always
+          args:
+            - thumbor
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            - name: ENGINE
+              value: opencv_engine
+            - name: THUMBOR_PORT
+              value: "80"
+            - name: REDIS_QUEUE_SERVER_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-remotecv
+                  key: redis.host
+            - name: REDIS_QUEUE_SERVER_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-remotecv
+                  key: redis.port
+            - name: REDIS_QUEUE_SERVER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+            - name: REDIS_QUEUE_SERVER_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-remotecv
+                  key: redis.database
+            - name: REDIS_STORAGE_SERVER_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-remotecv
+                  key: redis.port
+            - name: REDIS_STORAGE_SERVER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-redis
+                  key: redis-password
+            - name: REDIS_STORAGE_SERVER_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-remotecv
+                  key: redis.host
+            - name: REDIS_STORAGE_SERVER_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: release-name-remotecv
+                  key: redis.database
+            - name: AUTO_WEBP
+              value: "False"
+            - name: DETECTORS
+              value: '[''thumbor.detectors.queued_detector.queued_complete_detector'']'
+            - name: LOG_LEVEL
+              value: debug
+            - name: MIXED_STORAGE_DETECTOR_STORAGE
+              value: tc_redis.storages.redis_storage
+            - name: RESULT_STORAGE
+              value: tc_aws.result_storages.s3_storage
+            - name: STORAGE
+              value: thumbor.storages.mixed_storage
+            - name: TC_AWS_REGION
+              value: us-west-2
+            - name: TC_AWS_RESULT_STORAGE_ROOT_PATH
+              value: result
+            - name: USE_GIFSICLE_ENGINE
+              value: "False"
+          volumeMounts:
+            - name: storage
+              mountPath: /app
+              readOnly: false
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /healthcheck
+              port: http

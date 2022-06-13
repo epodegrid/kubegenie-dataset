@@ -1,0 +1,183 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-minio-gateway
+  namespace: 8NeNDxsZVuJ1Kas
+  labels:
+    app.kubernetes.io/name: minio-gateway
+    helm.sh/chart: minio-gateway-0.1.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+secrets:
+  - name: release-name-minio-gateway
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-minio-gateway
+  namespace: 8NeNDxsZVuJ1Kas
+  labels:
+    app.kubernetes.io/name: minio-gateway
+    helm.sh/chart: minio-gateway-0.1.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+  access-key: Q3JLNDExOUZ4Yg==
+  secret-key: c0tOUElpSUhucjJQeTJzalNRWGozNnhRUVlnRVJnYWlJZ1FnQWR4OA==
+  key.json: ""
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-minio-gateway
+  namespace: default
+  labels:
+    app.kubernetes.io/name: minio-gateway
+    helm.sh/chart: minio-gateway-0.1.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 8Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-minio-gateway
+  namespace: 8NeNDxsZVuJ1Kas
+  labels:
+    app.kubernetes.io/name: minio-gateway
+    helm.sh/chart: minio-gateway-0.1.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: minio
+      port: 9000
+      targetPort: minio
+      nodePort: null
+    - name: console
+      port: 9001
+      targetPort: console
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: minio-gateway
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-minio-gateway
+  namespace: 8NeNDxsZVuJ1Kas
+  labels:
+    app.kubernetes.io/name: minio-gateway
+    helm.sh/chart: minio-gateway-0.1.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: minio-gateway
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minio-gateway
+        helm.sh/chart: minio-gateway-0.1.0
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+      annotations:
+        checksum/credentials-secret: 4fd951d604a6799b1097209bc03229e67a742bcb2032c9fa6164ae47e6efbbc3
+    spec:
+      serviceAccountName: release-name-minio-gateway
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: minio-gateway
+                    app.kubernetes.io/instance: release-name
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+      containers:
+        - name: minio
+          image: docker.io/minio/minio:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10736
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: MINIO_SCHEME
+              value: http
+            - name: MINIO_FORCE_NEW_KEYS
+              value: "no"
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-minio-gateway
+                  key: access-key
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-minio-gateway
+                  key: secret-key
+            - name: MINIO_BROWSER
+              value: "on"
+            - name: MINIO_PROMETHEUS_AUTH_TYPE
+              value: public
+          envFrom: null
+          ports:
+            - name: minio
+              containerPort: 9000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: minio
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          readinessProbe:
+            tcpSocket:
+              port: minio
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 5
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: release-name-minio-gateway

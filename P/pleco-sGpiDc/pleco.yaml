@@ -1,0 +1,130 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-pleco
+  labels:
+    helm.sh/chart: pleco-0.12.2
+    app.kubernetes.io/name: pleco
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.12.2
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-pleco
+  labels:
+    helm.sh/chart: pleco-0.12.2
+    app.kubernetes.io/name: pleco
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.12.2
+    app.kubernetes.io/managed-by: Helm
+type: Opaque
+stringData:
+  LOG_LEVEL: info
+  PLECO_IDENTIFIER: tbd
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-pleco
+  labels:
+    helm.sh/chart: pleco-0.12.2
+    app.kubernetes.io/name: pleco
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.12.2
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - get
+      - list
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-pleco
+  labels:
+    helm.sh/chart: pleco-0.12.2
+    app.kubernetes.io/name: pleco
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.12.2
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-pleco
+subjects:
+  - kind: ServiceAccount
+    name: release-name-pleco
+    namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-pleco
+  labels:
+    helm.sh/chart: pleco-0.12.2
+    app.kubernetes.io/name: pleco
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.12.2
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pleco
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config: 195e0bfe540f0e36e3abb35264e58ba282833e102de1a35fc71b334c37eea9c0
+      labels:
+        app.kubernetes.io/name: pleco
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-pleco
+      securityContext: {}
+      containers:
+        - name: pleco
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          image: qoveryrd/pleco:0.12.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - pleco
+            - start
+            - ""
+          args:
+            - --level
+            - info
+            - --kube-conn
+            - in
+          env:
+            - name: LOG_LEVEL
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-pleco
+                  key: LOG_LEVEL
+            - name: PLECO_IDENTIFIER
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-pleco
+                  key: PLECO_IDENTIFIER
+          resources:
+            limits:
+              cpu: 150m
+              memory: 256Mi
+            requests:
+              cpu: 150m
+              memory: 256Mi

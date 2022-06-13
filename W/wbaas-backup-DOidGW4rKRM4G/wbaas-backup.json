@@ -1,0 +1,149 @@
+[
+  {
+    "apiVersion": "batch/v1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "sql-logic-backup"
+    },
+    "spec": {
+      "schedule": "0 0 * * *",
+      "successfulJobsHistoryLimit": 2,
+      "failedJobsHistoryLimit": 2,
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "spec": {
+              "containers": [
+                {
+                  "name": "sql-logic-backup",
+                  "image": "ghcr.io/wmde/wbaas-backup:v0.1.7",
+                  "imagePullPolicy": "IfNotPresent",
+                  "resources": {
+                    "limits": {
+                      "cpu": "750m",
+                      "memory": "500Mi"
+                    },
+                    "requests": {
+                      "cpu": "10m",
+                      "memory": "50Mi"
+                    }
+                  },
+                  "volumeMounts": [
+                    {
+                      "name": "scratch-volume",
+                      "mountPath": "/backups/"
+                    },
+                    {
+                      "name": "service-account-volume",
+                      "mountPath": "/var/run/secret/cloud.google.com"
+                    }
+                  ],
+                  "lifecycle": {
+                    "postStart": {
+                      "exec": {
+                        "command": [
+                          "gcsfuse",
+                          "--key-file",
+                          "/var/run/secret/cloud.google.com/key.json",
+                          "nacho-cheese",
+                          "/mnt/backup-bucket"
+                        ]
+                      }
+                    },
+                    "preStop": {
+                      "exec": {
+                        "command": [
+                          "fusermount",
+                          "-u",
+                          "/mnt/backup-bucket\""
+                        ]
+                      }
+                    }
+                  },
+                  "securityContext": {
+                    "privileged": true,
+                    "capabilities": {
+                      "add": [
+                        "SYS_ADMIN"
+                      ]
+                    }
+                  },
+                  "env": [
+                    {
+                      "name": "DB_PASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "sql-secrets-init-passwords",
+                          "key": "SQL_INIT_PASSWORD_BACKUPS"
+                        }
+                      }
+                    },
+                    {
+                      "name": "DB_USER",
+                      "value": "backup-manager"
+                    },
+                    {
+                      "name": "DB_HOST",
+                      "value": "sql-mariadb-secondary.default.svc.cluster.local"
+                    },
+                    {
+                      "name": "DB_PORT",
+                      "value": "3306"
+                    },
+                    {
+                      "name": "DO_UPLOAD",
+                      "value": "1"
+                    },
+                    {
+                      "name": "GCS_BUCKET_NAME",
+                      "value": "nacho-cheese"
+                    },
+                    {
+                      "name": "BACKUP_KEY",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "name": "backup-openssl-key",
+                          "key": "key"
+                        }
+                      }
+                    }
+                  ]
+                }
+              ],
+              "securityContext": {
+                "fsGroup": 1234
+              },
+              "volumes": [
+                {
+                  "name": "scratch-volume",
+                  "ephemeral": {
+                    "volumeClaimTemplate": {
+                      "spec": {
+                        "accessModes": [
+                          "ReadWriteOnce"
+                        ],
+                        "resources": {
+                          "requests": {
+                            "storage": "16Gi"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "service-account-volume",
+                  "secret": {
+                    "secretName": "some-gcs-sa"
+                  }
+                }
+              ],
+              "restartPolicy": "Never"
+            }
+          },
+          "backoffLimit": 4
+        }
+      }
+    }
+  }
+]

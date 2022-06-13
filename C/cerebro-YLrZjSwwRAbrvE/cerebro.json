@@ -1,0 +1,157 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-cerebro",
+      "labels": {
+        "app": "cerebro",
+        "chart": "cerebro-0.5.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "data": {
+      "application.conf": "secret = \"KIihFklsvgCejniMPYf2Wer4yi2QahvlLmc0nntrMuJjib1IQ17HaYVyDW5lcoam\"\n\nbasePath = \"/\"\n\npidfile.path = /dev/null\n\nrest.history.size = 50\n\ndata.path = \"/var/db/cerebro/cerebro.db\"\n\nes = {\n  gzip = true\n}\n\nauth = {\n}\n\nhosts = [\n]"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-cerebro",
+      "labels": {
+        "app": "cerebro",
+        "chart": "cerebro-0.5.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app": "cerebro",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-cerebro",
+      "labels": {
+        "app": "cerebro",
+        "chart": "cerebro-0.5.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "revisionHistoryLimit": 3,
+      "selector": {
+        "matchLabels": {
+          "app": "cerebro",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "cerebro",
+            "release": "release-name"
+          },
+          "annotations": {
+            "checksum/config": "5ebbed57ca25370fb3f5d1b686d6c8f73fe7b8c4251f483cdc2536a803f048cf"
+          }
+        },
+        "spec": {
+          "initContainers": [
+            {
+              "name": "chown-db",
+              "image": "docker.io/busybox:musl",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "chown",
+                "1000:1000",
+                "/var/db/cerebro"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "db",
+                  "mountPath": "/var/db/cerebro"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "cerebro",
+              "image": "lmenezes/cerebro:0.8.1",
+              "imagePullPolicy": "IfNotPresent",
+              "args": [
+                "-Dconfig.file=/etc/cerebro/application.conf"
+              ],
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 9000,
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "db",
+                  "mountPath": "/var/db/cerebro"
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/etc/cerebro"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "http"
+                }
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/",
+                  "port": "http"
+                }
+              },
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "db",
+              "emptyDir": {}
+            },
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-cerebro"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

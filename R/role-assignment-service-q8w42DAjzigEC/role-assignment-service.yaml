@@ -1,0 +1,214 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-role-assignment-service
+  namespace: q8w42DAjzigEC
+  labels:
+    app.kubernetes.io/name: role-assignment-service
+    helm.sh/chart: role-assignment-service-2.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: role-assignment-service
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-role-assignment-service-config
+  labels:
+    app.kubernetes.io/name: role-assignment-service
+    helm.sh/chart: role-assignment-service-2.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: role-assignment-service
+data:
+  default.json: |
+    {
+      "CENTRAL_SERVICE_ADMIN_URL": "http://release-name-admin-api-svc:80",
+      "CORS_WHITELIST": [
+        "http://reporting-hub-bop-shell.local",
+        "http://reporting-hub-bop-role-ui.local"
+      ],
+      "ENDPOINT_CACHE_CONFIG": {
+        "expiresIn": 180000,
+        "generateTimeout": 30000
+      },
+      "ERROR_HANDLING": {
+        "includeCauseExtension": true,
+        "truncateExtensions": true
+      },
+      "HOST": "0.0.0.0",
+      "INSPECT": {
+        "COLOR": true,
+        "DEPTH": 4,
+        "SHOW_HIDDEN": false
+      },
+      "INSTRUMENTATION": {
+        "METRICS": {
+          "DISABLED": false,
+          "config": {
+            "defaultLabels": {
+              "serviceName": "role-assignment-service"
+            },
+            "prefix": "moja_ra_api",
+            "timeout": 5000
+          },
+          "labels": {
+            "eventId": "*"
+          }
+        }
+      },
+      "ORY_KETO_READ_SERVICE_URL": "http://keto-read:80",
+      "ORY_KETO_WRITE_SERVICE_URL": "http://keto-write:80",
+      "PORT": 3008,
+      "ROLES_LIST": [
+        "USER_ROLE_abc7a2fd-4acf-4547-a194-1673f63eb37c",
+        "ADMIN_ROLE_6c1ec084-86d4-4915-ba81-6c59b87a65a6"
+      ],
+      "ROLE_OPERATOR_SERVICE_URL": "http://release-name-security-role-perm-operator-svc:80",
+      "WSO2IS_USER_LIST_URL": "http://wso2-identity-server.local:9443/scim2/Users",
+      "WSO2_USER": "admin"
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-role-assignment-service
+  namespace: q8w42DAjzigEC
+  labels:
+    app.kubernetes.io/name: role-assignment-service
+    helm.sh/chart: role-assignment-service-2.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: role-assignment-service
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3008
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: role-assignment-service
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: role-assignment-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-role-assignment-service
+  namespace: q8w42DAjzigEC
+  labels:
+    app.kubernetes.io/name: role-assignment-service
+    helm.sh/chart: role-assignment-service-2.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: role-assignment-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: role-assignment-service
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: role-assignment-service
+  template:
+    metadata:
+      annotations:
+        checksum/config: f4619463398cd15b8bd7a69deee4d9bf0405531fd491ff2779faf9077fd9cfff
+        prometheus.io/port: "3008"
+        prometheus.io/scrape: "true"
+      labels:
+        app.kubernetes.io/name: role-assignment-service
+        helm.sh/chart: role-assignment-service-2.0.0
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: role-assignment-service
+        app.kubernetes.io/version: 2.0.0
+    spec:
+      serviceAccountName: release-name-role-assignment-service
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: role-assignment-service
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: role-assignment-service
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      securityContext:
+        fsGroup: 1001
+      initContainers: null
+      containers:
+        - name: role-assignment-service
+          image: docker.io/mojaloop/role-assignment-service:v1.0.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 10220
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          command:
+            - npm
+            - start
+          ports:
+            - name: http
+              containerPort: 3008
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3008
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3008
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          volumeMounts:
+            - name: release-name-role-assignment-service-config-volume
+              mountPath: /opt/role-assignment-service/config
+          env:
+            - name: ROLE_ASSIGNMENT_SERVICE_WSO2_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: wso2-is-admin-creds
+                  key: password
+      volumes:
+        - name: release-name-role-assignment-service-config-volume
+          configMap:
+            name: release-name-role-assignment-service-config
+            items:
+              - key: default.json
+                path: default.json
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: release-name-role-assignment-service
+  namespace: q8w42DAjzigEC
+  labels:
+    app.kubernetes.io/name: role-assignment-service
+    helm.sh/chart: role-assignment-service-2.0.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: role-assignment-service
+spec:
+  rules:
+    - host: role-assignment-service.local
+      http:
+        paths:
+          - path: /
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: release-name-role-assignment-service
+                port:
+                  name: http

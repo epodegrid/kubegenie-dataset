@@ -1,0 +1,680 @@
+apiVersion: v1
+kind: ServiceAccount
+automountServiceAccountToken: true
+metadata:
+  name: floating-server-redis
+  namespace: QKKaPeWwaWJhJ
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-15.6.4
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ServiceAccount
+automountServiceAccountToken: true
+metadata:
+  name: release-name-floating-server
+  namespace: QKKaPeWwaWJhJ
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: floating-server-redis-configuration
+  namespace: QKKaPeWwaWJhJ
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-15.6.4
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  redis.conf: |-
+    # User-supplied common configuration:
+    # Enable AOF https://redis.io/topics/persistence#append-only-file
+    appendonly yes
+    # Disable RDB persistence, AOF persistence already enabled.
+    save ""
+    # End of common configuration
+  master.conf: |-
+    dir /data
+    # User-supplied master configuration:
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+    # End of master configuration
+  replica.conf: |-
+    dir /data
+    slave-read-only yes
+    # User-supplied replica configuration:
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+    # End of replica configuration
+  sentinel.conf: |-
+    dir "/tmp"
+    port 26379
+    sentinel monitor mymaster floating-server-redis-node-0.floating-server-redis-headless.default.svc.cluster.local 6379 2
+    sentinel down-after-milliseconds mymaster 60000
+    sentinel failover-timeout mymaster 18000
+    sentinel parallel-syncs mymaster 1
+    # User-supplied sentinel configuration:
+    # End of sentinel configuration
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: floating-server-redis-health
+  namespace: QKKaPeWwaWJhJ
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-15.6.4
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  ping_readiness_local.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    [[ -n "$REDIS_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_PASSWORD"
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_local.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    [[ -n "$REDIS_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_PASSWORD"
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$response" != "PONG" ] && [ "$response" != "LOADING Redis is loading the dataset in memory" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_sentinel.sh: |-
+    #!/bin/bash
+    [[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD="$(< "${REDIS_PASSWORD_FILE}")"
+    [[ -n "$REDIS_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_PASSWORD"
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h localhost \
+        -p $REDIS_SENTINEL_PORT \
+        ping
+    )
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  parse_sentinels.awk: |-
+    /ip/ {FOUND_IP=1}
+    /port/ {FOUND_PORT=1}
+    /runid/ {FOUND_RUNID=1}
+    !/ip|port|runid/ {
+      if (FOUND_IP==1) {
+        IP=$1; FOUND_IP=0;
+      }
+      else if (FOUND_PORT==1) {
+        PORT=$1;
+        FOUND_PORT=0;
+      } else if (FOUND_RUNID==1) {
+        printf "\nsentinel known-sentinel mymaster %s %s %s", IP, PORT, $0; FOUND_RUNID=0;
+      }
+    }
+  ping_readiness_master.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD="$(< "${REDIS_MASTER_PASSWORD_FILE}")"
+    [[ -n "$REDIS_MASTER_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_MASTER_PASSWORD"
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_master.sh: |-
+    #!/bin/bash
+
+    [[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD="$(< "${REDIS_MASTER_PASSWORD_FILE}")"
+    [[ -n "$REDIS_MASTER_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_MASTER_PASSWORD"
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$response" != "PONG" ] && [ "$response" != "LOADING Redis is loading the dataset in memory" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_readiness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_readiness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+  ping_liveness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_liveness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_liveness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: floating-server-redis-scripts
+  namespace: QKKaPeWwaWJhJ
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-15.6.4
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  start-node.sh: "#!/bin/bash\n\n. /opt/bitnami/scripts/libos.sh\n. /opt/bitnami/scripts/liblog.sh\n. /opt/bitnami/scripts/libvalidations.sh\n\nget_port() {\n    hostname=\"$1\"\n    type=\"$2\"\n\n    port_var=$(echo \"${hostname^^}_SERVICE_PORT_$type\" | sed \"s/-/_/g\")\n    port=${!port_var}\n    \n    if [ -z \"$port\" ]; then\n        case $type in\n            \"SENTINEL\")\n                echo 26379\n                ;;\n            \"REDIS\")\n                echo 6379\n                ;;\n        esac\n    else\n        echo $port\n    fi\n}\n\nget_full_hostname() {\n    hostname=\"$1\"\n    echo \"${hostname}.${HEADLESS_SERVICE}\"\n}\n\nREDISPORT=$(get_port \"$HOSTNAME\" \"REDIS\")\n\nmyip=$(hostname -i)\n\n# If there are more than one IP, use the first IPv4 address\nif [[ \"$myip\" = *\" \"* ]]; then\n    myip=$(echo $myip | awk '{if ( match($0,/([0-9]+\\.)([0-9]+\\.)([0-9]+\\.)[0-9]+/) ) { print substr($0,RSTART,RLENGTH); } }')\nfi\n\nHEADLESS_SERVICE=\"floating-server-redis-headless.default.svc.cluster.local\"\nREDIS_SERVICE=\"floating-server-redis.default.svc.cluster.local\"\nSENTINEL_SERVICE_PORT=$(get_port \"floating-server-redis\" \"TCP_SENTINEL\")\n\nnot_exists_dns_entry() {\n    if [[ -z \"$(getent ahosts \"$HEADLESS_SERVICE\" | grep \"^${myip}\" )\" ]]; then\n        warn \"$HEADLESS_SERVICE does not contain the IP of this pod: ${myip}\"\n        return 1\n    fi\n    debug \"$HEADLESS_SERVICE has my IP: ${myip}\"\n    return 0\n}\n\nvalidate_quorum() {\n    if is_boolean_yes \"$REDIS_TLS_ENABLED\"; then\n        quorum_info_command=\"redis-cli -h $REDIS_SERVICE -p $SENTINEL_SERVICE_PORT --tls --cert ${REDIS_TLS_CERT_FILE} --key ${REDIS_TLS_KEY_FILE} --cacert ${REDIS_TLS_CA_FILE} sentinel master mymaster\"\n    else\n        quorum_info_command=\"redis-cli -h $REDIS_SERVICE -p $SENTINEL_SERVICE_PORT sentinel master mymaster\"\n    fi\n\n    info \"about to run the command: $quorum_info_command\"\n    eval $quorum_info_command | grep -Fq \"s_down\"\n}\n\ntrigger_manual_failover() {\n    if is_boolean_yes \"$REDIS_TLS_ENABLED\"; then\n        failover_command=\"redis-cli -h $REDIS_SERVICE -p $SENTINEL_SERVICE_PORT --tls --cert ${REDIS_TLS_CERT_FILE} --key ${REDIS_TLS_KEY_FILE} --cacert ${REDIS_TLS_CA_FILE} sentinel failover mymaster\"\n    else\n        failover_command=\"redis-cli -h $REDIS_SERVICE -p $SENTINEL_SERVICE_PORT sentinel failover mymaster\"\n    fi\n\n    info \"about to run the command: $failover_command\"\n    eval $failover_command\n}\n\nget_sentinel_master_info() {\n    if is_boolean_yes \"$REDIS_TLS_ENABLED\"; then\n        sentinel_info_command=\"redis-cli -h $REDIS_SERVICE -p $SENTINEL_SERVICE_PORT --tls --cert ${REDIS_TLS_CERT_FILE} --key ${REDIS_TLS_KEY_FILE} --cacert ${REDIS_TLS_CA_FILE} sentinel get-master-addr-by-name mymaster\"\n    else\n        sentinel_info_command=\"redis-cli -h $REDIS_SERVICE -p $SENTINEL_SERVICE_PORT sentinel get-master-addr-by-name mymaster\"\n    fi\n\n    info \"about to run the command: $sentinel_info_command\"\n    eval $sentinel_info_command\n}\n\n[[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD=\"$(< \"${REDIS_PASSWORD_FILE}\")\"\n[[ -f $REDIS_MASTER_PASSWORD_FILE ]] && export REDIS_MASTER_PASSWORD=\"$(< \"${REDIS_MASTER_PASSWORD_FILE}\")\"\n\n# Waits for DNS to add this ip to the service DNS entry\nretry_while not_exists_dns_entry\n\nif [[ -z \"$(getent ahosts \"$HEADLESS_SERVICE\" | grep -v \"^${myip}\")\" ]]; then\n    # Only node available on the network, master by default\n    export REDIS_REPLICATION_MODE=\"master\"\nelse\n    export REDIS_REPLICATION_MODE=\"slave\"\n    \n    # Fetches current master's host and port\n    REDIS_SENTINEL_INFO=($(get_sentinel_master_info))\n    info \"printing REDIS_SENTINEL_INFO=(${REDIS_SENTINEL_INFO[0]},${REDIS_SENTINEL_INFO[1]})\"\n    REDIS_MASTER_HOST=${REDIS_SENTINEL_INFO[0]}\n    REDIS_MASTER_PORT_NUMBER=${REDIS_SENTINEL_INFO[1]}\nfi\n\nif [[ \"$REDIS_REPLICATION_MODE\" = \"master\" ]]; then\n    debug \"Starting as master node\"\n    if [[ ! -f /opt/bitnami/redis/etc/master.conf ]]; then\n        cp /opt/bitnami/redis/mounted-etc/master.conf /opt/bitnami/redis/etc/master.conf\n    fi\nelse\n    debug \"Starting as replica node\"\n    if [[ ! -f /opt/bitnami/redis/etc/replica.conf ]];then\n        cp /opt/bitnami/redis/mounted-etc/replica.conf /opt/bitnami/redis/etc/replica.conf\n    fi\nfi\n\nif [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then\n    cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf\nfi\n\necho \"\" >> /opt/bitnami/redis/etc/replica.conf\necho \"replica-announce-port $REDISPORT\" >> /opt/bitnami/redis/etc/replica.conf\necho \"replica-announce-ip $(get_full_hostname \"$HOSTNAME\")\" >> /opt/bitnami/redis/etc/replica.conf\nARGS=(\"--port\" \"${REDIS_PORT}\")\n\nif [[ \"$REDIS_REPLICATION_MODE\" = \"slave\" ]]; then\n    ARGS+=(\"--slaveof\" \"${REDIS_MASTER_HOST}\" \"${REDIS_MASTER_PORT_NUMBER}\")\nfi\nARGS+=(\"--protected-mode\" \"no\")\nif [[ \"$REDIS_REPLICATION_MODE\" = \"master\" ]]; then\n    ARGS+=(\"--include\" \"/opt/bitnami/redis/etc/master.conf\")\nelse\n    ARGS+=(\"--include\" \"/opt/bitnami/redis/etc/replica.conf\")\nfi\nARGS+=(\"--include\" \"/opt/bitnami/redis/etc/redis.conf\")\nexec redis-server \"${ARGS[@]}\"\n"
+  start-sentinel.sh: "#!/bin/bash\n\n. /opt/bitnami/scripts/libos.sh\n. /opt/bitnami/scripts/libvalidations.sh\n. /opt/bitnami/scripts/libfile.sh\n\nHEADLESS_SERVICE=\"floating-server-redis-headless.default.svc.cluster.local\"\nREDIS_SERVICE=\"floating-server-redis.default.svc.cluster.local\"\n\nget_port() {\n    hostname=\"$1\"\n    type=\"$2\"\n\n    port_var=$(echo \"${hostname^^}_SERVICE_PORT_$type\" | sed \"s/-/_/g\")\n    port=${!port_var}\n    \n    if [ -z \"$port\" ]; then\n        case $type in\n            \"SENTINEL\")\n                echo 26379\n                ;;\n            \"REDIS\")\n                echo 6379\n                ;;\n        esac\n    else\n        echo $port\n    fi\n}\n\nget_full_hostname() {\n    hostname=\"$1\"\n    echo \"${hostname}.${HEADLESS_SERVICE}\"\n}\n\nSERVPORT=$(get_port \"$HOSTNAME\" \"SENTINEL\")\nREDISPORT=$(get_port \"$HOSTNAME\" \"REDIS\")\nSENTINEL_SERVICE_PORT=$(get_port \"floating-server-redis\" \"TCP_SENTINEL\")\n\nmyip=$(hostname -i)\n\n# If there are more than one IP, use the first IPv4 address\nif [[ \"$myip\" = *\" \"* ]]; then\n    myip=$(echo $myip | awk '{if ( match($0,/([0-9]+\\.)([0-9]+\\.)([0-9]+\\.)[0-9]+/) ) { print substr($0,RSTART,RLENGTH); } }')\nfi\n\n\nsentinel_conf_set() {\n    local -r key=\"${1:?missing key}\"\n    local value=\"${2:-}\"\n\n    # Sanitize inputs\n    value=\"${value//\\\\/\\\\\\\\}\"\n    value=\"${value//&/\\\\&}\"\n    value=\"${value//\\?/\\\\?}\"\n    [[ \"$value\" = \"\" ]] && value=\"\\\"$value\\\"\"\n\n    replace_in_file \"/opt/bitnami/redis-sentinel/etc/sentinel.conf\" \"^#*\\s*${key} .*\" \"${key} ${value}\" false\n}\nsentinel_conf_add() {\n    echo $'\\n'\"$@\" >> \"/opt/bitnami/redis-sentinel/etc/sentinel.conf\"\n}\nhost_id() {\n    echo \"$1\" | openssl sha1 | awk '{print $2}'\n}\nnot_exists_dns_entry() {\n    if [[ -z \"$(getent ahosts \"$HEADLESS_SERVICE\" | grep \"^${myip}\" )\" ]]; then\n        warn \"$HEADLESS_SERVICE does not contain the IP of this pod: ${myip}\"\n        return 1\n    fi\n    debug \"$HEADLESS_SERVICE has my IP: ${myip}\"\n    return 0\n}\nget_sentinel_master_info() {\n    if is_boolean_yes \"$REDIS_TLS_ENABLED\"; then\n        sentinel_info_command=\"redis-cli -h $REDIS_SERVICE -p $SENTINEL_SERVICE_PORT --tls --cert ${REDIS_TLS_CERT_FILE} --key ${REDIS_TLS_KEY_FILE} --cacert ${REDIS_TLS_CA_FILE} sentinel get-master-addr-by-name mymaster\"\n    else\n        sentinel_info_command=\"redis-cli -h $REDIS_SERVICE -p $SENTINEL_SERVICE_PORT sentinel get-master-addr-by-name mymaster\"\n    fi\n\n    info \"about to run the command: $sentinel_info_command\"\n    eval $sentinel_info_command\n}\n\n# Waits for DNS to add this ip to the service DNS entry\nretry_while not_exists_dns_entry\n\n[[ -f $REDIS_PASSWORD_FILE ]] && export REDIS_PASSWORD=\"$(< \"${REDIS_PASSWORD_FILE}\")\"\n\ncp /opt/bitnami/redis-sentinel/mounted-etc/sentinel.conf /opt/bitnami/redis-sentinel/etc/sentinel.conf\nprintf \"\\nsentinel myid %s\" \"$(host_id \"$HOSTNAME\")\" >> /opt/bitnami/redis-sentinel/etc/sentinel.conf\n\nif [[ -z \"$(getent ahosts \"$HEADLESS_SERVICE\" | grep -v \"^${myip}\")\" ]]; then\n    # Only node available on the network, master by default\n    export REDIS_REPLICATION_MODE=\"master\"\n\n    REDIS_MASTER_HOST=$(get_full_hostname \"$HOSTNAME\")\n    REDIS_MASTER_PORT_NUMBER=\"$REDISPORT\"\nelse\n    export REDIS_REPLICATION_MODE=\"slave\"\n\n    # Fetches current master's host and port\n    REDIS_SENTINEL_INFO=($(get_sentinel_master_info))\n    info \"printing REDIS_SENTINEL_INFO=(${REDIS_SENTINEL_INFO[0]},${REDIS_SENTINEL_INFO[1]})\" \n    REDIS_MASTER_HOST=${REDIS_SENTINEL_INFO[0]}\n    REDIS_MASTER_PORT_NUMBER=${REDIS_SENTINEL_INFO[1]}\nfi\n\nsentinel_conf_set \"sentinel monitor\" \"mymaster \"$REDIS_MASTER_HOST\" \"$REDIS_MASTER_PORT_NUMBER\" 2\"\n\nadd_known_sentinel() {\n    hostname=\"$1\"\n    ip=\"$2\"\n\n    if [[ -n \"$hostname\" && -n \"$ip\" && \"$hostname\" != \"$HOSTNAME\" ]]; then\n        sentinel_conf_add \"sentinel known-sentinel mymaster $(get_full_hostname \"$hostname\") $(get_port \"$hostname\" \"SENTINEL\") $(host_id \"$hostname\")\"\n    fi \n}\nadd_known_replica() {\n    hostname=\"$1\"\n    ip=\"$2\"\n\n    if [[ -n \"$ip\" && \"$(get_full_hostname \"$hostname\")\" != \"$REDIS_MASTER_HOST\" ]]; then\n        sentinel_conf_add \"sentinel known-replica mymaster $(get_full_hostname \"$hostname\") $(get_port \"$hostname\" \"REDIS\")\"\n    fi\n}\n\n# Add available hosts on the network as known replicas & sentinels\nfor node in $(seq 0 $((3-1))); do\n    hostname=\"floating-server-redis-node-$node\"\n    ip=\"$(getent hosts \"$hostname.$HEADLESS_SERVICE\" | awk '{ print $1 }')\"\n    add_known_sentinel \"$hostname\" \"$ip\"\n    add_known_replica \"$hostname\" \"$ip\"\ndone\n\necho \"\" >> /opt/bitnami/redis-sentinel/etc/sentinel.conf\necho \"sentinel announce-hostnames yes\" >> /opt/bitnami/redis-sentinel/etc/sentinel.conf\necho \"sentinel resolve-hostnames yes\" >> /opt/bitnami/redis-sentinel/etc/sentinel.conf\necho \"sentinel announce-port $SERVPORT\" >> /opt/bitnami/redis-sentinel/etc/sentinel.conf\necho \"sentinel announce-ip $(get_full_hostname \"$HOSTNAME\")\" >> /opt/bitnami/redis-sentinel/etc/sentinel.conf\nexec redis-server /opt/bitnami/redis-sentinel/etc/sentinel.conf --sentinel\n"
+  prestop-sentinel.sh: |
+    #!/bin/bash
+
+    . /opt/bitnami/scripts/libvalidations.sh
+    . /opt/bitnami/scripts/libos.sh
+
+    HEADLESS_SERVICE="floating-server-redis-headless.default.svc.cluster.local"
+    SENTINEL_SERVICE_ENV_NAME=FLOATING_SERVER_REDIS_SERVICE_PORT_TCP_SENTINEL
+    SENTINEL_SERVICE_PORT=${!SENTINEL_SERVICE_ENV_NAME}
+
+    get_full_hostname() {
+        hostname="$1"
+        echo "${hostname}.${HEADLESS_SERVICE}"
+    }
+    run_sentinel_command() {
+        if is_boolean_yes "$REDIS_SENTINEL_TLS_ENABLED"; then
+            redis-cli -h "$REDIS_SERVICE" -p "$SENTINEL_SERVICE_PORT" --tls --cert "$REDIS_SENTINEL_TLS_CERT_FILE" --key "$REDIS_SENTINEL_TLS_KEY_FILE" --cacert "$REDIS_SENTINEL_TLS_CA_FILE" sentinel "$@"
+        else
+            redis-cli -h "$REDIS_SERVICE" -p "$SENTINEL_SERVICE_PORT" sentinel "$@"
+        fi
+    }
+    failover_finished() {
+      REDIS_SENTINEL_INFO=($(run_sentinel_command get-master-addr-by-name "mymaster"))
+      REDIS_MASTER_HOST="${REDIS_SENTINEL_INFO[0]}"
+      [[ "$REDIS_MASTER_HOST" != "$(get_full_hostname $HOSTNAME)" ]]
+    }
+
+    REDIS_SERVICE="floating-server-redis.default.svc.cluster.local"
+
+    # redis-cli automatically consumes credentials from the REDISCLI_AUTH variable
+    [[ -n "$REDIS_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_PASSWORD"
+    [[ -f "$REDIS_PASSWORD_FILE" ]] && export REDISCLI_AUTH="$(< "${REDIS_PASSWORD_FILE}")"
+
+    if ! failover_finished; then
+        echo "I am the master pod and you are stopping me. Starting sentinel failover"
+        # if I am the master, issue a command to failover once and then wait for the failover to finish
+        run_sentinel_command failover "mymaster"
+        if retry_while "failover_finished" "20" 1; then
+            echo "Master has been successfuly failed over to a different pod."
+            exit 0
+        else
+            echo "Master failover failed"
+            exit 1
+        fi
+    else
+        exit 0
+    fi
+  prestop-redis.sh: |
+    #!/bin/bash
+
+    . /opt/bitnami/scripts/libvalidations.sh
+    . /opt/bitnami/scripts/libos.sh
+
+    run_redis_command() {
+        if is_boolean_yes "$REDIS_TLS_ENABLED"; then
+            redis-cli -h 127.0.0.1 -p "$REDIS_TLS_PORT" --tls --cert "$REDIS_TLS_CERT_FILE" --key "$REDIS_TLS_KEY_FILE" --cacert "$REDIS_TLS_CA_FILE" "$@"
+        else
+            redis-cli -h 127.0.0.1 -p ${REDIS_PORT} "$@"
+        fi
+    }
+    failover_finished() {
+        REDIS_ROLE=$(run_redis_command role | head -1)
+        [[ "$REDIS_ROLE" != "master" ]]
+    }
+
+    # redis-cli automatically consumes credentials from the REDISCLI_AUTH variable
+    [[ -n "$REDIS_PASSWORD" ]] && export REDISCLI_AUTH="$REDIS_PASSWORD"
+    [[ -f "$REDIS_PASSWORD_FILE" ]] && export REDISCLI_AUTH="$(< "${REDIS_PASSWORD_FILE}")"
+
+    if ! failover_finished; then
+        echo "Waiting for sentinel to run failover for up to 20s"
+        retry_while "failover_finished" "20" 1
+    else
+        exit 0
+    fi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-floating-server-config
+  namespace: QKKaPeWwaWJhJ
+data:
+  config.yaml: |-
+    products: {}
+    redis:
+      addresses:
+      - floating-server-redis-headless:26379
+      enabled: true
+      enabledHA: true
+      masterName: mymaster
+    ui:
+      disableUnregistration: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: floating-server-redis-headless
+  namespace: QKKaPeWwaWJhJ
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-15.6.4
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: tcp-redis
+      port: 6379
+      targetPort: redis
+    - name: tcp-sentinel
+      port: 26379
+      targetPort: redis-sentinel
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: floating-server-redis
+  namespace: QKKaPeWwaWJhJ
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-15.6.4
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: node
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-redis
+      port: 6379
+      targetPort: 6379
+      nodePort: null
+    - name: tcp-sentinel
+      port: 26379
+      targetPort: 26379
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: node
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-floating-server-headless
+  namespace: QKKaPeWwaWJhJ
+  labels:
+    app: floating-server
+    chart: floating-server-1.1.8
+    release: release-name
+    heritage: Helm
+    variant: headless
+spec:
+  clusterIP: None
+  ports:
+    - port: 8080
+      protocol: TCP
+      name: http
+      targetPort: http
+  selector:
+    app: floating-server
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-floating-server
+  namespace: QKKaPeWwaWJhJ
+  labels:
+    app: floating-server
+    chart: floating-server-1.1.8
+    release: release-name
+    heritage: Helm
+  annotations: {}
+spec:
+  ports:
+    - port: 8080
+      protocol: TCP
+      name: http
+      targetPort: http
+  selector:
+    app: floating-server
+    release: release-name
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: floating-server-redis-node
+  namespace: QKKaPeWwaWJhJ
+  labels:
+    app.kubernetes.io/name: redis
+    helm.sh/chart: redis-15.6.4
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: node
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/component: node
+  serviceName: floating-server-redis-headless
+  updateStrategy:
+    rollingUpdate: {}
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+        helm.sh/chart: redis-15.6.4
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/component: node
+      annotations:
+        checksum/configmap: 09a3b936dad8b05d8566347856474a2a2b612c6fd2406c65ddd169213c65de57
+        checksum/health: da35bead04b8e9ff5ce07215b3ef8384c2b907e80034759c3ddcf49890dd429e
+        checksum/scripts: 11227af453a8a409006cbe7c15e7bd1f16d17ad3b21c769fada31ea2fa28d6f5
+        checksum/secret: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+    spec:
+      securityContext:
+        fsGroup: 1001
+      serviceAccountName: floating-server-redis
+      affinity:
+        podAffinity: null
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: redis
+                    app.kubernetes.io/instance: release-name
+                    app.kubernetes.io/component: node
+                namespaces:
+                  - default
+                topologyKey: kubernetes.io/hostname
+              weight: 1
+        nodeAffinity: null
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: redis
+          image: docker.io/bitnami/redis:6.2.6-debian-10-r53
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 11411
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          command:
+            - /bin/bash
+          args:
+            - -c
+            - /opt/bitnami/scripts/start-scripts/start-node.sh
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: REDIS_MASTER_PORT_NUMBER
+              value: "6379"
+            - name: ALLOW_EMPTY_PASSWORD
+              value: "yes"
+            - name: REDIS_TLS_ENABLED
+              value: "no"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_DATA_DIR
+              value: /data
+          ports:
+            - name: redis
+              containerPort: 6379
+          livenessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_liveness_local.sh 5
+          readinessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_readiness_local.sh 5
+          resources:
+            limits: {}
+            requests: {}
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: start-scripts
+              mountPath: /opt/bitnami/scripts/start-scripts
+            - name: health
+              mountPath: /health
+            - name: redis-data
+              mountPath: /data
+              subPath: null
+            - name: config
+              mountPath: /opt/bitnami/redis/mounted-etc
+            - name: redis-tmp-conf
+              mountPath: /opt/bitnami/redis/etc
+            - name: tmp
+              mountPath: /tmp
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/bash
+                  - -c
+                  - /opt/bitnami/scripts/start-scripts/prestop-redis.sh
+        - name: sentinel
+          image: docker.io/bitnami/redis-sentinel:6.2.6-debian-10-r54
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 1001
+          command:
+            - /bin/bash
+          args:
+            - -c
+            - /opt/bitnami/scripts/start-scripts/start-sentinel.sh
+          env:
+            - name: BITNAMI_DEBUG
+              value: "false"
+            - name: ALLOW_EMPTY_PASSWORD
+              value: "yes"
+            - name: REDIS_SENTINEL_TLS_ENABLED
+              value: "no"
+            - name: REDIS_SENTINEL_PORT
+              value: "26379"
+          ports:
+            - name: redis-sentinel
+              containerPort: 26379
+          livenessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_sentinel.sh 5
+          readinessProbe:
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_sentinel.sh 5
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/bash
+                  - -c
+                  - /opt/bitnami/scripts/start-scripts/prestop-sentinel.sh
+          resources:
+            limits: {}
+            requests: {}
+          volumeMounts:
+            - name: start-scripts
+              mountPath: /opt/bitnami/scripts/start-scripts
+            - name: health
+              mountPath: /health
+            - name: redis-data
+              mountPath: /data
+              subPath: null
+            - name: config
+              mountPath: /opt/bitnami/redis-sentinel/mounted-etc
+            - name: sentinel-tmp-conf
+              mountPath: /opt/bitnami/redis-sentinel/etc
+      volumes:
+        - name: start-scripts
+          configMap:
+            name: floating-server-redis-scripts
+            defaultMode: 493
+        - name: health
+          configMap:
+            name: floating-server-redis-health
+            defaultMode: 493
+        - name: config
+          configMap:
+            name: floating-server-redis-configuration
+        - name: sentinel-tmp-conf
+          emptyDir: {}
+        - name: redis-tmp-conf
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+        labels:
+          app.kubernetes.io/name: redis
+          app.kubernetes.io/instance: release-name
+          app.kubernetes.io/component: node
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 8Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-floating-server
+  namespace: QKKaPeWwaWJhJ
+  labels:
+    app: floating-server
+    chart: floating-server-1.1.8
+    release: release-name
+    heritage: Helm
+  annotations: {}
+spec:
+  selector:
+    matchLabels:
+      app: floating-server
+      release: release-name
+  serviceName: release-name-floating-server-headless
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: floating-server
+        name: floating-server
+        release: release-name
+      annotations: null
+    spec:
+      serviceAccountName: release-name-floating-server
+      terminationGracePeriodSeconds: 30
+      restartPolicy: Always
+      containers:
+        - name: floating-server
+          image: censedata/floating-server:v1.1.8
+          imagePullPolicy: IfNotPresent
+          args:
+            - --port
+            - "8080"
+            - --config
+            - /etc/config/config.yaml
+            - --logfile
+            - /etc/logs/floating-server.log
+            - --data
+            - /etc/data
+          volumeMounts:
+            - name: config-volume
+              mountPath: /etc/config
+          ports:
+            - containerPort: 8080
+              name: http
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: config-volume
+          configMap:
+            name: release-name-floating-server-config

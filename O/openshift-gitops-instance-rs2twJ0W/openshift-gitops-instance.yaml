@@ -1,0 +1,177 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ArgoCD
+metadata:
+  name: default-gitops
+  namespace: default
+  labels:
+    helm.sh/chart: openshift-gitops-instance-0.5.4
+    app.kubernetes.io/name: openshift-gitops
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.22.9
+    app.kubernetes.io/managed-by: Helm
+spec:
+  applicationSet:
+    resources:
+      limits:
+        cpu: "2"
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+  controller:
+    processors: {}
+    resources:
+      limits:
+        cpu: "2"
+        memory: 2Gi
+      requests:
+        cpu: 250m
+        memory: 1Gi
+  dex:
+    openShiftOAuth: true
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 250m
+        memory: 128Mi
+  grafana:
+    enabled: false
+    ingress:
+      enabled: false
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 250m
+        memory: 128Mi
+    route:
+      enabled: false
+  ha:
+    enabled: false
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 250m
+        memory: 128Mi
+  initialSSHKnownHosts: {}
+  prometheus:
+    enabled: false
+    ingress:
+      enabled: false
+    route:
+      enabled: false
+  rbac:
+    defaultPolicy: role:readonly
+    policy: |
+      g, argocd-admins, role:admin
+    scopes: '[groups]'
+  redis:
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 250m
+        memory: 128Mi
+  repo:
+    resources:
+      limits:
+        cpu: "1"
+        memory: 512Mi
+      requests:
+        cpu: 250m
+        memory: 256Mi
+  resourceExclusions: |
+    - apiGroups:
+      - tekton.dev
+      clusters:
+      - '*'
+      kinds:
+      - TaskRun
+      - PipelineRun
+  server:
+    autoscale:
+      enabled: false
+    grpc:
+      ingress:
+        enabled: false
+    ingress:
+      enabled: false
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 125m
+        memory: 128Mi
+    route:
+      enabled: true
+      tls:
+        termination: reencrypt
+    service:
+      type: ""
+  tls:
+    ca: {}
+---
+apiVersion: user.openshift.io/v1
+kind: Group
+metadata:
+  name: argocd-admins
+  labels:
+    helm.sh/chart: openshift-gitops-instance-0.5.4
+    app.kubernetes.io/name: openshift-gitops
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.22.9
+    app.kubernetes.io/managed-by: Helm
+users: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: default-argocd
+  labels:
+    helm.sh/chart: openshift-gitops-instance-0.5.4
+    app.kubernetes.io/name: openshift-gitops
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.22.9
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: pre-install
+    helm.sh/hook-delete-policy: before-hook-creation
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: default-argocd
+  labels:
+    helm.sh/chart: openshift-gitops-instance-0.5.4
+    app.kubernetes.io/name: openshift-gitops
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.22.9
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: pre-install
+    helm.sh/hook-delete-policy: before-hook-creation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: default-argocd
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: system:serviceaccounts:default
+  - kind: ServiceAccount
+    name: job-openshift-gitops
+    namespace: default

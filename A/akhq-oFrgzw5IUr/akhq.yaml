@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-akhq
+  labels:
+    app.kubernetes.io/name: akhq
+    helm.sh/chart: akhq-0.2.8
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data:
+  application.yml: |
+    akhq:
+      server:
+        access-log:
+          enabled: false
+          name: org.akhq.log.access
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-akhq
+  labels:
+    app.kubernetes.io/name: akhq
+    helm.sh/chart: akhq-0.2.8
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: akhq
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-akhq
+  labels:
+    app.kubernetes.io/name: akhq
+    helm.sh/chart: akhq-0.2.8
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: akhq
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config: 286b83958d3201b5bd77a3f915660c7ee6c6b7361478609e65d1aa639f909939
+      labels:
+        app.kubernetes.io/name: akhq
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      containers:
+        - name: akhq
+          image: tchiotludo/akhq:0.21.0
+          imagePullPolicy: Always
+          env: null
+          volumeMounts:
+            - name: config
+              mountPath: /app/application.yml
+              subPath: application.yml
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: management
+              containerPort: 28081
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: management
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: management
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-akhq

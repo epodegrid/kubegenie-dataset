@@ -1,0 +1,365 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgresql-sonarqube
+  labels:
+    app: sonarqube
+    chart: sonarqube-0.1.0
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  postgresqlUsername: c29uYXJVc2Vy
+  postgresqlPassword: c29uYXJQYXNz
+  postgresqlDatabase: c29uYXJEQg==
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-sonarqube-config
+  labels:
+    app: sonarqube
+    chart: sonarqube-0.1.0
+    release: release-name
+    heritage: Helm
+data:
+  sonar.properties: sonar.es.bootstrap.checks.disable=true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-sonarqube-copy-plugins
+  labels:
+    app: sonarqube
+    chart: sonarqube-0.1.0
+    release: release-name
+    heritage: Helm
+data:
+  copy_plugins.sh: |-
+    #!/bin/bash
+    for f in /opt/sonarqube/extensions/plugins/tmp/*.jar
+    do
+      file=${f##*/} && file=${file%-[0-9]*}
+      for original in /opt/sonarqube/extensions/plugins/*.jar
+      do
+        originalfile=${original##*/} && originalfile=${originalfile%-[0-9]*}
+        if [ "$originalfile" = "$file" ]; then
+          rm -f "$original"
+        fi
+      done
+    done
+    cp /opt/sonarqube/extensions/plugins/tmp/*.jar /opt/sonarqube/extensions/plugins/
+    /opt/sonarqube/bin/run.sh
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-sonarqube-install-plugins
+  labels:
+    app: sonarqube
+    chart: sonarqube-0.1.0
+    release: release-name
+    heritage: Helm
+data:
+  install_plugins.sh: cd /opt/sonarqube/extensions/plugins/tmp
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: postgresql-sonarqube
+  labels:
+    app: sonarqube
+    chart: sonarqube-0.1.0
+    release: release-name
+    heritage: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-sonarqube
+  labels:
+    app: sonarqube
+    chart: sonarqube-0.1.0
+    release: release-name
+    heritage: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgresql-sonarqube
+  labels:
+    app: sonarqube
+spec:
+  ports:
+    - name: postgresql
+      port: 5432
+      protocol: TCP
+      targetPort: 5432
+  selector:
+    app: sonarqube
+    deploymentconfig: postgresql-sonarqube
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-sonarqube
+  labels:
+    app: sonarqube
+    chart: sonarqube-0.1.0
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: sonarqube
+    release: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-sonarqube
+  labels:
+    app: sonarqube
+    chart: sonarqube-0.1.0
+    release: release-name
+    heritage: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sonarqube
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: sonarqube
+        release: release-name
+    spec:
+      containers:
+        - name: sonarqube
+          image: sonarqube:9.2.4-community
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9000
+              protocol: TCP
+          env:
+            - name: SONARQUBE_WEB_JVM_OPTS
+              value: ""
+            - name: SONARQUBE_JDBC_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-sonarqube
+                  key: postgresqlUsername
+            - name: SONARQUBE_JDBC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-sonarqube
+                  key: postgresqlPassword
+            - name: SONARQUBE_JDBC_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: postgresql-sonarqube
+                  key: postgresqlDatabase
+            - name: SONARQUBE_JDBC_URL
+              value: jdbc:postgresql://postgresql-sonarqube:5432/$(SONARQUBE_JDBC_DATABASE)
+          livenessProbe:
+            httpGet:
+              path: /sessions/new
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /sessions/new
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 6
+          volumeMounts:
+            - mountPath: /opt/sonarqube/conf/
+              name: config
+            - mountPath: /opt/sonarqube/data
+              name: sonarqube
+              subPath: data
+            - mountPath: /opt/sonarqube/extensions/plugins/tmp
+              name: sonarqube
+              subPath: tmp
+            - mountPath: /opt/sonarqube/extensions/downloads
+              name: sonarqube
+              subPath: downloads
+            - mountPath: /opt/sonarqube/extensions/plugins
+              name: sonarqube
+              subPath: plugins
+            - mountPath: /opt/sonarqube/temp
+              name: sonarqube
+              subPath: temp
+            - mountPath: /opt/sonarqube/logs
+              name: sonarqube
+              subPath: logs
+            - mountPath: /tmp
+              name: tmp-dir
+            - name: copy-plugins
+              mountPath: /tmp/scripts
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-sonarqube-config
+            items:
+              - key: sonar.properties
+                path: sonar.properties
+        - name: install-plugins
+          configMap:
+            name: release-name-sonarqube-install-plugins
+            items:
+              - key: install_plugins.sh
+                path: install_plugins.sh
+        - name: copy-plugins
+          configMap:
+            name: release-name-sonarqube-copy-plugins
+            defaultMode: 493
+            items:
+              - key: copy_plugins.sh
+                path: copy_plugins.sh
+        - name: sonarqube
+          persistentVolumeClaim:
+            claimName: release-name-sonarqube
+        - name: tmp-dir
+          emptyDir: {}
+---
+apiVersion: apps.openshift.io/v1
+kind: DeploymentConfig
+metadata:
+  labels:
+    app: sonarqube
+    deploymentconfig: postgresql-sonarqube
+  name: postgresql-sonarqube
+spec:
+  replicas: 1
+  selector:
+    app: sonarqube
+    deploymentconfig: postgresql-sonarqube
+  strategy:
+    recreateParams:
+      timeoutSeconds: 600
+    resources: {}
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: sonarqube
+        deploymentconfig: postgresql-sonarqube
+    spec:
+      containers:
+        - name: postgresql
+          env:
+            - name: POSTGRESQL_USER
+              valueFrom:
+                secretKeyRef:
+                  key: postgresqlUsername
+                  name: postgresql-sonarqube
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: postgresqlPassword
+                  name: postgresql-sonarqube
+            - name: POSTGRESQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  key: postgresqlDatabase
+                  name: postgresql-sonarqube
+          imagePullPolicy: Always
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            tcpSocket:
+              port: 5432
+            timeoutSeconds: 1
+          ports:
+            - containerPort: 5432
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -i
+                - -c
+                - psql -h 127.0.0.1 -U $POSTGRESQL_USER -q -d $POSTGRESQL_DATABASE -c 'SELECT 1'
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          securityContext:
+            capabilities: {}
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          volumeMounts:
+            - mountPath: /var/lib/pgsql/data
+              name: postgresql-sonarqube
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: postgresql-sonarqube
+          persistentVolumeClaim:
+            claimName: postgresql-sonarqube
+  triggers:
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+          - postgresql
+        from:
+          kind: ImageStreamTag
+          name: postgresql:12-el8
+          namespace: openshift
+      type: ImageChange
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  annotations:
+    openshift.io/host.generated: "true"
+  name: sonarqube
+  labels:
+    app: sonarqube
+spec:
+  host: null
+  tls:
+    insecureEdgeTerminationPolicy: Redirect
+    termination: edge
+  port:
+    targetPort: http
+  to:
+    kind: Service
+    name: release-name-sonarqube
+    weight: 100
+status:
+  ingress:
+    - conditions:
+        - status: "True"
+          type: Admitted

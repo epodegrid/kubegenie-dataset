@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: release-name-ipmi-exporter
+  labels:
+    app: ipmi-exporter
+    chart: ipmi-exporter-0.1.1
+    release: release-name
+    heritage: Helm
+spec:
+  selector:
+    matchLabels:
+      app: ipmi-exporter
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: ipmi-exporter
+        release: release-name
+      annotations:
+        prometheus.io/port: "9289"
+        prometheus.io/scrape: "true"
+    spec:
+      hostNetwork: true
+      containers:
+        - name: ipmi-exporter
+          image: lovoo/ipmi_exporter:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          ports:
+            - name: ipmi
+              containerPort: 9289
+              protocol: TCP
+          volumeMounts:
+            - name: ipmi-device
+              mountPath: /dev/ipmi0
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      nodeSelector:
+        ipmi: "true"
+      volumes:
+        - name: ipmi-device
+          hostPath:
+            path: /dev/ipmi0

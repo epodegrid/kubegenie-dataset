@@ -1,0 +1,97 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-nem-kpi-exporter"
+    },
+    "data": {
+      "conf.yaml": "---\nbroker:\n  name: broker-name\n  host: cord-kafka:9092\n  description: The kafka broker\n  topics: \n    - voltha.kpis \n    - onos.aaa.stats.kpis \n    - onos.kpis \n    - bng.stats \nlogger:\n  loglevel: info\n  host: cord-kafka:9092\ntarget:\n  type: prometheus-target\n  name: http-server\n  port: 8080\n  description: http target for prometheus\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-nem-kpi-exporter",
+      "labels": {
+        "release": "release-name"
+      }
+    },
+    "spec": {
+      "type": "NodePort",
+      "ports": [
+        {
+          "port": 8080,
+          "targetPort": 8080,
+          "nodePort": 31080,
+          "protocol": "TCP"
+        }
+      ],
+      "selector": {
+        "app": "kpi-exporter"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-nem-kpi-exporter",
+      "labels": {
+        "release": "release-name"
+      }
+    },
+    "spec": {
+      "replicas": 2,
+      "selector": {
+        "matchLabels": {
+          "name": "release-name-nem-kpi-exporter",
+          "release": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "kpi-exporter",
+            "release": "release-name"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "kpi-exporter",
+              "image": "opencord/kafka-topic-exporter:1.2.6",
+              "imagePullPolicy": "Always",
+              "args": [
+                "-broker=cord-kafka:9092"
+              ],
+              "ports": [
+                {
+                  "containerPort": 8080,
+                  "port": 8080,
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "exporter-config",
+                  "mountPath": "/etc/config/conf.yaml",
+                  "subPath": "conf.yaml"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "exporter-config",
+              "configMap": {
+                "name": "release-name-nem-kpi-exporter"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

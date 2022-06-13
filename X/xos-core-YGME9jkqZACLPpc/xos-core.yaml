@@ -1,0 +1,811 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubernetes-synchronizer
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: xos-db-secrets
+type: Opaque
+data:
+  password: cGFzc3dvcmQ=
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: xos-admin-passwd-secret
+type: Opaque
+data:
+  password: bGV0bWVpbg==
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: coreapi-cert-secret
+type: kubernetes.io/tls
+data:
+  tls.crt: Q2VydGlmaWNhdGU6CiAgICBEYXRhOgogICAgICAgIFZlcnNpb246IDMgKDB4MikKICAgICAgICBTZXJpYWwgTnVtYmVyOiA0MDk2ICgweDEwMDApCiAgICBTaWduYXR1cmUgQWxnb3JpdGhtOiBzaGEyNTZXaXRoUlNBRW5jcnlwdGlvbgogICAgICAgIElzc3VlcjogQz1VUywgU1Q9Q2FsaWZvcm5pYSwgTD1NZW5sbyBQYXJrLCBPPU9ORiwgT1U9VGVzdGluZyBPbmx5LCBDTj1DT1JEIFRlc3QgUm9vdCBDQQogICAgICAgIFZhbGlkaXR5CiAgICAgICAgICAgIE5vdCBCZWZvcmU6IEphbiAgNCAxNDo0ODoxNiAyMDIxIEdNVAogICAgICAgICAgICBOb3QgQWZ0ZXIgOiBKYW4gIDUgMTQ6NDg6MTYgMjAyMiBHTVQKICAgICAgICBTdWJqZWN0OiBDPVVTLCBTVD1DYWxpZm9ybmlhLCBMPU1lbmxvIFBhcmssIE89T05GLCBPVT1UZXN0aW5nIE9ubHksIENOPXhvcy1jb3JlCiAgICAgICAgU3ViamVjdCBQdWJsaWMgS2V5IEluZm86CiAgICAgICAgICAgIFB1YmxpYyBLZXkgQWxnb3JpdGhtOiByc2FFbmNyeXB0aW9uCiAgICAgICAgICAgICAgICBQdWJsaWMtS2V5OiAoMjA0OCBiaXQpCiAgICAgICAgICAgICAgICBNb2R1bHVzOgogICAgICAgICAgICAgICAgICAgIDAwOmNkOjU1Ojk0OjA4OjIwOmYxOjE1OmVjOjY3OjNhOmU3OjRiOjg0OjVlOgogICAgICAgICAgICAgICAgICAgIGQyOmM5OmExOjQ0OmNmOjAzOmJlOjlhOmYxOjBjOmQxOjU5OjUwOmJkOjMyOgogICAgICAgICAgICAgICAgICAgIDdhOjYyOjg5OmU4OmViOjdkOjdiOjkwOjRhOjBiOjE3Ojg3OjllOmU0OmEwOgogICAgICAgICAgICAgICAgICAgIDE1OjZhOjhlOjE0Ojk0OmUzOjEzOjQzOmJkOmRjOmM3OjAyOjEzOmVhOjU5OgogICAgICAgICAgICAgICAgICAgIGE1OjgyOjgzOjU0OjZhOjM0OmIxOjAzOjJlOjA0OmVhOjc5OjIwOmEyOmFjOgogICAgICAgICAgICAgICAgICAgIDY4OjQwOjg5OjRhOmEwOjBkOjI2OjYxOjFiOmU1Ojk1OjY5OjFmOmUzOjYxOgogICAgICAgICAgICAgICAgICAgIDdlOjQ4OmUxOjFjOjg4OjcyOmMyOmQ4OjJkOmJlOjZkOmE4OjRhOmY0OjIzOgogICAgICAgICAgICAgICAgICAgIGEyOmE3OjU5OjJiOjVjOmFlOmQ5OjBmOjQyOjYxOjMyOmVmOjUwOjc1OmVhOgogICAgICAgICAgICAgICAgICAgIGU0OjExOmZmOjY0OmJjOmIxOjMzOmI4OjUyOjdhOmQ5OjMyOmNhOjExOjc0OgogICAgICAgICAgICAgICAgICAgIDg4OjIwOmZmOmViOjg4OjllOjRiOjBhOmExOmE4OjQ5OjI0OjI2OjkwOmI5OgogICAgICAgICAgICAgICAgICAgIGFmOmY4OjYxOjRlOmExOjYyOjE4OjY4OjU1OjY0OjMxOjM4OmZjOmFjOjU4OgogICAgICAgICAgICAgICAgICAgIDE3OjgwOjllOmMyOmYzOmM5OmQ2OmIzOjcyOjhhOjI1OjYxOjY4Ojc4OjUwOgogICAgICAgICAgICAgICAgICAgIGY0Ojg5OmZjOjVhOmFhOmU0OmRkOjgzOmUxOjJlOjU5OjYyOjcxOjczOjQ5OgogICAgICAgICAgICAgICAgICAgIGYzOjJiOjliOjRkOjNlOmMxOjQ1OjZjOjYxOjBlOmM0OmIwOmU1OmUwOmI2OgogICAgICAgICAgICAgICAgICAgIDczOmIyOmE0OjgyOjg1OjY4OjVjOmFiOjdkOjY3OmZlOjc5OmI2OmMzOmQyOgogICAgICAgICAgICAgICAgICAgIDUwOjJhOjU5OjYwOjI3OjJhOmVlOjcxOjJmOjY4OjhmOjQyOjI5OjBhOjQ0OgogICAgICAgICAgICAgICAgICAgIDQ0OjlkOjEyOjk5OmRlOjc0OmY5OjNlOmI5OmEyOmI5OmRjOjI5OjFlOmQyOgogICAgICAgICAgICAgICAgICAgIDYwOjcxCiAgICAgICAgICAgICAgICBFeHBvbmVudDogNjU1MzcgKDB4MTAwMDEpCiAgICAgICAgWDUwOXYzIGV4dGVuc2lvbnM6CiAgICAgICAgICAgIFg1MDl2MyBTdWJqZWN0IEtleSBJZGVudGlmaWVyOiAKICAgICAgICAgICAgICAgIEEzOjFDOjkyOjU5OjM2OkQ2Ojk2OjJCOjE4OkNCOkVFOjQxOjg0OkU4OjFGOkQ3OjE2OjI1OjQ4OkE2CiAgICAgICAgICAgIFg1MDl2MyBBdXRob3JpdHkgS2V5IElkZW50aWZpZXI6IAogICAgICAgICAgICAgICAga2V5aWQ6Qzk6N0M6NkM6OEI6MDc6RjQ6MzA6RjQ6NTY6Nzk6NTg6QzQ6NTg6RUQ6MzU6NEQ6MUI6QTY6Njc6RTQKICAgICAgICAgICAgICAgIERpck5hbWU6L0M9VVMvU1Q9Q2FsaWZvcm5pYS9MPU1lbmxvIFBhcmsvTz1PTkYvT1U9VGVzdGluZyBPbmx5L0NOPUNPUkQgVGVzdCBSb290IENBCiAgICAgICAgICAgICAgICBzZXJpYWw6Q0U6MTc6NjU6QkQ6NkE6QzI6M0Q6NEIKCiAgICAgICAgICAgIFg1MDl2MyBCYXNpYyBDb25zdHJhaW50czogCiAgICAgICAgICAgICAgICBDQTpGQUxTRQogICAgICAgICAgICBYNTA5djMgS2V5IFVzYWdlOiBjcml0aWNhbAogICAgICAgICAgICAgICAgRGlnaXRhbCBTaWduYXR1cmUsIEtleSBFbmNpcGhlcm1lbnQKICAgICAgICAgICAgWDUwOXYzIEV4dGVuZGVkIEtleSBVc2FnZTogCiAgICAgICAgICAgICAgICBUTFMgV2ViIFNlcnZlciBBdXRoZW50aWNhdGlvbgogICAgICAgICAgICBYNTA5djMgU3ViamVjdCBBbHRlcm5hdGl2ZSBOYW1lOiAKICAgICAgICAgICAgICAgIEROUzp4b3MtY29yZSwgRE5TOnhvcy1jb3JlLmRlZmF1bHQsIEROUzp4b3MtY29yZS5kZWZhdWx0LnN2Yy5jbHVzdGVyLmxvY2FsCiAgICBTaWduYXR1cmUgQWxnb3JpdGhtOiBzaGEyNTZXaXRoUlNBRW5jcnlwdGlvbgogICAgICAgICAzMzozNjo4MjoyMDowNDoyMTo5ZTpiMDo5Mjo4Yzo5YjoxNjo4OTowOTo0ODpkMDowZjo5ZDoKICAgICAgICAgMTQ6NTQ6Y2M6NmM6NzU6ZWM6ZDE6ZDI6MDQ6ZDg6NDY6OTQ6MGU6NTE6NmM6M2E6YWY6YmM6CiAgICAgICAgIGNiOjRlOjYxOjZlOmM2OmRlOjU2OjgyOjZmOjRhOmQ0OjUyOjlmOmM4OjlhOmY4OmRlOjYxOgogICAgICAgICBhOTo2ODoyZTpjMTo4MDo3Mzo0ODo1Yjo1ZTpmNzo2ZTo4ODo0NDo0ZDphOTo1NzoxMDoxODoKICAgICAgICAgODQ6NzM6ZTI6MjM6MjI6NDE6NmE6ZmY6OGM6Mjk6ZTM6ZTQ6Mjk6N2M6NDE6YTQ6OWE6NGU6CiAgICAgICAgIDNiOjAzOjc2OmRhOmE0OmRjOjQ3OjBjOjE0OmM4OmM1OjYyOjk1OjM1OmQzOjlkOjBhOjQ5OgogICAgICAgICA4MjoxNDpmNzozOTphMjo3ZDpjYzo2NDo2ZjphNTpjMTo1Yjo5OTowZjoxOTphNjplYzoyNToKICAgICAgICAgNTA6YmM6OTk6NjM6MzE6NWM6MDk6Njk6NTg6Y2M6ODY6NWQ6YmM6MGU6YmE6YzU6MjQ6NjY6CiAgICAgICAgIDM3OjliOjliOjAwOmU5OjJiOjA0OjIyOmQ3OjBhOmExOmMwOmIyOmQzOmJiOjBhOjM5OmNlOgogICAgICAgICA4Yzo4ZjpmNDpiMjowNDplMTowNzo4ODoyMzowNTowZjo0OTo1NjphMzoyNDphYTozMDo4YToKICAgICAgICAgY2Q6ZGQ6MjI6YTM6MmQ6MjQ6ZWY6YzM6YjY6OGU6Njc6M2Y6MmY6NjM6MmU6MGQ6MDQ6YTg6CiAgICAgICAgIGM5OmRhOjJjOjI1OjYyOjlkOjRmOjlhOmU0Ojg0OjMzOjcxOjNlOjJkOmM4OjlkOmU1OjM1OgogICAgICAgICA2MzoxOTpmMzoyNzo3NzoyMzpjMzphNjo2NzowZDowODo1Yjo1YzpmMDo5ZjpjOTpjMDoxNToKICAgICAgICAgMGQ6YWM6YWU6MGY6ZTU6MTc6MTY6NTg6OGQ6MWM6MDE6ODc6OTg6MGU6ZGI6YzM6Yjk6NzM6CiAgICAgICAgIGI4OjZkOjY4OjRlCi0tLS0tQkVHSU4gQ0VSVElGSUNBVEUtLS0tLQpNSUlFc0RDQ0E1aWdBd0lCQWdJQ0VBQXdEUVlKS29aSWh2Y05BUUVMQlFBd2VERUxNQWtHQTFVRUJoTUNWVk14CkV6QVJCZ05WQkFnTUNrTmhiR2xtYjNKdWFXRXhFekFSQmdOVkJBY01DazFsYm14dklGQmhjbXN4RERBS0JnTlYKQkFvTUEwOU9SakVWTUJNR0ExVUVDd3dNVkdWemRHbHVaeUJQYm14NU1Sb3dHQVlEVlFRRERCRkRUMUpFSUZSbApjM1FnVW05dmRDQkRRVEFlRncweU1UQXhNRFF4TkRRNE1UWmFGdzB5TWpBeE1EVXhORFE0TVRaYU1HOHhDekFKCkJnTlZCQVlUQWxWVE1STXdFUVlEVlFRSURBcERZV3hwWm05eWJtbGhNUk13RVFZRFZRUUhEQXBOWlc1c2J5QlEKWVhKck1Rd3dDZ1lEVlFRS0RBTlBUa1l4RlRBVEJnTlZCQXNNREZSbGMzUnBibWNnVDI1c2VURVJNQThHQTFVRQpBd3dJZUc5ekxXTnZjbVV3Z2dFaU1BMEdDU3FHU0liM0RRRUJBUVVBQTRJQkR3QXdnZ0VLQW9JQkFRRE5WWlFJCklQRVY3R2M2NTB1RVh0TEpvVVRQQTc2YThRelJXVkM5TW5waWllanJmWHVRU2dzWGg1N2tvQlZxamhTVTR4TkQKdmR6SEFoUHFXYVdDZzFScU5MRURMZ1RxZVNDaXJHaEFpVXFnRFNaaEcrV1ZhUi9qWVg1STRSeUljc0xZTGI1dApxRXIwSTZLbldTdGNydGtQUW1FeTcxQjE2dVFSLzJTOHNUTzRVbnJaTXNvUmRJZ2cvK3VJbmtzS29haEpKQ2FRCnVhLzRZVTZoWWhob1ZXUXhPUHlzV0JlQW5zTHp5ZGF6Y29vbFlXaDRVUFNKL0ZxcTVOMkQ0UzVaWW5GelNmTXIKbTAwK3dVVnNZUTdFc09YZ3RuT3lwSUtGYUZ5cmZXZitlYmJEMGxBcVdXQW5LdTV4TDJpUFFpa0tSRVNkRXBuZQpkUGsrdWFLNTNDa2UwbUJ4QWdNQkFBR2pnZ0ZMTUlJQlJ6QWRCZ05WSFE0RUZnUVVveHlTV1RiV2xpc1l5KzVCCmhPZ2YxeFlsU0tZd2dhb0dBMVVkSXdTQm9qQ0JuNEFVeVh4c2l3ZjBNUFJXZVZqRVdPMDFUUnVtWitTaGZLUjYKTUhneEN6QUpCZ05WQkFZVEFsVlRNUk13RVFZRFZRUUlEQXBEWVd4cFptOXlibWxoTVJNd0VRWURWUVFIREFwTgpaVzVzYnlCUVlYSnJNUXd3Q2dZRFZRUUtEQU5QVGtZeEZUQVRCZ05WQkFzTURGUmxjM1JwYm1jZ1QyNXNlVEVhCk1CZ0dBMVVFQXd3UlEwOVNSQ0JVWlhOMElGSnZiM1FnUTBHQ0NRRE9GMlc5YXNJOVN6QUpCZ05WSFJNRUFqQUEKTUE0R0ExVWREd0VCL3dRRUF3SUZvREFUQmdOVkhTVUVEREFLQmdnckJnRUZCUWNEQVRCSkJnTlZIUkVFUWpCQQpnZ2g0YjNNdFkyOXlaWUlRZUc5ekxXTnZjbVV1WkdWbVlYVnNkSUlpZUc5ekxXTnZjbVV1WkdWbVlYVnNkQzV6CmRtTXVZMngxYzNSbGNpNXNiMk5oYkRBTkJna3Foa2lHOXcwQkFRc0ZBQU9DQVFFQU16YUNJQVFobnJDU2pKc1cKaVFsSTBBK2RGRlRNYkhYczBkSUUyRWFVRGxGc09xKzh5MDVoYnNiZVZvSnZTdFJTbjhpYStONWhxV2d1d1lCegpTRnRlOTI2SVJFMnBWeEFZaEhQaUl5SkJhditNS2VQa0tYeEJwSnBPT3dOMjJxVGNSd3dVeU1WaWxUWFRuUXBKCmdoVDNPYUo5ekdSdnBjRmJtUThacHV3bFVMeVpZekZjQ1dsWXpJWmR2QTY2eFNSbU41dWJBT2tyQkNMWENxSEEKc3RPN0Nqbk9qSS8wc2dUaEI0Z2pCUTlKVnFNa3FqQ0t6ZDBpb3kwazc4TzJqbWMvTDJNdURRU295ZG9zSldLZApUNXJraEROeFBpM0luZVUxWXhuekozY2p3NlpuRFFoYlhQQ2Z5Y0FWRGF5dUQrVVhGbGlOSEFHSG1BN2J3N2x6CnVHMW9UZz09Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
+  tls.key: LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFb2dJQkFBS0NBUUVBelZXVUNDRHhGZXhuT3VkTGhGN1N5YUZFendPK212RU0wVmxRdlRKNllvbm82MzE3CmtFb0xGNGVlNUtBVmFvNFVsT01UUTczY3h3SVQ2bG1sZ29OVWFqU3hBeTRFNm5rZ29xeG9RSWxLb0EwbVlSdmwKbFdrZjQyRitTT0VjaUhMQzJDMitiYWhLOUNPaXAxa3JYSzdaRDBKaE11OVFkZXJrRWY5a3ZMRXp1Rko2MlRMSwpFWFNJSVAvcmlKNUxDcUdvU1NRbWtMbXYrR0ZPb1dJWWFGVmtNVGo4ckZnWGdKN0M4OG5XczNLS0pXRm9lRkQwCmlmeGFxdVRkZytFdVdXSnhjMG56SzV0TlBzRkZiR0VPeExEbDRMWnpzcVNDaFdoY3EzMW4vbm0ydzlKUUtsbGcKSnlydWNTOW9qMElwQ2tSRW5SS1ozblQ1UHJtaXVkd3BIdEpnY1FJREFRQUJBb0lCQUFlZXBWK24yVXAyKzEyMApONWt4NjZDUDIzM1RKYithTWwrU2NPeVVjdlkxSisrVk9JQ2lQc2Nnd1VTNnJCRElOUHRSY2VXUnBoKzhkQUMrClV1WUUrWnozVjVwR211Z1lscDF5eUd1Y3JLaEQxS2pGNEQ4cko0UEltbWNaODNVY3pSNDRsRmg5WmtxcEIrQXQKN3U0Qmp3eUI2aGw1eUFLWU5ONTJHOGJreklhS2QvbEUxWUQyeGx1VEpiYTlxS1Y0Z2pMYm44TVdBYko5ODhlSAo2R2x0MWEwdGpRUERVOTNsNkpuTkV5S3FpbFppTnJEWGtxeHBibTdtcE55ZFg0SXlBSXhiUTk3WWhIa0dsbFE1CnJUT25wNG5QT0I1RnBYK2xpTTVRY20rRzVzYnlYalhvajFSZG12QXlGUmhidXZWS0dzeFBMdkladFl0eHFTMFQKRkRVUGxnRUNnWUVBOHN3RytVbUp3MzJkQ3BkNUtFMEF0d1Y1Nk1qYlFuTG80SVlBd2kvVjQvWG5za3Foc2s3RgozQVlzeEFvWWlMMXJGZHZDU0plT0c0MzdHZVpZcEhZRVJUU3ZDNitneGRFNE5nRC9NeVJ5eEZURTRXSGdIclNiCll3RmdvRXFsY25xbHcrVGJUUHV6U09yaTBUM3RBZXQ1aG9kdEVsTnBrTWMxZGVKU0s0LyttM2NDZ1lFQTJJQUkKazRuK05UdW1ISWhlZHA4dytpeFFzOCt1eERTcVM5aDNQTkVhaXR5cGV4WGpFTnJzYmJJUm14d2ZYNS9uZVFiWQphQ2k4UTBuYU5jeDB2SFc4TXlkM2d3MHpjVjdsd24zb2NjMDBpQ0VnaHNwRC9qU3hJMTFaVlMzTExwNGJLYmRPClhabERnbU0rajN0WjJ6azAxcXdzeEFvaUxxbEl2ZEV5UnM1dGpWY0NnWUFlR2RkZmZwTjZ6Zzd6S2paV0hiM1IKOHZiYk9sT2NtRnh3d1l4RWh1T3dvR0w2UXJCclI4TFY5Vm9GYis3OHZPY1N6YXozalBxTVJmejBpQTlEVEhKWgpGaUFCaGVPYndzV0NSSHRmSHN5dnRJYTRIb2RIcDBLQWNzSkUvUnduNWphNDQ1MmduSy9zZ1ZwZmNKcjZtdlAxCkRzTWgrMzloK0tDVEhkenNFNjBRSHdLQmdDT1pLYy9ZcU12bit2QkdIQUkxT3NCbitQMFg4UXloL0Q1c1lXN0cKa3k2eUNjd0xWVUs0UEpmczU2Z3hmNWNobTlYeW9qSytQL1p3ZGtqU1RYK1BmRnFNNnNISnNlTzZUdDBrQnN4dgppV3U0eHJoakdicjZ2d1dwbTc2OXdPTHhiRlgzcGhNTjJHUGdIYkZKL3dSazY2TkF2RHVmenU4Tk5zQy9YUnozClpGd1JBb0dBYThUaXZ3R1JacWZTTXM0cG9aeUg0N2pNL04rZkpPb0hubmN0a3NURlNuNWloc3pnMWVMME1qNTcKNjZDcFJPQmZMMFlzdGlVYTVvbzloSkYrNU00WUpVaUdvcko1VWJkZUxNYzF0dkE3cDVPb2wrckZyUlFYdytITwozZy8xL2V2V0NrSWlzT1FDelZ6a2FRL2ZkeHlDdldJVElLMmExcGRmOXlBUFVkd25RajA9Ci0tLS0tRU5EIFJTQSBQUklWQVRFIEtFWS0tLS0tCg==
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xos-db
+  labels:
+    app: release-name-xos-db
+    chart: xos-db-1.0.2
+    release: release-name
+    heritage: Helm
+    version: 1.0.2
+data:
+  config: |2
+
+    listen_addresses = '*'
+
+    # as per https://github.com/kubernetes/kubernetes/issues/71233
+    huge_pages = off     # on, off, or try
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gui-app-config
+  labels:
+    app: release-name-xos-gui
+    chart: xos-gui-1.2.7
+    release: release-name
+    heritage: Helm
+    version: 1.2.7
+data:
+  config: |2
+    angular.module('app')
+    .constant('AppConfig', {
+      apiEndpoint: '/xosapi/v1',
+      websocketClient: '/'
+    });
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gui-style-config
+  labels:
+    app: release-name-xos-gui
+    chart: xos-gui-1.2.7
+    release: release-name
+    heritage: Helm
+    version: 1.2.7
+data:
+  config: |2
+    angular.module('app')
+    .constant('StyleConfig', {
+      projectName: "CORD",
+      favicon: 'cord-favicon.png',
+      background: 'cord-bg.jpg',
+      payoff: "Your VNF orchestrator",
+      logo: 'cord-logo.png',
+      routes: [
+          {
+              label: 'Slices',
+              state: 'xos.core.slice',
+          },
+          {
+              label: 'Nodes',
+              state: 'xos.core.node',
+          },
+          {
+              label: 'Instances',
+              state: 'xos.core.instance',
+          },
+      ]
+    });
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gui-cord-version
+  labels:
+    app: release-name-xos-gui
+    chart: xos-gui-1.2.7
+    release: release-name
+    heritage: Helm
+    version: 1.2.7
+data:
+  config: |2
+    {
+        "version": "7.0.0"
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xos-ws
+  labels:
+    app: release-name-xos-gui
+    chart: xos-gui-1.2.7
+    release: release-name
+    heritage: Helm
+    version: 1.2.7
+data:
+  config: |2
+    default:
+      kafka_bootstrap_servers: "cord-kafka:9092"
+      xos:
+        host: xost
+        port: 9000
+      gateway:
+        port: 3000
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xos-core
+  labels:
+    app: release-name-xos-core
+    chart: xos-core-4.0.2
+    release: release-name
+    heritage: Helm
+    version: 4.0.2
+data:
+  config: |2
+    name: xos-core
+    xos_dir: /opt/xos
+    kafka_bootstrap_servers:
+      - cord-kafka:9092
+    database:
+      name: "xos"
+      username: "postgres"
+      password: "password"
+    logging:
+      version: 1
+      handlers:
+        console:
+          class: logging.StreamHandler
+        file:
+          class: logging.handlers.RotatingFileHandler
+          filename: /var/log/xos.log
+          maxBytes: 10485760
+          backupCount: 5
+        kafka:
+          class: kafkaloghandler.KafkaLogHandler
+          bootstrap_servers:
+            - cord-kafka:9092
+          topic: xos.log.core
+      loggers:
+        '':
+          handlers:
+            - console
+            - file
+            - kafka
+          level: DEBUG
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xos-initial-data
+  labels:
+    app: release-name-xos-core
+    chart: xos-core-4.0.2
+    release: release-name
+    heritage: Helm
+    version: 4.0.2
+data:
+  config: |2
+    - model: core.Site
+      fields:
+        name: "mysite"
+        abbreviated_name: "mysite"
+        login_base: "mysite"
+        site_url: "http://opencord.org/"
+        hosts_nodes: true
+
+    - model: core.User
+      fields:
+        email: "admin@opencord.org"
+        password: "letmein"
+        firstname: "XOS"
+        lastname:  "Admin"
+        is_admin: true
+      relations:
+        site:
+          fields:
+            name: "mysite"
+          model: core.Site
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ca-certificates
+  labels:
+    app: release-name-xos-core
+    chart: xos-core-4.0.2
+    release: release-name
+    heritage: Helm
+    version: 4.0.2
+data:
+  chain: |2
+    -----BEGIN CERTIFICATE-----
+    MIID1jCCAr6gAwIBAgIJAM4XZb1qwj1LMA0GCSqGSIb3DQEBCwUAMHgxCzAJBgNV
+    BAYTAlVTMRMwEQYDVQQIDApDYWxpZm9ybmlhMRMwEQYDVQQHDApNZW5sbyBQYXJr
+    MQwwCgYDVQQKDANPTkYxFTATBgNVBAsMDFRlc3RpbmcgT25seTEaMBgGA1UEAwwR
+    Q09SRCBUZXN0IFJvb3QgQ0EwHhcNMjEwMTA0MTQ0ODE2WhcNMjIwMTA1MTQ0ODE2
+    WjB4MQswCQYDVQQGEwJVUzETMBEGA1UECAwKQ2FsaWZvcm5pYTETMBEGA1UEBwwK
+    TWVubG8gUGFyazEMMAoGA1UECgwDT05GMRUwEwYDVQQLDAxUZXN0aW5nIE9ubHkx
+    GjAYBgNVBAMMEUNPUkQgVGVzdCBSb290IENBMIIBIjANBgkqhkiG9w0BAQEFAAOC
+    AQ8AMIIBCgKCAQEA3WG9qTbej77CM5XZN6vmdkjF+SjNEQej8KqtFwwAluJmBouw
+    q78vZ3b7t/LIMWXQBp8JqdPn2au9R/7m9trmeAFozHfNkuFCGZG6wnhqRMrvbcP8
+    2gLLD6nQfCMaiIFFamsG0eiZDtk2hGceW+UMclXUbKBbH37Vzijk9KSosG2PToqR
+    lOgn/W+LJ/xJVEv6JOHHOcSEbbtjzlGbV1UZYiOfIoweZ486WDjsyeBboX5T84fY
+    gygoMzXuz9vTDCAg5RxVMiMY/4ehwE1L5wvNUxWv8T12yNc3cPppDtvJXRh201JU
+    9VhAawMJdr3W9An4voWWmRM9VvqsBKY7c2vw4QIDAQABo2MwYTAdBgNVHQ4EFgQU
+    yXxsiwf0MPRWeVjEWO01TRumZ+QwHwYDVR0jBBgwFoAUyXxsiwf0MPRWeVjEWO01
+    TRumZ+QwDwYDVR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMCAYYwDQYJKoZIhvcN
+    AQELBQADggEBAF9oCQrEAYoJHEYzhEmXNHKmF/FzjoZCUdrj7+xNuf8yro/k+pXK
+    l0W1OcjsUdXEWcO5do44I3OTNnmcK322/c+njwZVEHh9KcrKti1UTm1V3hlHAhFL
+    oNOySub/C7zlKetgoF+FGp4ZFNf+sWw3ENV+8eqkFt2guqrVf9tPDrqNT3DvVFk0
+    wDIsFEv41jhs1cK1BdT70huXbQb41hOyxUNamfhjwzsNErB/6VClLNtwfYuk8SOj
+    OhYB70Jn0m9HtKLt5f6rpsGompagHs6XF1PKwR+YSIXP7V4cq1UM+0lhEQQ0SAoM
+    GsK7B6VWr5xhdMWrF4heTcPoiIanQpxumK4=
+    -----END CERTIFICATE-----
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: xos-tosca
+  labels:
+    app: release-name-xos-core
+    chart: xos-core-4.0.2
+    release: release-name
+    heritage: Helm
+    version: 4.0.2
+data:
+  config: |2
+    name: xos-tosca
+    gprc_endpoint: "xos-core"
+    local_cert: /usr/local/share/ca-certificates/local_certs.crt
+    logging:
+      version: 1
+      handlers:
+        console:
+          class: logging.StreamHandler
+        file:
+          class: logging.handlers.RotatingFileHandler
+          filename: /var/log/xos.log
+          maxBytes: 10485760
+          backupCount: 5
+        kafka:
+          class: kafkaloghandler.KafkaLogHandler
+          bootstrap_servers:
+            - cord-kafka:9092
+          topic: xos.log.tosca
+      loggers:
+        '':
+          handlers:
+            - console
+            - file
+            - kafka
+          level: DEBUG
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubernetes-synchronizer-cluster-admin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: kubernetes-synchronizer
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: xos-db
+  labels:
+    app: release-name-xos-db
+    chart: xos-db-1.0.2
+    release: release-name
+    heritage: Helm
+    version: 1.0.2
+spec:
+  type: ClusterIP
+  selector:
+    app: xos-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: xos-gui
+  labels:
+    app: release-name-xos-gui
+    chart: xos-gui-1.2.7
+    release: release-name
+    heritage: Helm
+    version: 1.2.7
+spec:
+  type: NodePort
+  ports:
+    - port: 4000
+      targetPort: 4000
+      nodePort: 30001
+      protocol: TCP
+  selector:
+    app: xos-gui
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: xos-ws
+  labels:
+    app: release-name-xos-gui
+    chart: xos-gui-1.2.7
+    release: release-name
+    heritage: Helm
+    version: 1.2.7
+spec:
+  type: NodePort
+  ports:
+    - port: 3000
+      targetPort: 3000
+      nodePort: 30008
+      protocol: TCP
+  selector:
+    app: xos-ws
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: xos-chameleon
+  labels:
+    app: release-name-xos-core
+    chart: xos-core-4.0.2
+    release: release-name
+    heritage: Helm
+    version: 4.0.2
+spec:
+  type: NodePort
+  ports:
+    - port: 9101
+      targetPort: 9101
+      nodePort: 30006
+      protocol: TCP
+  selector:
+    app: xos-chameleon
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: xos-core
+  labels:
+    app: release-name-xos-core
+    chart: xos-core-4.0.2
+    release: release-name
+    heritage: Helm
+    version: 4.0.2
+spec:
+  type: NodePort
+  selector:
+    app: xos-core
+  ports:
+    - port: 50051
+      targetPort: 50051
+      name: secure
+      nodePort: 30010
+      protocol: TCP
+    - port: 50055
+      targetPort: 50055
+      name: insecure
+      nodePort: 30011
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: xos-core-prometheus
+  labels:
+    app: release-name-xos-core
+    chart: xos-core-4.0.2
+    release: release-name
+    heritage: Helm
+    version: 4.0.2
+spec:
+  type: NodePort
+  selector:
+    app: xos-core
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: prometheus
+      nodePort: 30009
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: xos-tosca
+  labels:
+    app: release-name-xos-core
+    chart: xos-core-4.0.2
+    release: release-name
+    heritage: Helm
+    version: 4.0.2
+spec:
+  type: NodePort
+  ports:
+    - port: 9102
+      targetPort: 9102
+      nodePort: 30007
+      protocol: TCP
+  selector:
+    app: xos-tosca
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: xos-db
+  labels:
+    app: xos-db
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: xos-db
+    spec:
+      containers:
+        - name: xos-db
+          image: postgres:10.3-alpine
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: xos
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: xos-db-secrets
+                  key: password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: xos-db-config
+              mountPath: /usr/local/share/postgresql/postgresql.conf.sample
+              subPath: config/postgresql.conf.sample
+      volumes:
+        - name: xos-db-config
+          configMap:
+            name: xos-db
+            items:
+              - key: config
+                path: config/postgresql.conf.sample
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: xos-gui
+  labels:
+    app: release-name-xos-gui
+    chart: xos-gui-1.2.7
+    release: release-name
+    heritage: Helm
+    version: 1.2.7
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: xos-gui
+    spec:
+      containers:
+        - name: xos-gui
+          image: xosproject/xos-gui:1.0.6
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4000
+              port: 4000
+              protocol: TCP
+          volumeMounts:
+            - name: style-config
+              mountPath: /var/www/dist/style.config.js
+              subPath: style/style.config.js
+            - name: app-config
+              mountPath: /var/www/dist/app.config.js
+              subPath: app/app.config.js
+            - name: cord-version
+              mountPath: /var/www/dist/version.json
+              subPath: version.json
+            - name: extensions-volume
+              mountPath: /var/www/dist/extensions
+      volumes:
+        - name: style-config
+          configMap:
+            name: gui-style-config
+            items:
+              - key: config
+                path: style/style.config.js
+        - name: app-config
+          configMap:
+            name: gui-app-config
+            items:
+              - key: config
+                path: app/app.config.js
+        - name: cord-version
+          configMap:
+            name: gui-cord-version
+            items:
+              - key: config
+                path: version.json
+        - name: extensions-volume
+          emptyDir: {}
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: xos-ws
+  labels:
+    app: release-name-xos-gui
+    chart: xos-gui-1.2.7
+    release: release-name
+    heritage: Helm
+    version: 1.2.7
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: xos-ws
+    spec:
+      containers:
+        - name: xos-ws
+          image: xosproject/xos-rest-gw:2.0.2
+          imagePullPolicy: Always
+          command:
+            - npm
+            - start
+            - --
+            - --config
+            - gateway-config.yml
+          ports:
+            - containerPort: 3000
+              port: 3000
+              protocol: TCP
+          volumeMounts:
+            - name: gateway-config
+              mountPath: /var/www/src/config/gateway-config.yml
+              subPath: config/gateway-config.yml
+      volumes:
+        - name: gateway-config
+          configMap:
+            name: xos-ws
+            items:
+              - key: config
+                path: config/gateway-config.yml
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xos-chameleon
+  labels:
+    app: release-name-xos-core
+    chart: xos-core-4.0.2
+    release: release-name
+    heritage: Helm
+    version: 4.0.2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: xos-chameleon
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: xos-chameleon
+    spec:
+      containers:
+        - name: xos-chameleon
+          image: xosproject/chameleon:4.0.0
+          imagePullPolicy: Always
+          command:
+            - python
+            - chameleon/chameleon/main.py
+            - -R
+            - "9101"
+            - -G
+            - xos-core:50055
+            - --swagger-url
+            - /apidocs
+            - -r
+          ports:
+            - containerPort: 9101
+              port: 9101
+              protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xos-core
+  labels:
+    app: release-name-xos-core
+    chart: xos-core-4.0.2
+    release: release-name
+    heritage: Helm
+    version: 4.0.2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: xos-core
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: xos-core
+    spec:
+      containers:
+        - name: xos-core
+          image: xosproject/xos-core:4.0.1
+          imagePullPolicy: Always
+          command:
+            - /bin/bash
+            - -c
+            - cd coreapi; ./start_coreapi.sh
+          ports:
+            - containerPort: 50051
+              port: 50051
+              protocol: TCP
+            - containerPort: 50055
+              port: 50055
+              protocol: TCP
+          volumeMounts:
+            - name: coreapi-volume
+              mountPath: /opt/cord_profile
+              readOnly: true
+            - name: certchain-volume
+              mountPath: /usr/local/share/ca-certificates/local_certs.crt
+              subPath: config/ca_cert_chain.pem
+            - name: xos-core-config
+              mountPath: /opt/xos/xos_config.yaml
+              subPath: config/xos_config.yaml
+            - name: initial-data-config
+              mountPath: /opt/xos/core/migrations/initial_data.yaml
+              subPath: migrations/initial_data.yaml
+      volumes:
+        - name: coreapi-volume
+          secret:
+            secretName: coreapi-cert-secret
+            items:
+              - key: tls.crt
+                path: core_api_cert.pem
+              - key: tls.key
+                path: core_api_key.pem
+        - name: certchain-volume
+          configMap:
+            name: ca-certificates
+            items:
+              - key: chain
+                path: config/ca_cert_chain.pem
+        - name: xos-core-config
+          configMap:
+            name: xos-core
+            items:
+              - key: config
+                path: config/xos_config.yaml
+        - name: initial-data-config
+          configMap:
+            name: xos-initial-data
+            items:
+              - key: config
+                path: migrations/initial_data.yaml
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: xos-tosca
+  labels:
+    app: release-name-xos-core
+    chart: xos-core-4.0.2
+    release: release-name
+    heritage: Helm
+    version: 4.0.2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: xos-tosca
+      release: release-name
+  template:
+    metadata:
+      labels:
+        app: xos-tosca
+    spec:
+      containers:
+        - name: xos-tosca
+          image: xosproject/xos-tosca:2.0.0
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 9102
+              port: 9102
+              protocol: TCP
+          volumeMounts:
+            - name: certchain-volume
+              mountPath: /usr/local/share/ca-certificates/local_certs.crt
+              subPath: config/ca_cert_chain.pem
+            - name: xos-tosca-config
+              mountPath: /opt/xos-tosca/src/xos-tosca.config.yaml
+              subPath: config/xos-tosca.config.yaml
+      volumes:
+        - name: certchain-volume
+          configMap:
+            name: ca-certificates
+            items:
+              - key: chain
+                path: config/ca_cert_chain.pem
+        - name: xos-tosca-config
+          configMap:
+            name: xos-tosca
+            items:
+              - key: config
+                path: config/xos-tosca.config.yaml
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-api-test
+  labels:
+    app: release-name-xos-core
+    chart: xos-core-4.0.2
+    release: release-name
+    heritage: Helm
+    version: 4.0.2
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  restartPolicy: Never
+  containers:
+    - name: release-name-api-test
+      image: xosproject/xos-api-tester:master
+      imagePullPolicy: Always
+      volumeMounts:
+        - name: log-volume
+          mountPath: /src/cord-api/Tests/Log/
+      env:
+        - name: SERVER_IP
+          value: xos-chameleon
+        - name: SERVER_PORT
+          value: "9101"
+        - name: SITE_NAME
+          value: mysite
+        - name: XOS_USER
+          value: admin@opencord.org
+        - name: XOS_PASSWD
+          valueFrom:
+            secretKeyRef:
+              name: xos-admin-passwd-secret
+              key: password
+      command:
+        - pybot
+        - -L
+        - TRACE
+        - -d
+        - Log
+        - -T
+        - Ch_DeploymentTest.txt
+        - Ch_SiteTest.txt
+        - Ch_UsersTest.txt
+        - Ch_SliceTest.txt
+        - Ch_ServiceTest.txt
+  volumes:
+    - name: log-volume
+      hostPath:
+        path: /tmp/helm_test_xos_core_logs_20220612T023147.68Z
+        type: DirectoryOrCreate

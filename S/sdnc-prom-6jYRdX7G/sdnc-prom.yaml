@@ -1,0 +1,770 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-sdnc-prom-configmap
+  namespace: 6jYRdX7G
+  labels:
+    app: sdnc-prom
+    chart: sdnc-prom-6.0.0
+    release: release
+    heritage: Helm
+data:
+  config.json: |
+    {
+        "app-name": "test_onap",
+        "aid": "aid_for_your_app",
+        "namespace": "test_onap",
+        "userid": "test_onap",
+        "password": "onap123",
+        "prom-timeout": "35000",
+        "core-monitor-sleep-time": "15000",
+        "no-of-retry-attempts": "2",
+        "restart-backoff-time": "15000",
+        "replica-id-list": [ "sdnc01", "sdnc02" ],
+        "ensure-active-sdnc01": "/app/bin/ensureSdncActive.sh",
+        "ensure-active-sdnc02": "/app/bin/ensureSdncActive.sh",
+        "ensure-passive-sdnc01": "/app/bin/ensureSdncStandby.sh",
+        "ensure-passive-sdnc02": "/app/bin/ensureSdncStandby.sh",
+        "music-connection-timeout-ms": "1000",
+        "music-location": ["1.2.3.4","1.2.3.5","1.2.3.6"],
+        "music-version": "2"
+    }
+  healthchecks.json: |
+    ["Health Check: SDNC - SDN Host","Health Check: SDNC","Health Check: SDNC ODL Cluster","Health Check: SDNC Portal",["Health Check: SDNC-SDN-CTL-DB-01","Health Check: SDNC-SDN-CTL-DB-02"]]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-sdnc-prom-scripts
+  namespace: 6jYRdX7G
+  labels:
+    app: sdnc-prom
+    chart: sdnc-prom-6.0.0
+    release: release
+    heritage: Helm
+data:
+  ensureSdncActive.sh: |
+    #!/bin/bash
+
+    # Copyright © 2018 Amdocs
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    #       http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+
+    debugLog(){
+      if [ "$enableDebugLogging" == true ]; then
+         if [ $# -eq 0 ]; then
+           echo "" >> $LOGFILE
+         else
+           echo $( date ) $@ >> $LOGFILE
+        fi
+      fi
+    }
+
+    failover(){
+      lockFile=/tmp/sdnc.failover.lock
+      # make sure that no failover is currently running
+      if [ -e ${lockFile} ] && kill -0 $(cat ${lockFile}) 2> /dev/null; then
+        debugLog "Currently running sdnc and dns failover"
+        return
+      fi
+      trap "rm -f ${lockFile}" INT TERM RETURN
+      echo $BASHPID > ${lockFile}
+
+      # perform takeover
+      debugLog "Started executing sdnc.failover for $SITE_NAME"
+      takeoverResult=$( /app/bin/sdnc.failover )
+      debugLog "Completed executing sdnc.failover. takeoverResult is: $takeoverResult"
+      if [ "success" = "$takeoverResult" ]; then
+        # update CoreDNS upon successful execution of sdnc.failover script
+        debugLog "Executing sdnc.dnsswitch"
+        /app/bin/sdnc.dnsswitch
+        rc=$?
+        debugLog "Completed executing sdnc.dnsswitch for $SITE_NAME. rc=$rc"
+      else
+        debugLog "Cluster takeover current status: $takeoverResult on $SITE_NAME."
+        rc=1
+      fi
+
+      if [ $rc -ne 0 ];then
+        takeoverResult="failure"
+      fi
+
+      data="{\
+    \"type\": \"failover\",\
+    \"status\": \"$takeoverResult\",\
+    \"site\": \"$SITE_NAME\",\
+    \"deployment\": \"test_onap\",\
+    \"timestamp\": \"$(date '+%F %T')\"\
+    }"
+
+      # notifications are best-effort - ignore any failures
+      curl -H "Content-Type: application/json" -X POST --data "$data" http://$message_router/events/$topic >/dev/null 2>&1
+
+    }
+
+    LOGFILE="/app/geo.log"
+    enableDebugLogging=true
+    message_router=message-router:3904
+    topic=SDNC-GEO-REDUNDANCY
+    SITE_NAME="sdnc01"
+    if [ "$SDNC_IS_PRIMARY_CLUSTER" = "false" ];then
+      SITE_NAME="sdnc02"
+    fi
+
+    debugLog
+    debugLog "Executing ensureSdncActive"
+
+    # query SDN-C cluster status
+    debugLog "Started executing sdnc.cluster"
+    clusterStatus=$( /app/bin/sdnc.cluster )
+    debugLog "Completed executing sdnc.cluster. Cluster status is: $clusterStatus"
+
+    if [ "active" = "$clusterStatus" ]; then
+      # peform health-check
+      debugLog "Started excuting sdnc.monitor"
+      health=$( /app/bin/sdnc.monitor )
+      debugLog "Completed executing sdnc.monitor. Cluster is: $health"
+
+      if [ "healthy" = "$health" ]; then
+        # Cluster is ACTIVE and HEALTHY
+        exit 0
+      fi
+      exit 1
+
+    elif [ "standby" = "$clusterStatus" ]; then
+      # Run failover in background process and allow PROM to continue
+      ( failover & )
+      exit 0
+    fi
+
+    # Unknown cluster status
+    exit 1
+  ensureSdncStandby.sh: |
+    #!/bin/bash
+
+    # Copyright © 2018 Amdocs
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    #       http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+
+    debugLog(){
+      if [ "$enableDebugLogging" == true ]; then
+         if [ $# -eq 0 ]; then
+           echo "" >> $LOGFILE
+         else
+           echo $( date ) $@ >> $LOGFILE
+        fi
+      fi
+    }
+
+    LOGFILE="/app/geo.log"
+    enableDebugLogging=true
+
+    debugLog
+    debugLog "Executing ensureSdncStandby"
+
+    # query SDN-C cluster status
+    debugLog "Started executing sdnc.cluster"
+    clusterStatus=$( /app/bin/sdnc.cluster )
+    debugLog "Completed executing sdnc.cluster. Cluster status is: $clusterStatus"
+
+    if [ "active" = "$clusterStatus" ]; then
+      # assume transient error as other side transitions to ACTIVE
+      debugLog "Cluster status: $clusterStatus. exit 0"
+      exit 0
+
+    elif [ "standby" = "$clusterStatus" ]; then
+      # check that standby cluster is healthy
+      debugLog "Started executing sdnc.monitor. Cluster status is: $clusterStatus"
+      health=$( /app/bin/sdnc.monitor )
+      debugLog "Completed executing sdnc.monitor. Cluster is: $health"
+      if [ "failure" = "$health" ];then
+        # Backup site is unhealthy - can't accept traffic!
+        exit 1
+      fi
+      # Cluster is standing by
+      exit 0
+    fi
+
+    debugLog "Unknown cluster status: $clusterStatus"
+    # Unknown cluster status
+    exit 1
+  prom.sh: |
+    #!/bin/bash
+
+    # Copyright © 2018 Amdocs
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    #       http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+
+    if [ "${SDNC_IS_PRIMARY_CLUSTER:-true}" = "true" ];then
+      id=sdnc01
+    else
+      id=sdnc02
+    fi
+
+    # should PROM start as passive?
+    state=$( bin/sdnc.cluster )
+    if [ "$state" == "standby" ]; then
+      echo "Starting PROM in passive mode"
+      passive="-p"
+    fi
+
+    # start PROM as foreground process
+    java -jar prom.jar --id $id $passive --config config
+  sdnc.cluster: |
+    #!/bin/bash
+
+    # Copyright © 2018 Amdocs
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    #       http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+
+    # query ODL cluster state
+    USERNAME="admin"
+    PASSWORD="admin"
+
+    count=${SDNC_ODL_COUNT:-1}
+    memberStart=0
+    if [ "${SDNC_IS_PRIMARY_CLUSTER:-true}" != "true" ];then
+      memberStart=$(( $memberStart + $count ))
+    fi
+
+    for instance in $(seq $count);do
+      shard=member-$(( $memberStart + $instance ))-shard-default-config
+      mbean=Category=Shards,name=$shard,type=DistributedConfigDatastore
+      url=http://release-sdnc-$(( $instance-1 )).sdnc-cluster.default:8181/jolokia/read/org.opendaylight.controller:$mbean
+
+      response=$( curl -s -u $USERNAME:$PASSWORD $url )
+      rc=$?
+      if [ $rc -ne 0 ];then
+        # failed to contact SDN-C instance - try another
+        continue
+      fi
+      status=$( echo -E "$response" | jq -r ".status" )
+      if [ "$status" != "200" ];then
+        # query failed, try another instance
+        continue
+      fi
+
+      voting=$( echo -E "$response" | jq -r ".value.Voting" )
+      case $voting in
+      true)
+        echo "active"
+        exit 0
+        ;;
+      false)
+        echo "standby"
+        exit 0
+        ;;
+      *)
+        echo "Error: Voting status could not be determined."
+        exit 1
+        ;;
+      esac
+    done
+    echo "Error: Voting status could not be determined."
+    exit 1
+  sdnc.dnsswitch: |
+    #! /bin/bash
+
+    # Copyright © 2018 Amdocs
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    #       http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+
+    ####################################################################################################
+    # sdncDnsSwitchWrapper.bash: Wrapper script to invoke SDNC DNS Switch for domain: sdnc.example.com #
+    ####################################################################################################
+    ssh -i /app/config/coredns/coredns.key -o StrictHostKeyChecking=no root@1.2.3.7 "/home/ubuntu/dnsSwitch.bash $SDNC_LOCAL_K8S_CLUSTER_MASTER test_onap"
+
+    exit $?
+  sdnc.failover: |
+    #!/bin/bash
+
+    # Copyright © 2018 Amdocs
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    #       http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+
+    LOGFILE="/app/geo.log"
+    enableDebugLogging=true
+    message_router=message-router:3904
+    topic=SDNC-GEO-REDUNDANCY
+    KEYWORD_success="success"
+    KEYWORD_failure="failure"
+    SITE_NAME="sdnc01"
+    if [ "$SDNC_IS_PRIMARY_CLUSTER" = "false" ];then
+      SITE_NAME="sdnc02"
+    fi
+
+    APP_BIN=/app/bin
+
+    debugLog(){
+      if [ "$enableDebugLogging" == true ]; then
+         if [ $# -eq 0 ]; then
+           echo "" >> $LOGFILE
+         else
+           echo $( date ) $@ >> $LOGFILE
+        fi
+      fi
+    }
+
+    EXC_SIMPLE_FAILOVER=`${APP_BIN}/switchVoting.sh`
+
+    if [ "$EXC_SIMPLE_FAILOVER" == "success" ]; then
+       debugLog "Simple failover success. SDNC failover completed."
+    else
+       # Simple failover failed. Trying catastrophic failover ...
+       debugLog "Simple failover failed. Trying catastrophic failover for $SITE_NAME ..."
+
+       # Notify Dmaap before executing catastrophic failover, because all connections will be reset.
+       data="{\
+       \"type\": \"Catastrophic failover\",\
+       \"reason\": \"Simple failover failed\",\
+       \"message_router\": \"$message_router\",\
+       \"topic\": \"$topic\",\
+       \"site\": \"$SITE_NAME\",\
+       \"deployment\": \"test_onap\",\
+       \"timestamp\": \"$(date '+%F %T')\"\
+       }"
+
+       debugLog "$data"
+
+       # notifications to Dmaap
+       curl -H "Content-Type: application/json" -X POST --data "$data" http://$message_router/events/$topic >/dev/null 2>&1
+
+       # We're going to kill prom, so we need to do dnsswitch now
+
+       debugLog "Executing sdnc.dnsswitch"
+
+       /app/bin/sdnc.dnsswitch > /dev/null 2>&1
+       rc=$?
+       if [ $rc -ne 0 ];then
+        debugLog "sdnc.dnsswitch FAILED"
+        echo $KEYWORD_failure
+        exit 0
+       fi
+
+       # Now do catastrophic failure
+
+       debugLog "Catastrophic failover in progress"
+
+       ssh  -o StrictHostKeyChecking=no -i /app/config/coredns/master.key root@$SDNC_LOCAL_K8S_CLUSTER_MASTER "su - ubuntu bash -c 'helm upgrade --set sdnc.config.geoEnabled=false dev local/onap --namespace onap; kubectl -n onap delete pods -l app=sdnc'" > /dev/null 2>&1
+
+       # Sleep here so prom can die without us passing control back to ensureSDNCActive
+       sleep 300
+    fi
+
+    echo $KEYWORD_success
+  sdnc.monitor: |
+    #!/usr/bin/env python2
+    # encoding: utf-8
+
+    # Copyright © 2018 Amdocs
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    #       http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+
+    import sys
+    import os
+    import json
+    import requests
+    from datetime import datetime
+
+    consul_server = "consul-server:8500"
+    message_router = "message-router:3904"
+    topic = 'SDNC-GEO-REDUNDANCY'
+    log_file='/app/monitor.log'
+    status_file='/app/.health'
+    logEnabled=False
+
+    siteName='sdnc01'
+    if os.environ.get('SDNC_IS_PRIMARY_CLUSTER', 'true') == 'false':
+        siteName='sdnc02'
+
+    debug=False
+    if len(sys.argv) > 1 and sys.argv[1] == '--debug':
+        debug=True
+
+    def get_state(healthcheck):
+        response = requests.get("http://" + consul_server + "/v1/health/checks/" + healthcheck)
+        if response.status_code != 200:
+            raise RuntimeError("HTTP " + str(response.status_code))
+        data = response.json()
+        if len(data) == 0:
+            raise RuntimeError(healthcheck + " not found")
+        if len(data) > 1:
+            raise RuntimeError("Multiple states for " + healthcheck + " found")
+
+        return data[0]
+
+
+    def log(message):
+        if logEnabled:
+            with open(log_file, 'a') as f:
+                f.write(str(datetime.now()) + " " + message + "\n")
+
+    def healthcheck(checks, failFirst=True):
+        if len(checks) == 0:
+            return True
+
+        for check in checks:
+            if type(check) is list:
+                passing = healthcheck(check, False)
+            else:
+                state = get_state(check)
+                status = state['Status']
+                passing = status == "passing" or status == "warning"
+                log(check + " " + status)
+                if debug:
+                    if status == "passing":
+                        color = "\033[32m" # green
+                    elif status == "warning":
+                        color = "\033[33m" # yellow
+                    else:
+                        color = "\033[31m" # red
+                    print check, color + status + "\033[0m"
+                    if not passing:
+                        print "\tCause:", state['Output']
+
+
+            if passing:
+                if not failFirst:
+                    # found a passing check so can stop here
+                    return True
+            else:
+                if failFirst:
+                    # found a failing check so can stop here
+                    return False
+
+        return failFirst
+
+
+    try:
+        with open("/app/config/healthchecks.json") as f:
+            checks = json.load(f)
+
+        try:
+            with open(status_file) as f:
+               previous_result = f.read()
+        except IOError:
+            # file doesn't exist
+            previous_result = 'unknown'
+
+        if healthcheck(checks):
+            result = "healthy"
+        else:
+            result = "unhealthy"
+
+        print result
+
+        # save current result to file
+        with open(status_file, 'w') as f:
+            f.write(result)
+
+        if previous_result != 'unknown' and result != previous_result:
+            payload = { 'type' : 'health-change', 'status': result, 'site': siteName, 'deployment': 'test_onap', 'timestamp': str(datetime.now())  }
+            log("Posting event " + str(payload))
+            try:
+                requests.post("http://" + message_router + "/events/" + topic, data=json.dumps(payload), headers={ 'Content-Type' : 'application/json' } )
+            except Exception:
+                # events are best-effort
+                pass
+
+    except Exception as e:
+        sys.exit(str(e))
+  switchVoting.sh: |
+    #/bin/sh
+
+    # Copyright © 2018 Amdocs
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License");
+    # you may not use this file except in compliance with the License.
+    # You may obtain a copy of the License at
+    #
+    #       http://www.apache.org/licenses/LICENSE-2.0
+    #
+    # Unless required by applicable law or agreed to in writing, software
+    # distributed under the License is distributed on an "AS IS" BASIS,
+    # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    # See the License for the specific language governing permissions and
+    # limitations under the License.
+
+    set -e
+    primary=${SDNC_IS_PRIMARY_CLUSTER:-true}
+
+    url=http://sdnc:8282/restconf/operations/cluster-admin:change-member-voting-states-for-all-shards
+    username="${ODL_USERNAME:-admin}"
+    password="${ODL_PASSWORD:-Kp8bJ4SXszM0WXlhak3eHlcse2gAw84vaoGGmJvUy2U}"
+    LOGFILE="/app/geo.log"
+    enableDebugLogging=true
+
+    debugLog(){
+      if [ "$enableDebugLogging" == true ]; then
+         if [ $# -eq 0 ]; then
+           echo "" >> $LOGFILE
+         else
+           echo $( date ) $@ >> $LOGFILE
+        fi
+      fi
+    }
+
+
+    if [ "$primary" = "true" ]; then
+       votingState='
+    {
+      "input": {
+        "member-voting-state": [
+          {
+            "member-name": "member-1",
+            "voting": true
+          },
+          {
+            "member-name": "member-2",
+            "voting": true
+          },
+          {
+            "member-name": "member-3",
+            "voting": true
+          },
+          {
+            "member-name": "member-4",
+            "voting": false
+          },
+          {
+            "member-name": "member-5",
+            "voting": false
+          },
+          {
+            "member-name": "member-6",
+            "voting": false
+          }
+        ]
+      }
+    }'
+    else
+       votingState='
+    {
+      "input": {
+        "member-voting-state": [
+          {
+            "member-name": "member-1",
+            "voting": false
+          },
+          {
+            "member-name": "member-2",
+            "voting": false
+          },
+          {
+            "member-name": "member-3",
+            "voting": false
+          },
+          {
+            "member-name": "member-4",
+            "voting": true
+          },
+          {
+            "member-name": "member-5",
+            "voting": true
+          },
+          {
+            "member-name": "member-6",
+            "voting": true
+          }
+        ]
+      }
+    }'
+    fi
+
+    status=$(curl -s -u $username:$password -o /dev/null -H "Content-Type: application/json" -H "Accept: application/json" -X POST -d "$votingState" -w "%{http_code}\n" $url 2> /dev/null)
+    if [ $status -ne 200 ];then
+      debugLog "Switch voting failed. status: $status ,username: $username ,password: $password ,votingState: $votingState ,url:$url   "
+      echo "failure"
+    else
+      echo "success"
+    fi
+---
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: release-sdnc-prom-data
+  namespace: default
+  labels:
+    app: release-sdnc-prom
+    chart: sdnc-prom-6.0.0
+    release: release
+    heritage: Helm
+    name: release-sdnc-prom
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: null
+  storageClassName: release-sdnc-prom-data
+  hostPath:
+    path: /dockerdata-nfs/release/coredns
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-sdnc-prom
+  namespace: default
+  labels:
+    app: sdnc-prom
+    chart: sdnc-prom-6.0.0
+    release: release
+    heritage: Helm
+    name: release-sdnc-prom
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: release-sdnc-prom-data
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-sdnc-prom
+  namespace: 6jYRdX7G
+  labels:
+    app.kubernetes.io/name: sdnc-prom
+    helm.sh/chart: sdnc-prom-6.0.0
+    app.kubernetes.io/instance: release
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sdnc-prom
+      app.kubernetes.io/instance: release
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sdnc-prom
+        helm.sh/chart: sdnc-prom-6.0.0
+        app.kubernetes.io/instance: release
+        app.kubernetes.io/managed-by: Helm
+      name: sdnc-prom
+    spec:
+      initContainers:
+        - command:
+            - /root/ready.py
+          args:
+            - --container-name
+            - sdnc
+            - --container-name
+            - consul
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+          image: oomk8s/readiness-check:2.0.2
+          imagePullPolicy: Always
+          name: sdnc-prom-readiness
+      containers:
+        - name: sdnc-prom
+          image: nexus3.onap.org:10001/onap/music/prom:1.0.5
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: release-sdnc-env
+          workingDir: /app
+          command:
+            - bin/prom.sh
+          volumeMounts:
+            - name: localtime
+              mountPath: /etc/localtime
+              readOnly: true
+            - name: prom-config
+              mountPath: /app/config
+            - name: prom-scripts
+              mountPath: /app/bin
+            - name: core-dns-keyfile
+              mountPath: /app/config/coredns
+          resources: null
+      volumes:
+        - name: localtime
+          hostPath:
+            path: /etc/localtime
+        - name: prom-config
+          configMap:
+            name: release-sdnc-prom-configmap
+        - name: prom-scripts
+          configMap:
+            name: release-sdnc-prom-scripts
+            defaultMode: 493
+        - name: core-dns-keyfile
+          persistentVolumeClaim:
+            claimName: release-sdnc-prom
+      imagePullSecrets:
+        - name: default-docker-registry-key"

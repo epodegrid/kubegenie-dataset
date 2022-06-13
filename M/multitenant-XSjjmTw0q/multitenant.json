@@ -1,0 +1,347 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Namespace",
+    "metadata": {
+      "name": "data-storage-services",
+      "labels": {
+        "name": "data-storage-services",
+        "type": "shared-service"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Namespace",
+    "metadata": {
+      "name": "login-services",
+      "labels": {
+        "name": "login-services",
+        "type": "shared-service"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Namespace",
+    "metadata": {
+      "name": "test-from-helm-multitenant-repo",
+      "labels": {
+        "name": "test-from-helm-multitenant-repo",
+        "type": "tenant"
+      }
+    }
+  },
+  {
+    "apiVersion": "networking.k8s.io/v1",
+    "kind": "NetworkPolicy",
+    "metadata": {
+      "name": "test-from-helm-multitenant-repo-allow-namespaces",
+      "namespace": "test-from-helm-multitenant-repo",
+      "labels": {
+        "type": "tenant"
+      }
+    },
+    "spec": {
+      "podSelector": {},
+      "policyTypes": [
+        "Ingress",
+        "Egress"
+      ],
+      "ingress": [
+        {
+          "from": [
+            {
+              "namespaceSelector": {
+                "matchLabels": {
+                  "name": "test-from-helm-multitenant-repo"
+                }
+              }
+            },
+            {
+              "namespaceSelector": {
+                "matchLabels": {
+                  "name": "DataStorageServices"
+                }
+              }
+            },
+            {
+              "namespaceSelector": {
+                "matchLabels": {
+                  "name": "ingress-nginx"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "from": [
+            {
+              "namespaceSelector": {
+                "matchLabels": {
+                  "name": "infrastructure"
+                }
+              }
+            }
+          ],
+          "ports": [
+            {
+              "protocol": "TCP",
+              "port": 9090
+            },
+            {
+              "protocol": "TCP",
+              "port": 3100
+            }
+          ]
+        }
+      ],
+      "egress": [
+        {
+          "to": [
+            {
+              "ipBlock": {
+                "cidr": "169.254.20.10/32"
+              }
+            }
+          ],
+          "ports": [
+            {
+              "port": 53,
+              "protocol": "UDP"
+            }
+          ]
+        },
+        {
+          "to": [
+            {
+              "ipBlock": {
+                "cidr": "10.10.16.1/32"
+              }
+            }
+          ],
+          "ports": [
+            {
+              "port": 443,
+              "protocol": "TCP"
+            }
+          ]
+        },
+        {
+          "to": [
+            {
+              "ipBlock": {
+                "cidr": "192.168.0.6/32"
+              }
+            },
+            {
+              "ipBlock": {
+                "cidr": "192.168.0.7/32"
+              }
+            },
+            {
+              "ipBlock": {
+                "cidr": "192.168.0.8/32"
+              }
+            }
+          ],
+          "ports": [
+            {
+              "port": 6443,
+              "protocol": "TCP"
+            }
+          ]
+        },
+        {
+          "to": [
+            {
+              "namespaceSelector": {
+                "matchLabels": {
+                  "name": "test-from-helm-multitenant-repo"
+                }
+              }
+            },
+            {
+              "namespaceSelector": {
+                "matchLabels": {
+                  "name": "ingress-nginx"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ResourceQuota",
+    "metadata": {
+      "namespace": "test-from-helm-multitenant-repo",
+      "name": "test-from-helm-multitenant-repo-quota",
+      "labels": {
+        "type": "tenant"
+      }
+    },
+    "spec": {
+      "hard": {
+        "cpu": 1000,
+        "longhorn.storageclass.storage.k8s.io/requests.storage": "100Gi",
+        "memory": "200Gi"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "LimitRange",
+    "metadata": {
+      "namespace": "test-from-helm-multitenant-repo",
+      "name": "test-from-helm-multitenant-repo-limit-range",
+      "labels": {
+        "type": "tenant"
+      }
+    },
+    "spec": {
+      "limits": [
+        {
+          "default": {
+            "cpu": "10m",
+            "memory": "128Mi"
+          },
+          "defaultRequest": {
+            "cpu": "5m",
+            "memory": "64Mi"
+          },
+          "type": "Container"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "test-from-helm-multitenant-repo-networktests",
+      "namespace": "test-from-helm-multitenant-repo"
+    },
+    "spec": {
+      "successfulJobsHistoryLimit": 1,
+      "failedJobsHistoryLimit": 1,
+      "schedule": "0 6 * * *",
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "spec": {
+              "containers": [
+                {
+                  "name": "test-from-helm-multitenant-repo-networktests",
+                  "image": "kvalitetsit/kithosting-networkpolicytests:0.0.1"
+                }
+              ],
+              "restartPolicy": "Never"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "argoproj.io/v1alpha1",
+    "kind": "AppProject",
+    "metadata": {
+      "name": "data-storage-services",
+      "namespace": "infrastructure",
+      "labels": {
+        "type": "shared-service"
+      }
+    },
+    "spec": {
+      "description": "Project containing shared services",
+      "sourceRepos": [
+        "https://github.com/KvalitetsIT/kithosting-LoginServices.git"
+      ],
+      "destinations": [
+        {
+          "namespace": "data-storage-services",
+          "server": "https://kubernetes.default.svc"
+        },
+        {
+          "namespace": "infrastructure",
+          "server": "https://kubernetes.default.svc"
+        }
+      ],
+      "clusterResourceWhitelist": [
+        {
+          "group": "*",
+          "kind": "*"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "argoproj.io/v1alpha1",
+    "kind": "AppProject",
+    "metadata": {
+      "name": "login-services",
+      "namespace": "infrastructure",
+      "labels": {
+        "type": "shared-service"
+      }
+    },
+    "spec": {
+      "description": "Project containing shared services",
+      "sourceRepos": [
+        "https://github.com/KvalitetsIT/kithosting-LoginServices.git"
+      ],
+      "destinations": [
+        {
+          "namespace": "login-services",
+          "server": "https://kubernetes.default.svc"
+        },
+        {
+          "namespace": "infrastructure",
+          "server": "https://kubernetes.default.svc"
+        }
+      ],
+      "clusterResourceWhitelist": [
+        {
+          "group": "*",
+          "kind": "*"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "argoproj.io/v1alpha1",
+    "kind": "AppProject",
+    "metadata": {
+      "name": "test-from-helm-multitenant-repo",
+      "namespace": "infrastructure",
+      "labels": {
+        "type": "tenant-project"
+      }
+    },
+    "spec": {
+      "description": "Project containing applications for test-from-helm-multitenant-repo",
+      "sourceRepos": [
+        "https://github.com/KvalitetsIT/kithosting-LoginServices.git"
+      ],
+      "destinations": [
+        {
+          "namespace": "test-from-helm-multitenant-repo",
+          "server": "https://kubernetes.default.svc"
+        },
+        {
+          "namespace": "infrastructure",
+          "server": "https://kubernetes.default.svc"
+        }
+      ],
+      "clusterResourceWhitelist": [
+        {
+          "group": "*",
+          "kind": "*"
+        }
+      ]
+    }
+  }
+]

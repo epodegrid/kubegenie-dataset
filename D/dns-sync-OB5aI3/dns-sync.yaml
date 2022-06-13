@@ -1,0 +1,174 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-dns-sync
+  labels:
+    helm.sh/chart: dns-sync-0.1.0
+    app.kubernetes.io/name: dns-sync
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-dns-sync
+  labels:
+    helm.sh/chart: dns-sync-0.1.0
+    app.kubernetes.io/name: dns-sync
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+data:
+  config.toml: |
+    enable_watching = true
+
+    # for demo's sake, no provider:
+    provider = []
+    # but you'll actually want to replace that with something more like:
+    # [[provider]]
+    # type = "google"
+
+    [[source]]
+    type = "ingress"
+
+    [registry]
+    type = "txt"
+    # txt_prefix in case you want to manage CNAMEs or wildcards, or hide the TXTs
+    txt_prefix = "_registry."
+    # txt_owner_id to be unique for each deployment managing records in the same zone
+    txt_owner_id = "example"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: default-release-name-dns-sync
+  labels:
+    helm.sh/chart: dns-sync-0.1.0
+    app.kubernetes.io/name: dns-sync
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - services
+      - pods
+      - nodes
+    verbs:
+      - get
+      - watch
+      - list
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - ingresses
+    verbs:
+      - get
+      - watch
+      - list
+  - apiGroups:
+      - externaldns.k8s.io
+    resources:
+      - dnsendpoints
+    verbs:
+      - get
+      - watch
+      - list
+  - apiGroups:
+      - externaldns.k8s.io
+    resources:
+      - dnsendpoints/status
+    verbs:
+      - '*'
+  - apiGroups:
+      - acme.cert-manager.io
+    resources:
+      - challenges
+    verbs:
+      - get
+      - watch
+      - list
+  - apiGroups:
+      - acme.cert-manager.io
+    resources:
+      - challenges/status
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: default-release-name-dns-sync
+  labels:
+    helm.sh/chart: dns-sync-0.1.0
+    app.kubernetes.io/name: dns-sync
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: default-release-name-dns-sync
+subjects:
+  - kind: ServiceAccount
+    name: release-name-dns-sync
+    namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-dns-sync
+  labels:
+    helm.sh/chart: dns-sync-0.1.0
+    app.kubernetes.io/name: dns-sync
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: latest
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dns-sync
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: dns-sync-0.1.0
+        app.kubernetes.io/name: dns-sync
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/version: latest
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: release-name-dns-sync
+      containers:
+        - name: loop
+          image: ghcr.io/cloudydeno/kubernetes-dns-sync
+          args:
+            - --dry-run
+            - --serve-metrics
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: NO_COLOR
+              value: NO_COLOR
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: cfgmap
+              mountPath: /src/kubernetes-dns-sync/config.toml
+              subPath: config.toml
+      volumes:
+        - name: cfgmap
+          configMap:
+            name: release-name-dns-sync
+            defaultMode: 420

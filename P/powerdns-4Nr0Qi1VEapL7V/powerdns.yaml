@@ -1,0 +1,606 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: powerdns
+  namespace: 4Nr0Qi1VEapL7V
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: powerdns-db-init
+  namespace: 4Nr0Qi1VEapL7V
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: powerdns-db-sync
+  namespace: 4Nr0Qi1VEapL7V
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: powerdns-etc
+type: Opaque
+data:
+  pdns.conf: CmFwaSA9IHRydWUKYXBpLWtleSA9IGNoaWF2ZV9zZWdyZXRhCmNhY2hlLXR0bCA9IDAKZG5zdXBkYXRlID0gdHJ1ZQpnbXlzcWwtZGJuYW1lID0gcG93ZXJkbnMKZ215c3FsLWRuc3NlYyA9IHRydWUKZ215c3FsLWhvc3QgPSBtYXJpYWRiLmRlZmF1bHQuc3ZjLmNsdXN0ZXIubG9jYWwKZ215c3FsLXBhc3N3b3JkID0gcGFzc3dvcmQKZ215c3FsLXBvcnQgPSAzMzA2CmdteXNxbC11c2VyID0gcG93ZXJkbnMKbmVncXVlcnktY2FjaGUtdHRsID0gMApvdXQtb2Ytem9uZS1hZGRpdGlvbmFsLXByb2Nlc3NpbmcgPSBmYWxzZQpxdWVyeS1jYWNoZS10dGwgPSAwCnNsYXZlID0gdHJ1ZQp3ZWJzZXJ2ZXIgPSB0cnVlCndlYnNlcnZlci1hZGRyZXNzID0gMC4wLjAuMAp3ZWJzZXJ2ZXItYWxsb3ctZnJvbSA9IDAuMC4wLjAvMA==
+  my.cnf: W2NsaWVudF0KZGF0YWJhc2UgPSBwb3dlcmRucwpob3N0ID0gbWFyaWFkYi5kZWZhdWx0LnN2Yy5jbHVzdGVyLmxvY2FsCnBhc3N3b3JkID0gcGFzc3dvcmQKcG9ydCA9IDMzMDYKdXNlciA9IHBvd2VyZG5zCg==
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: powerdns-db-admin
+type: Opaque
+data:
+  DB_CONNECTION: bXlzcWwrcHlteXNxbDovL3Jvb3Q6cGFzc3dvcmRAbWFyaWFkYi5kZWZhdWx0LnN2Yy5jbHVzdGVyLmxvY2FsOjMzMDYvcG93ZXJkbnM=
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: powerdns-db-user
+type: Opaque
+data:
+  DB_CONNECTION: bXlzcWwrcHlteXNxbDovL3Bvd2VyZG5zOnBhc3N3b3JkQG1hcmlhZGIuZGVmYXVsdC5zdmMuY2x1c3Rlci5sb2NhbDozMzA2L3Bvd2VyZG5z
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: powerdns-bin
+data:
+  db-init.py: |
+    #!/usr/bin/env python
+
+    # Creates db and user for an OpenStack Service:
+    # Set ROOT_DB_CONNECTION and DB_CONNECTION environment variables to contain
+    # SQLAlchemy strings for the root connection to the database and the one you
+    # wish the service to use. Alternatively, you can use an ini formatted config
+    # at the location specified by OPENSTACK_CONFIG_FILE, and extract the string
+    # from the key OPENSTACK_CONFIG_DB_KEY, in the section specified by
+    # OPENSTACK_CONFIG_DB_SECTION.
+
+    import os
+    import sys
+    try:
+        import ConfigParser
+        PARSER_OPTS = {}
+    except ImportError:
+        import configparser as ConfigParser
+        PARSER_OPTS = {"strict": False}
+    import logging
+    from sqlalchemy import create_engine
+
+    # Create logger, console handler and formatter
+    logger = logging.getLogger('OpenStack-Helm DB Init')
+    logger.setLevel(logging.DEBUG)
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+    # Set the formatter and add the handler
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+
+
+    # Get the connection string for the service db root user
+    if "ROOT_DB_CONNECTION" in os.environ:
+        db_connection = os.environ['ROOT_DB_CONNECTION']
+        logger.info('Got DB root connection')
+    else:
+        logger.critical('environment variable ROOT_DB_CONNECTION not set')
+        sys.exit(1)
+
+    mysql_x509 = os.getenv('MARIADB_X509', "")
+    ssl_args = {}
+    if mysql_x509:
+        ssl_args = {'ssl': {'ca': '/etc/mysql/certs/ca.crt',
+                    'key': '/etc/mysql/certs/tls.key',
+                    'cert': '/etc/mysql/certs/tls.crt'}}
+
+    # Get the connection string for the service db
+    if "OPENSTACK_CONFIG_FILE" in os.environ:
+        os_conf = os.environ['OPENSTACK_CONFIG_FILE']
+        if "OPENSTACK_CONFIG_DB_SECTION" in os.environ:
+            os_conf_section = os.environ['OPENSTACK_CONFIG_DB_SECTION']
+        else:
+            logger.critical('environment variable OPENSTACK_CONFIG_DB_SECTION not set')
+            sys.exit(1)
+        if "OPENSTACK_CONFIG_DB_KEY" in os.environ:
+            os_conf_key = os.environ['OPENSTACK_CONFIG_DB_KEY']
+        else:
+            logger.critical('environment variable OPENSTACK_CONFIG_DB_KEY not set')
+            sys.exit(1)
+        try:
+            config = ConfigParser.RawConfigParser(**PARSER_OPTS)
+            logger.info("Using {0} as db config source".format(os_conf))
+            config.read(os_conf)
+            logger.info("Trying to load db config from {0}:{1}".format(
+                os_conf_section, os_conf_key))
+            user_db_conn = config.get(os_conf_section, os_conf_key)
+            logger.info("Got config from {0}".format(os_conf))
+        except:
+            logger.critical("Tried to load config from {0} but failed.".format(os_conf))
+            raise
+    elif "DB_CONNECTION" in os.environ:
+        user_db_conn = os.environ['DB_CONNECTION']
+        logger.info('Got config from DB_CONNECTION env var')
+    else:
+        logger.critical('Could not get db config, either from config file or env var')
+        sys.exit(1)
+
+    # Root DB engine
+    try:
+        root_engine_full = create_engine(db_connection)
+        root_user = root_engine_full.url.username
+        root_password = root_engine_full.url.password
+        drivername = root_engine_full.url.drivername
+        host = root_engine_full.url.host
+        port = root_engine_full.url.port
+        root_engine_url = ''.join([drivername, '://', root_user, ':', root_password, '@', host, ':', str (port)])
+        root_engine = create_engine(root_engine_url, connect_args=ssl_args)
+        connection = root_engine.connect()
+        connection.close()
+        logger.info("Tested connection to DB @ {0}:{1} as {2}".format(
+            host, port, root_user))
+    except:
+        logger.critical('Could not connect to database as root user')
+        raise
+
+    # User DB engine
+    try:
+        user_engine = create_engine(user_db_conn, connect_args=ssl_args)
+        # Get our user data out of the user_engine
+        database = user_engine.url.database
+        user = user_engine.url.username
+        password = user_engine.url.password
+        logger.info('Got user db config')
+    except:
+        logger.critical('Could not get user database config')
+        raise
+
+    # Create DB
+    try:
+        root_engine.execute("CREATE DATABASE IF NOT EXISTS {0}".format(database))
+        logger.info("Created database {0}".format(database))
+    except:
+        logger.critical("Could not create database {0}".format(database))
+        raise
+
+    # Create DB User
+    try:
+        root_engine.execute(
+            "GRANT ALL ON `{0}`.* TO \'{1}\'@\'%%\' IDENTIFIED BY \'{2}\' {3}".format(
+                database, user, password, mysql_x509))
+        logger.info("Created user {0} for {1}".format(user, database))
+    except:
+        logger.critical("Could not create user {0} for {1}".format(user, database))
+        raise
+
+    # Test connection
+    try:
+        connection = user_engine.connect()
+        connection.close()
+        logger.info("Tested connection to DB @ {0}:{1}/{2} as {3}".format(
+            host, port, database, user))
+    except:
+        logger.critical('Could not connect to database as user')
+        raise
+
+    logger.info('Finished DB Management')
+  powerdns-mysql-sync.sh: |
+    #!/bin/sh
+
+
+
+    set -ex
+
+    MYSQLCMD='mysql -r -N'
+    if [ $(echo 'show tables' | $MYSQLCMD | wc -c) -eq 0 ]; then
+      $MYSQLCMD < /etc/pdns/schema.sql
+    fi
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-default-powerdns
+  namespace: 4Nr0Qi1VEapL7V
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - batch
+      - apps
+    verbs:
+      - get
+      - list
+    resources:
+      - services
+      - endpoints
+      - jobs
+      - pods
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-default-powerdns-db-init
+  namespace: 4Nr0Qi1VEapL7V
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - batch
+      - apps
+    verbs:
+      - get
+      - list
+    resources:
+      - services
+      - endpoints
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-default-powerdns-db-sync
+  namespace: 4Nr0Qi1VEapL7V
+rules:
+  - apiGroups:
+      - ""
+      - extensions
+      - batch
+      - apps
+    verbs:
+      - get
+      - list
+    resources:
+      - services
+      - endpoints
+      - jobs
+      - pods
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-powerdns
+  namespace: 4Nr0Qi1VEapL7V
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-default-powerdns
+subjects:
+  - kind: ServiceAccount
+    name: powerdns
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-powerdns-db-init
+  namespace: 4Nr0Qi1VEapL7V
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-default-powerdns-db-init
+subjects:
+  - kind: ServiceAccount
+    name: powerdns-db-init
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-powerdns-db-sync
+  namespace: 4Nr0Qi1VEapL7V
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-default-powerdns-db-sync
+subjects:
+  - kind: ServiceAccount
+    name: powerdns-db-sync
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: powerdns
+spec:
+  ports:
+    - port: 53
+      name: pdns-udp
+      protocol: UDP
+    - port: 53
+      name: pdns-tcp
+  selector:
+    release_group: release-name
+    application: powerdns
+    component: server
+  type: NodePort
+  externalTrafficPolicy: Local
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: powerdns
+  annotations:
+    openstackhelm.openstack.org/release_uuid: ""
+  labels:
+    release_group: release-name
+    application: powerdns
+    component: server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      release_group: release-name
+      application: powerdns
+      component: server
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 3
+  template:
+    metadata:
+      labels:
+        release_group: release-name
+        application: powerdns
+        component: server
+      annotations:
+        openstackhelm.openstack.org/release_uuid: ""
+        configmap-bin-hash: 8ac8204ee6f8f678f39f7dc87b00d470ea89f28a124012f17ef2003aa08eeee9
+    spec:
+      serviceAccountName: powerdns
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: release_group
+                      operator: In
+                      values:
+                        - release-name
+                    - key: application
+                      operator: In
+                      values:
+                        - powerdns
+                    - key: component
+                      operator: In
+                      values:
+                        - server
+                topologyKey: kubernetes.io/hostname
+              weight: 10
+      nodeSelector:
+        openstack-control-plane: enabled
+      initContainers:
+        - name: init
+          image: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: INTERFACE_NAME
+              value: eth0
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: DEPENDENCY_SERVICE
+              value: default:mariadb
+            - name: DEPENDENCY_JOBS
+              value: powerdns-db-init,powerdns-db-sync
+            - name: DEPENDENCY_DAEMONSET
+              value: ""
+            - name: DEPENDENCY_CONTAINER
+              value: ""
+            - name: DEPENDENCY_POD_JSON
+              value: ""
+            - name: DEPENDENCY_CUSTOM_RESOURCE
+              value: ""
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+      containers:
+        - name: powerdns
+          image: docker.io/psitrax/powerdns:4.1.10
+          imagePullPolicy: IfNotPresent
+          command:
+            - pdns_server
+          ports:
+            - containerPort: 53
+              name: pdns-udp
+              protocol: UDP
+            - containerPort: 53
+              name: pdns-tcp
+            - containerPort: 8081
+              name: pdns-api
+          readinessProbe:
+            tcpSocket:
+              port: 53
+          volumeMounts:
+            - name: powerdns-etc
+              mountPath: /etc/pdns/conf.d/pdns.conf
+              subPath: pdns.conf
+              readOnly: true
+      volumes:
+        - name: powerdns-etc
+          secret:
+            secretName: powerdns-etc
+            defaultMode: 292
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: powerdns-db-init
+  annotations:
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 1000
+  template:
+    metadata:
+      labels:
+        release_group: release-name
+        application: powerdns
+        component: db-init
+      annotations:
+        openstackhelm.openstack.org/release_uuid: ""
+    spec:
+      serviceAccountName: powerdns-db-init
+      restartPolicy: OnFailure
+      nodeSelector:
+        openstack-control-plane: enabled
+      initContainers:
+        - name: init
+          image: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: INTERFACE_NAME
+              value: eth0
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: DEPENDENCY_SERVICE
+              value: default:mariadb
+            - name: DEPENDENCY_DAEMONSET
+              value: ""
+            - name: DEPENDENCY_CONTAINER
+              value: ""
+            - name: DEPENDENCY_POD_JSON
+              value: ""
+            - name: DEPENDENCY_CUSTOM_RESOURCE
+              value: ""
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+      containers:
+        - name: powerdns-db-init-0
+          image: docker.io/openstackhelm/heat:queens-ubuntu_xenial
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ROOT_DB_CONNECTION
+              valueFrom:
+                secretKeyRef:
+                  name: powerdns-db-admin
+                  key: DB_CONNECTION
+            - name: DB_CONNECTION
+              valueFrom:
+                secretKeyRef:
+                  name: powerdns-db-user
+                  key: DB_CONNECTION
+          command:
+            - /tmp/db-init.py
+          volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: db-init-sh
+              mountPath: /tmp/db-init.py
+              subPath: db-init.py
+              readOnly: true
+      volumes:
+        - name: pod-tmp
+          emptyDir: {}
+        - name: db-init-sh
+          configMap:
+            name: powerdns-bin
+            defaultMode: 365
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: powerdns-db-sync
+spec:
+  template:
+    metadata:
+      labels:
+        release_group: release-name
+        application: powerdns
+        component: db-sync
+    spec:
+      serviceAccountName: powerdns-db-sync
+      restartPolicy: OnFailure
+      nodeSelector:
+        openstack-control-plane: enabled
+      initContainers:
+        - name: init
+          image: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 65534
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: INTERFACE_NAME
+              value: eth0
+            - name: PATH
+              value: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/
+            - name: DEPENDENCY_SERVICE
+              value: default:mariadb
+            - name: DEPENDENCY_JOBS
+              value: powerdns-db-init
+            - name: DEPENDENCY_DAEMONSET
+              value: ""
+            - name: DEPENDENCY_CONTAINER
+              value: ""
+            - name: DEPENDENCY_POD_JSON
+              value: ""
+            - name: DEPENDENCY_CUSTOM_RESOURCE
+              value: ""
+          command:
+            - kubernetes-entrypoint
+          volumeMounts: []
+      containers:
+        - name: powerdns-db-sync
+          image: docker.io/psitrax/powerdns:4.1.10
+          imagePullPolicy: IfNotPresent
+          command:
+            - /tmp/powerdns-mysql-sync.sh
+          volumeMounts:
+            - name: powerdns-bin
+              mountPath: /tmp/powerdns-mysql-sync.sh
+              subPath: powerdns-mysql-sync.sh
+              readOnly: true
+            - name: powerdns-etc
+              mountPath: /etc/mysql/my.cnf
+              subPath: my.cnf
+              readOnly: true
+      volumes:
+        - name: powerdns-bin
+          configMap:
+            name: powerdns-bin
+            defaultMode: 365
+        - name: powerdns-etc
+          secret:
+            secretName: powerdns-etc
+            defaultMode: 292

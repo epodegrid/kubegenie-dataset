@@ -1,0 +1,268 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-horovod",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "horovod-1.0.0",
+        "app": "release-name-horovod"
+      }
+    },
+    "data": {
+      "hostfile.config": "release-name-horovod-master slots=1\nrelease-name-horovod-0.release-name-horovod slots=1\nrelease-name-horovod-1.release-name-horovod slots=1\nrelease-name-horovod-2.release-name-horovod slots=1\n",
+      "ssh.readiness": "#!/bin/bash\nset -xev\nssh localhost ls\n",
+      "master.run": "#!/bin/bash\nset -x\nsleep 5\n\nmkdir -p /root/.ssh\nrm -f /root/.ssh/config\ntouch /root/.ssh/config\n\nif [ \"$USESECRETS\" == \"true\" ];then\n   set +e\n   yes | cp /etc/secret-volume/id_rsa /root/.ssh/id_rsa\n   yes | cp /etc/secret-volume/authorized_keys /root/.ssh/authorized_keys\n   set -e\nfi\n\nif [ -n \"$SSHPORT\" ]; then\n   echo \"Port $SSHPORT\" > /root/.ssh/config\n   sed -i \"s/^Port.*/Port $SSHPORT /g\" /etc/ssh/sshd_config\nfi\necho \"StrictHostKeyChecking no\" >> /root/.ssh/config\n/usr/sbin/sshd\n\nif [ $# -eq 0 ]; then\n     sleep infinity\n   else\n     bash -c \"$*\"\nfi\n",
+      "master.waitWorkerReady": "#!/bin/bash\nset -xev\nfunction updateSSHPort() {\n  mkdir -p /root/.ssh\n  rm -f /root/.ssh/config\n  touch /root/.ssh/config\n\n  if [ -n \"$SSHPORT\" ]; then\n    echo \"Port $SSHPORT\" > /root/.ssh/config\n    echo \"StrictHostKeyChecking no\" >> /root/.ssh/config\n  fi\n}\n\nfunction runCheckSSH() {\n  if [[ \"$USESECRETS\" == \"true\" ]];then\n    set +e\n    yes | cp /etc/secret-volume/id_rsa /root/.ssh/id_rsa\n    yes | cp /etc/secret-volume/authorized_keys /root/.ssh/authorized_keys\n    set -e\n  fi\n  \n  for i in `cat $1 | awk '{print $(1)}'`;do\n    if [[ \"$i\" != *\"master\" ]];then\n      retry 30 ssh -o ConnectTimeout=2 -q $i exit\n    fi\n  done\n}\n\nfunction retry()\n{\n    local n=0;local try=$1\n    local cmd=\"${@: 2}\"\n    [[ $# -le 1 ]] && {\n        echo \"Usage $0 <retry_number> <Command>\";\n    }\n    set +e\n    until [[ $n -ge $try ]]\n    do\n      $cmd && break || {\n              echo \"Command Fail..\"\n              ((n++))\n              echo \"retry $n :: [$cmd]\"\n              sleep 1;\n              }\n    done\n    $cmd\n    if [ $? -ne 0 ]; then\n      exit 1\n    fi\n    set -e   \n}\nupdateSSHPort\nrunCheckSSH $1\n",
+      "worker.run": "#!/bin/bash\nset -x\n\nmkdir -p /root/.ssh\nrm -f /root/.ssh/config\ntouch /root/.ssh/config\n\nif [[ \"$USESECRETS\" == \"true\" ]];then\n   set +e\n   yes | cp /etc/secret-volume/id_rsa /root/.ssh/id_rsa\n   yes | cp /etc/secret-volume/authorized_keys /root/.ssh/authorized_keys\n   set -e\nfi\n\nif [ -n \"$SSHPORT\" ]; then\n   echo \"Port $SSHPORT\" > /root/.ssh/config\n   sed -i \"s/^Port.*/Port $SSHPORT /g\" /etc/ssh/sshd_config\nfi\necho \"StrictHostKeyChecking no\" >> /root/.ssh/config\n\n/usr/sbin/sshd -D\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-horovod-master",
+      "labels": {
+        "app": "horovod",
+        "chart": "horovod-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "ssh",
+          "port": 22,
+          "targetPort": 22
+        }
+      ],
+      "selector": {
+        "app": "horovod",
+        "release": "release-name",
+        "role": "master"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-horovod",
+      "labels": {
+        "app": "horovod",
+        "chart": "horovod-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "ssh",
+          "port": 22,
+          "targetPort": 22
+        }
+      ],
+      "selector": {
+        "app": "horovod",
+        "release": "release-name",
+        "role": "worker"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta2",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-horovod",
+      "labels": {
+        "app": "horovod",
+        "chart": "horovod-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm",
+        "role": "worker"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "horovod",
+          "release": "release-name",
+          "heritage": "Helm",
+          "role": "worker"
+        }
+      },
+      "serviceName": "release-name-horovod",
+      "podManagementPolicy": "Parallel",
+      "replicas": 3,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "horovod",
+            "chart": "horovod-1.0.0",
+            "release": "release-name",
+            "heritage": "Helm",
+            "role": "worker"
+          }
+        },
+        "spec": {
+          "selector": {
+            "matchLabels": {
+              "app": "horovod",
+              "release": "release-name",
+              "role": "worker"
+            }
+          },
+          "volumes": [
+            {
+              "name": "release-name-horovod-cm",
+              "configMap": {
+                "name": "release-name-horovod",
+                "items": [
+                  {
+                    "key": "hostfile.config",
+                    "path": "hostfile",
+                    "mode": 438
+                  },
+                  {
+                    "key": "ssh.readiness",
+                    "path": "check.sh",
+                    "mode": 365
+                  },
+                  {
+                    "key": "worker.run",
+                    "path": "run.sh",
+                    "mode": 365
+                  }
+                ]
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "worker",
+              "image": "uber/horovod:0.12.1-tf1.8.0-py3.5",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "SSHPORT",
+                  "value": "22"
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 22
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "release-name-horovod-cm",
+                  "mountPath": "/horovod/generated"
+                }
+              ],
+              "command": [
+                "/horovod/generated/run.sh"
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+      "name": "release-name-horovod",
+      "labels": {
+        "app": "horovod",
+        "chart": "horovod-1.0.0",
+        "release": "release-name",
+        "heritage": "Helm",
+        "role": "master"
+      }
+    },
+    "spec": {
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "horovod",
+            "release": "release-name",
+            "role": "master"
+          }
+        },
+        "spec": {
+          "restartPolicy": "OnFailure",
+          "volumes": [
+            {
+              "name": "release-name-horovod-cm",
+              "configMap": {
+                "name": "release-name-horovod",
+                "items": [
+                  {
+                    "key": "hostfile.config",
+                    "path": "hostfile",
+                    "mode": 438
+                  },
+                  {
+                    "key": "master.waitWorkerReady",
+                    "path": "waitWorkersReady.sh",
+                    "mode": 365
+                  },
+                  {
+                    "key": "master.run",
+                    "path": "run.sh",
+                    "mode": 365
+                  }
+                ]
+              }
+            }
+          ],
+          "containers": [
+            {
+              "name": "horovod-master",
+              "image": "uber/horovod:0.12.1-tf1.8.0-py3.5",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "SSHPORT",
+                  "value": "22"
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 22
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "release-name-horovod-cm",
+                  "mountPath": "/horovod/generated"
+                }
+              ],
+              "command": [
+                "/horovod/generated/run.sh"
+              ],
+              "args": null,
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,288 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mande-studio-config
+  namespace: 4mbeGt
+  labels:
+    helm.sh/chart: mande-0.3.3
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: mande
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: studio
+    app.kubernetes.io/name: mande-studio
+    app.kubernetes.io/version: ""
+data:
+  config.js: |-
+    window.REACT_APP_KRATOS_PUBLIC_URL = "https://kratos.factly.in"
+    window.REACT_APP_API_URL = "https://mande-server.factly.in/admin"
+    window.PUBLIC_URL = "https://mande.factly.in"
+    window.REACT_APP_COMPANION_URL = "https://companion.factly.in"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mande-server
+  namespace: 4mbeGt
+  labels:
+    helm.sh/chart: mande-0.3.3
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: mande
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: server
+    app.kubernetes.io/name: mande-server
+    app.kubernetes.io/version: 0.1.0
+spec:
+  selector:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: mande-server
+  type: ClusterIP
+  ports:
+    - port: 8002
+      targetPort: 8002
+      protocol: TCP
+      name: http-public
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http-admin
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mande-studio
+  namespace: 4mbeGt
+  labels:
+    helm.sh/chart: mande-0.3.3
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: mande
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: studio
+    app.kubernetes.io/name: mande-studio
+    app.kubernetes.io/version: ""
+spec:
+  selector:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: mande-studio
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mande-web
+  namespace: 4mbeGt
+  labels:
+    helm.sh/chart: mande-0.3.3
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: mande
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: web
+    app.kubernetes.io/name: mande-web
+    app.kubernetes.io/version: ""
+spec:
+  selector:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/name: mande-web
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP
+      name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mande-server
+  namespace: 4mbeGt
+  labels:
+    helm.sh/chart: mande-0.3.3
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: mande
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: server
+    app.kubernetes.io/name: mande-server
+    app.kubernetes.io/version: 0.1.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/name: mande-server
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: mande-0.3.3
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/part-of: mande
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/component: server
+        app.kubernetes.io/name: mande-server
+        app.kubernetes.io/version: 0.1.0
+    spec:
+      securityContext: {}
+      initContainers:
+        - name: server-automigrate
+          securityContext: {}
+          image: factly/mande-server:0.1.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - migrate
+          resources: {}
+      containers:
+        - name: server
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: factly/mande-server:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http-admin
+              containerPort: 8000
+              protocol: TCP
+            - name: http-public
+              containerPort: 8002
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health/alive
+              port: 8000
+            initialDelaySeconds: 50
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mande-studio
+  namespace: 4mbeGt
+  labels:
+    helm.sh/chart: mande-0.3.3
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: mande
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: studio
+    app.kubernetes.io/name: mande-studio
+    app.kubernetes.io/version: ""
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/name: mande-studio
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: mande-0.3.3
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/part-of: mande
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/component: studio
+        app.kubernetes.io/name: mande-studio
+        app.kubernetes.io/version: ""
+    spec:
+      securityContext: {}
+      containers:
+        - name: studio
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: factly/mande-studio:0.6.4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REACT_APP_KRATOS_PUBLIC_URL
+              value: https://kratos.factly.in
+            - name: REACT_APP_API_URL
+              value: https://mande-server.factly.in/admin
+            - name: PUBLIC_URL
+              value: https://mande.factly.in
+            - name: REACT_APP_COMPANION_URL
+              value: https://companion.factly.in
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: mande-studio-config
+              mountPath: /usr/share/nginx/html/config.js
+              subPath: config.js
+      volumes:
+        - name: mande-studio-config
+          configMap:
+            name: mande-studio-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mande-web
+  namespace: 4mbeGt
+  labels:
+    helm.sh/chart: mande-0.3.3
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: mande
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/component: web
+    app.kubernetes.io/name: mande-web
+    app.kubernetes.io/version: ""
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: release-name
+      app.kubernetes.io/name: mande-web
+  template:
+    metadata:
+      labels:
+        helm.sh/chart: mande-0.3.3
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/part-of: mande
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/component: web
+        app.kubernetes.io/name: mande-web
+        app.kubernetes.io/version: ""
+    spec:
+      securityContext: {}
+      containers:
+        - name: web
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: factly/mande-web:0.6.4
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          resources:
+            seccompProfile:
+              type: RuntimeDefault

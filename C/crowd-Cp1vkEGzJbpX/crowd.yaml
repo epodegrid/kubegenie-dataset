@@ -1,0 +1,280 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-crowd
+  labels:
+    helm.sh/chart: crowd-1.4.0
+    app.kubernetes.io/name: crowd
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 5.0.0
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-crowd-jvm-config
+  labels:
+    helm.sh/chart: crowd-1.4.0
+    app.kubernetes.io/name: crowd
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 5.0.0
+    app.kubernetes.io/managed-by: Helm
+data:
+  additional_jvm_args: -Dcrowd.cluster.hazelcast.listenPort=5701 -Dcrowd.clusterNodeName.useHostname=true -Datlassian.logging.cloud.enabled=false -XX:ActiveProcessorCount=2
+  max_heap: 768m
+  min_heap: 384m
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-crowd
+  labels:
+    helm.sh/chart: crowd-1.4.0
+    app.kubernetes.io/name: crowd
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 5.0.0
+    app.kubernetes.io/managed-by: Helm
+  annotations: null
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: 5701
+      targetPort: hazelcast
+      protocol: TCP
+      name: hazelcast
+  selector:
+    app.kubernetes.io/name: crowd
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-crowd
+  labels:
+    helm.sh/chart: crowd-1.4.0
+    app.kubernetes.io/name: crowd
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 5.0.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  serviceName: release-name-crowd
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: crowd
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config-jvm: ecfea7cfdd74729c0048e9f70e874e9a8117582d989d83c9d86cb762369ea5da
+      labels:
+        app.kubernetes.io/name: crowd
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-crowd
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        fsGroup: 2004
+      initContainers:
+        - name: nfs-permission-fixer
+          image: alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: shared-home
+              mountPath: /shared-home
+          command:
+            - sh
+            - -c
+            - (chgrp 2004 /shared-home; chmod g+w /shared-home)
+      containers:
+        - name: crowd
+          image: atlassian/crowd:4.2.2
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8095
+              protocol: TCP
+            - name: hazelcast
+              containerPort: 5701
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              port: 8095
+              path: /
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 30
+          resources:
+            requests:
+              cpu: "2"
+              memory: 1G
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: local-home
+              mountPath: /var/atlassian/application-data/crowd
+            - name: local-home
+              mountPath: /opt/atlassian/crowd/logs
+              subPath: logs
+            - name: shared-home
+              mountPath: /var/atlassian/application-data/crowd/shared
+          env:
+            - name: ATL_TOMCAT_SCHEME
+              value: https
+            - name: ATL_TOMCAT_SECURE
+              value: "true"
+            - name: ATL_TOMCAT_ACCESS_LOG
+              value: "true"
+            - name: UMASK
+              value: "0022"
+            - name: SET_PERMISSIONS
+              value: "true"
+            - name: ATL_PRODUCT_HOME_SHARED
+              value: /var/atlassian/application-data/crowd/shared
+            - name: JVM_SUPPORT_RECOMMENDED_ARGS
+              valueFrom:
+                configMapKeyRef:
+                  key: additional_jvm_args
+                  name: release-name-crowd-jvm-config
+            - name: JVM_MINIMUM_MEMORY
+              valueFrom:
+                configMapKeyRef:
+                  key: min_heap
+                  name: release-name-crowd-jvm-config
+            - name: JVM_MAXIMUM_MEMORY
+              valueFrom:
+                configMapKeyRef:
+                  key: max_heap
+                  name: release-name-crowd-jvm-config
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - sh
+                  - -c
+                  - /shutdown-wait.sh
+      volumes:
+        - name: local-home
+          emptyDir: {}
+        - name: shared-home
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-crowd-application-status-test
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+  labels:
+    helm.sh/chart: crowd-1.4.0
+    app.kubernetes.io/name: crowd
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 5.0.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  containers:
+    - name: test
+      image: alpine
+      env:
+        - name: STATUS_URL
+          value: http://release-name-crowd:80/crowd/status
+      command:
+        - /bin/sh
+        - -ec
+        - |
+          apk add -q jq curl
+          STATUS=$(curl -s "$STATUS_URL")
+          echo "Verifying application state is RUNNING or FIRST_RUN: $STATUS"
+          echo $STATUS | jq -e '.state|test("RUNNING|FIRST_RUN")'
+  restartPolicy: Never
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-crowd-shared-home-permissions-test
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+  labels:
+    helm.sh/chart: crowd-1.4.0
+    app.kubernetes.io/name: crowd
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 5.0.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  containers:
+    - name: test
+      image: debian:stable-slim
+      imagePullPolicy: IfNotPresent
+      securityContext:
+        runAsUser: 2004
+        runAsGroup: 2004
+      volumeMounts:
+        - name: shared-home
+          mountPath: /shared-home
+      command:
+        - /bin/sh
+        - -ec
+        - |
+          ls -ld /shared-home
+          echo "Creating temporary file in shared home as user $(id -u):$(id -g)"
+          touch /shared-home/permissions-test
+          ls -l /shared-home/permissions-test
+          rm /shared-home/permissions-test
+  volumes:
+    - name: shared-home
+      emptyDir: {}
+  restartPolicy: Never
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: release-name-crowd-nfs-fixer
+  labels:
+    helm.sh/chart: crowd-1.4.0
+    app.kubernetes.io/name: crowd
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 5.0.0
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: pre-install
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  template:
+    metadata:
+      name: release-name-crowd-nfs-fixer
+      labels:
+        helm.sh/chart: crowd-1.4.0
+        app.kubernetes.io/name: crowd
+        app.kubernetes.io/instance: release-name
+        app.kubernetes.io/version: 5.0.0
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: nfs-fixer
+          image: alpine
+          securityContext:
+            runAsUser: 11440
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: shared-home
+              mountPath: /shared-home
+          command:
+            - sh
+            - -c
+            - (chgrp 2004 /shared-home; chmod g+w /shared-home)
+      volumes:
+        - name: shared-home
+          emptyDir: {}

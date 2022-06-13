@@ -1,0 +1,272 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: drycc-rabbitmq
+  labels:
+    app: drycc-rabbitmq
+    heritage: drycc
+secrets:
+  - name: drycc-rabbitmq
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: rabbitmq-config
+  namespace: NYP4vGJayvU4zh
+  labels:
+    addonmanager.kubernetes.io/mode: Reconcile
+data:
+  rabbitmq.conf: |
+    loopback_users.guest = false
+    default_vhost = drycc
+    default_user = admin
+    default_pass = admin
+    cluster_formation.peer_discovery_backend = rabbit_peer_discovery_k8s
+    cluster_formation.k8s.host = kubernetes.default.svc.cluster.local
+    cluster_formation.k8s.token_path = /var/run/secrets/kubernetes.io/serviceaccount/token
+    cluster_formation.k8s.address_type = hostname
+    cluster_formation.k8s.hostname_suffix = .drycc-rabbitmq.default.svc.cluster.local
+    cluster_formation.node_cleanup.interval = 10
+    cluster_formation.node_cleanup.only_log_warning = true
+    cluster_partition_handling = autoheal
+    queue_master_locator=min-masters
+  enabled_plugins: |
+    [rabbitmq_management,rabbitmq_sharding,rabbitmq_peer_discovery_k8s].
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: drycc-rabbitmq
+  namespace: NYP4vGJayvU4zh
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - endpoints
+    verbs:
+      - get
+---
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: drycc-rabbitmq
+  namespace: NYP4vGJayvU4zh
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: drycc-rabbitmq
+subjects:
+  - kind: ServiceAccount
+    name: drycc-rabbitmq
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: drycc-rabbitmq
+  annotations: null
+  labels:
+    heritage: drycc
+spec:
+  clusterIP: None
+  selector:
+    app: drycc-rabbitmq
+  ports:
+    - name: epmd
+      port: 4369
+    - name: amqp
+      port: 5672
+    - name: metrics
+      port: 9419
+    - name: stats
+      port: 15672
+    - name: dist
+      port: 25672
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: drycc-rabbitmq
+  labels:
+    heritage: drycc
+  annotations:
+    component.drycc.cc/version: canary
+spec:
+  replicas: 1
+  serviceName: drycc-rabbitmq
+  selector:
+    matchLabels:
+      app: drycc-rabbitmq
+  template:
+    metadata:
+      labels:
+        app: drycc-rabbitmq
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 2
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - drycc-rabbitmq
+                topologyKey: topology.kubernetes.io/zone
+            - weight: 1
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - drycc-rabbitmq
+                topologyKey: kubernetes.io/hostname
+      serviceAccount: drycc-rabbitmq
+      containers:
+        - name: drycc-rabbitmq
+          image: registry.drycc.cc/drycc/rabbitmq:canary
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5672
+          args:
+            - bash
+            - -c
+            - cp -v /etc/rabbitmq/rabbitmq.conf ${RABBITMQ_CONFIG_FILE}; cp -v /etc/rabbitmq/enabled_plugins ${RABBITMQ_ENABLED_PLUGINS_FILE}; cp /var/run/secrets/drycc/rabbitmq/creds/cookie $HOME/.erlang.cookie; chmod 600 $HOME/.erlang.cookie; exec rabbitmq-server
+          env:
+            - name: K8S_SERVICE_NAME
+              value: drycc-rabbitmq
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: RABBITMQ_USE_LONGNAME
+              value: "true"
+            - name: RABBITMQ_NODENAME
+              value: rabbit@$(POD_NAME).drycc-rabbitmq.$(POD_NAMESPACE).svc.cluster.local
+            - name: RABBITMQ_CONFIG_FILE
+              value: /data/rabbitmq.conf
+            - name: RABBITMQ_ENABLED_PLUGINS_FILE
+              value: /data/enabled_plugins
+            - name: RABBITMQ_MNESIA_BASE
+              value: /data/mnesia
+            - name: RABBITMQ_LOG_BASE
+              value: /data/log
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - init-stack
+                  - bash
+                  - -ec
+                  - |
+                    rabbitmqctl wait --timeout 600 $RABBITMQ_MNESIA_BASE/$RABBITMQ_NODENAME.pid; rabbitmqctl set_policy --vhost drycc images-shard "^shard.images$" '{"shards-per-node": 2}'
+            preStop:
+              exec:
+                command:
+                  - init-stack
+                  - bash
+                  - -ec
+                  - rabbitmqctl stop_app
+          livenessProbe:
+            exec:
+              command:
+                - init-stack
+                - bash
+                - -ec
+                - rabbitmq-diagnostics -q check_running
+            initialDelaySeconds: 60
+            timeoutSeconds: 30
+          readinessProbe:
+            exec:
+              command:
+                - init-stack
+                - bash
+                - -ec
+                - rabbitmq-diagnostics -q check_running
+            initialDelaySeconds: 60
+            timeoutSeconds: 30
+            periodSeconds: 5
+          volumeMounts:
+            - name: rabbitmq-config
+              readOnly: false
+              mountPath: /etc/rabbitmq
+            - name: rabbitmq-creds
+              mountPath: /var/run/secrets/drycc/rabbitmq/creds
+      volumes:
+        - name: rabbitmq-creds
+          secret:
+            secretName: rabbitmq-creds
+        - name: rabbitmq-config
+          configMap:
+            name: rabbitmq-config
+      securityContext:
+        fsGroup: 1001
+        runAsGroup: 1001
+        runAsUser: 1001
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: drycc-rabbitmq
+  labels:
+    app: drycc-rabbitmq
+    chart: rabbitmq-v1.0.0
+    release: release-name
+    heritage: Helm
+  annotations:
+    kubernetes.io/tls-acme: "true"
+spec:
+  ingressClassName: ""
+  rules:
+    - host: drycc-rabbitmq.
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: drycc-rabbitmq
+                port:
+                  number: 15672
+  tls:
+    - secretName: drycc-rabbitmq-auto-tls
+      hosts:
+        - drycc-rabbitmq.
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: drycc-rabbitmq
+spec:
+  secretName: drycc-rabbitmq-auto-tls
+  issuerRef:
+    name: drycc-cluster-issuer
+    kind: ClusterIssuer
+  dnsNames:
+    - drycc-rabbitmq.
+  privateKey:
+    rotationPolicy: Always
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rabbitmq-creds
+  labels:
+    app: drycc-rabbitmq
+    heritage: drycc
+  annotations:
+    helm.sh/hook: pre-install
+data:
+  cookie: c3N6USUiQ1dpZ0wpOSdsaFM0aj5zflRleWQzVEhueXUqfiYnbEBgYXl2aUQpeT4xOlhXP3kpI2N3M29PemcxQA==
+  username: YWRtaW4=
+  password: YWRtaW4=

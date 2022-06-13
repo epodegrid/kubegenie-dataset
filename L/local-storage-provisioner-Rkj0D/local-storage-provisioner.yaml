@@ -1,0 +1,117 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-local-storage-provisioner-admin
+  namespace: Rkj0D
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-local-storage-provisioner-config
+  namespace: Rkj0D
+data:
+  useNodeNameOnly: "true"
+  storageClassMap: |
+    local-storage:
+       hostDir: /mnt/disks
+       mountDir:  /mnt/disks
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-storage
+  namespace: default
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-local-storage-provisioner-node-clusterrole
+  namespace: default
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-local-storage-provisioner-pv-binding
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: release-name-local-storage-provisioner-admin
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: system:persistent-volume-provisioner
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-local-storage-provisioner-node-binding
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: release-name-local-storage-provisioner-admin
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: release-name-local-storage-provisioner-node-clusterrole
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: release-name-local-storage-provisioner
+  namespace: Rkj0D
+  labels:
+    app: release-name-local-storage-provisioner
+spec:
+  selector:
+    matchLabels:
+      app: release-name-local-storage-provisioner
+  template:
+    metadata:
+      labels:
+        app: release-name-local-storage-provisioner
+    spec:
+      serviceAccountName: release-name-local-storage-provisioner-admin
+      containers:
+        - image: quay.io/external_storage/local-volume-provisioner:v2.2.0
+          imagePullPolicy: Always
+          name: provisioner
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: MY_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - mountPath: /etc/provisioner/config
+              name: provisioner-config
+              readOnly: true
+            - mountPath: /mnt/disks
+              name: local-storage
+      volumes:
+        - name: provisioner-config
+          configMap:
+            name: release-name-local-storage-provisioner-config
+        - name: local-storage
+          hostPath:
+            path: /mnt/disks
+---
+null
+---
+null

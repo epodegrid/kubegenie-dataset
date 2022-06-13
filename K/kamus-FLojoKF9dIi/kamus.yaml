@@ -1,0 +1,440 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kamus-controller
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kamus
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kamus
+type: Opaque
+data:
+  appsettings.secrets.json: CnsKCiJLZXlNYW5hZ2VtZW50IjogeyAKCQkiQUVTIjogeyAiS2V5IjogInJXbldiYUZ1dGF2ZG9lcVVpVllNTkpHdm1qUWgzMXFhSWVqL3ZBeEo5RzA9IiB9IH19
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kamus-controller
+data:
+  KeyManagement__Provider: AESKey
+  KeyManagement__AES__UseKeyDeriviation: "false"
+  Controller__ReconciliationIntervalInSeconds: "60"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kamus-decryptor
+data:
+  KeyManagement__Provider: AESKey
+  KeyManagement__AES__UseKeyDeriviation: "false"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kamus-encryptor
+data:
+  KeyManagement__Provider: AESKey
+  KeyManagement__AES__UseKeyDeriviation: "false"
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: kamussecrets.soluto.com
+spec:
+  group: soluto.com
+  versions:
+    - name: v1alpha2
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            data:
+              type: object
+              additionalProperties: true
+            stringData:
+              type: object
+              additionalProperties: true
+            serviceAccount:
+              type: string
+            type:
+              type: string
+            propagateAnnotations:
+              type: boolean
+  scope: Namespaced
+  names:
+    plural: kamussecrets
+    singular: kamussecret
+    kind: KamusSecret
+    shortNames:
+      - ks
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: kamus-controller
+rules:
+  - apiGroups:
+      - soluto.com
+    resources:
+      - kamussecrets
+    verbs:
+      - watch
+  - apiGroups:
+      - soluto.com
+    resources:
+      - kamussecrets/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - create
+      - delete
+      - patch
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: kamus
+rules:
+  - apiGroups:
+      - authentication.k8s.io
+    resources:
+      - tokenreviews
+    verbs:
+      - create
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: kamus-controller
+subjects:
+  - kind: ServiceAccount
+    name: kamus-controller
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: kamus-controller
+  apiGroup: rbac.authorization.k8s.io
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: kamus
+subjects:
+  - kind: ServiceAccount
+    name: kamus
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: kamus
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kamus-controller
+  annotations:
+    prometheus.io/scrape: "true"
+  labels:
+    app: kamus
+    component: controller
+    chart: kamus-0.9.9
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 443
+      targetPort: 8888
+      protocol: TCP
+      name: kamus-controller
+  selector:
+    app: kamus
+    component: controller
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kamus-decryptor
+  annotations:
+    prometheus.io/scrape: "true"
+  labels:
+    app: kamus
+    component: decryptor
+    chart: kamus-0.9.9
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 9999
+      protocol: TCP
+      name: kamus-decryptor
+  selector:
+    app: kamus
+    component: decryptor
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kamus-encryptor
+  annotations:
+    prometheus.io/scrape: "true"
+  labels:
+    app: kamus
+    component: encryptor
+    chart: kamus-0.9.9
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 9999
+      protocol: TCP
+      name: kamus-encryptor
+  selector:
+    app: kamus
+    component: encryptor
+    release: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kamus-controller
+  labels:
+    app: kamus
+    component: controller
+    chart: kamus-0.9.9
+    release: release-name
+    heritage: Helm
+spec:
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kamus
+      release: release-name
+      component: controller
+  template:
+    metadata:
+      annotations:
+        checksum/config: ca9541ec4bb053e9617ded5f8a9a441ffefe8685da2f8922bde19c5b3e9f29a1
+        checksum/secret: ee4c8b9698d6c782497c64eaa785505899f2451f097b3d55783030d5f6825524
+      labels:
+        app: kamus
+        release: release-name
+        component: controller
+    spec:
+      serviceAccountName: kamus-controller
+      automountServiceAccountToken: true
+      containers:
+        - name: controller
+          image: ghcr.io/soluto/kamus:controller-0.9.0.7
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /home/dotnet/app/secrets
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9999
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9999
+          resources:
+            limits:
+              cpu: 500m
+              memory: 600Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          envFrom:
+            - configMapRef:
+                name: kamus-controller
+      volumes:
+        - name: secret-volume
+          secret:
+            secretName: kamus
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kamus-decryptor
+  labels:
+    app: kamus
+    component: decryptor
+    chart: kamus-0.9.9
+    release: release-name
+    heritage: Helm
+spec:
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kamus
+      release: release-name
+      component: decryptor
+  template:
+    metadata:
+      annotations:
+        checksum/config: e00ae16334b15414fe1a9aeb1f978419d2e1e7ec4df0c7e0645ccf7f52730e65
+        checksum/secret: ee4c8b9698d6c782497c64eaa785505899f2451f097b3d55783030d5f6825524
+      labels:
+        app: kamus
+        release: release-name
+        component: decryptor
+    spec:
+      serviceAccountName: kamus
+      automountServiceAccountToken: true
+      containers:
+        - name: decryptor-api
+          image: ghcr.io/soluto/kamus:decryptor-0.9.0.7
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /home/dotnet/app/secrets
+          ports:
+            - containerPort: 9999
+          livenessProbe:
+            httpGet:
+              path: /api/v1/isAlive
+              port: 9999
+          readinessProbe:
+            httpGet:
+              path: /api/v1/isAlive
+              port: 9999
+          resources:
+            limits:
+              cpu: 500m
+              memory: 600Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          envFrom:
+            - configMapRef:
+                name: kamus-decryptor
+      volumes:
+        - name: secret-volume
+          secret:
+            secretName: kamus
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kamus-encryptor
+  labels:
+    app: kamus
+    component: encryptor
+    chart: kamus-0.9.9
+    release: release-name
+    heritage: Helm
+spec:
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kamus
+      component: encryptor
+      release: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config: cd5914f256e6ebaf19e73716f990051113e9a8ffd5bc22f60c14189b891aa7da
+        checksum/secret: ee4c8b9698d6c782497c64eaa785505899f2451f097b3d55783030d5f6825524
+      labels:
+        app: kamus
+        component: encryptor
+        release: release-name
+    spec:
+      serviceAccountName: kamus
+      automountServiceAccountToken: false
+      containers:
+        - name: encryptor-api
+          image: ghcr.io/soluto/kamus:encryptor-0.9.0.7
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: secret-volume
+              mountPath: /home/dotnet/app/secrets
+          ports:
+            - containerPort: 9999
+          livenessProbe:
+            httpGet:
+              path: /api/v1/isAlive
+              port: 9999
+          readinessProbe:
+            httpGet:
+              path: /api/v1/isAlive
+              port: 9999
+          resources:
+            limits:
+              cpu: 500m
+              memory: 600Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          envFrom:
+            - configMapRef:
+                name: kamus-encryptor
+      volumes:
+        - name: secret-volume
+          secret:
+            secretName: kamus
+---
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: kamus-decryptor
+  labels:
+    app: kamus
+    component: decryptor
+    chart: kamus-0.9.9
+    release: release-name
+    heritage: Helm
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1beta1
+    kind: Deployment
+    name: kamus-decryptor
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 50
+---
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: kamus-encryptor
+  labels:
+    app: kamus
+    component: encryptor
+    chart: kamus-0.9.9
+    release: release-name
+    heritage: Helm
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1beta1
+    kind: Deployment
+    name: kamus-encryptor
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 50

@@ -1,0 +1,116 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-nginx-ldapauth-proxy
+  labels:
+    app: nginx-ldapauth-proxy
+    chart: nginx-ldapauth-proxy-0.1.2
+    heritage: Helm
+    release: release-name
+data:
+  nginx.conf: |-
+    worker_processes 10;
+    worker_rlimit_nofile 16384;
+
+    events {
+        worker_connections 1024;
+    }
+
+    http {
+
+        upstream backend-server {
+            server kubernetes.default.svc.cluster.local:443;
+        }
+
+        server {
+
+            listen 80;
+            server_name ldapauth-proxy;
+
+            error_log /var/log/nginx/error.log debug;
+            access_log /var/log/nginx/access.log;
+
+            client_max_body_size 0;
+
+            chunked_transfer_encoding on;
+
+            location / {
+            }
+
+            location /_ping {
+                auth_basic off;
+                root   /usr/share/nginx/html;
+                stub_status on;
+            }
+        }
+
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-nginx-ldapauth-proxy
+  labels:
+    app: nginx-ldapauth-proxy
+    chart: nginx-ldapauth-proxy-0.1.2
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 443
+      targetPort: 80
+      protocol: TCP
+      name: nginx-ldapauth
+  selector:
+    app: nginx-ldapauth-proxy
+    release: release-name
+---
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  name: release-name-nginx-ldapauth-proxy
+  labels:
+    app: nginx-ldapauth-proxy
+    chart: nginx-ldapauth-proxy-0.1.2
+    release: release-name
+    heritage: Helm
+spec:
+  selector:
+    matchLabels:
+      app: nginx-ldapauth-proxy
+      release: release-name
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: nginx-ldapauth-proxy
+        release: release-name
+      annotations:
+        checksum/config: 6c6dd2f3ca7ea20970ae4061df4f19caaa51c453a10fb647cdba348e80e42f35
+    spec:
+      containers:
+        - name: nginx-ldapauth-proxy
+          image: dweomer/nginx-auth-ldap:1.13.5-on-alpine-3.5
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          livenessProbe:
+            httpGet:
+              path: /_ping
+              port: 80
+          readinessProbe:
+            httpGet:
+              path: /_ping
+              port: 80
+          volumeMounts:
+            - mountPath: /etc/nginx/nginx.conf
+              name: config
+              subPath: nginx.conf
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: config
+          configMap:
+            name: release-name-nginx-ldapauth-proxy

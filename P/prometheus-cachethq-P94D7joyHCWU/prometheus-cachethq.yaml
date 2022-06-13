@@ -1,0 +1,137 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-prometheus-cachethq
+  labels:
+    app.kubernetes.io/name: prometheus-cachethq
+    helm.sh/chart: prometheus-cachethq-1.1.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.0.0
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-prometheus-cachethq-config
+  labels:
+    app.kubernetes.io/name: prometheus-cachethq
+    helm.sh/chart: prometheus-cachethq-1.1.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.0.0
+    app.kubernetes.io/managed-by: Helm
+data:
+  config.yaml: |-
+    #
+    # See configuration of project: https://oxyno-zeta.github.io/prometheus-cachethq/
+    #
+    # Log configuration
+    # log:
+    #   # Log level
+    #   level: info
+    #   # Log format
+    #   format: json
+    # Cachet configuration
+    cachet:
+      url: http://localhost
+      apiKey: API_KEY
+    # Targets
+    targets:
+      - component:
+          name: COMPONENT_NAME
+          status: PARTIAL_OUTAGE
+        alerts:
+          - name: SERVICE_OFFLINE
+        #   - labels:
+        #       label1: value1
+        # incident:
+        #   name: ""
+        #   content: ""
+        #   status: INVESTIGATING
+        #   public: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-prometheus-cachethq
+  labels:
+    app.kubernetes.io/name: prometheus-cachethq
+    helm.sh/chart: prometheus-cachethq-1.1.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.0.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: 9090
+      targetPort: internal
+      protocol: TCP
+      name: metrics
+  selector:
+    app.kubernetes.io/name: prometheus-cachethq
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-prometheus-cachethq
+  labels:
+    app.kubernetes.io/name: prometheus-cachethq
+    helm.sh/chart: prometheus-cachethq-1.1.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 1.0.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus-cachethq
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      annotations:
+        checksum/config: 276631d4de6b3d6e1d2ea35ed48ffe2c470235099f3ec1c4a9fe2e3a81019ae2
+      labels:
+        app.kubernetes.io/name: prometheus-cachethq
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-prometheus-cachethq
+      securityContext: {}
+      containers:
+        - name: prometheus-cachethq
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: oxynozeta/prometheus-cachethq:1.1.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: internal
+              containerPort: 9090
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: internal
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: internal
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: config-volume
+              mountPath: /conf
+      volumes:
+        - name: config-volume
+          configMap:
+            name: release-name-prometheus-cachethq-config

@@ -1,0 +1,885 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-weblate",
+      "labels": {
+        "app.kubernetes.io/name": "weblate",
+        "helm.sh/chart": "weblate-0.2.3",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "4.2-1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-9.1.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "postgresql-password": "d2VibGF0ZQ=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-redis",
+      "namespace": "rn0RSGBG2B",
+      "labels": {
+        "app": "redis",
+        "chart": "redis-11.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "redis-password": "d2VibGF0ZQ=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-weblate",
+      "labels": {
+        "app.kubernetes.io/name": "weblate",
+        "helm.sh/chart": "weblate-0.2.3",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "4.2-1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "postgresql-user": "d2VibGF0ZQ==",
+      "postgresql-password": "d2VibGF0ZQ==",
+      "redis-password": "d2VibGF0ZQ==",
+      "email-user": "",
+      "email-password": "",
+      "admin-user": "",
+      "admin-password": ""
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-redis-scripts",
+      "namespace": "rn0RSGBG2B",
+      "labels": {
+        "app": "redis",
+        "chart": "redis-11.1.0",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "data": {
+      "start-master.sh": "#!/bin/bash\nuseradd redis\nchown -R redis /data\nif [[ -n $REDIS_PASSWORD_FILE ]]; then\n  password_aux=`cat ${REDIS_PASSWORD_FILE}`\n  export REDIS_PASSWORD=$password_aux\nfi\nif [[ ! -f /opt/bitnami/redis/etc/master.conf ]];then\n  cp /opt/bitnami/redis/mounted-etc/master.conf /opt/bitnami/redis/etc/master.conf\nfi\nif [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then\n  cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf\nfi\nARGS=(\"--port\" \"${REDIS_PORT}\")\nARGS+=(\"--requirepass\" \"${REDIS_PASSWORD}\")\nARGS+=(\"--masterauth\" \"${REDIS_PASSWORD}\")\nARGS+=(\"--include\" \"/opt/bitnami/redis/etc/redis.conf\")\nARGS+=(\"--include\" \"/opt/bitnami/redis/etc/master.conf\")\nexec /run.sh \"${ARGS[@]}\"\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-redis",
+      "namespace": "rn0RSGBG2B",
+      "labels": {
+        "app": "redis",
+        "chart": "redis-11.1.0",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "data": {
+      "redis.conf": "# User-supplied configuration:\n# Enable AOF https://redis.io/topics/persistence#append-only-file\nappendonly yes\n# Disable RDB persistence, AOF persistence already enabled.\nsave \"\"",
+      "master.conf": "dir /data\nrename-command FLUSHDB \"\"\nrename-command FLUSHALL \"\"",
+      "replica.conf": "dir /data\nslave-read-only yes\nrename-command FLUSHDB \"\"\nrename-command FLUSHALL \"\""
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-redis-health",
+      "namespace": "rn0RSGBG2B",
+      "labels": {
+        "app": "redis",
+        "chart": "redis-11.1.0",
+        "heritage": "Helm",
+        "release": "release-name"
+      }
+    },
+    "data": {
+      "ping_readiness_local.sh": "#!/bin/bash\nno_auth_warning=$([[ \"$(redis-cli --version)\" =~ (redis-cli 5.*) ]] && echo --no-auth-warning)\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -a $REDIS_PASSWORD $no_auth_warning \\\n    -h localhost \\\n    -p $REDIS_PORT \\\n    ping\n)\nif [ \"$response\" != \"PONG\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_liveness_local.sh": "#!/bin/bash\nno_auth_warning=$([[ \"$(redis-cli --version)\" =~ (redis-cli 5.*) ]] && echo --no-auth-warning)\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -a $REDIS_PASSWORD $no_auth_warning \\\n    -h localhost \\\n    -p $REDIS_PORT \\\n    ping\n)\nif [ \"$response\" != \"PONG\" ] && [ \"$response\" != \"LOADING Redis is loading the dataset in memory\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_readiness_master.sh": "#!/bin/bash\nno_auth_warning=$([[ \"$(redis-cli --version)\" =~ (redis-cli 5.*) ]] && echo --no-auth-warning)\n response=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -a $REDIS_MASTER_PASSWORD $no_auth_warning \\\n    -h $REDIS_MASTER_HOST \\\n    -p $REDIS_MASTER_PORT_NUMBER \\\n    ping\n)\nif [ \"$response\" != \"PONG\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_liveness_master.sh": "#!/bin/bash\nno_auth_warning=$([[ \"$(redis-cli --version)\" =~ (redis-cli 5.*) ]] && echo --no-auth-warning)\nresponse=$(\n  timeout -s 3 $1 \\\n  redis-cli \\\n    -a $REDIS_MASTER_PASSWORD $no_auth_warning \\\n    -h $REDIS_MASTER_HOST \\\n    -p $REDIS_MASTER_PORT_NUMBER \\\n    ping\n)\nif [ \"$response\" != \"PONG\" ] && [ \"$response\" != \"LOADING Redis is loading the dataset in memory\" ]; then\n  echo \"$response\"\n  exit 1\nfi",
+      "ping_readiness_local_and_master.sh": "script_dir=\"$(dirname \"$0\")\"\nexit_status=0\n\"$script_dir/ping_readiness_local.sh\" $1 || exit_status=$?\n\"$script_dir/ping_readiness_master.sh\" $1 || exit_status=$?\nexit $exit_status",
+      "ping_liveness_local_and_master.sh": "script_dir=\"$(dirname \"$0\")\"\nexit_status=0\n\"$script_dir/ping_liveness_local.sh\" $1 || exit_status=$?\n\"$script_dir/ping_liveness_master.sh\" $1 || exit_status=$?\nexit $exit_status"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-postgresql-headless",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-9.1.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "tcp-postgresql",
+          "port": 5432,
+          "targetPort": "tcp-postgresql"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "postgresql",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-9.1.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "tcp-postgresql",
+          "port": 5432,
+          "targetPort": "tcp-postgresql"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "postgresql",
+        "app.kubernetes.io/instance": "release-name",
+        "role": "master"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-redis-headless",
+      "namespace": "rn0RSGBG2B",
+      "labels": {
+        "app": "redis",
+        "chart": "redis-11.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "clusterIP": "None",
+      "ports": [
+        {
+          "name": "redis",
+          "port": 6379,
+          "targetPort": "redis"
+        }
+      ],
+      "selector": {
+        "app": "redis",
+        "release": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-redis-master",
+      "namespace": "rn0RSGBG2B",
+      "labels": {
+        "app": "redis",
+        "chart": "redis-11.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "name": "redis",
+          "port": 6379,
+          "targetPort": "redis"
+        }
+      ],
+      "selector": {
+        "app": "redis",
+        "release": "release-name",
+        "role": "master"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-weblate",
+      "labels": {
+        "app.kubernetes.io/name": "weblate",
+        "helm.sh/chart": "weblate-0.2.3",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "4.2-1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "http",
+          "protocol": "TCP",
+          "name": "http"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "weblate",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "weblate",
+      "labels": {
+        "app.kubernetes.io/name": "weblate",
+        "helm.sh/chart": "weblate-0.2.3",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "4.2-1",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "replicas": 1,
+      "strategy": {
+        "type": "Recreate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "weblate",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "weblate",
+            "helm.sh/chart": "weblate-0.2.3",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/version": "4.2-1",
+            "app.kubernetes.io/managed-by": "Helm"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "release-name-weblate",
+          "securityContext": {
+            "fsGroup": 1000
+          },
+          "containers": [
+            {
+              "name": "weblate",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "weblate/weblate:4.2.2-1",
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "http",
+                  "containerPort": 8080,
+                  "protocol": "TCP"
+                }
+              ],
+              "env": [
+                {
+                  "name": "POSTGRES_DATABASE",
+                  "value": "weblate"
+                },
+                {
+                  "name": "POSTGRES_HOST",
+                  "value": "release-name-weblate-postgresql"
+                },
+                {
+                  "name": "POSTGRES_PORT",
+                  "value": "5432"
+                },
+                {
+                  "name": "POSTGRES_USER",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-weblate",
+                      "key": "postgresql-user"
+                    }
+                  }
+                },
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-weblate",
+                      "key": "postgresql-password"
+                    }
+                  }
+                },
+                {
+                  "name": "REDIS_HOST",
+                  "value": "release-name-weblate-redis-master"
+                },
+                {
+                  "name": "REDIS_DB",
+                  "value": "1"
+                },
+                {
+                  "name": "WEBLATE_ADMIN_EMAIL",
+                  "value": ""
+                },
+                {
+                  "name": "WEBLATE_ADMIN_NAME",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-weblate",
+                      "key": "admin-user"
+                    }
+                  }
+                },
+                {
+                  "name": "WEBLATE_ADMIN_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-weblate",
+                      "key": "admin-password"
+                    }
+                  }
+                },
+                {
+                  "name": "WEBLATE_SITE_TITLE",
+                  "value": "Weblate"
+                },
+                {
+                  "name": "WEBLATE_SITE_DOMAIN",
+                  "value": "chart-example.local"
+                },
+                {
+                  "name": "WEBLATE_EMAIL_HOST",
+                  "value": ""
+                },
+                {
+                  "name": "WEBLATE_EMAIL_PORT",
+                  "value": "587"
+                },
+                {
+                  "name": "WEBLATE_EMAIL_USE_TLS",
+                  "value": "true"
+                },
+                {
+                  "name": "WEBLATE_EMAIL_USE_SSL",
+                  "value": "true"
+                },
+                {
+                  "name": "WEBLATE_EMAIL_USER",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-weblate",
+                      "key": "email-user"
+                    }
+                  }
+                },
+                {
+                  "name": "WEBLATE_EMAIL_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-weblate",
+                      "key": "email-password"
+                    }
+                  }
+                },
+                {
+                  "name": "WEBLATE_SERVER_EMAIL",
+                  "value": ""
+                },
+                {
+                  "name": "WEBLATE_DEFAULT_FROM_EMAIL",
+                  "value": ""
+                },
+                {
+                  "name": "WEBLATE_ALLOWED_HOSTS",
+                  "value": "*"
+                },
+                {
+                  "name": "WEBLATE_DEBUG",
+                  "value": "0"
+                }
+              ],
+              "livenessProbe": {
+                "httpGet": {
+                  "path": "/healthz/",
+                  "port": "http"
+                },
+                "failureThreshold": 10,
+                "initialDelaySeconds": 90,
+                "periodSeconds": 30
+              },
+              "readinessProbe": {
+                "httpGet": {
+                  "path": "/healthz/",
+                  "port": "http"
+                },
+                "failureThreshold": 5,
+                "initialDelaySeconds": 90,
+                "periodSeconds": 30
+              },
+              "volumeMounts": [
+                {
+                  "mountPath": "/app/data",
+                  "name": "weblate-data"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": [
+            {
+              "name": "weblate-data",
+              "emptyDir": {}
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-postgresql",
+      "labels": {
+        "app.kubernetes.io/name": "postgresql",
+        "helm.sh/chart": "postgresql-9.1.4",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "annotations": null
+    },
+    "spec": {
+      "serviceName": "release-name-postgresql-headless",
+      "replicas": 1,
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      },
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "postgresql",
+          "app.kubernetes.io/instance": "release-name",
+          "role": "master"
+        }
+      },
+      "template": {
+        "metadata": {
+          "name": "release-name-postgresql",
+          "labels": {
+            "app.kubernetes.io/name": "postgresql",
+            "helm.sh/chart": "postgresql-9.1.4",
+            "app.kubernetes.io/instance": "release-name",
+            "app.kubernetes.io/managed-by": "Helm",
+            "role": "master"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "containers": [
+            {
+              "name": "release-name-postgresql",
+              "image": "docker.io/bitnami/postgresql:11.8.0-debian-10-r76",
+              "imagePullPolicy": "IfNotPresent",
+              "resources": {
+                "requests": {
+                  "cpu": "250m",
+                  "memory": "256Mi"
+                },
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              },
+              "securityContext": {
+                "runAsUser": 10784,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "env": [
+                {
+                  "name": "BITNAMI_DEBUG",
+                  "value": "false"
+                },
+                {
+                  "name": "POSTGRESQL_PORT_NUMBER",
+                  "value": "5432"
+                },
+                {
+                  "name": "POSTGRESQL_VOLUME_DIR",
+                  "value": "/bitnami/postgresql"
+                },
+                {
+                  "name": "PGDATA",
+                  "value": "/bitnami/postgresql/data"
+                },
+                {
+                  "name": "POSTGRES_USER",
+                  "value": "weblate"
+                },
+                {
+                  "name": "POSTGRES_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-postgresql",
+                      "key": "postgresql-password"
+                    }
+                  }
+                },
+                {
+                  "name": "POSTGRES_DB",
+                  "value": "weblate"
+                },
+                {
+                  "name": "POSTGRESQL_ENABLE_LDAP",
+                  "value": "no"
+                },
+                {
+                  "name": "POSTGRESQL_ENABLE_TLS",
+                  "value": "no"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "tcp-postgresql",
+                  "containerPort": 5432
+                }
+              ],
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/sh",
+                    "-c",
+                    "exec pg_isready -U \"weblate\" -d \"dbname=weblate\" -h 127.0.0.1 -p 5432"
+                  ]
+                },
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "/bin/sh",
+                    "-c",
+                    "-e",
+                    "exec pg_isready -U \"weblate\" -d \"dbname=weblate\" -h 127.0.0.1 -p 5432\n[ -f /opt/bitnami/postgresql/tmp/.initialized ] || [ -f /bitnami/postgresql/.initialized ]\n"
+                  ]
+                },
+                "initialDelaySeconds": 5,
+                "periodSeconds": 10,
+                "timeoutSeconds": 5,
+                "successThreshold": 1,
+                "failureThreshold": 6
+              },
+              "volumeMounts": [
+                {
+                  "name": "dshm",
+                  "mountPath": "/dev/shm"
+                },
+                {
+                  "name": "data",
+                  "mountPath": "/bitnami/postgresql",
+                  "subPath": null
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "dshm",
+              "emptyDir": {
+                "medium": "Memory",
+                "sizeLimit": "1Gi"
+              }
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "data"
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "8Gi"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-redis-master",
+      "namespace": "rn0RSGBG2B",
+      "labels": {
+        "app": "redis",
+        "chart": "redis-11.1.0",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "redis",
+          "release": "release-name",
+          "role": "master"
+        }
+      },
+      "serviceName": "release-name-redis-headless",
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "redis",
+            "chart": "redis-11.1.0",
+            "release": "release-name",
+            "role": "master"
+          },
+          "annotations": {
+            "checksum/health": "301f4e7296103d9de8df7952f03bcb4df7bfbac428cc0f1b605692374a1a693c",
+            "checksum/configmap": "3eaac436e1e6bc44e1b9ce121fb3784ef3d4cb53aebc663388b97c64ccbcc010",
+            "checksum/secret": "a54f98004a379d78593250f800ff0a510b82dd6703bb50f51def418ac998d111"
+          }
+        },
+        "spec": {
+          "securityContext": {
+            "fsGroup": 1001
+          },
+          "serviceAccountName": "default",
+          "containers": [
+            {
+              "name": "redis",
+              "image": "docker.io/bitnami/redis:6.0.8-debian-10-r0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "runAsUser": 11146,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "command": [
+                "/bin/bash",
+                "-c",
+                "/opt/bitnami/scripts/start-scripts/start-master.sh"
+              ],
+              "env": [
+                {
+                  "name": "REDIS_REPLICATION_MODE",
+                  "value": "master"
+                },
+                {
+                  "name": "REDIS_PASSWORD",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-redis",
+                      "key": "redis-password"
+                    }
+                  }
+                },
+                {
+                  "name": "REDIS_TLS_ENABLED",
+                  "value": "no"
+                },
+                {
+                  "name": "REDIS_PORT",
+                  "value": "6379"
+                }
+              ],
+              "ports": [
+                {
+                  "name": "redis",
+                  "containerPort": 6379
+                }
+              ],
+              "livenessProbe": {
+                "initialDelaySeconds": 5,
+                "periodSeconds": 5,
+                "timeoutSeconds": 6,
+                "successThreshold": 1,
+                "failureThreshold": 5,
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "/health/ping_liveness_local.sh 5"
+                  ]
+                }
+              },
+              "readinessProbe": {
+                "initialDelaySeconds": 5,
+                "periodSeconds": 5,
+                "timeoutSeconds": 2,
+                "successThreshold": 1,
+                "failureThreshold": 5,
+                "exec": {
+                  "command": [
+                    "sh",
+                    "-c",
+                    "/health/ping_readiness_local.sh 1"
+                  ]
+                }
+              },
+              "resources": null,
+              "volumeMounts": [
+                {
+                  "name": "start-scripts",
+                  "mountPath": "/opt/bitnami/scripts/start-scripts"
+                },
+                {
+                  "name": "health",
+                  "mountPath": "/health"
+                },
+                {
+                  "name": "redis-data",
+                  "mountPath": "/data",
+                  "subPath": null
+                },
+                {
+                  "name": "config",
+                  "mountPath": "/opt/bitnami/redis/mounted-etc"
+                },
+                {
+                  "name": "redis-tmp-conf",
+                  "mountPath": "/opt/bitnami/redis/etc/"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "start-scripts",
+              "configMap": {
+                "name": "release-name-redis-scripts",
+                "defaultMode": 493
+              }
+            },
+            {
+              "name": "health",
+              "configMap": {
+                "name": "release-name-redis-health",
+                "defaultMode": 493
+              }
+            },
+            {
+              "name": "config",
+              "configMap": {
+                "name": "release-name-redis"
+              }
+            },
+            {
+              "name": "redis-tmp-conf",
+              "emptyDir": {}
+            }
+          ]
+        }
+      },
+      "volumeClaimTemplates": [
+        {
+          "metadata": {
+            "name": "redis-data",
+            "labels": {
+              "app": "redis",
+              "release": "release-name",
+              "heritage": "Helm",
+              "component": "master"
+            }
+          },
+          "spec": {
+            "accessModes": [
+              "ReadWriteOnce"
+            ],
+            "resources": {
+              "requests": {
+                "storage": "8Gi"
+              }
+            },
+            "selector": null
+          }
+        }
+      ],
+      "updateStrategy": {
+        "type": "RollingUpdate"
+      }
+    }
+  }
+]

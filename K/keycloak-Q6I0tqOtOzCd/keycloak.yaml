@@ -1,0 +1,346 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-keycloa-db
+  labels:
+    app: keycloak
+    chart: keycloak-4.12.0
+    heritage: Helm
+    release: release-name
+type: Opaque
+data:
+  password: ""
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-keycloa-http
+  labels:
+    app: keycloak
+    chart: keycloak-4.12.0
+    release: release-name
+    heritage: Helm
+type: Opaque
+data:
+  password: SzBUVnpsbDgwNQ==
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-keycloa
+  labels:
+    app: keycloak
+    chart: keycloak-4.12.0
+    release: release-name
+    heritage: Helm
+data:
+  keycloak.sh: |
+    #!/usr/bin/env bash
+
+    set -eu
+
+    /opt/jboss/keycloak/bin/jboss-cli.sh --file=/scripts/keycloak.cli
+
+    exec /opt/jboss/tools/docker-entrypoint.sh -b 0.0.0.0  -c standalone.xml
+    exit "$?"
+  keycloak.cli: |
+    embed-server --std-out=echo
+    batch
+
+    ## Sets the node identifier to the node name (= pod name). Node identifiers have to be unique. They can have a
+    ## maximum length of 23 characters. Thus, the chart's fullname template truncates its length accordingly.
+    /subsystem=transactions:write-attribute(name=node-identifier, value=${jboss.node.name})
+
+
+
+    # Allow log level to be configured via environment variable
+    /subsystem=logging/console-handler=CONSOLE:write-attribute(name=level, value=${env.WILDFLY_LOGLEVEL:INFO})
+    /subsystem=logging/root-logger=ROOT:write-attribute(name=level, value=${env.WILDFLY_LOGLEVEL:INFO})
+
+    # Add dedicated eventsListener config element to allow configuring elements.
+    /subsystem=keycloak-server/spi=eventsListener:add()
+    /subsystem=keycloak-server/spi=eventsListener/provider=jboss-logging:add(enabled=true)
+    # Propagate success events to INFO instead of DEBUG, to expose successful logins for log analysis
+    /subsystem=keycloak-server/spi=eventsListener/provider=jboss-logging:write-attribute(name=properties.success-level,value=info)
+    /subsystem=keycloak-server/spi=eventsListener/provider=jboss-logging:write-attribute(name=properties.error-level,value=warn)
+
+
+
+    # Configure datasource to use explicit query timeout in seconds
+    /subsystem=datasources/data-source=KeycloakDS/:write-attribute(name=query-timeout,value=${env.DB_QUERY_TIMEOUT:300})
+
+    # Configure datasource to connection before use
+    /subsystem=datasources/data-source=KeycloakDS/:write-attribute(name=validate-on-match,value=${env.DB_VALIDATE_ON_MATCH:true})
+
+    # Configure datasource to try all other connections before failing
+    /subsystem=datasources/data-source=KeycloakDS/:write-attribute(name=use-fast-fail,value=${env.DB_USE_CAST_FAIL:false})
+
+
+
+    run-batch
+    stop-embedded-server
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-keycloa-test
+  labels:
+    app: keycloak
+    chart: keycloak-4.12.0
+    release: release-name
+    heritage: Helm
+data:
+  test.py: |
+    import os
+    from selenium import webdriver
+    from selenium.webdriver.common.by import By
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions
+    from urllib.parse import urlparse
+
+    print('Creating PhantomJS driver...')
+    driver = webdriver.PhantomJS(service_log_path='/tmp/ghostdriver.log')
+
+    base_url = 'http://release-name-keycloa-http'
+
+    print('Opening Keycloak...')
+    driver.get('{0}/auth/admin/'.format(base_url))
+
+    username = os.environ['KEYCLOAK_USER']
+    password = os.environ['KEYCLOAK_PASSWORD']
+
+    username_input = WebDriverWait(driver, 30).until(expected_conditions.presence_of_element_located((By.ID, "username")))
+    password_input = WebDriverWait(driver, 30).until(expected_conditions.presence_of_element_located((By.ID, "password")))
+    login_button = WebDriverWait(driver, 30).until(expected_conditions.presence_of_element_located((By.ID, "kc-login")))
+
+    print('Entering username...')
+    username_input.send_keys(username)
+
+    print('Entering password...')
+    password_input.send_keys(password)
+
+    print('Clicking login button...')
+    login_button.click()
+
+    current_url = urlparse(driver.current_url)
+    expected_url = urlparse('{0}/auth/admin/master/console/'.format(base_url))
+
+    print('Current URL: {0}'.format(current_url))
+    print('Expected URL: {0}'.format(expected_url))
+
+    if current_url.path != expected_url.path:
+        print('Login failed. Current url is not expected url')
+        exit(1)
+
+    print('URLs match. Login successful.')
+
+    driver.quit()
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-keycloa-headless
+  labels:
+    app: keycloak
+    chart: keycloak-4.12.0
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: keycloak
+    release: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-keycloa-http
+  labels:
+    app: keycloak
+    chart: keycloak-4.12.0
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app: keycloak
+    release: release-name
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-keycloa
+  annotations:
+    checksum/config: f373dcec0935f90f4698a2ffbb15d1642455a4a5501abae7f6d685c041e2aad2
+  labels:
+    app: keycloak
+    chart: keycloak-4.12.0
+    release: release-name
+    heritage: Helm
+spec:
+  selector:
+    matchLabels:
+      app: keycloak
+      release: release-name
+  replicas: 1
+  serviceName: release-name-keycloa-headless
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: keycloak
+        release: release-name
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        fsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: keycloak
+          image: jboss/keycloak:5.0.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /scripts/keycloak.sh
+          lifecycle: null
+          env:
+            - name: KEYCLOAK_USER
+              value: keycloak
+            - name: KEYCLOAK_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-name-keycloa-http
+                  key: password
+            - name: DB_VENDOR
+              value: h2
+            - name: PROXY_ADDRESS_FORWARDING
+              value: "true"
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /auth/
+              port: http
+            initialDelaySeconds: 120
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /auth/realms/master
+              port: http
+            initialDelaySeconds: 30
+            timeoutSeconds: 1
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: keycloak
+                  release: release-name
+                matchExpressions:
+                  - key: role
+                    operator: NotIn
+                    values:
+                      - test
+              topologyKey: kubernetes.io/hostname
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: keycloak
+                    release: release-name
+                  matchExpressions:
+                    - key: role
+                      operator: NotIn
+                      values:
+                        - test
+                topologyKey: failure-domain.beta.kubernetes.io/zone
+      terminationGracePeriodSeconds: 60
+      volumes:
+        - name: scripts
+          configMap:
+            name: release-name-keycloa
+            defaultMode: 365
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: release-name-keycloa
+  labels:
+    app: keycloak
+    chart: keycloak-5.0.0
+    heritage: Helm
+    release: release-name
+spec:
+  port:
+    targetPort: http
+  to:
+    kind: Service
+    name: release-name-keycloa-http
+    weight: 100
+  wildcardPolicy: None
+  tls:
+    insecureEdgeTerminationPolicy: Redirect
+    termination: edge
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-keycloa-test-3ejso
+  labels:
+    app: keycloak
+    chart: keycloak-4.12.0
+    release: release-name
+    heritage: Helm
+    role: test
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  securityContext:
+    fsGroup: 1000
+    runAsNonRoot: true
+    runAsUser: 1000
+  containers:
+    - name: keycloak-test
+      image: unguiculus/docker-python3-phantomjs-selenium:v1
+      imagePullPolicy: IfNotPresent
+      command:
+        - python3
+        - /tests/test.py
+      env:
+        - name: KEYCLOAK_USER
+          value: keycloak
+        - name: KEYCLOAK_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: release-name-keycloa-http
+              key: password
+      volumeMounts:
+        - name: tests
+          mountPath: /tests
+  volumes:
+    - name: tests
+      configMap:
+        name: release-name-keycloa-test
+  restartPolicy: Never

@@ -1,0 +1,261 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-dast-operator
+  labels:
+    helm.sh/chart: dast-operator-0.3.2
+    app.kubernetes.io/name: dast-operator
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.4.3
+    app.kubernetes.io/managed-by: Helm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-dast-operator-manager-role
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
+    verbs:
+      - create
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - security.banzaicloud.io
+    resources:
+      - dasts
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - security.banzaicloud.io
+    resources:
+      - dasts/status
+    verbs:
+      - get
+      - patch
+      - update
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-dast-operator-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-dast-operator-manager-role
+subjects:
+  - kind: ServiceAccount
+    name: release-name-dast-operator
+    namespace: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-dast-operator-webhook-service
+  labels:
+    helm.sh/chart: dast-operator-0.3.2
+    app.kubernetes.io/name: dast-operator
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.4.3
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 443
+      targetPort: 9443
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: dast-operator
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-dast-operator
+  labels:
+    helm.sh/chart: dast-operator-0.3.2
+    app.kubernetes.io/name: dast-operator
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.4.3
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dast-operator
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dast-operator
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: release-name-dast-operator
+      securityContext: {}
+      volumes:
+        - name: cert
+          secret:
+            defaultMode: 420
+            secretName: release-name-dast-operator-webhook-server-cert
+      containers:
+        - name: dast-operator
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          image: ghcr.io/banzaicloud/dast-operator:0.4.3
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - mountPath: /tmp/k8s-webhook-server/serving-certs
+              name: cert
+              readOnly: true
+          ports:
+            - name: http
+              containerPort: 9443
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              httpHeaders:
+                - name: Content-Type
+                  value: application/json
+              path: /ingress
+              port: http
+              scheme: HTTPS
+          readinessProbe:
+            httpGet:
+              httpHeaders:
+                - name: Content-Type
+                  value: application/json
+              path: /ingress
+              port: http
+              scheme: HTTPS
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: release-name-dast-operator-certificate
+spec:
+  dnsNames:
+    - release-name-dast-operator-webhook-service.default.svc
+    - release-name-dast-operator-webhook-service.default.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: release-name-dast-operator-selfsigned-issuer
+  secretName: release-name-dast-operator-webhook-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: release-name-dast-operator-selfsigned-issuer
+spec:
+  selfSigned: {}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: release-name-dast-operator-validating-webhook-configuration
+  annotations:
+    cert-manager.io/inject-ca-from: default/release-name-dast-operator-certificate
+webhooks:
+  - clientConfig:
+      caBundle: Cg==
+      service:
+        name: release-name-dast-operator-webhook-service
+        namespace: default
+        path: /ingress
+    failurePolicy: Fail
+    name: dast.security.banzaicloud.io
+    rules:
+      - apiGroups:
+          - extensions
+          - networking.k8s.io
+        apiVersions:
+          - v1beta1
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - ingresses
+    admissionReviewVersions:
+      - v1beta1
+      - v1
+    sideEffects: None
+    timeoutSeconds: 5
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-dast-operator-test-connection
+  labels:
+    helm.sh/chart: dast-operator-0.3.2
+    app.kubernetes.io/name: dast-operator
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: 0.4.3
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-dast-operator:443
+  restartPolicy: Never

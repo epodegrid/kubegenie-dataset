@@ -1,0 +1,115 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    component: trickster
+    app: trickster
+    release: release-name
+    chart: trickster-1.5.4
+    heritage: Helm
+  name: release-name-trickster
+data:
+  trickster.conf: |-
+    [main]
+
+    [frontend]
+    listen_port = 8480
+    connections_limit = 0
+
+    [origins]
+
+      [origins.default]
+      origin_type = "prometheus"
+      origin_url = "http://prometheus:9090"
+
+    [metrics]
+    listen_port = 8481
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-trickster
+  labels:
+    component: trickster
+    app: trickster
+    release: release-name
+    chart: trickster-1.5.4
+    heritage: Helm
+spec:
+  ports:
+    - name: http
+      port: 8480
+      protocol: TCP
+      targetPort: http
+    - name: http-metrics
+      port: 8481
+      protocol: TCP
+      targetPort: metrics
+  selector:
+    component: trickster
+    app: trickster
+    release: release-name
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    component: trickster
+    app: trickster
+    release: release-name
+    chart: trickster-1.5.4
+    heritage: Helm
+  name: release-name-trickster
+spec:
+  selector:
+    matchLabels:
+      component: trickster
+      app: trickster
+      release: release-name
+  replicas: 1
+  template:
+    metadata:
+      annotations:
+        checksum/trickster-cfg: d3e0051c64ccdd3178c76df227d826afe69c4b33a0c1c914cd955cd321e903c3
+      labels:
+        component: trickster
+        app: trickster
+        release: release-name
+        chart: trickster-1.5.4
+        heritage: Helm
+    spec:
+      containers:
+        - name: trickster
+          image: tricksterproxy/trickster:1.1
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: cfg-volume
+              mountPath: /etc/trickster
+          ports:
+            - name: http
+              containerPort: 8480
+              protocol: TCP
+            - name: metrics
+              containerPort: 8481
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /trickster/ping
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /trickster/ping
+              port: http
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: cfg-volume
+          configMap:
+            name: release-name-trickster
+            items:
+              - key: trickster.conf
+                path: trickster.conf
+        - name: cache-volume-generic
+          emptyDir: {}

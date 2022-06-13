@@ -1,0 +1,332 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-taco-watcher
+  labels:
+    app: taco-watcher
+    chart: taco-watcher-0.1.0
+    heritage: Helm
+    release: release-name
+data:
+  tacomo.conf: |-
+    [system]
+    service.port=32000
+    service.proxyportlist=32001-32009
+    [logs]
+    log.level=LOG_DEBUG
+    log.path=/home/tacomo/tacomo-webserver/logs
+    log.max.file.size=64
+    log.max.history=3
+    [ldap]
+    ldap.login.use=false
+    ldap.server.ip=218.36.252.193
+    ldap.server.port=32182
+    ldap.ssl.enable=false
+    ldap.ssl.cert.validation.skip=true
+    ldap.user.dn.pattern=cn={0},dc=cluster,dc=local
+    ldap.conn.timeout=5
+    ldap.read.timeout=
+    [security]
+    security.session.timeout=6
+    [kibana]
+    kibana.authkey=elastic:tacoword
+    [grafana]
+    grafana.authkey=admin:password
+    [kubernetes]
+    k8s.api.prometheusrule.url=/apis/monitoring.coreos.com/v1/namespaces/fed/prometheusrules
+    k8s.api.loggingfilter.url=/apis/logging.banzaicloud.io/v1beta1/namespaces/fed/flows
+  prometheusrule.json: "{\n  \"apiVersion\" : \"monitoring.coreos.com/v1\",\n  \"kind\" : \"PrometheusRule\",\n  \"metadata\" : {\n    \"annotations\":{ \n      \"prometheus-operator-validated\":\"true\"\n    },\n    \"name\" : \"\",\n    \"namespace\" : \"mon\"\n  },\n  \"spec\" : {\n    \"groups\" : [ {\n      \"name\" : \"\",\n      \"rules\" : [ {\n        \"alert\" : \"\",\n        \"annotations\" : {\n          \"message\" : \"\"\n        },\n        \"expr\" : \"\",\n        \"for\" : \"\",\n        \"labels\" : {\n          \"severity\" : \"\"\n        }\n      } ]\n    } ]\n  }\n}"
+  loggingfilter.json: |-
+    {
+      "apiVersion" : "logging.banzaicloud.io/v1beta1",
+      "kind" : "Flow",
+      "metadata" : {
+        "name" : "",
+        "namespace" : "mon"
+      },
+      "spec" : {
+        "filters":[ {
+          "parser" : {
+            "parse" : {
+              "type" : "nginx"
+            },
+            "remove_key_name_field" : true
+          }
+        },
+        {
+          "tag_normaliser" : {
+            "format" : "${namespace_name}.${pod_name}.${container_name}"
+          }
+        },
+        {
+          "grep" : {
+            "and" : [ {
+              "regexp" : [ {
+                "key" : "",
+                "pattern" : ""
+              } ]
+            },
+            {
+              "exclude" : [ {
+                "key" : "",
+                "pattern" : ""
+              } ]
+            } ]
+          }
+        } ],
+        "outputRefs" : [
+          "es-output"
+        ],
+        "selectors" : {
+          "app":"nginx"
+        }
+      }
+    }
+  tacomodb_1.sql: |-
+    CREATE TABLE IF NOT EXISTS properties (
+      prop_key TEXT NOT NULL,
+      prop_value TEXT DEFAULT NULL,
+      PRIMARY KEY(prop_key)
+    );
+
+
+    CREATE TABLE IF NOT EXISTS user (
+      id TEXT NOT NULL,
+      passwd TEXT NOT NULL,
+      PRIMARY KEY (id)
+    );
+
+
+    CREATE TABLE cluster (
+      id TEXT NOT NULL,
+      kibana_url TEXT DEFAULT NULL,
+      grafana_url TEXT DEFAULT NULL,
+      k8s_url TEXT DEFAULT NULL,
+      k8s_token TEXT DEFAULT NULL,
+      is_main INTEGER NOT NULL DEFAULT 0,
+      main_page_type TEXT DEFAULT NULL,
+      main_page_link TEXT DEFAULT NULL,
+      k8s_page_type TEXT DEFAULT NULL,
+      k8s_page_link TEXT DEFAULT NULL,
+      openstack_page_type TEXT DEFAULT NULL,
+      openstack_page_link TEXT DEFAULT NULL,
+      ceph_page_type TEXT DEFAULT NULL,
+      ceph_page_link TEXT DEFAULT NULL,
+      PRIMARY KEY (id)
+    );
+
+    CREATE TABLE cluster_menu (
+      cluster_id TEXT NOT NULL,
+      id INTEGER NOT NULL,
+      parent_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      link TEXT DEFAULT NULL,
+      url_type TEXT DEFAULT NULL,
+      popup_type TEXT DEFAULT NULL,
+      PRIMARY KEY (cluster_id, id),
+      CONSTRAINT fk_cluster FOREIGN KEY (cluster_id)
+       REFERENCES cluster (id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE default_menu (
+      id INTEGER NOT NULL,
+      parent_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      link TEXT NOT NULL,
+      icon TEXT DEFAULT NULL,
+      PRIMARY KEY (id)
+    );
+    INSERT INTO properties VALUES ('db_revision', '1');
+    INSERT INTO properties VALUES ('theme_type', 'light');
+    INSERT INTO user VALUES ('taco', 'password');
+    INSERT INTO default_menu VALUES (1, 0, 'Cluster Management', 1, '/setcluster', 'icon-setting');
+    INSERT INTO default_menu VALUES (2, 0, 'Prometheus Rule', 2, '/prometheusrule', 'icon-alarm');
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: release-name-taco-watcher-pvc
+  labels:
+    app: taco-watcher
+    chart: taco-watcher-0.1.0
+    heritage: Helm
+    release: release-name
+spec:
+  storageClassName: rbd
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    limits:
+      storage: 100Mi
+    requests:
+      storage: 100Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-taco-watcher
+  labels:
+    app.kubernetes.io/name: taco-watcher
+    helm.sh/chart: taco-watcher-0.1.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: NodePort
+  ports:
+    - port: 32000
+      targetPort: http
+      nodePort: 32000
+      protocol: TCP
+      name: http
+    - port: 32001
+      targetPort: 32001
+      nodePort: 32001
+      protocol: TCP
+      name: http-32001
+    - port: 32002
+      targetPort: 32002
+      nodePort: 32002
+      protocol: TCP
+      name: http-32002
+    - port: 32003
+      targetPort: 32003
+      nodePort: 32003
+      protocol: TCP
+      name: http-32003
+    - port: 32004
+      targetPort: 32004
+      nodePort: 32004
+      protocol: TCP
+      name: http-32004
+    - port: 32005
+      targetPort: 32005
+      nodePort: 32005
+      protocol: TCP
+      name: http-32005
+    - port: 32006
+      targetPort: 32006
+      nodePort: 32006
+      protocol: TCP
+      name: http-32006
+    - port: 32007
+      targetPort: 32007
+      nodePort: 32007
+      protocol: TCP
+      name: http-32007
+    - port: 32008
+      targetPort: 32008
+      nodePort: 32008
+      protocol: TCP
+      name: http-32008
+  selector:
+    app.kubernetes.io/name: taco-watcher
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-taco-watcher
+  labels:
+    app.kubernetes.io/name: taco-watcher
+    helm.sh/chart: taco-watcher-0.1.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: taco-watcher
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: taco-watcher
+        app.kubernetes.io/instance: release-name
+    spec:
+      containers:
+        - name: watcher
+          image: sktdev/taco-watcher:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 32000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 32000
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 32000
+          volumeMounts:
+            - name: conf
+              mountPath: /home/tacomo/tacomo-webserver/conf/tacomo.conf
+              subPath: tacomo.conf
+            - name: conf
+              mountPath: /home/tacomo/tacomo-webserver/conf/loggingfilter.json
+              subPath: loggingfilter.json
+            - name: conf
+              mountPath: /home/tacomo/tacomo-webserver/conf/prometheusrule.json
+              subPath: prometheusrule.json
+            - name: sql
+              mountPath: /home/tacomo/tacomo-webserver/sql/tacomodb_1.sql
+              subPath: tacomodb_1.sql
+            - name: db-volume
+              mountPath: /home/tacomo/tacomo-webserver/dbdata
+            - name: log-volume
+              mountPath: /home/tacomo/tacomo-webserver/logs
+      volumes:
+        - name: conf
+          configMap:
+            name: release-name-taco-watcher
+            items:
+              - key: tacomo.conf
+                path: tacomo.conf
+              - key: loggingfilter.json
+                path: loggingfilter.json
+              - key: prometheusrule.json
+                path: prometheusrule.json
+        - name: sql
+          configMap:
+            name: release-name-taco-watcher
+            items:
+              - key: tacomodb_1.sql
+                path: tacomodb_1.sql
+        - name: db-volume
+          persistentVolumeClaim:
+            claimName: release-name-taco-watcher-pvc
+        - name: log-volume
+          hostPath:
+            path: /tmp
+            type: Directory
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-taco-watcher-test-connection
+  labels:
+    app.kubernetes.io/name: taco-watcher
+    helm.sh/chart: taco-watcher-0.1.0
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: test
+      image: busybox
+      command:
+        - wget
+      args:
+        - release-name-taco-watcher:32000
+  restartPolicy: Never

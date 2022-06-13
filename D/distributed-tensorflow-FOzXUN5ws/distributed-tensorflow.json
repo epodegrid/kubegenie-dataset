@@ -1,0 +1,259 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-distributed-tensorflow",
+      "labels": {
+        "heritage": "Helm",
+        "release": "release-name",
+        "chart": "distributed-tensorflow-0.1.1",
+        "app": "distributed-tensorflow"
+      }
+    },
+    "data": {
+      "ps.hostList": "release-name-ps-0.release-name-distributed-tensorflow-ps:8000,release-name-ps-1.release-name-distributed-tensorflow-ps:8000",
+      "worker.hostList": "release-name-worker-0.release-name-distributed-tensorflow-worker:9000,release-name-worker-1.release-name-distributed-tensorflow-worker:9000"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-distributed-tensorflow-ps",
+      "labels": {
+        "app": "distributed-tensorflow",
+        "chart": "distributed-tensorflow-0.1.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "port": 8000,
+          "targetPort": 8000,
+          "protocol": "TCP",
+          "name": "ps"
+        }
+      ],
+      "selector": {
+        "app": "distributed-tensorflow",
+        "release": "release-name",
+        "role": "ps"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-distributed-tensorflow-worker",
+      "labels": {
+        "app": "distributed-tensorflow",
+        "chart": "distributed-tensorflow-0.1.1",
+        "release": "release-name",
+        "heritage": "Helm"
+      }
+    },
+    "spec": {
+      "clusterIP": "None",
+      "ports": [
+        {
+          "port": 9000,
+          "targetPort": 9000,
+          "protocol": "TCP",
+          "name": "worker"
+        }
+      ],
+      "selector": {
+        "app": "distributed-tensorflow",
+        "release": "release-name",
+        "role": "worker"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta2",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-ps",
+      "labels": {
+        "app": "distributed-tensorflow",
+        "chart": "distributed-tensorflow-0.1.1",
+        "release": "release-name",
+        "heritage": "Helm",
+        "role": "ps"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "distributed-tensorflow",
+          "release": "release-name",
+          "role": "ps"
+        }
+      },
+      "serviceName": "release-name-distributed-tensorflow-ps",
+      "podManagementPolicy": "Parallel",
+      "replicas": 2,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "distributed-tensorflow",
+            "chart": "distributed-tensorflow-0.1.1",
+            "release": "release-name",
+            "heritage": "Helm",
+            "role": "ps"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "ps",
+              "image": "cheyang/distributed-tf:1.6.0",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "python",
+                "train_distributed.py",
+                "--learning_rate",
+                "0.001",
+                "--batch_size",
+                "20"
+              ],
+              "env": [
+                {
+                  "name": "WORKER_HOSTS",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "name": "release-name-distributed-tensorflow",
+                      "key": "worker.hostList"
+                    }
+                  }
+                },
+                {
+                  "name": "PS_HOSTS",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "name": "release-name-distributed-tensorflow",
+                      "key": "ps.hostList"
+                    }
+                  }
+                },
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "JOB_NAME",
+                  "value": "ps"
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 8000
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1beta2",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "release-name-worker",
+      "labels": {
+        "app": "distributed-tensorflow",
+        "chart": "distributed-tensorflow-0.1.1",
+        "release": "release-name",
+        "heritage": "Helm",
+        "role": "worker"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "app": "distributed-tensorflow",
+          "release": "release-name",
+          "role": "worker"
+        }
+      },
+      "serviceName": "release-name-distributed-tensorflow-worker",
+      "podManagementPolicy": "Parallel",
+      "replicas": 2,
+      "template": {
+        "metadata": {
+          "labels": {
+            "app": "distributed-tensorflow",
+            "chart": "distributed-tensorflow-0.1.1",
+            "release": "release-name",
+            "heritage": "Helm",
+            "role": "worker"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "worker",
+              "image": "cheyang/distributed-tf:1.6.0",
+              "imagePullPolicy": "IfNotPresent",
+              "command": [
+                "python",
+                "train_distributed.py",
+                "--learning_rate",
+                "0.001",
+                "--batch_size",
+                "20"
+              ],
+              "env": [
+                {
+                  "name": "WORKER_HOSTS",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "name": "release-name-distributed-tensorflow",
+                      "key": "worker.hostList"
+                    }
+                  }
+                },
+                {
+                  "name": "PS_HOSTS",
+                  "valueFrom": {
+                    "configMapKeyRef": {
+                      "name": "release-name-distributed-tensorflow",
+                      "key": "ps.hostList"
+                    }
+                  }
+                },
+                {
+                  "name": "POD_NAME",
+                  "valueFrom": {
+                    "fieldRef": {
+                      "fieldPath": "metadata.name"
+                    }
+                  }
+                },
+                {
+                  "name": "JOB_NAME",
+                  "value": "worker"
+                }
+              ],
+              "ports": [
+                {
+                  "containerPort": 9000
+                }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  }
+]

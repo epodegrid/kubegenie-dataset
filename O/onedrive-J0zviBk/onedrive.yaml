@@ -1,0 +1,154 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-name-onedrive-config
+  labels:
+    helm.sh/chart: onedrive-2.3.3
+    app.kubernetes.io/name: onedrive
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/version: v2.4.17
+    app.kubernetes.io/managed-by: Helm
+data:
+  config: |
+    # Configuration for OneDrive Linux Client
+    # This file contains the list of supported configuration fields
+    # with their default values.
+    # All values need to be enclosed in quotes
+    # When changing a config option below, remove the '#' from the start of the line
+    # For explanations of all config options below see docs/USAGE.md or the man page.
+    #
+    # sync_dir = "/onedrive/data"
+    # skip_file = "~*|.~*|*.tmp"
+    # monitor_interval = "300"
+    # skip_dir = ""
+    # log_dir = "/var/log/onedrive/"
+    # drive_id = ""
+    # upload_only = "false"
+    # check_nomount = "false"
+    # check_nosync = "false"
+    # download_only = "false"
+    # disable_notifications = "false"
+    # disable_upload_validation = "false"
+    # enable_logging = "false"
+    # force_http_2 = "false"
+    # local_first = "false"
+    # no_remote_delete = "false"
+    # skip_symlinks = "false"
+    # debug_https = "false"
+    # skip_dotfiles = "false"
+    # dry_run = "false"
+    # min_notify_changes = "5"
+    # monitor_log_frequency = "5"
+    # monitor_fullscan_frequency = "10"
+    # sync_root_files = "false"
+    # classify_as_big_delete = "1000"
+    # user_agent = ""
+    # remove_source_files = "false"
+    # skip_dir_strict_match = "false"
+    application_id = "d50ca740-c83f-4d1b-b616-12c519384f0c"
+    # resync = "false"
+    # bypass_data_preservation = "false"
+    # azure_ad_endpoint = ""
+    # azure_tenant_id = "common"
+    # sync_business_shared_folders = "false"
+    # sync_dir_permissions = "700"
+    # sync_file_permissions = "600"
+    # rate_limit = "131072"
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-onedrive-config
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: onedrive
+    app.kubernetes.io/version: v2.4.17
+    helm.sh/chart: onedrive-2.3.3
+  annotations: null
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: release-name-onedrive-data
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: onedrive
+    app.kubernetes.io/version: v2.4.17
+    helm.sh/chart: onedrive-2.3.3
+  annotations: null
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-onedrive
+  labels:
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: onedrive
+    app.kubernetes.io/version: v2.4.17
+    helm.sh/chart: onedrive-2.3.3
+spec:
+  revisionHistoryLimit: 3
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: onedrive
+      app.kubernetes.io/instance: release-name
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: onedrive
+        app.kubernetes.io/instance: release-name
+    spec:
+      serviceAccountName: default
+      automountServiceAccountToken: true
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      containers:
+        - name: release-name-onedrive
+          image: ghcr.io/wrmilling/onedrive-docker:v2.4.17
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ONEDRIVE_AUTHRESPONSE
+              value: ""
+            - name: ONEDRIVE_GID
+              value: "1000"
+            - name: ONEDRIVE_UID
+              value: "1000"
+            - name: TZ
+              value: UTC
+          ports: null
+          volumeMounts:
+            - name: config
+              mountPath: /onedrive/conf
+            - name: data
+              mountPath: /onedrive/data
+            - name: onedrive-settings
+              mountPath: /onedrive/conf/config
+              subPath: config
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: release-name-onedrive-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: release-name-onedrive-data
+        - name: onedrive-settings
+          configMap:
+            name: release-name-onedrive-config

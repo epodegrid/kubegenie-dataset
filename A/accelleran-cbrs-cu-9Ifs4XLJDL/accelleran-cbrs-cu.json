@@ -1,0 +1,201 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "accelleran-cbrs-cu-onfcell202-cm",
+      "labels": {
+        "release": "release-name",
+        "app": "accelleran-cbrs-cu-cm"
+      }
+    },
+    "data": {
+      "bootstrap": "redis.hostname:accelleran-cbrs-redis\nredis.port:6379\ninstance.filter:onfcell202\n",
+      "zlog.conf": "[global]\nstrict init = true\nbuffer min = 64K\nbuffer max = 64K\nrotate lock file = /tmp/zlog.lock\n\n[formats]\nprintf_format = \"%d(%b %d %H:%M:%S).%ms %8.8H %m%n\"\n[rules]\nuser.* >stdout ;printf_format\n"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "accelleran-cbrs-cu-onfcell202",
+      "labels": {
+        "release": "release-name",
+        "app": "accelleran-cbrs-cu"
+      }
+    },
+    "spec": {
+      "selector": {
+        "release": "release-name",
+        "app": "accelleran-cbrs-cu"
+      },
+      "ports": [
+        {
+          "name": "s1ap-port",
+          "port": 36412,
+          "protocol": "SCTP"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "accelleran-cbrs-cu-onfcell202-exernal",
+      "labels": {
+        "release": "release-name",
+        "app": "accelleran-cbrs-cu"
+      }
+    },
+    "spec": {
+      "selector": {
+        "release": "release-name",
+        "app": "accelleran-cbrs-cu"
+      },
+      "type": "NodePort",
+      "ports": [
+        {
+          "name": "s1ap-port",
+          "port": 36412,
+          "nodePort": 31412,
+          "protocol": "SCTP"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "metadata": {
+      "name": "accelleran-cbrs-cu-onfcell202",
+      "labels": {
+        "deployedCellId": "onfcell202",
+        "release": "release-name",
+        "app": "accelleran-cbrs-cu"
+      }
+    },
+    "spec": {
+      "selector": {
+        "matchLabels": {
+          "release": "release-name",
+          "app": "accelleran-cbrs-cu"
+        }
+      },
+      "serviceName": "accelleran-cbrs-cu-onfcell202",
+      "template": {
+        "metadata": {
+          "labels": {
+            "deployedCellId": "onfcell202",
+            "release": "release-name",
+            "app": "accelleran-cbrs-cu"
+          }
+        },
+        "spec": {
+          "initContainers": [
+            {
+              "name": "cu-init",
+              "image": "docker.io/omecproject/pod-init:1.0.0",
+              "imagePullPolicy": "IfNotPresent",
+              "securityContext": {
+                "privileged": true,
+                "runAsUser": 0
+              },
+              "command": [
+                "sh",
+                "-c"
+              ],
+              "args": [
+                "iptables -I OUTPUT -p icmp --icmp-type destination-unreachable -j DROP; if chroot /mnt/host-rootfs modinfo nf_conntrack_proto_sctp > /dev/null 2>&1; then \\\n    chroot /mnt/host-rootfs modprobe nf_conntrack_proto_sctp; \\\nfi; \\\n"
+              ],
+              "volumeMounts": [
+                {
+                  "name": "host-rootfs",
+                  "mountPath": "/mnt/host-rootfs"
+                }
+              ]
+            }
+          ],
+          "containers": [
+            {
+              "name": "vran-l3",
+              "image": "registry.aether.opennetworking.org/aether/accelleran-cu-l3-tdd:v1.0.2",
+              "imagePullPolicy": "IfNotPresent",
+              "env": [
+                {
+                  "name": "ZLOG_CONF_PATH",
+                  "value": "/zlog.conf"
+                },
+                {
+                  "name": "BOOTSTRAP_FILENAME",
+                  "value": "/bootstrap"
+                },
+                {
+                  "name": "LD_LIBRARY_PATH",
+                  "value": "/data/"
+                },
+                {
+                  "name": "FAP_DB_PATH",
+                  "value": "/data/"
+                }
+              ],
+              "command": [
+                "sh",
+                "-c"
+              ],
+              "args": [
+                "sqlite3 /data/datastoreRemRw.db \"update FapServiceCellConfigLteEpcPlmnList set PLMNID='371211';\"; sqlite3 /data/datastoreRemRw.db \"update FapServiceFapControlLteGateway set SecGWServer1='10.90.0.151';\"; sqlite3 /data/datastoreRemRw.db \"update FapServiceFapControlLteGateway set SecGWServer2='10.90.0.151';\"; sqlite3 /data/datastoreRemRw.db \"update FapServiceFapControlLteGateway set SecGWServer3='10.90.0.151';\"; sqlite3 /data/datastoreRemRw.db \"update FapServiceFapControlLteGateway_S1SigLinkServerListList set S1SigLinkServerList='10.90.0.151';\"; sqlite3 /data/datastoreRemRw.db \"update FapServiceCellConfigLteRanRf set FreqBandIndicator='48';\"; sqlite3 /data/datastore.db \"update featureActivation set good1PPSRequired=0;\"; sqlite3 /data/datastoreRemRw.db \"update FapServiceCellConfigLteRanRf_EARFCNDLList set EARFCNDL='55990';\"; sqlite3 /data/datastoreRemRw.db \"update FapServiceCellConfigLteRanRf_EARFCNULList set EARFCNUL='55990';\"; sqlite3 /data/datastoreRemRw.db \"update FapServiceCellConfigLteEpc set TAC='202';\"; sqlite3 /data/datastoreRemRw.db \"update FapServiceCellConfigLteRanCommon set CellIdentity='256';\"; sqlite3 /data/datastoreRemRw.db \"select * from FapServiceCellConfigLteEpc;\"; redis-cli -h accelleran-cbrs-redis -p 6379 hset ENB_onfcell202_FAPSERVICEFAPCONTROLLTEGATEWAYS1SIGLINKSERVERLIST[0] S1SIGLINKSERVERLIST 10.90.0.151; redis-cli -h accelleran-cbrs-redis -p 6379 hset ENB_onfcell202_FAPSERVICEFAPCONTROLLTEGATEWAY_S1SIGLINKSERVERLISTLIST[0] S1SIGLINKSERVERLIST 10.90.0.151; redis-cli -h accelleran-cbrs-redis -p 6379 hset ENB_onfcell202_FAPSERVICECELLCONFIGLTERANRF FREQBANDINDICATOR 48; redis-cli -h accelleran-cbrs-redis -p 6379 hset ENB_onfcell202_FEATUREACTIVATION GOOD1PPSREQUIRED False; redis-cli -h accelleran-cbrs-redis -p 6379 hset ENB_onfcell202_FAPSERVICECELLCONFIGLTEEPCPLMNLIST[0] PLMNID 371211; redis-cli -h accelleran-cbrs-redis -p 6379 hset ENB_onfcell202_FAPSERVICECELLCONFIGLTERANRF_EARFCNDLLIST EARFCNDL 55990; redis-cli -h accelleran-cbrs-redis -p 6379 hset ENB_onfcell202_FAPSERVICECELLCONFIGLTERANRF_EARFCNULLIST EARFCNUL 55990; redis-cli -h accelleran-cbrs-redis -p 6379 hset ENB_onfcell202_FAPSERVICECELLCONFIGLTEEPC TAC 202; redis-cli -h accelleran-cbrs-redis -p 6379 hset ENB_onfcell202_FAPSERVICECELLCONFIGLTERANCOMMON TAC 256; redis-cli -h accelleran-cbrs-redis -p 6379 hgetall ENB_onfcell202_FAPSERVICEFAPCONTROLLTEGATEWAYS1SIGLINKSERVERLIST[0]; redis-cli -h accelleran-cbrs-redis -p 6379 hgetall ENB_onfcell202_FAPSERVICEFAPCONTROLLTEGATEWAY_S1SIGLINKSERVERLISTLIST[0]; redis-cli -h accelleran-cbrs-redis -p 6379 hgetall ENB_onfcell202_FAPSERVICECELLCONFIGLTERANRF; redis-cli -h accelleran-cbrs-redis -p 6379 hgetall ENB_onfcell202_FEATUREACTIVATION; redis-cli -h accelleran-cbrs-redis -p 6379 hgetall ENB_onfcell202_FAPSERVICECELLCONFIGLTEEPCPLMNLIST[0]; redis-cli -h accelleran-cbrs-redis -p 6379 hgetall ENB_onfcell202_FAPSERVICECELLCONFIGLTERANRF_EARFCNDLLIST; redis-cli -h accelleran-cbrs-redis -p 6379 hgetall ENB_onfcell202_FAPSERVICECELLCONFIGLTERANRF_EARFCNULLIST; redis-cli -h accelleran-cbrs-redis -p 6379 hgetall ENB_onfcell202_FAPSERVICECELLCONFIGLTEEPC; redis-cli -h accelleran-cbrs-redis -p 6379 hgetall ENB_onfcell202_FAPSERVICECELLCONFIGLTERANCOMMON; sleep 30; /data/l3service;"
+              ],
+              "securityContext": {
+                "privileged": true,
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "resources": {
+                "limits": {
+                  "cpu": 3,
+                  "memory": "1Gi"
+                },
+                "requests": {
+                  "cpu": 3,
+                  "memory": "1Gi"
+                }
+              },
+              "volumeMounts": [
+                {
+                  "name": "l3-config-volume",
+                  "mountPath": "/bootstrap",
+                  "subPath": "bootstrap"
+                },
+                {
+                  "name": "l3-config-volume",
+                  "mountPath": "/zlog.conf",
+                  "subPath": "zlog.conf"
+                }
+              ]
+            }
+          ],
+          "volumes": [
+            {
+              "name": "l3-config-volume",
+              "configMap": {
+                "name": "accelleran-cbrs-cu-onfcell202-cm"
+              }
+            },
+            {
+              "name": "host-rootfs",
+              "hostPath": {
+                "path": "/"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

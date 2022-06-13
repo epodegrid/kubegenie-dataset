@@ -1,0 +1,124 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: serviceaccount
+  namespace: PL1o3pKQRk
+  labels:
+    app: release-name-jspolicy
+    chart: jspolicy-0.2.0
+    release: release-name
+    heritage: Helm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-jspolicy
+  labels:
+    app: release-name-jspolicy
+    chart: jspolicy-0.2.0
+    release: release-name
+    heritage: Helm
+subjects:
+  - kind: ServiceAccount
+    name: serviceaccount
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jspolicy
+  namespace: PL1o3pKQRk
+  labels:
+    app: release-name-jspolicy
+    chart: jspolicy-0.2.0
+    release: release-name
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: webhook
+      port: 443
+      targetPort: 8443
+      protocol: TCP
+    - name: metrics
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    app: release-name-jspolicy
+    release: release-name
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: release-name-jspolicy
+  namespace: PL1o3pKQRk
+  labels:
+    app: release-name-jspolicy
+    chart: jspolicy-0.2.0
+    release: release-name
+    heritage: Helm
+spec:
+  selector:
+    matchLabels:
+      app: release-name-jspolicy
+      release: release-name
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: release-name-jspolicy
+        release: release-name
+    spec:
+      terminationGracePeriodSeconds: 10
+      serviceAccountName: serviceaccount
+      containers:
+        - ports:
+            - name: webhook
+              containerPort: 8443
+              protocol: TCP
+          command:
+            - /jspolicy
+          args: null
+          image: loftsh/jspolicy:0.2.0
+          name: jspolicy
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - all
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+          env: null
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9080
+            failureThreshold: 10
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9080
+            failureThreshold: 10
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: "2"
+              memory: 1024Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: jspolicy

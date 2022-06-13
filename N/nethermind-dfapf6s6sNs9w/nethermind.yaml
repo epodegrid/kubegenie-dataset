@@ -1,0 +1,298 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: release-name-nethermind
+  labels:
+    helm.sh/chart: nethermind-0.2.0
+    app.kubernetes.io/name: nethermind
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  namespace: dfapf6s6sNs9w
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-name-nethermind-env
+  labels:
+    helm.sh/chart: nethermind-0.2.0
+    app.kubernetes.io/name: nethermind
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+data: null
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-name-nethermind
+  labels:
+    helm.sh/chart: nethermind-0.2.0
+    app.kubernetes.io/name: nethermind
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: release-name-nethermind
+  labels:
+    helm.sh/chart: nethermind-0.2.0
+    app.kubernetes.io/name: nethermind
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: release-name-nethermind
+subjects:
+  - kind: ServiceAccount
+    name: release-name-nethermind
+    namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: release-name-nethermind
+  labels:
+    helm.sh/chart: nethermind-0.2.0
+    app.kubernetes.io/name: nethermind
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: release-name-nethermind
+  labels:
+    helm.sh/chart: nethermind-0.2.0
+    app.kubernetes.io/name: nethermind
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: release-name-nethermind
+subjects:
+  - kind: ServiceAccount
+    name: release-name-nethermind
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-nethermind-headless
+  labels:
+    helm.sh/chart: nethermind-0.2.0
+    app.kubernetes.io/name: nethermind
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  clusterIP: None
+  ports:
+    - port: 30303
+      targetPort: p2p-tcp
+      protocol: TCP
+      name: p2p-tcp
+    - port: 30303
+      targetPort: p2p-udp
+      protocol: UDP
+      name: p2p-udp
+    - port: 8545
+      targetPort: http-rpc
+      protocol: TCP
+      name: http-rpc
+    - port: 9545
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    app.kubernetes.io/name: nethermind
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-name-nethermind
+  labels:
+    helm.sh/chart: nethermind-0.2.0
+    app.kubernetes.io/name: nethermind
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 30303
+      targetPort: p2p-tcp
+      protocol: TCP
+      name: p2p-tcp
+    - port: 30303
+      targetPort: p2p-udp
+      protocol: UDP
+      name: p2p-udp
+    - port: 8545
+      targetPort: http-rpc
+      protocol: TCP
+      name: http-rpc
+    - port: 9545
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+  selector:
+    app.kubernetes.io/name: nethermind
+    app.kubernetes.io/instance: release-name
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-name-nethermind
+  labels:
+    helm.sh/chart: nethermind-0.2.0
+    app.kubernetes.io/name: nethermind
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations: {}
+spec:
+  podManagementPolicy: OrderedReady
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nethermind
+      app.kubernetes.io/instance: release-name
+  serviceName: release-name-nethermind-headless
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nethermind
+        app.kubernetes.io/instance: release-name
+      annotations:
+        checksum/secrets: 43fc5cbd1495f8a6f6b3b602e0fe180e1648afc92335fe361c80c35dcbaa0007
+    spec:
+      enableServiceLinks: false
+      serviceAccountName: release-name-nethermind
+      securityContext:
+        fsGroup: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+        runAsUser: 10001
+      initContainers:
+        - name: init-chown-data
+          image: busybox:1.34.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+          command:
+            - chown
+            - -R
+            - 10001:10001
+            - /data
+          resources: {}
+          volumeMounts:
+            - name: storage
+              mountPath: /data
+      containers:
+        - name: nethermind
+          image: nethermind/nethermind:latest
+          imagePullPolicy: IfNotPresent
+          workingDir: /data
+          command:
+            - sh
+            - -ac
+            - |
+              exec /nethermind/Nethermind.Runner --datadir=/data --KeyStore.KeyStoreDirectory=/data/keystore --Network.LocalIp=$(POD_IP) --Network.ExternalIp=$(POD_IP) --Network.P2PPort=30303 --Network.DiscoveryPort=30303 --JsonRpc.Enabled=true --JsonRpc.Host=0.0.0.0 --JsonRpc.Port=8545 --Init.WebSocketsEnabled=true --JsonRpc.WebSocketsPort=8545 --Metrics.Enabled=true --Metrics.NodeName=$(POD_NAME) --Metrics.ExposePort=9545
+          volumeMounts:
+            - name: storage
+              mountPath: /data
+          ports:
+            - name: p2p-tcp
+              containerPort: 30303
+              protocol: TCP
+            - name: p2p-udp
+              containerPort: 30303
+              protocol: UDP
+            - name: http-rpc
+              containerPort: 8545
+              protocol: TCP
+            - name: metrics
+              containerPort: 9545
+              protocol: TCP
+          livenessProbe:
+            initialDelaySeconds: 60
+            periodSeconds: 120
+            tcpSocket:
+              port: http-rpc
+          readinessProbe:
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            tcpSocket:
+              port: http-rpc
+          resources:
+            seccompProfile:
+              type: RuntimeDefault
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                "": NET_RAW
+            readOnlyRootFilesystem: true
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+      nodeSelector: {}
+      affinity: {}
+      tolerations: []
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: storage
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: release-name-nethermind-test-connection
+  labels:
+    helm.sh/chart: nethermind-0.2.0
+    app.kubernetes.io/name: nethermind
+    app.kubernetes.io/instance: release-name
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: test
+spec:
+  containers:
+    - name: curl
+      image: curlimages/curl
+      command:
+        - curl
+      args:
+        - --location
+        - --request
+        - POST
+        - release-name-nethermind:8545/
+        - --header
+        - 'Content-Type: application/json'
+        - --data-raw
+        - '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":83}'
+  restartPolicy: Never

@@ -1,0 +1,239 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "ServiceAccount",
+    "metadata": {
+      "name": "release-name-sa",
+      "labels": {
+        "helm.sh/chart": "cronjob-backup-keycloak-1.0.2",
+        "app.kubernetes.io/name": "cronjob-backup-keycloak",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.0.2"
+      }
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "name": "release-name-secret",
+      "labels": {
+        "helm.sh/chart": "cronjob-backup-keycloak-1.0.2",
+        "app.kubernetes.io/name": "cronjob-backup-keycloak",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.0.2"
+      }
+    },
+    "type": "Opaque",
+    "data": {
+      "password": "bnBpbmZyYTEh"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-sh",
+      "labels": {
+        "helm.sh/chart": "cronjob-backup-keycloak-1.0.2",
+        "app.kubernetes.io/name": "cronjob-backup-keycloak",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.0.2"
+      }
+    },
+    "data": {
+      "export-realm.sh": "#!/bin/bash\nexport TARGET_REALM=\"nextpaas\"\nexport TARGET_FILE=\"$1\"\n\nexport NAMESPACE=\"fed\"\nexport SELECTOR=\"app.kubernetes.io/name=keycloak\"\nexport POD_NAME=\"$( kubectl -n ${NAMESPACE} get pod -o name -l ${SELECTOR} )\"\n\nCHECK_LOG_REGEX='Started [0-9]* of [0-9]* services '\nCHECK_LOG_CMD=\"grep -rn '${CHECK_LOG_REGEX}' ${TMP_LOGFILE} &>/dev/null ; echo $?\"\nCHECK_EXPORT_FILE_CMD=\"[ -f /tmp/keycloak-export-${TARGET_REALM}.json ] && echo OK || echo FAIL\"\n\nexport EXPORT_CMD1=\"JBOSS_PIDFILE=/tmp/export.pid /opt/jboss/keycloak/bin/standalone.sh -Dkeycloak.migration.action=export -Dkeycloak.migration.provider=singleFile -Dkeycloak.migration.file=/tmp/keycloak-export-${TARGET_REALM}.json -Dkeycloak.migration.realmName=${TARGET_REALM} -Djboss.http.port=8888 -Djboss.https.port=9999 -Djboss.management.http.port=7777\"\n\nexport EXPORT_CMD2=\"cat /tmp/keycloak-export-${TARGET_REALM}.json\"\n\nexport EXPORT_CMD3=\"kill \\$(cat /tmp/export.pid) ; mv /tmp/export.pid /tmp/export.pid.\\$( date '+%Y%m%d-%H%M%S' ) ; rm -f /tmp/keycloak-export-${TARGET_REALM}.json &>/dev/null\"\n\nexport KILL_SCUM_CMD=\"PIDS=( \\$( ls /proc/ | grep -E '[0-9]+' ) ) ; TARGET=\\\"\\$( for pid in \\${PIDS[@]}; do cat /proc/\\${pid}/cmdline 2>/dev/null | sed 's/\\x0/ /g' | grep -v grep | grep java | grep ${TARGET_REALM} >/dev/null ; [ \\$? -eq 0 ] && echo -n \\\"\\$pid \\\" ; done )\\\" ; kill -9 \\$TARGET ; sleep 5 ; unset PIDS TARGET ;\"\n\nTIMEOUT=3600\n_count=0\n\n###############################\n# export realm; json format\nTRACE_LOGFILE=\"$( mktemp )\"\necho \"Trace Log... [ $TRACE_LOGFILE ]\"\nkubectl -n ${NAMESPACE} exec ${POD_NAME} -i -- /bin/bash -c \"$EXPORT_CMD1\" &> ${TRACE_LOGFILE} &\necho -n \"1. Exporting\"\nwhile [ \"$( grep -rn \"${CHECK_LOG_REGEX}\" ${TRACE_LOGFILE} &>/dev/null ; echo $? )\" != \"0\" ]; do\n  echo -n \".\"\n  sleep 1\n  if [ \"${_count}\" -ge ${TIMEOUT} ]; then\n    echo \"Timeout to run exporting job for ${TARGET_REALM} realm.\"\n    break;\n  fi\n  \n  if [ \"$( kubectl -n ${NAMESPACE} exec ${POD_NAME} -i -- /bin/bash -c \"${CHECK_EXPORT_FILE_CMD}\" )\" == \"OK\" ]; then\n    break;\n  fi\n  \n  ((_count++))\ndone\nsleep 5 ; echo ;\n\n# get realm json file\necho -e \"2. Copy here from realm file in keycloak Pod. \\n\"\nif [ \"${_count}\" -ge ${TIMEOUT} ]; then\n  # skip to get realm backup file\n  echo \"** Skip to get realm backup file because exporting realm is failed or timeout state.\"\n  touch ${TARGET_FILE}\nelse\n  kubectl -n ${NAMESPACE} exec ${POD_NAME} -i -- /bin/bash -c \"$EXPORT_CMD2\" > ${TARGET_FILE}\nfi\n\n# cleanup\necho -e \"3. Clean up temporary files related exporting job. \\n\"\nkubectl -n ${NAMESPACE} exec ${POD_NAME} -i -- /bin/bash -c \"$EXPORT_CMD3\" &>/dev/null\nif [ \"${_count}\" -ge ${TIMEOUT} ]; then\n  kubectl -n ${NAMESPACE} exec ${POD_NAME} -i -- /bin/bash -c \"$KILL_SCUM_CMD\" &>/dev/null\nfi\nrm -f ${TRACE_LOGFILE}\n\necho -e \"Export realm file : [ ${TARGET_FILE} ] \\n\"\necho \"Done.\"",
+      "backup.sh": "#!/bin/bash\n\n# backup variables\nBACKUP_DATE=\"${BACKUP_DATE:-$( date '+%Y%m%d-%H%M%S' )}\"\nTARGET_FILE_FORMAT=\"$( echo './keycloak-export-%BACKUP_REALM%-%BACKUP_DATE%.json' | sed \"s/%BACKUP_REALM%/nextpaas/g\" )\"\nTARGET_FILE=\"$( echo $TARGET_FILE_FORMAT | sed \"s/%BACKUP_DATE%/${BACKUP_DATE}/g\" )\"\nTARGET_FILE_LATEST=\"$( echo $TARGET_FILE_FORMAT | sed \"s/%BACKUP_DATE%/latest/g\" )\"\n\n# create context\necho -e \"\\n\\n- Set kubeconfig; path of kubeconfig : [ $KUBECONFIG ]\"\ntouch $KUBECONFIG\nkubectl config set-cluster cluster \\\n  --server https://kubernetes.default.svc \\\n  --certificate-authority=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt \\\n  --embed-certs \nkubectl config set-credentials user \\\n  --token=\"$( cat /var/run/secrets/kubernetes.io/serviceaccount/token )\"\nkubectl config set-context user@cluster \\\n  --cluster=cluster \\\n  --namespace=fed \\\n  --user=user\n\n# use context\nkubectl config use-context user@cluster\n\necho -e \"\\n\\n- Check keycloak pod\"\nkubectl get pod -o name \\\n  -l 'app.kubernetes.io/name=keycloak' \\\n  -n fed\n\n# export realm data\necho -e \"\\n\\n- Export keycloak realm : nextpaas\"\ncd /app/keycloak && /app/shell/export-realm.sh ${TARGET_FILE}\n\n# check realm backup file\nif [ -s ${TARGET_FILE} ]; then\n  cp ${TARGET_FILE} ${TARGET_FILE_LATEST}\n  echo -e \"- Realm filename :\\n  ${TARGET_FILE}\\n  ${TARGET_FILE_LATEST}\\n\\n\"\n  echo -e \"Success to backup realm.\\n\"\n  touch /app/keycloak/.export.done\n  exit 0\nelse\n  echo -e \"\\n\\n*** Fail to backup realm...\"\n  touch /app/keycloak/.export.done\n  exit 1\nfi",
+      "transfer.sh": "#!/bin/bash\necho -e \"Setup environment for backup...\\n\"\n\n# ssh/scp command variables\nBACKUP_SERVER_PASSWORD_PATH=\"${BACKUP_SERVER_PASSWORD_PATH:-/dev/null}\"\nSSH_OPTS=\"-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null\"\nSSSH=\"sshpass -f ${BACKUP_SERVER_PASSWORD_PATH} ssh ${SSH_OPTS} \"\nSSCP=\"sshpass -f ${BACKUP_SERVER_PASSWORD_PATH} scp ${SSH_OPTS} \"\n\nif [ ! -d /app/keycloak ]; then\n  echo \"Cannot shared directory of keycloak backup file\"\n  exit 1\nfi\n\n# wait until exporting keycloak realm file.\necho -n \"Wait exporting keycloak realm\"\nwhile [ ! -f /app/keycloak/.export.done ]; do\n  echo -n \".\"\n  sleep 1\ndone\necho \"!\"\necho -e \"-------------------------------------\\n\\n\"\n\n# change working directory : backup directory\ncd /app/keycloak\n\n# set destination hosts and ssh key\nDESTS=(\n  \"doj-dev@10.10.217.20\"\n)\nDEST_DIR=\"keycloak_bak\"\n\nfor dest in ${DESTS[@]}; do\n  echo \"Copy Keycloak realm backup file to [ ${DEST_DIR} in ${dest} ]...\"\n  ${SSSH} ${dest} \"mkdir -p ${DEST_DIR}\"\n  ${SSCP} /app/keycloak/* ${dest}:${DEST_DIR}\ndone\n\necho -e \"-------------------------------------\\n\\n\"\necho -e \"\\nDone to backup keycloak realm file. Backup date : [ $( date '+%Y/%m/%d %H:%M:%S' ) ]\""
+    }
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "Role",
+    "metadata": {
+      "name": "release-name",
+      "labels": {
+        "helm.sh/chart": "cronjob-backup-keycloak-1.0.2",
+        "app.kubernetes.io/name": "cronjob-backup-keycloak",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.0.2"
+      }
+    },
+    "rules": [
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "pods",
+          "pods/log"
+        ],
+        "verbs": [
+          "get",
+          "list"
+        ]
+      },
+      {
+        "apiGroups": [
+          ""
+        ],
+        "resources": [
+          "pods/exec"
+        ],
+        "verbs": [
+          "create"
+        ]
+      }
+    ]
+  },
+  {
+    "apiVersion": "rbac.authorization.k8s.io/v1",
+    "kind": "RoleBinding",
+    "metadata": {
+      "name": "release-name",
+      "labels": {
+        "helm.sh/chart": "cronjob-backup-keycloak-1.0.2",
+        "app.kubernetes.io/name": "cronjob-backup-keycloak",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.0.2"
+      }
+    },
+    "roleRef": {
+      "apiGroup": "rbac.authorization.k8s.io",
+      "kind": "Role",
+      "name": "release-name"
+    },
+    "subjects": [
+      {
+        "kind": "ServiceAccount",
+        "name": "release-name-sa"
+      }
+    ]
+  },
+  {
+    "apiVersion": "batch/v1beta1",
+    "kind": "CronJob",
+    "metadata": {
+      "name": "release-name",
+      "labels": {
+        "helm.sh/chart": "cronjob-backup-keycloak-1.0.2",
+        "app.kubernetes.io/name": "cronjob-backup-keycloak",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "1.0.2"
+      }
+    },
+    "spec": {
+      "schedule": "* */1 * * *",
+      "concurrencyPolicy": "Forbid",
+      "jobTemplate": {
+        "spec": {
+          "template": {
+            "metadata": {
+              "labels": {
+                "helm.sh/chart": "cronjob-backup-keycloak-1.0.2",
+                "app.kubernetes.io/name": "cronjob-backup-keycloak",
+                "app.kubernetes.io/instance": "release-name",
+                "app.kubernetes.io/version": "1.0.2"
+              }
+            },
+            "spec": {
+              "serviceAccount": "release-name-sa",
+              "containers": [
+                {
+                  "image": "pseudojo/docker-sshd-with-curl:alpine3.12",
+                  "imagePullPolicy": "Always",
+                  "name": "transfer",
+                  "command": [
+                    "/app/shell/transfer.sh"
+                  ],
+                  "env": [
+                    {
+                      "name": "BACKUP_SERVER_PASSWORD_PATH",
+                      "value": "/app/.password"
+                    }
+                  ],
+                  "volumeMounts": [
+                    {
+                      "name": "shared-data",
+                      "mountPath": "/app/keycloak"
+                    },
+                    {
+                      "name": "backup-sh",
+                      "mountPath": "/app/shell"
+                    },
+                    {
+                      "name": "password",
+                      "mountPath": "/app/.password",
+                      "subPath": "password"
+                    },
+                    {
+                      "name": "tz-config",
+                      "mountPath": "/etc/localtime"
+                    }
+                  ]
+                },
+                {
+                  "image": "alpine/k8s:1.18.2",
+                  "imagePullPolicy": "Always",
+                  "name": "k8s",
+                  "command": [
+                    "/app/shell/backup.sh"
+                  ],
+                  "env": [
+                    {
+                      "name": "KUBECONFIG",
+                      "value": "/app/keycloak/.kubeconfig"
+                    }
+                  ],
+                  "volumeMounts": [
+                    {
+                      "name": "shared-data",
+                      "mountPath": "/app/keycloak"
+                    },
+                    {
+                      "name": "backup-sh",
+                      "mountPath": "/app/shell"
+                    },
+                    {
+                      "name": "tz-config",
+                      "mountPath": "/etc/localtime"
+                    }
+                  ]
+                }
+              ],
+              "restartPolicy": "Never",
+              "volumes": [
+                {
+                  "name": "shared-data",
+                  "emptyDir": {}
+                },
+                {
+                  "name": "backup-sh",
+                  "configMap": {
+                    "name": "release-name-sh",
+                    "defaultMode": 320
+                  }
+                },
+                {
+                  "name": "password",
+                  "secret": {
+                    "defaultMode": 256,
+                    "secretName": "release-name-secret"
+                  }
+                },
+                {
+                  "name": "tz-config",
+                  "hostPath": {
+                    "path": "/usr/share/zoneinfo/Asia/Seoul"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failedJobsHistoryLimit": 3,
+      "successfulJobsHistoryLimit": 3
+    }
+  }
+]

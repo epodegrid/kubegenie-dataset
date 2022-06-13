@@ -1,0 +1,160 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: signon-secrets-bootstrapper
+  namespace: apps
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: apps
+  name: signon-secret-manager
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - create
+      - patch
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: signon-secret-manager-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: signon-secret-manager
+subjects:
+  - kind: ServiceAccount
+    name: signon-secrets-bootstrapper
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bootstrap-signon-resources-78827271
+spec:
+  template:
+    metadata:
+      name: bootstrap-signon-resources
+    spec:
+      restartPolicy: Never
+      serviceAccountName: signon-secrets-bootstrapper
+      containers:
+        - name: bootstrap-signon-resources
+          image: govuk/signon-bootstrap:0.0.14
+          command:
+            - bundle
+          args:
+            - exec
+            - rake
+            - bootstrap:signon
+          env:
+            - name: SIGNON_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: signon-auth-token
+                  key: token
+            - name: APPLICATIONS
+              value: |-
+                {
+                  "content-store": {
+                    "name": "Content Store",
+                    "slug": "content-store",
+                    "secret_name": "signon-app-content-store",
+                    "description": "Central store for current live content on GOV.UK",
+                    "home_uri": "https://content-store.test.govuk.digital",
+                    "redirect_uri": "https://content-store.test.govuk.digital/auth/gds/callback",
+                    "permissions": []
+                  },
+                  "router-api": {
+                    "name": "Router API",
+                    "slug": "router-api",
+                    "secret_name": "signon-app-router-api",
+                    "description": "Manages the Router database",
+                    "home_uri": "https://router-api.test.govuk.digital",
+                    "redirect_uri": "https://router-api.test.govuk.digital/auth/gds/callback",
+                    "permissions": []
+                  },
+                  "asset-manager": {
+                    "name": "Asset Manager",
+                    "slug": "asset-manager",
+                    "secret_name": "signon-app-asset-manager",
+                    "description": "Manages assets",
+                    "home_uri": "https://asset-manager.test.govuk.digital",
+                    "redirect_uri": "https://asset-manager.test.govuk.digital/auth/gds/callback",
+                    "permissions": []
+                  },
+                  "link-checker-api": {
+                    "name": "Link Checker API",
+                    "slug": "link-checker-api",
+                    "secret_name": "signon-app-link-checker-api",
+                    "description": "Checks links",
+                    "home_uri": "https://link-checker-api.test.govuk.digital",
+                    "redirect_uri": "https://link-checker-api.test.govuk.digital/auth/gds/callback",
+                    "permissions": []
+                  },
+                  "publisher-eks": {
+                    "name": "Publisher [EKS]",
+                    "slug": "publisher-eks",
+                    "secret_name": "signon-app-publisher-eks",
+                    "description": "Mainstream publishing application",
+                    "home_uri": "https://publisher.eks.test.govuk.digital",
+                    "redirect_uri": "https://publisher.eks.test.govuk.digital/auth/gds/callback",
+                    "permissions": ["view_all"]
+                  },
+                  "publishing-api": {
+                    "name": "Publishing API",
+                    "slug": "publishing-api",
+                    "secret_name": "signon-app-publishing-api",
+                    "description": "Central store for all publishing content on GOV.UK",
+                    "home_uri": "https://publishing-api.test.govuk.digital",
+                    "redirect_uri": "https://publishing-api.test.govuk.digital/auth/gds/callback",
+                    "permissions": ["view_all"]
+                  }
+                }
+            - name: API_USERS
+              value: |-
+                {
+                  "content-store": {
+                    "name": "Content Store",
+                    "username": "content-store",
+                    "email": "content-store@test.govuk.digital",
+                    "bearer_tokens": [
+                      { "application_slug": "router-api" }
+                    ]
+                  },
+                  "frontend": {
+                    "name": "Frontend",
+                    "username": "frontend",
+                    "email": "frontend@test.govuk.digital",
+                    "bearer_tokens": [
+                      { "application_slug": "publishing-api" }
+                    ]
+                  },
+                  "publisher": {
+                    "name": "Publisher",
+                    "username": "publisher",
+                    "email": "publisher@test.govuk.digital",
+                    "bearer_tokens": [
+                      { "application_slug": "publishing-api" },
+                      { "application_slug": "link-checker-api" },
+                      { "application_slug": "asset-manager" }
+                    ]
+                  },
+                  "publishing-api": {
+                    "name": "Publishing API",
+                    "username": "publishing-api",
+                    "email": "publishing-api@test.govuk.digital",
+                    "bearer_tokens": [
+                      { "application_slug": "content-store" }
+                    ]
+                  }
+                }
+            - name: SIGNON_API_ENDPOINT
+              value: http://signon.apps.svc.cluster.local/api/v1
+            - name: GOVUK_PUBLISHING_DOMAIN
+              value: test.publishing.service.gov.uk

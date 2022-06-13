@@ -1,0 +1,261 @@
+[
+  {
+    "apiVersion": "v1",
+    "kind": "Secret",
+    "metadata": {
+      "labels": {
+        "helm.sh/chart": "business-central-2.2.8",
+        "app.kubernetes.io/name": "business-central",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "20.0.37253.40399",
+        "app.kubernetes.io/managed-by": "Helm"
+      },
+      "name": "release-name-business-central"
+    },
+    "type": "Opaque",
+    "data": {
+      "password": "Z1JoVFJMV1JjVw=="
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+      "name": "release-name-business-central",
+      "labels": {
+        "helm.sh/chart": "business-central-2.2.8",
+        "app.kubernetes.io/name": "business-central",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "20.0.37253.40399",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "data": {
+      "CheckHealth.ps1": "if ($env:UseSSL -eq \"N\") {\n  $healthcheckurl = (\"http://localhost/\" + $env:webserverinstance + \"/\")\n} else {\n  $healthcheckurl = (\"https://localhost/\" + $env:webserverinstance + \"/\")\n}\n\nif ($healthcheckurl.StartsWith(\"https\")) {\n    if (-not(\"dummy\" -as [type])) {\n        add-type -TypeDefinition @\"\nusing System;\nusing System.Net;\nusing System.Net.Security;\nusing System.Security.Cryptography.X509Certificates;\npublic static class Dummy {\n    public static bool ReturnTrue(object sender,\n        X509Certificate certificate,\n        X509Chain chain,\n        SslPolicyErrors sslPolicyErrors) { return true; }\n    public static RemoteCertificateValidationCallback GetDelegate() {\n        return new RemoteCertificateValidationCallback(Dummy.ReturnTrue);\n    }\n}\n\"@\n    }\n    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = [dummy]::GetDelegate()\n}\n\ntry {\n    # check webclient\n    $result = Invoke-WebRequest -Uri \"${healthcheckurl}Health/System\" -UseBasicParsing -TimeoutSec 10\n    if ($result.StatusCode -eq 200 -and ((ConvertFrom-Json $result.Content).result)) {\n        # Web Client Health Check Endpoint will test Web Client, Service Tier and Database Connection\n        exit 0\n    }\n} catch {\n}\n\nexit 1",
+      "SetupDatabase.ps1": "$oldVal = $myPath \n$myPath = $runPath\n. (Join-Path $runPath $MyInvocation.MyCommand.Name)\n$myPath = $oldVal"
+    }
+  },
+  {
+    "apiVersion": "v1",
+    "kind": "Service",
+    "metadata": {
+      "name": "release-name-business-central",
+      "labels": {
+        "helm.sh/chart": "business-central-2.2.8",
+        "app.kubernetes.io/name": "business-central",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "20.0.37253.40399",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "type": "ClusterIP",
+      "ports": [
+        {
+          "port": 80,
+          "targetPort": "web",
+          "protocol": "TCP",
+          "name": "web"
+        },
+        {
+          "port": 443,
+          "targetPort": "webtls",
+          "protocol": "TCP",
+          "name": "webtls"
+        },
+        {
+          "port": 7047,
+          "targetPort": "soap",
+          "protocol": "TCP",
+          "name": "soap"
+        },
+        {
+          "port": 7048,
+          "targetPort": "odata",
+          "protocol": "TCP",
+          "name": "odata"
+        },
+        {
+          "port": 7049,
+          "targetPort": "dev",
+          "protocol": "TCP",
+          "name": "dev"
+        },
+        {
+          "port": 8080,
+          "targetPort": "dl",
+          "protocol": "TCP",
+          "name": "dl"
+        }
+      ],
+      "selector": {
+        "app.kubernetes.io/name": "business-central",
+        "app.kubernetes.io/instance": "release-name"
+      }
+    }
+  },
+  {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "metadata": {
+      "name": "release-name-business-central",
+      "labels": {
+        "helm.sh/chart": "business-central-2.2.8",
+        "app.kubernetes.io/name": "business-central",
+        "app.kubernetes.io/instance": "release-name",
+        "app.kubernetes.io/version": "20.0.37253.40399",
+        "app.kubernetes.io/managed-by": "Helm"
+      }
+    },
+    "spec": {
+      "strategy": {
+        "type": "Recreate"
+      },
+      "replicas": 1,
+      "selector": {
+        "matchLabels": {
+          "app.kubernetes.io/name": "business-central",
+          "app.kubernetes.io/instance": "release-name"
+        }
+      },
+      "template": {
+        "metadata": {
+          "labels": {
+            "app.kubernetes.io/name": "business-central",
+            "app.kubernetes.io/instance": "release-name"
+          }
+        },
+        "spec": {
+          "serviceAccountName": "default",
+          "securityContext": {},
+          "containers": [
+            {
+              "name": "business-central",
+              "securityContext": {
+                "allowPrivilegeEscalation": false,
+                "capabilities": {
+                  "drop": {
+                    "": "NET_RAW"
+                  }
+                },
+                "readOnlyRootFilesystem": true
+              },
+              "image": "mcr.microsoft.com/businesscentral:10.0.17763.2686",
+              "command": [
+                "powershell",
+                "C:\\Run\\start.ps1"
+              ],
+              "imagePullPolicy": "IfNotPresent",
+              "ports": [
+                {
+                  "name": "web",
+                  "containerPort": 80,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "webtls",
+                  "containerPort": 443,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "soap",
+                  "containerPort": 7047,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "odata",
+                  "containerPort": 7048,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "dev",
+                  "containerPort": 7049,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "snap",
+                  "containerPort": 7083,
+                  "protocol": "TCP"
+                },
+                {
+                  "name": "dl",
+                  "containerPort": 8080,
+                  "protocol": "TCP"
+                }
+              ],
+              "volumeMounts": null,
+              "livenessProbe": {
+                "exec": {
+                  "command": [
+                    "powershell",
+                    "C:\\Run\\CheckHealth.ps1"
+                  ]
+                },
+                "periodSeconds": 5,
+                "failureThreshold": 5
+              },
+              "readinessProbe": {
+                "exec": {
+                  "command": [
+                    "powershell",
+                    "C:\\Run\\CheckHealth.ps1"
+                  ]
+                },
+                "periodSeconds": 5,
+                "failureThreshold": 5
+              },
+              "startupProbe": {
+                "exec": {
+                  "command": [
+                    "powershell",
+                    "C:\\Run\\CheckHealth.ps1"
+                  ]
+                },
+                "timeoutSeconds": 2,
+                "initialDelaySeconds": 30,
+                "periodSeconds": 10,
+                "failureThreshold": 60
+              },
+              "env": [
+                {
+                  "name": "ArtifactUrl",
+                  "value": "https://bcartifacts.azureedge.net/sandbox/20.0.37253.40399/w1"
+                },
+                {
+                  "name": "password",
+                  "valueFrom": {
+                    "secretKeyRef": {
+                      "name": "release-name-business-central",
+                      "key": "password"
+                    }
+                  }
+                },
+                {
+                  "name": "Accept_eula",
+                  "value": "Y"
+                },
+                {
+                  "name": "Accept_outdated",
+                  "value": "Y"
+                },
+                {
+                  "name": "UseSSL",
+                  "value": "N"
+                }
+              ],
+              "resources": {
+                "seccompProfile": {
+                  "type": "RuntimeDefault"
+                }
+              }
+            }
+          ],
+          "volumes": null,
+          "nodeSelector": {
+            "kubernetes.io/os": "windows"
+          }
+        }
+      }
+    }
+  }
+]
